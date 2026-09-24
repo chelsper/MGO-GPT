@@ -18,10 +18,9 @@ export const societyQuerySettings = () => ({
 
 export function constituentQueryOutput(
   records = [{ constituentId: "10", spouseId: "11" }],
+  columns = CONSTITUENT_LETTER_COLUMNS,
 ) {
-  const entries = Object.entries(CONSTITUENT_LETTER_COLUMNS).filter(
-    ([, name]) => name,
-  );
+  const entries = Object.entries(columns).filter(([, name]) => name);
   return {
     generatedAt: "2026-09-24T12:00:00.000Z",
     headers: entries.map(([, name]) => name),

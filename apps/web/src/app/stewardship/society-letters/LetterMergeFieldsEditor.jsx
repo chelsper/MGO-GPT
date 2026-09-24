@@ -34,6 +34,20 @@ export default function LetterMergeFieldsEditor({
         Choose the fields available to this society's letter and email. These
         choices are saved with the template, not just for this visit.
       </p>
+      <div className="mt-3 rounded-lg border border-emerald-200 bg-white p-3 text-sm text-gray-700">
+        <p>
+          For example, use <code>{"Dear {first_name},"}</code> for the
+          recipient's first name instead of the saved salutation. For a letter
+          that works for individuals and couples, use{" "}
+          <code>{"Dear {first_names},"}</code> (Alex, or Alex &amp; Jordan).
+        </p>
+        <p className="mt-2">
+          Name values come from your saved query mappings, never from splitting
+          a salutation. A name field used in Word or email must have a value
+          before the letter can be created. Spouse-only fields will not work for
+          an individual without a spouse.
+        </p>
+      </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {LETTER_TAGS.map((field) => (
           <label
@@ -123,8 +137,8 @@ export default function LetterMergeFieldsEditor({
           Selecting a field does not move or insert text in Word. Place its
           exact tag in the Word document and upload it to change the layout.
           Source &amp; period keeps the query-column mappings for addressee,
-          salutation, and address. Names work for individuals as well as spouse
-          households.
+          salutation, first and last names, and address. Each society can save
+          different fields and use a different greeting in its own letter.
         </p>
         {notice && (
           <p role="status" className="mt-2 text-sm text-emerald-900">

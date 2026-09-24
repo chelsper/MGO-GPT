@@ -1,6 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { getDefaultGivingSocietyConfigurations } from "./givingSocietyDefinitions";
-import { templateFixture } from "../../../../test/societyLetterFixture";
+import {
+  templateFixture,
+  wordFixture,
+} from "../../../../test/societyLetterFixture";
 import { validateLetterTemplate } from "./societyLetterDocuments";
 import {
   LETTER_COLUMNS,
@@ -97,6 +100,51 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("society letter workflow", () => {
+  it("blocks missing name values before reserving or sending and freezes mapped names in prepared letters", async () => {
+    const { state, store, body } = setup();
+    const template = {
+      ...validateLetterTemplate({
+        ...templateFixture(),
+        content: wordFixture("Dear {first_name},").generate({ type: "base64" }),
+        emailBody: "Hello {first_name}",
+        mergeSettings: { fields: ["first_name", "society_name"] },
+      }),
+      societyKey: "presidents_society",
+      sequence: 2,
+    };
+    state.templates[template.version] = template;
+    expect(
+      letterWorkspace(state, definitions, today).rows[0].issues.post,
+    ).toMatch(/Missing name value/);
+    await expect(
+      prepareLetterBatch(
+        state,
+        definitions,
+        today,
+        { ...body, confirm: true },
+        store,
+        1,
+      ),
+    ).rejects.toThrow(/Missing name value/);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(store.transition).not.toHaveBeenCalled();
+    state.snapshot.rows[0].firstName = "Alex";
+    const preview = previewLetters(state, definitions, today, body);
+    expect(preview.rows[0].coverMessage).toBe("Hello Alex");
+    await prepareLetterBatch(
+      state,
+      definitions,
+      today,
+      { ...body, confirm: true, previewToken: preview.token },
+      store,
+      1,
+    );
+    const items = store.reserve.mock.calls[0][0];
+    expect(items[0].firstName).toBe("Alex");
+    expect(items[0].templateVersion).toBe(template.version);
+    state.snapshot.rows[0].firstName = "Changed later";
+    expect(items[0].firstName).toBe("Alex");
+  });
   it("saves an exclusion without preparing, sending, or querying and restores with audit history", async () => {
     const { state, store, body } = setup();
     const history = [...state.history];
@@ -663,9 +711,10 @@ describe("society letter workflow", () => {
         existingVersion: previous.version,
         template: {
           mergeSettings: {
-            fields: ["salutation", "society_name"],
+            fields: ["salutation", "first_name", "society_name"],
             dateFormat: "long_us",
           },
+          emailBody: "Dear {first_name}, here is your letter.",
         },
       },
       today,
@@ -688,7 +737,7 @@ describe("society letter workflow", () => {
       reloaded.templates.find((t) => t.societyKey === "presidents_society")
         .mergeSettings,
     ).toEqual({
-      fields: ["salutation", "society_name"],
+      fields: ["salutation", "first_name", "society_name"],
       dateFormat: "long_us",
     });
     expect(

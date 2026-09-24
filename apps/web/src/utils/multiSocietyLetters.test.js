@@ -6,7 +6,9 @@ import {
 } from "../../test/societyQueryFixture";
 import {
   constituentHouseholdsFromQuery,
+  CONSTITUENT_LETTER_COLUMNS,
   letterPeriod,
+  letterDisposition,
   mergeSocietyLetterCohorts,
   validateLetterSettings,
 } from "./societyLetters";
@@ -15,14 +17,14 @@ const definitions = getDefaultGivingSocietyConfigurations();
 const today = "2026-09-24";
 const settings = societyQuerySettings();
 const period = letterPeriod(settings, today);
-const cohort = (index, records) => {
+const cohort = (index, records, columns = CONSTITUENT_LETTER_COLUMNS) => {
   const source = settings.societySources[index];
   return {
     societyKey: source.societyKey,
     queryId: source.queryId,
     rows: constituentHouseholdsFromQuery(
-      constituentQueryOutput(records),
-      { ...source, querySocietyKey: source.societyKey },
+      constituentQueryOutput(records, columns),
+      { ...source, columns, querySocietyKey: source.societyKey },
       definitions,
       period,
     ),
@@ -33,6 +35,7 @@ describe("multiple annual society source settings", () => {
   it("saves distinct per-society queries, periods and independent mappings", () => {
     const raw = societyQuerySettings();
     raw.societySources[1].columns.constituentId = "OOD System Record ID";
+    raw.societySources[1].columns.firstName = "OOD First Name";
     const saved = validateLetterSettings(raw, definitions, today);
     expect(saved.societySources).toHaveLength(2);
     expect(saved.societySources[0].columns.constituentId).toBe(
@@ -41,6 +44,8 @@ describe("multiple annual society source settings", () => {
     expect(saved.societySources[1].columns.constituentId).toBe(
       "OOD System Record ID",
     );
+    expect(saved.societySources[1].columns.firstName).toBe("OOD First Name");
+    expect(saved.societySources[0].columns.firstName).toBe("");
     expect(saved).not.toHaveProperty("queryId");
     expect(saved).not.toHaveProperty("confirmSource");
   });
@@ -86,6 +91,172 @@ describe("multiple annual society source settings", () => {
 });
 
 describe("cross-query household preview", () => {
+  it("keeps the President's Society letter above OOD for the two JU queries, including individuals", () => {
+    const high = {
+      ...cohort(0, [{ constituentId: "10", spouseId: "" }]),
+      queryId: "31049",
+    };
+    const low = {
+      ...cohort(1, [{ constituentId: "10", spouseId: "" }]),
+      queryId: "31043",
+    };
+    const [row] = mergeSocietyLetterCohorts([low, high], definitions, period);
+    expect(row.members).toEqual(["10"]);
+    expect(row.societyKey).toBe("presidents_society");
+    expect(row.coveredKeys).toEqual([
+      "presidents_society",
+      "order_of_the_dolphin",
+    ]);
+    expect(row.sourceQueries.map((source) => source.queryId).sort()).toEqual([
+      "31043",
+      "31049",
+    ]);
+    const [ood] = mergeSocietyLetterCohorts([low], definitions, period);
+    expect(letterDisposition(ood, [{ ...row, status: "mailed" }]).status).toBe(
+      "covered",
+    );
+    expect(
+      letterDisposition(row, [{ ...ood, status: "mailed" }]),
+    ).toMatchObject({
+      status: "ready",
+      reason: "New higher society qualification",
+    });
+  });
+  it("covers either spouse at lower tiers after the higher household letter, but allows a new year", () => {
+    const [high] = mergeSocietyLetterCohorts(
+      [cohort(0, [{ constituentId: "11", spouseId: "10" }])],
+      definitions,
+      period,
+    );
+    for (const id of ["10", "11"]) {
+      const [low] = mergeSocietyLetterCohorts(
+        [cohort(1, [{ constituentId: id, spouseId: "" }])],
+        definitions,
+        period,
+      );
+      expect(
+        letterDisposition(low, [{ ...high, status: "emailed" }]).status,
+      ).toBe("covered");
+      expect(
+        letterDisposition(
+          {
+            ...low,
+            period: {
+              start: "2027-01-01",
+              end: "2027-12-31",
+              key: "2027-01-01/2027-12-31",
+            },
+          },
+          [{ ...high, status: "emailed" }],
+        ).status,
+      ).toBe("ready");
+    }
+  });
+  const nameColumns = {
+    ...CONSTITUENT_LETTER_COLUMNS,
+    firstName: "First Name",
+    lastName: "Last Name",
+    spouseFirstName: "Spouse First Name",
+    spouseLastName: "Spouse Last Name",
+  };
+  it("retains names from opposite spouses across society queries without duplicating people or changing greetings", () => {
+    const low = cohort(
+      1,
+      [
+        {
+          constituentId: "10",
+          spouseId: "11",
+          firstName: "Alex",
+          lastName: "Smith",
+          spouseFirstName: "J.",
+          spouseLastName: "Jones",
+        },
+      ],
+      nameColumns,
+    );
+    const high = cohort(
+      0,
+      [
+        {
+          constituentId: "11",
+          spouseId: "10",
+          firstName: "Jordan",
+          lastName: "Jones",
+          spouseFirstName: "A.",
+          spouseLastName: "Smith",
+        },
+      ],
+      nameColumns,
+    );
+    for (const cohorts of [
+      [low, high],
+      [high, low],
+    ]) {
+      const [row] = mergeSocietyLetterCohorts(cohorts, definitions, period);
+      expect(row.name).toBe("Alex Smith & Jordan Jones");
+      expect(row.memberNames).toHaveLength(2);
+      expect(row.members).toEqual(["10", "11"]);
+      expect(row.societyKey).toBe("presidents_society");
+      expect(row.addressee).toBe("");
+      expect(row.recipientCandidates.map((r) => r.addressee)).toEqual([
+        "Example 10",
+        "Example 11",
+      ]);
+    }
+  });
+  it("combines name-enabled and older queries without requiring new columns everywhere", () => {
+    const named = cohort(
+      1,
+      [
+        {
+          constituentId: "10",
+          spouseId: "11",
+          firstName: "Alex",
+          lastName: "Smith",
+          spouseFirstName: "Jordan",
+          spouseLastName: "Jones",
+        },
+      ],
+      nameColumns,
+    );
+    const older = cohort(0);
+    delete older.rows[0].memberNames;
+    const [row] = mergeSocietyLetterCohorts(
+      [named, older],
+      definitions,
+      period,
+    );
+    expect(row.name).toBe("Alex Smith & Jordan Jones");
+  });
+  it("rejects conflicting own-record names instead of choosing an arbitrary query", () => {
+    const a = cohort(
+      0,
+      [
+        {
+          constituentId: "10",
+          spouseId: "11",
+          firstName: "Alex",
+          lastName: "Smith",
+        },
+      ],
+      nameColumns,
+    );
+    const b = cohort(
+      1,
+      [
+        {
+          constituentId: "10",
+          spouseId: "11",
+          firstName: "Other",
+          lastName: "Name",
+        },
+      ],
+      nameColumns,
+    );
+    expect(() =>
+      mergeSocietyLetterCohorts([a, b], definitions, period),
+    ).toThrow(/conflicting name output/);
+  });
   it("combines opposite spouses once and recommends only the highest qualifying letter", () => {
     const high = cohort(0, [{ constituentId: "11", spouseId: "10" }]);
     const low = cohort(1, [{ constituentId: "10", spouseId: "11" }]);

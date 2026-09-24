@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LETTER_COLUMNS,
+  GROUPED_LETTER_COLUMNS,
   CONSTITUENT_LETTER_COLUMNS,
   verifyConstituentLetterIdColumns,
   dateOnly,
@@ -10,6 +11,8 @@ import {
   letterIssue,
   validateLetterSettings,
   mergeLetterText,
+  letterMergeData,
+  letterNameMergeData,
   letterHierarchy,
 } from "./societyLetters";
 
@@ -92,6 +95,97 @@ describe("constituent query household previews", () => {
   };
   const group = (...rows) =>
     householdsFromQuery(output(...rows), previewSettings, definitions, period);
+  const nameColumns = {
+    ...CONSTITUENT_LETTER_COLUMNS,
+    firstName: "First Name",
+    lastName: "Last Name",
+    spouseFirstName: "Spouse First Name",
+    spouseLastName: "Spouse Last Name",
+  };
+  const namedGroup = (...rows) => {
+    const entries = Object.entries(nameColumns).filter(([, name]) => name);
+    return householdsFromQuery(
+      {
+        headers: entries.map(([, name]) => name),
+        tableRows: rows.map((row) => entries.map(([key]) => row[key] || "")),
+      },
+      { ...previewSettings, columns: nameColumns },
+      definitions,
+      period,
+    );
+  };
+  it("uses both mapped full names for display without changing IDs, greetings or eligibility", () => {
+    const [household] = namedGroup({
+      ...row,
+      firstName: " Alex ",
+      lastName: "Smith",
+      spouseFirstName: "Jordan",
+      spouseLastName: "Jones",
+    });
+    expect(household.name).toBe("Alex Smith & Jordan Jones");
+    expect(household.members).toEqual(["10", "11"]);
+    expect(household.membersOutsideQuery).toEqual(["11"]);
+    expect(household.addressee).toBe("");
+    expect(household.recipientCandidates[0]).toMatchObject({
+      addressee: "Alex Sample",
+      salutation: "Alex",
+    });
+    expect(household.mailAllowed).toBe(false);
+    expect(
+      letterDisposition(household, [
+        { ...household, name: "Old label", status: "mailed" },
+      ]).status,
+    ).toBe("covered");
+  });
+  it("ignores spouse names without a spouse ID and never merges identical names", () => {
+    const named = {
+      ...row,
+      spouseId: "",
+      firstName: "Alex",
+      lastName: "Smith",
+      spouseFirstName: "Jordan",
+      spouseLastName: "Jones",
+    };
+    const result = namedGroup(named, { ...named, constituentId: "20" });
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.name)).toEqual(["Alex Smith", "Alex Smith"]);
+    expect(result[0].members).toEqual(["10"]);
+    expect(result[0].memberNames).toHaveLength(1);
+  });
+  it("deduplicates reciprocal spouses by ID and prefers each person's own name", () => {
+    const main = {
+      ...row,
+      firstName: "Alex",
+      lastName: "Smith",
+      spouseFirstName: "J.",
+      spouseLastName: "Jones",
+    };
+    const spouse = {
+      ...row,
+      constituentId: "11",
+      spouseId: "10",
+      firstName: "Jordan",
+      lastName: "Jones",
+      spouseFirstName: "A.",
+      spouseLastName: "Smith",
+    };
+    expect(namedGroup(main, spouse)).toEqual(namedGroup(spouse, main));
+    expect(namedGroup(main, spouse)[0].name).toBe("Alex Smith & Jordan Jones");
+    const sameName = { ...spouse, firstName: "Alex", lastName: "Smith" };
+    expect(namedGroup(main, sameName)[0].name).toBe("Alex Smith & Alex Smith");
+  });
+  it("falls back to existing addressees when member names are incomplete and saves optional name mappings", () => {
+    expect(
+      namedGroup({ ...row, firstName: "Alex", lastName: "Smith" })[0].name,
+    ).toBe("Alex Sample");
+    const saved = validateLetterSettings(
+      { ...previewSettings, columns: nameColumns, confirmSource: true },
+      definitions,
+      "2026-09-24",
+    );
+    expect(saved.columns).toEqual(nameColumns);
+    expect(group(row)[0].memberNames).toEqual([]);
+  });
   it("groups reciprocal spouses once and ignores duplicate constituency rows", () => {
     const [household] = group(row, row, {
       ...row,
@@ -115,6 +209,21 @@ describe("constituent query household previews", () => {
   it("retains a spouse outside the query without claiming to verify that spouse", () => {
     expect(group(row)[0].membersOutsideQuery).toEqual(["11"]);
     expect(group({ ...row, spouseId: "" })[0].members).toEqual(["10"]);
+  });
+  it("assembles separate preferred address fields and computes household labels without extra NXT columns", () => {
+    const [household] = group({ ...row, address2: "Suite 200" });
+    expect(household.name).toBe("Alex Sample");
+    expect(household.members).toEqual(["10", "11"]);
+    expect(household.recipientCandidates[0].address).toBe(
+      "10 Test Street\nSuite 200\nJacksonville FL 32211",
+    );
+    const [individual] = group({ ...row, spouseId: "", address2: "  " });
+    expect(individual.members).toEqual(["10"]);
+    expect(individual.recipientCandidates[0].address).toBe(
+      "10 Test Street\nJacksonville FL 32211",
+    );
+    expect(individual.mailAllowed).toBe(false);
+    expect(individual.addressee).toBe("");
   });
   it("never merges unrelated people by matching names, addresses, or email", () => {
     expect(
@@ -226,6 +335,106 @@ const parse = (...rows) =>
   householdsFromQuery(table(...rows), settings, definitions, period);
 
 describe("household society letters", () => {
+  it("accepts optional recipient-name columns in reviewed grouped queries without requiring them in old queries", () => {
+    const columns = {
+      ...GROUPED_LETTER_COLUMNS,
+      firstName: "Given",
+      lastName: "Surname",
+      spouseFirstName: "Partner Given",
+      spouseLastName: "Partner Surname",
+    };
+    const saved = validateLetterSettings(
+      { ...settings, columns, confirmSource: true },
+      definitions,
+      "2026-09-24",
+    );
+    const values = {
+      ...rawRow,
+      firstName: "Alex",
+      lastName: "Smith",
+      spouseFirstName: "Pat",
+      spouseLastName: "Jones",
+    };
+    const entries = Object.entries(columns).filter(([, name]) => name);
+    const [recipient] = householdsFromQuery(
+      {
+        headers: entries.map(([, name]) => name),
+        tableRows: [entries.map(([key]) => values[key])],
+      },
+      saved,
+      definitions,
+      period,
+    );
+    expect(letterNameMergeData(recipient)).toEqual({
+      first_name: "Alex",
+      last_name: "Smith",
+      spouse_first_name: "Pat",
+      spouse_last_name: "Jones",
+      first_names: "Alex & Pat",
+    });
+    expect(parse(rawRow)[0].firstName).toBe("");
+  });
+  it("does not derive name merge values by splitting addressees or household labels", () => {
+    expect(
+      letterNameMergeData({
+        members: ["10"],
+        salutation: "Dr. Alex Sample",
+        name: "Alex & Pat",
+      }).first_name,
+    ).toBe("");
+    expect(() =>
+      mergeLetterText("Dear {first_name},", { salutation: "Alex" }),
+    ).toThrow(/Missing name value/);
+  });
+  it("uses both first names without choosing a recipient from the smallest household ID", () => {
+    const row = {
+      sourceMode: "constituents",
+      householdId: "10",
+      members: ["10", "11"],
+      memberNames: [
+        { constituentId: "10", firstName: "Alex", lastName: "Smith" },
+        { constituentId: "11", firstName: "Pat", lastName: "Jones" },
+      ],
+    };
+    expect(letterNameMergeData(row)).toMatchObject({
+      first_names: "Alex & Pat",
+      first_name: "",
+      spouse_first_name: "",
+    });
+    expect(
+      letterNameMergeData({ ...row, recipientConstituentId: "11" }),
+    ).toEqual({
+      first_name: "Pat",
+      last_name: "Jones",
+      spouse_first_name: "Alex",
+      spouse_last_name: "Smith",
+      first_names: "Alex & Pat",
+    });
+    expect(
+      letterNameMergeData({ ...row, recipientConstituentId: "999" }).first_name,
+    ).toBe("");
+    expect(letterNameMergeData({ ...row, members: ["10"] })).toMatchObject({
+      first_name: "Alex",
+      first_names: "Alex",
+      spouse_first_name: "",
+    });
+    expect(
+      letterNameMergeData({ ...row, memberNames: row.memberNames.slice(0, 1) })
+        .first_names,
+    ).toBe("");
+  });
+  it("reports missing name fields only if used by that template", () => {
+    const row = { ...parse(rawRow)[0], mailAllowed: true };
+    expect(letterIssue(row, "post", { usedFields: ["first_name"] })).toMatch(
+      /Missing name value for \{first_name\}/,
+    );
+    expect(letterIssue(row, "post", { usedFields: ["salutation"] })).toBeNull();
+    expect(
+      letterMergeData({ ...row, firstName: "Alex" }, "2026-09-24", {
+        fields: ["first_name"],
+      }),
+    ).toEqual({ first_name: "Alex" });
+  });
   it("validates real dates and handles leap years", () => {
     expect(dateOnly("2/29/2024")).toBe("2024-02-29");
     expect(dateOnly("2026-02-29")).toBeNull();

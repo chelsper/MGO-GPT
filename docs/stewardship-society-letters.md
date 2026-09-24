@@ -75,6 +75,38 @@ query's society, then save the reviewed source. Loading membership is a separate
 explicit action. Prior appeal and recipient/restriction verification remain
 required before enabling delivery for this source.
 
+The mapping section also offers **Map people and separate address fields** next
+to loaded columns. This draft-only conversion retains loaded metadata and valid
+greeting selections, maps identities only from verified System Record ID metadata,
+and leaves absent optional columns blank. When returned constituent/spouse fields
+do not match the old household mappings, the old grid is collapsed as advanced
+setup rather than presenting a wall of unavailable fields. Nothing is saved or
+refreshed by switching formats.
+
+Constituent mapping separates people/spouse links, display names, letter greeting, preferred
+mailing address, and email. Map street line 1, optional street line 2, city,
+state/province, ZIP/postal code, and optional country individually. The app
+assembles the address merge value with line breaks, omitting blank lines. It
+calculates a stable household key and member list from system IDs, and a display
+name from mapped first/last names (falling back to addressee values); these are
+not additional required NXT output fields. A blank
+spouse value includes the main constituent individually. The computed display
+name is not a verified joint letter addressee. Separate preferred street/address
+label variants can be suggested only when unambiguous, and still require explicit
+acceptance. Existing mappings and all delivery checks remain enforced.
+
+First/last name mappings for both the constituent and spouse are optional and
+blank by default, so existing saved queries do not gain new required columns.
+Field suggestions use the metadata's constituent/spouse branch and field meaning,
+not an ambiguous label. The holding-list label uses each person's own name, joined
+with `&`, without borrowing a surname. Names are associated only with the verified
+system ID; a spouse name without a spouse ID does not create a member. Repeated
+spouse rows and multi-society queries deduplicate by ID, never by name. A person's
+own returned name takes precedence over spouse-side name output. Conflicting
+own-record names require mapping review rather than selecting an arbitrary query.
+The mapped letter addressee and salutation are unchanged. Renaming a display
+label does not reset letter history, exclusions, or qualification checks.
+
 Verification: 3,910 application tests passed, with 18 opt-in tests skipped;
 the six stewardship PostgreSQL tests passed separately on an isolated temporary
 local database. Type checking, the production build, and synthetic desktop/mobile
@@ -88,10 +120,34 @@ backport the guard or pause this workflow instead. Retain the ledger and audit.
 In **Letter templates**, each annual society's Word template retains its own
 selected merge fields and date appearance. Supported fields are addressee,
 salutation, mailing address, individual/household name, society name,
-qualification start/end dates and letter date. The insertion picker copies an
+qualification start/end dates and letter date, plus `{first_name}`, `{last_name}`,
+`{spouse_first_name}`, `{spouse_last_name}`, and `{first_names}`. The insertion picker copies an
 exact tag for Word or inserts it at the email subject/message cursor. It does not
 rewrite Word layout or automatically convert native Word mail-merge field codes.
 Use the supported `{field_name}` tags in the uploaded document.
+
+For example, a society can use `Dear {first_name},` while another keeps
+`Dear {salutation},`. `Dear {first_names},` supports both a single individual
+(`Dear Alex,`) and a linked couple (`Dear Alex & Pat,`) without conditional
+Word syntax. Spouse-only tags require a spouse's mapped value and will block
+an individual letter where that value is absent. Name values are never parsed
+from a salutation or the computed household display name.
+
+Constituent/spouse previews retain separate name parts by member system ID.
+An individual can resolve recipient-name fields directly; a couple's singular
+recipient and spouse fields require an explicit `recipientConstituentId` belonging
+to that household. The stable grouping key does not silently choose a recipient.
+The combined `{first_names}` field requires a mapped first name for every member.
+Reviewed, pre-grouped query sources also support optional recipient/spouse name
+columns. These remain separate from delivery restrictions and do not enable
+constituent-source sending or replace the pending recipient-review workflow.
+
+Only tags actually used by the Word letter or its email text require values.
+The worklist reports missing used name fields, and the renderer independently
+inspects the document and email before generating output. Missing name values
+block preview/preparation/delivery rather than producing `Dear ,` or substituting
+an unrelated greeting. Old templates with no name tags continue to render.
+Prepared letters retain the reviewed values and the original template version.
 
 Once a Word template is saved, field choices, date appearance and email text can
 be updated without re-uploading the document. The API resolves the active version

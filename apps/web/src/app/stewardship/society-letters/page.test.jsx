@@ -152,6 +152,121 @@ describe("society letter workspace", () => {
         .map(([, opts]) => JSON.parse(opts.body).action),
     ).toEqual(["exclude_recipient", "restore_recipient"]);
   });
+  it("converts loaded NXT fields in place and saves separate preferred address mappings without household output columns", async () => {
+    const suggestedColumns = {
+      constituentId: "Main System Record ID",
+      spouseId: "Spouse System Record ID",
+      firstName: "First Name",
+      lastName: "Last Name",
+      spouseFirstName: "Spouse First Name",
+      spouseLastName: "Spouse Last Name",
+      addressee: "Primary Addressee",
+      salutation: "Primary Salutation",
+      address1: "Preferred Street Line 1",
+      address2: "Preferred Street Line 2",
+      city: "Preferred City",
+      state: "Preferred State",
+      postalCode: "Preferred ZIP",
+    };
+    fetchMock.mockImplementation(async (_url, options) => {
+      const body = options?.body && JSON.parse(options.body);
+      if (body?.action === "inspect_query") {
+        return Response.json({
+          queryId: "123",
+          fields: [...Object.values(suggestedColumns), "Joint Addressee"],
+          suggestedColumns,
+        });
+      }
+      return Response.json(base);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Source & period" }),
+    );
+    fireEvent.click(screen.getByText("Map returned query columns"));
+    fireEvent.change(screen.getByLabelText("Addressee"), {
+      target: { value: "Joint Addressee" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load query fields" }));
+    await screen.findByRole("status");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Map people and separate address fields",
+      }),
+    );
+    expect(screen.getByLabelText("Query format")).toHaveValue("constituents");
+    expect(screen.getByLabelText("NXT saved query ID")).toHaveValue("123");
+    expect(screen.getByLabelText("Letter period")).toHaveValue("calendar_year");
+    expect(screen.queryByLabelText("Household ID")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Member IDs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Household Name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Mailing Address")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Addressee" })).toHaveValue(
+      "Joint Addressee",
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Preferred street line 1" }),
+    ).toHaveValue("Preferred Street Line 1");
+    expect(
+      screen.getByLabelText("Preferred street line 2 (optional)"),
+    ).toHaveValue("Preferred Street Line 2");
+    expect(screen.getByLabelText("ZIP / postal code (optional)")).toHaveValue(
+      "Preferred ZIP",
+    );
+    expect(screen.getByLabelText("Email (optional)")).toHaveValue("");
+    expect(
+      screen.getByLabelText("Constituent first name (optional)"),
+    ).toHaveValue("First Name");
+    expect(
+      screen.getByLabelText("Constituent last name (optional)"),
+    ).toHaveValue("Last Name");
+    expect(screen.getByLabelText("Spouse first name (optional)")).toHaveValue(
+      "Spouse First Name",
+    );
+    expect(screen.getByLabelText("Spouse last name (optional)")).toHaveValue(
+      "Spouse Last Name",
+    );
+    expect(
+      screen.getByLabelText("Spouse first name (optional)"),
+    ).not.toBeRequired();
+    expect(screen.getByText("Calculated in the app")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Save source settings" }),
+    ).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fireEvent.change(screen.getByLabelText("Society qualified by this query"), {
+      target: { value: "presidents_society" },
+    });
+    fireEvent.change(screen.getByLabelText("Query qualification start"), {
+      target: { value: "2026-01-01" },
+    });
+    fireEvent.change(screen.getByLabelText("Query qualification end"), {
+      target: { value: "2026-12-31" },
+    });
+    fireEvent.click(
+      screen.getByLabelText(/I verified this query's giving qualification/),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save source settings" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const saved = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(saved).toMatchObject({
+      action: "settings",
+      settings: {
+        sourceMode: "constituents",
+        queryId: "123",
+        columns: {
+          ...suggestedColumns,
+          addressee: "Joint Addressee",
+          country: "",
+          email: "",
+        },
+      },
+    });
+    expect(saved.settings.columns).not.toHaveProperty("householdId");
+    expect(saved.settings.columns).not.toHaveProperty("name");
+  });
   it("persists selected merge fields without a replacement upload and restores them on a later visit", async () => {
     let template = {
       societyKey: "presidents_society",
@@ -188,6 +303,9 @@ describe("society letter workspace", () => {
     fireEvent.click(
       screen.getByLabelText("President's Society use Letter date"),
     );
+    fireEvent.click(
+      screen.getByLabelText("President's Society use Recipient first name"),
+    );
     fireEvent.change(
       screen.getByLabelText("President's Society merge date appearance"),
       { target: { value: "long_us" } },
@@ -197,7 +315,7 @@ describe("society letter workspace", () => {
     );
     await screen.findByText(/Template and merge-field settings saved/);
     expect(template.mergeSettings).toEqual({
-      fields: ["salutation", "society_name"],
+      fields: ["salutation", "society_name", "first_name"],
       dateFormat: "long_us",
     });
     first.unmount();
@@ -208,6 +326,9 @@ describe("society letter workspace", () => {
     expect(
       screen.getByLabelText("President's Society use Letter date"),
     ).not.toBeChecked();
+    expect(
+      screen.getByLabelText("President's Society use Recipient first name"),
+    ).toBeChecked();
     expect(
       screen.getByLabelText("President's Society merge date appearance"),
     ).toHaveValue("long_us");
@@ -259,12 +380,21 @@ describe("society letter workspace", () => {
       "addressee",
     );
     const subject = high.getByLabelText("Email subject");
+    fireEvent.click(
+      high.getByLabelText("President's Society use Recipient first name"),
+    );
+    expect(
+      low.getByLabelText("Order of the Dolphin use Recipient first name"),
+    ).not.toBeChecked();
+    fireEvent.change(high.getByRole("combobox", { name: /field to insert/ }), {
+      target: { value: "first_name" },
+    });
     fireEvent.change(subject, { target: { value: "Dear " } });
     subject.setSelectionRange(5, 5);
     fireEvent.click(
       high.getByRole("button", { name: "Insert into email subject" }),
     );
-    expect(subject).toHaveValue("Dear {salutation}");
+    expect(subject).toHaveValue("Dear {first_name}");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it("provides independent query and template slots for each annual society", async () => {

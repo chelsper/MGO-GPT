@@ -23,6 +23,95 @@ const row = {
   letterDate: "2026-09-22",
 };
 describe("society Word letters", () => {
+  const namedRow = {
+    ...row,
+    members: ["10", "11"],
+    firstName: "Alex",
+    lastName: "Smith",
+    spouseFirstName: "Pat",
+    spouseLastName: "Jones",
+  };
+  const nameTemplate = (tag = "first_name") =>
+    validateLetterTemplate({
+      ...templateFixture(),
+      content: wordFixture(`Dear {${tag}},`).generate({ type: "base64" }),
+      subject: "Your {society_name} letter",
+      emailBody: `Dear {${tag}}, please see your letter.`,
+      mergeSettings: { fields: [tag, "society_name"], dateFormat: "iso" },
+    });
+  it("renders saved first-name choices into Word and email without substituting salutation", () => {
+    const template = nameTemplate();
+    expect(template.usedFields).toEqual(["first_name", "society_name"]);
+    const result = renderSocietyLetter(template, namedRow, "2026-09-24");
+    const xml = new PizZip(result.document).file("word/document.xml").asText();
+    expect(xml).toContain("Dear Alex,");
+    expect(xml).toContain("<w:b/>");
+    expect(xml).not.toContain("{first_name}");
+    expect(result.text).toBe("Dear Alex, please see your letter.");
+    expect(row.salutation).toBe("Alex & Pat");
+  });
+  it("renders first_names for couples and individuals without leaving dangling conjunctions", () => {
+    const template = nameTemplate("first_names");
+    const couple = renderSocietyLetter(template, namedRow, "2026-09-24");
+    expect(couple.text).toBe("Dear Alex & Pat, please see your letter.");
+    expect(
+      new PizZip(couple.document).file("word/document.xml").asText(),
+    ).toContain("Dear Alex &amp; Pat,");
+    const individual = renderSocietyLetter(
+      template,
+      { ...namedRow, members: ["10"] },
+      "2026-09-24",
+    );
+    expect(individual.text).toBe("Dear Alex, please see your letter.");
+  });
+  it.each([
+    "first_name",
+    "last_name",
+    "spouse_first_name",
+    "spouse_last_name",
+    "first_names",
+  ])("renders mapped %s and blocks it when missing", (tag) => {
+    const template = nameTemplate(tag);
+    expect(
+      renderSocietyLetter(template, namedRow, "2026-09-24").text,
+    ).not.toContain(`{${tag}}`);
+    expect(() => renderSocietyLetter(template, row, "2026-09-24")).toThrow(
+      /Missing name value/,
+    );
+  });
+  it("checks actual Word and email usage rather than trusting saved usedFields", () => {
+    const template = { ...nameTemplate(), usedFields: [] };
+    expect(() => renderSocietyLetter(template, row, "2026-09-24")).toThrow(
+      /\{first_name\}/,
+    );
+    const emailOnly = validateLetterTemplate({
+      ...templateFixture(),
+      emailBody: "Hello {first_name}",
+    });
+    expect(() => renderSocietyLetter(emailOnly, row, "2026-09-24")).toThrow(
+      /\{first_name\}/,
+    );
+    const wordOnly = { ...nameTemplate(), emailBody: "Hello", usedFields: [] };
+    expect(() => renderSocietyLetter(wordOnly, row, "2026-09-24")).toThrow(
+      /\{first_name\}/,
+    );
+  });
+  it("requires explicit selection for used name tags and does not change older template versions", () => {
+    const previous = validateLetterTemplate(templateFixture());
+    const original = JSON.stringify(previous);
+    const next = nameTemplate();
+    expect(next.version).not.toBe(previous.version);
+    expect(JSON.stringify(previous)).toBe(original);
+    expect(() =>
+      validateLetterTemplate({
+        ...next,
+        mergeSettings: { fields: ["salutation", "society_name"] },
+      }),
+    ).toThrow(/Select the merge field \{first_name\}/);
+    expect(renderSocietyLetter(previous, row, "2026-09-24").text).toContain(
+      "Alex & Pat",
+    );
+  });
   it("saves canonical selected fields and versions changes to the field settings", () => {
     const source = templateFixture();
     const saved = validateLetterTemplate({

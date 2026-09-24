@@ -55,10 +55,87 @@ describe("society query field inspection", () => {
     ).rejects.toThrow(/query ID/);
     expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
   });
+  it("recognizes separate preferred street and postal fields without guessing relationships", async () => {
+    getBlackbaudSavedQueryById.mockResolvedValue({
+      select_fields: [
+        field("Preferred Street Line 1"),
+        field("Preferred street line 2"),
+        field("Preferred City"),
+        field("Preferred State"),
+        field("Preferred ZIP Code"),
+        field("Preferred Country"),
+        field("Spouse Address Line 1"),
+        field("Constituent ID"),
+      ],
+    });
+    const result = await inspectLetterQueryFields(
+      { queryId: "31043" },
+      context,
+    );
+    expect(result.suggestedColumns).toEqual({
+      address1: "Preferred Street Line 1",
+      address2: "Preferred street line 2",
+      city: "Preferred City",
+      state: "Preferred State",
+      postalCode: "Preferred ZIP Code",
+      country: "Preferred Country",
+    });
+  });
+  it("leaves ambiguous preferred-address choices for the reviewer", async () => {
+    getBlackbaudSavedQueryById.mockResolvedValue({
+      select_fields: [
+        field("Preferred Address Line 1"),
+        field("Preferred Street Line 1"),
+        field("Preferred ZIP"),
+        field("Preferred ZIP Code"),
+      ],
+    });
+    const result = await inspectLetterQueryFields(
+      { queryId: "31043" },
+      context,
+    );
+    expect(result.suggestedColumns).toEqual({});
+  });
   it("fails closed when no output metadata is available", async () => {
     getBlackbaudSavedQueryById.mockResolvedValue({});
     await expect(
       inspectLetterQueryFields({ queryId: "1" }, context),
     ).rejects.toThrow(/No usable output fields/);
+  });
+  it("recognizes main and spouse names by query metadata even with custom labels", async () => {
+    getBlackbaudSavedQueryById.mockResolvedValue({
+      select_fields: [
+        field("Main given", "First Name"),
+        field("Main surname", "Last Name"),
+        field("Partner given", "First Name", "10516"),
+        field("Partner surname", "Last Name", "10516"),
+        field("Relationship first name", "First Name", "other"),
+      ],
+    });
+    const result = await inspectLetterQueryFields(
+      { queryId: "31043" },
+      context,
+    );
+    expect(result.suggestedColumns).toEqual({
+      firstName: "Main given",
+      lastName: "Main surname",
+      spouseFirstName: "Partner given",
+      spouseLastName: "Partner surname",
+    });
+  });
+  it("does not guess name mappings from ambiguous or misleading labels", async () => {
+    getBlackbaudSavedQueryById.mockResolvedValue({
+      select_fields: [
+        field("Main given A", "First Name"),
+        field("Main given B", "First Name"),
+        field("Spouse First Name", "First Name", "other"),
+        field("Last Name", "Last Name", ""),
+      ],
+    });
+    const result = await inspectLetterQueryFields(
+      { queryId: "31043" },
+      context,
+    );
+    expect(result.suggestedColumns).toEqual({});
   });
 });

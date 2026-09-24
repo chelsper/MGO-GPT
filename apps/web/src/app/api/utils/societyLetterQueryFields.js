@@ -4,6 +4,23 @@ import {
   letterError,
 } from "@/utils/societyLetters";
 
+const preferredAddressLabels = {
+  address1: ["Preferred Street Line 1", "Preferred Address Line 1"],
+  address2: ["Preferred Street Line 2", "Preferred Address Line 2"],
+  city: ["Preferred City"],
+  state: ["Preferred State", "Preferred State / Province"],
+  postalCode: ["Preferred ZIP", "Preferred ZIP Code", "Preferred Postal Code"],
+  country: ["Preferred Country"],
+};
+const normalizedLabel = (value) =>
+  value.trim().replace(/\s+/g, " ").toLowerCase();
+const personNameFields = {
+  firstName: { root: "296", meaning: "First Name" },
+  lastName: { root: "296", meaning: "Last Name" },
+  spouseFirstName: { root: "10516", meaning: "First Name" },
+  spouseLastName: { root: "10516", meaning: "Last Name" },
+};
+
 export async function inspectLetterQueryFields(body, context) {
   const queryId = String(body.queryId || "").trim();
   if (!/^[1-9]\d{0,18}$/.test(queryId))
@@ -36,10 +53,18 @@ export async function inspectLetterQueryFields(body, context) {
   for (const [key, label] of Object.entries(CONSTITUENT_LETTER_COLUMNS)) {
     const root =
       key === "constituentId" ? "296" : key === "spouseId" ? "10516" : null;
+    const labels = (preferredAddressLabels[key] || [label])
+      .filter(Boolean)
+      .map(normalizedLabel);
+    const personName = personNameFields[key];
     const matches = unique.filter((field) =>
-      root
-        ? field.meaning === "System Record ID" && field.root === root
-        : label && field.name === label,
+      personName
+        ? field.root === personName.root &&
+          normalizedLabel(String(field.meaning || "")) ===
+            normalizedLabel(personName.meaning)
+        : root
+          ? field.meaning === "System Record ID" && field.root === root
+          : labels.includes(normalizedLabel(field.name)),
     );
     if (matches.length === 1) suggestedColumns[key] = matches[0].name;
   }

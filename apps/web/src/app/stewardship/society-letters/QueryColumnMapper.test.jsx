@@ -41,6 +41,13 @@ it("loads actual field names on request and applies only explicitly accepted sug
     "Main ID",
   );
   expect(screen.getByLabelText("Constituent system record ID")).toBeValid();
+  expect(
+    screen.getByLabelText("Preferred street line 2 (optional)"),
+  ).toHaveValue("");
+  expect(
+    screen.getByLabelText("Preferred street line 2 (optional)"),
+  ).toBeValid();
+  expect(screen.getByLabelText("Preferred street line 1")).toBeInvalid();
   fireEvent.change(screen.getByLabelText("Salutation"), {
     target: { value: "Greeting" },
   });

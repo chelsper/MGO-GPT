@@ -6,6 +6,7 @@ import {
   LETTER_TAGS,
   letterError,
   letterMergeData,
+  letterNameIssue,
   mergeLetterText,
   normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
@@ -157,7 +158,18 @@ export function validateLetterTemplate(raw) {
 export function renderSocietyLetter(template, row, today) {
   const settings = normalizeLetterMergeSettings(template.mergeSettings);
   const data = letterMergeData(row, today, settings);
-  const document = templateDocument(template.content, settings.fields);
+  const usedFields = new Set();
+  const document = templateDocument(
+    template.content,
+    settings.fields,
+    usedFields,
+  );
+  for (const value of [template.subject, template.emailBody]) {
+    for (const match of String(value).matchAll(/\{([^{}]+)\}/g))
+      usedFields.add(match[1].trim());
+  }
+  const nameIssue = letterNameIssue(row, [...usedFields]);
+  if (nameIssue) throw letterError(nameIssue);
   document.render(data);
   return {
     document: document.toBuffer(),

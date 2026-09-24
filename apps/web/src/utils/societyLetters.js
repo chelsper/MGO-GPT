@@ -12,9 +12,27 @@ export const LETTER_COLUMNS = {
   periodStart: "Period Start",
   periodEnd: "Period End",
 };
+export const LETTER_NAME_COLUMNS = {
+  firstName: "",
+  lastName: "",
+  spouseFirstName: "",
+  spouseLastName: "",
+};
+export const GROUPED_LETTER_COLUMNS = {
+  ...LETTER_COLUMNS,
+  ...LETTER_NAME_COLUMNS,
+};
+export const GROUPED_LETTER_LABELS = {
+  ...LETTER_COLUMNS,
+  firstName: "Recipient first name (optional)",
+  lastName: "Recipient last name (optional)",
+  spouseFirstName: "Spouse first name (optional)",
+  spouseLastName: "Spouse last name (optional)",
+};
 export const CONSTITUENT_LETTER_COLUMNS = {
   constituentId: "System Record ID",
   spouseId: "Spouse System Record ID",
+  ...LETTER_NAME_COLUMNS,
   addressee: "Primary Addressee",
   salutation: "Primary Salutation",
   address1: "Preferred Address Line 1",
@@ -28,13 +46,17 @@ export const CONSTITUENT_LETTER_COLUMNS = {
 export const CONSTITUENT_LETTER_LABELS = {
   constituentId: "Constituent system record ID",
   spouseId: "Spouse system record ID",
+  firstName: "Constituent first name (optional)",
+  lastName: "Constituent last name (optional)",
+  spouseFirstName: "Spouse first name (optional)",
+  spouseLastName: "Spouse last name (optional)",
   addressee: "Addressee",
   salutation: "Salutation",
-  address1: "Address line 1",
-  address2: "Address line 2 (optional)",
+  address1: "Preferred street line 1",
+  address2: "Preferred street line 2 (optional)",
   city: "City",
   state: "State / province (optional)",
-  postalCode: "Postal code (optional)",
+  postalCode: "ZIP / postal code (optional)",
   country: "Country (optional)",
   email: "Email (optional)",
 };
@@ -51,9 +73,17 @@ export const CONSTITUENT_LETTER_PREVIEW_NOTICE =
 export const isLetterPreviewSource = (settings) =>
   ["constituents", "society_queries"].includes(settings?.sourceMode);
 export const MAX_COMBINED_LETTER_HOUSEHOLDS = 5000;
+export const LETTER_NAME_TAGS = [
+  "first_name",
+  "last_name",
+  "spouse_first_name",
+  "spouse_last_name",
+  "first_names",
+];
 export const LETTER_TAGS = [
   "addressee",
   "salutation",
+  ...LETTER_NAME_TAGS,
   "address",
   "household_name",
   "society_name",
@@ -64,6 +94,11 @@ export const LETTER_TAGS = [
 export const LETTER_FIELD_LABELS = {
   addressee: "Addressee",
   salutation: "Salutation",
+  first_name: "Recipient first name",
+  last_name: "Recipient last name",
+  spouse_first_name: "Spouse first name",
+  spouse_last_name: "Spouse last name",
+  first_names: "Individual or household first names",
   address: "Mailing address",
   household_name: "Individual or household name",
   society_name: "Society name",
@@ -208,14 +243,14 @@ export function validateLetterSettings(raw, definitions, today) {
   const constituentSource = sourceMode === "constituents";
   const fieldNames = constituentSource
     ? CONSTITUENT_LETTER_COLUMNS
-    : LETTER_COLUMNS;
+    : GROUPED_LETTER_COLUMNS;
   const columns = Object.fromEntries(
     Object.keys(fieldNames).map((key) => [key, text(raw.columns?.[key])]),
   );
   const mapped = Object.values(columns).filter(Boolean);
   const required = constituentSource
     ? REQUIRED_CONSTITUENT_COLUMNS
-    : Object.keys(columns);
+    : Object.keys(LETTER_COLUMNS);
   if (
     required.some((key) => !columns[key]) ||
     mapped.some((v) => v.length > 150) ||
@@ -281,6 +316,46 @@ export function verifyConstituentLetterIdColumns(query, settings) {
       );
     }
   }
+}
+
+function combineMemberNames(entries) {
+  const names = new Map();
+  // Display labels never establish identity. Prefer a person's own query row
+  // over the name on a spouse row, and retain conflicts for explicit review.
+  const ordered = [...entries].sort(
+    (a, b) => Number(b.fromOwnRecord) - Number(a.fromOwnRecord),
+  );
+  for (const entry of ordered) {
+    const previous = names.get(entry.constituentId);
+    if (previous && previous.fromOwnRecord && !entry.fromOwnRecord) continue;
+    if (
+      previous &&
+      previous.fromOwnRecord === entry.fromOwnRecord &&
+      (previous.name !== entry.name ||
+        previous.firstName !== entry.firstName ||
+        previous.lastName !== entry.lastName)
+    )
+      throw letterError(
+        `Member ${entry.constituentId} has conflicting name output. Review the name mappings before refreshing.`,
+      );
+    names.set(entry.constituentId, entry);
+  }
+  return [...names.values()].sort(
+    (a, b) =>
+      a.constituentId.length - b.constituentId.length ||
+      a.constituentId.localeCompare(b.constituentId),
+  );
+}
+
+function householdDisplayName(members, memberNames, candidates, fallback) {
+  const names = members.map(
+    (id) => memberNames.find((member) => member.constituentId === id)?.name,
+  );
+  return names.length && names.every(Boolean)
+    ? names.join(" & ")
+    : [...new Set(candidates.map((r) => r.addressee).filter(Boolean))].join(
+        " / ",
+      ) || fallback;
 }
 
 export function constituentHouseholdsFromQuery(
@@ -393,13 +468,38 @@ export function constituentHouseholdsFromQuery(
           .filter(Boolean)
           .join("\n"),
       }));
+      const memberNames = combineMemberNames(
+        recipients.flatMap((row) =>
+          [
+            {
+              constituentId: row.constituentId,
+              firstName: row.firstName,
+              lastName: row.lastName,
+              name: [row.firstName, row.lastName].filter(Boolean).join(" "),
+              fromOwnRecord: true,
+            },
+            {
+              constituentId: row.spouseId,
+              firstName: row.spouseFirstName,
+              lastName: row.spouseLastName,
+              name: [row.spouseFirstName, row.spouseLastName]
+                .filter(Boolean)
+                .join(" "),
+              fromOwnRecord: false,
+            },
+          ].filter((entry) => entry.constituentId && entry.name),
+        ),
+      );
       return {
         householdId,
         members: group.members,
-        name:
-          [...new Set(candidates.map((r) => r.addressee).filter(Boolean))].join(
-            " / ",
-          ) || `Household ${householdId}`,
+        memberNames,
+        name: householdDisplayName(
+          group.members,
+          memberNames,
+          candidates,
+          `Household ${householdId}`,
+        ),
         addressee: "",
         salutation: "",
         address: "",
@@ -463,6 +563,7 @@ export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
       const group = groups.get(membership) || {
         row,
         recipients: new Map(),
+        memberNames: [],
         qualifications: new Set(),
         sources: [],
       };
@@ -475,6 +576,7 @@ export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
         group.recipients.set(candidate.constituentId, candidate);
       }
       group.qualifications.add(row.societyKey);
+      group.memberNames.push(...(row.memberNames || []));
       group.sources.push({
         societyKey: cohort.societyKey,
         queryId: cohort.queryId,
@@ -488,33 +590,45 @@ export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
     }
   }
   return [...groups.values()]
-    .map(({ row, recipients, qualifications, sources }) => {
-      const qualifiedKeys = hierarchy
-        .filter((d) => qualifications.has(d.key))
-        .map((d) => d.key);
-      const rank = hierarchy.findIndex((d) => d.key === qualifiedKeys[0]);
-      const candidates = [...recipients.values()].sort(
-        (a, b) =>
-          a.constituentId.length - b.constituentId.length ||
-          a.constituentId.localeCompare(b.constituentId),
-      );
-      return {
-        ...row,
-        name:
-          [...new Set(candidates.map((r) => r.addressee).filter(Boolean))].join(
-            " / ",
-          ) || row.name,
-        recipientCandidates: candidates,
-        membersOutsideQuery: row.members.filter((id) => !recipients.has(id)),
-        societyKey: hierarchy[rank].key,
-        societyName: hierarchy[rank].name,
-        rank,
-        qualifiedKeys,
-        coveredKeys: hierarchy.slice(rank).map((d) => d.key),
-        sourceQueries: sources,
-        sourceMode: "society_queries",
-      };
-    })
+    .map(
+      ({
+        row,
+        recipients,
+        memberNames: nameEntries,
+        qualifications,
+        sources,
+      }) => {
+        const qualifiedKeys = hierarchy
+          .filter((d) => qualifications.has(d.key))
+          .map((d) => d.key);
+        const rank = hierarchy.findIndex((d) => d.key === qualifiedKeys[0]);
+        const candidates = [...recipients.values()].sort(
+          (a, b) =>
+            a.constituentId.length - b.constituentId.length ||
+            a.constituentId.localeCompare(b.constituentId),
+        );
+        const memberNames = combineMemberNames(nameEntries);
+        return {
+          ...row,
+          memberNames,
+          name: householdDisplayName(
+            row.members,
+            memberNames,
+            candidates,
+            row.name,
+          ),
+          recipientCandidates: candidates,
+          membersOutsideQuery: row.members.filter((id) => !recipients.has(id)),
+          societyKey: hierarchy[rank].key,
+          societyName: hierarchy[rank].name,
+          rank,
+          qualifiedKeys,
+          coveredKeys: hierarchy.slice(rank).map((d) => d.key),
+          sourceQueries: sources,
+          sourceMode: "society_queries",
+        };
+      },
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -534,9 +648,10 @@ export function householdsFromQuery(table, settings, hierarchy, period) {
     );
   const indexes = Object.fromEntries(
     Object.entries(settings.columns).map(([key, column]) => {
+      if (!column && Object.hasOwn(LETTER_NAME_COLUMNS, key)) return [key, -1];
       if (headers.filter((h) => h === column).length !== 1)
         throw letterError(
-          `Choose a unique returned column for ${LETTER_COLUMNS[key]}.`,
+          `Choose a unique returned column for ${GROUPED_LETTER_LABELS[key]}.`,
         );
       return [key, headers.indexOf(column)];
     }),
@@ -584,6 +699,10 @@ export function householdsFromQuery(table, settings, hierarchy, period) {
       householdId: row.householdId,
       members,
       name: row.name,
+      firstName: row.firstName || "",
+      lastName: row.lastName || "",
+      spouseFirstName: members.length === 2 ? row.spouseFirstName || "" : "",
+      spouseLastName: members.length === 2 ? row.spouseLastName || "" : "",
       addressee: row.addressee,
       salutation: row.salutation,
       address: row.address,
@@ -687,7 +806,64 @@ export function letterIssue(row, channel, template) {
       return "Postal eligibility is not confirmed by the source query.";
     if (!row.address) return "A mailing address is required.";
   } else return "Choose email or postal mail.";
-  return null;
+  return letterNameIssue(row, template.usedFields || []);
+}
+
+export function letterNameMergeData(row) {
+  const members = row.members || [];
+  let recipient = row;
+  let spouse =
+    members.length === 2
+      ? { firstName: row.spouseFirstName, lastName: row.spouseLastName }
+      : {};
+  let firstNames =
+    members.length === 1
+      ? text(row.firstName)
+      : members.length === 2 && text(row.firstName) && text(row.spouseFirstName)
+        ? `${text(row.firstName)} & ${text(row.spouseFirstName)}`
+        : "";
+  if (isLetterPreviewSource(row) || Array.isArray(row.memberNames)) {
+    // A stable household key does not select the letter's recipient.
+    const recipientId = text(
+      row.recipientConstituentId || (members.length === 1 ? members[0] : ""),
+    );
+    recipient = members.includes(recipientId)
+      ? row.memberNames?.find(
+          (member) => member.constituentId === recipientId,
+        ) || {}
+      : {};
+    spouse =
+      members.length === 2 && members.includes(recipientId)
+        ? row.memberNames?.find(
+            (member) =>
+              member.constituentId === members.find((id) => id !== recipientId),
+          ) || {}
+        : {};
+    const names = members.map((id) =>
+      text(
+        row.memberNames?.find((member) => member.constituentId === id)
+          ?.firstName,
+      ),
+    );
+    firstNames = names.length && names.every(Boolean) ? names.join(" & ") : "";
+  }
+  return {
+    first_name: text(recipient.firstName),
+    last_name: text(recipient.lastName),
+    spouse_first_name: text(spouse.firstName),
+    spouse_last_name: text(spouse.lastName),
+    first_names: firstNames,
+  };
+}
+
+export function letterNameIssue(row, usedFields) {
+  const values = letterNameMergeData(row);
+  const missing = usedFields.filter(
+    (field) => LETTER_NAME_TAGS.includes(field) && !values[field],
+  );
+  return missing.length
+    ? `Missing name value for ${missing.map((field) => `{${field}}`).join(", ")}. Review the name mappings and recipient, or use a different greeting before creating this letter.`
+    : null;
 }
 
 export function letterMergeData(row, today, mergeSettings) {
@@ -695,6 +871,7 @@ export function letterMergeData(row, today, mergeSettings) {
   const data = {
     addressee: row.addressee,
     salutation: row.salutation,
+    ...letterNameMergeData(row),
     address: row.address,
     household_name: row.name,
     society_name: row.societyName,
@@ -726,6 +903,10 @@ export function mergeLetterText(template, data) {
   return String(template).replace(/\{([^{}]+)\}/g, (_, key) => {
     if (!LETTER_TAGS.includes(key.trim()))
       throw letterError(`Unknown template field: ${key}`);
+    if (LETTER_NAME_TAGS.includes(key.trim()) && !text(data[key.trim()]))
+      throw letterError(
+        `Missing name value for {${key.trim()}}. Review the name mappings and recipient before creating this letter.`,
+      );
     return data[key.trim()] || "";
   });
 }

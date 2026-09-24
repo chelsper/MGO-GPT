@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   LETTER_BATCH_LIMIT,
   LETTER_COLUMNS,
+  GROUPED_LETTER_COLUMNS,
+  GROUPED_LETTER_LABELS,
   CONSTITUENT_LETTER_COLUMNS,
   CONSTITUENT_LETTER_LABELS,
   isLetterPreviewSource,
@@ -391,7 +393,29 @@ export default function SocietyLettersPage() {
     ["templates", "Letter templates"],
     ["settings", "Source & period"],
   ];
-  function changeSourceMode(mode) {
+  function changeSourceMode(mode, fields) {
+    const constituentColumns = Object.fromEntries(
+      Object.entries(CONSTITUENT_LETTER_COLUMNS).map(([key, fallback]) => {
+        const existing =
+          fields ||
+          settings.sourceMode === "constituents" ||
+          settings.columns?.[key] !== LETTER_COLUMNS[key]
+            ? settings.columns?.[key]
+            : "";
+        const candidate =
+          existing || fields?.suggestedColumns?.[key] || fallback;
+        return [
+          key,
+          fields
+            ? ["constituentId", "spouseId"].includes(key)
+              ? fields.suggestedColumns?.[key] || ""
+              : fields.fields.includes(candidate)
+                ? candidate
+                : fields.suggestedColumns?.[key] || ""
+            : candidate,
+        ];
+      }),
+    );
     setConfirmedSource(false);
     setSettings({
       ...settings,
@@ -404,7 +428,7 @@ export default function SocietyLettersPage() {
           }
         : {}),
       columns:
-        mode === "constituents" ? CONSTITUENT_LETTER_COLUMNS : LETTER_COLUMNS,
+        mode === "constituents" ? constituentColumns : GROUPED_LETTER_COLUMNS,
     });
   }
   async function confirmAction() {
@@ -1289,7 +1313,7 @@ export default function SocietyLettersPage() {
                     onChange={(e) => changeSourceMode(e.target.value)}
                   >
                     <option value="households">
-                      Already grouped households
+                      Already grouped households (advanced)
                     </option>
                     <option value="constituents">
                       Constituents with spouse IDs (preview only)
@@ -1495,14 +1519,16 @@ export default function SocietyLettersPage() {
                     )}
                   </p>
                   <QueryColumnMapper
-                    key={settings.sourceMode || "households"}
                     queryId={settings.queryId}
                     columns={settings.columns}
                     constituent={settings.sourceMode === "constituents"}
+                    onUseConstituents={(fields) =>
+                      changeSourceMode("constituents", fields)
+                    }
                     labels={
                       settings.sourceMode === "constituents"
                         ? CONSTITUENT_LETTER_LABELS
-                        : LETTER_COLUMNS
+                        : GROUPED_LETTER_LABELS
                     }
                     onChange={(columns) => {
                       setSettings({ ...settings, columns });
