@@ -33,6 +33,66 @@ are not imported automatically.
 
 ## Household Query Contract
 
+### Constituent/Spouse Preview Adapter (September 24)
+
+The Source & period screen also accepts **Constituents with spouse IDs (preview
+only)**. This supports an ordinary saved constituent query without asking NXT to
+produce pre-grouped household rows. The existing already-grouped workflow is
+unchanged.
+
+The adapter verifies the selected ID columns against saved-query field metadata
+before execution and again before accepting results. Both must be **System
+Record ID** fields from Constituent Information and Spouse, respectively. A
+numeric-looking lookup ID, or a lookup column renamed "System Record ID", is not
+accepted. Relevant query-definition changes during execution retain prior
+results and require a new refresh. Execution statistics do not invalidate results.
+
+The administrator specifies the query's society and exact qualification dates.
+Those dates must match the letter period; the adapter does not modify NXT dates
+or silently reuse a fixed-year query in a later year. This is a single-society
+cohort preview, not verification of every household's highest annual society.
+
+One-to-many constituency rows collapse when identity and recipient values agree.
+Reciprocal spouse rows produce one group. A spouse system ID remains in that
+group even when the spouse is absent from the returned cohort. Conflicting links,
+overlapping pairs, malformed rows, self-links, or conflicting recipient values
+reject the refresh. Names, email addresses, and postal addresses never establish
+household membership. Individual giving totals are never summed.
+
+The stable grouping key is the lower system ID, not an inferred NXT head of
+household. All member IDs and returned recipient candidates are visible for
+review. No recipient, joint addressee, or communication permission is selected
+automatically. Members outside the query are explicitly identified as requiring
+verification, including whether they are constituents eligible for appeal writes.
+
+**Server-side preview-only boundary:** this source cannot generate, reserve, or
+send letters, or assign NXT appeals. Query refresh is explicit and adds two
+metadata reads, not a profile read for every member. No production source
+configuration is selected automatically. Before enabling this source for delivery:
+
+1. Verify household membership and communication restrictions, including spouses
+   outside the query; choose an approved joint recipient/address/salutation.
+2. Check all configured higher society cohorts and existing assigned appeals.
+   A single OOD query cannot rule out a President's Society spouse.
+3. Freeze the exact society/period appeal in the prepared letter and persist
+   separate per-member assignment status before each external write. Verify
+   uncertain writes by readback; never blindly repeat them or recreate a letter
+   because one spouse's assignment failed.
+4. Resolve the owner's desired appeal trigger (finished-letter creation versus
+   accepted email/confirmed postal mailing). Previews must never set a sent appeal.
+
+Read-only definition checks of JU query **31043 (MGOGPT - OOD)** confirmed on
+September 24: the CY2026 dates are inside gift summary 71937; constituent system
+ID is field 349 and spouse system ID is field 89939. Output also includes lookup
+IDs, primary addressee/salutation, preferred address components, and preferred
+email. The existing exclusion references appeal system ID 770, description
+`CY2026 OOD Letter Sent via JUMGOGPT`. That one-to-many exclusion alone is not an
+app-side proof that every household member lacks the appeal. No live query
+execution, donor send, production source change, or constituent write was part
+of the adapter's implementation.
+
+### Already-Grouped Sources
+
 The query is the authority for giving qualification, household membership, and
 communication eligibility. This workflow does not sum individual gift totals,
 infer households from addresses, or treat portfolio caches as a complete source.

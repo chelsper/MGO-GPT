@@ -4,6 +4,7 @@ import { templateFixture } from "../../../../test/societyLetterFixture";
 import { validateLetterTemplate } from "./societyLetterDocuments";
 import {
   LETTER_COLUMNS,
+  CONSTITUENT_LETTER_COLUMNS,
   householdsFromQuery,
   letterPeriod,
 } from "@/utils/societyLetters";
@@ -19,8 +20,10 @@ import {
   refreshLetterSource,
 } from "./societyLetterWorkflow";
 import { advanceQueryList } from "./constituentQueryList";
+import { getBlackbaudSavedQueryById } from "./blackbaud";
 
 vi.mock("./constituentQueryList", () => ({ advanceQueryList: vi.fn() }));
+vi.mock("./blackbaud", () => ({ getBlackbaudSavedQueryById: vi.fn() }));
 vi.mock("./sendSubmissionEmail", () => ({
   buildResendFromAddress: (name, email) => `${name} <${email}>`,
 }));
@@ -93,6 +96,138 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("society letter workflow", () => {
+  it("shows a constituent household preview but blocks letter preparation server-side", async () => {
+    const { state, body, store } = setup();
+    state.settings.sourceMode = "constituents";
+    state.snapshot.signature = letterSourceSignature(state, definitions);
+    expect(letterWorkspace(state, definitions, today).sourceIssue).toMatch(
+      /preview only/,
+    );
+    expect(() => previewLetters(state, definitions, today, body)).toThrow(
+      /preview only/,
+    );
+    await expect(
+      prepareLetterBatch(
+        state,
+        definitions,
+        today,
+        { ...body, confirm: true },
+        store,
+        1,
+      ),
+    ).rejects.toThrow(/preview only/);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+  });
+  it("verifies system ID metadata before running a constituent query and retains prior results on failure", async () => {
+    const { state, store } = setup();
+    state.settings = {
+      ...state.settings,
+      sourceMode: "constituents",
+      columns: CONSTITUENT_LETTER_COLUMNS,
+    };
+    const saved = state.snapshot;
+    vi.mocked(getBlackbaudSavedQueryById).mockResolvedValue({
+      select_fields: [],
+    });
+    await refreshLetterSource(
+      state,
+      definitions,
+      today,
+      { action: "refresh" },
+      store,
+      { user: { id: 1 }, origin: "https://example.org" },
+    );
+    expect(state.job.status).toBe("needs_review");
+    expect(state.job.message).toMatch(/System Record ID/);
+    expect(state.snapshot).toBe(saved);
+    expect(advanceQueryList).not.toHaveBeenCalled();
+  });
+  it("groups a validated query without profile lookups and ignores changing query execution statistics", async () => {
+    const { state, store } = setup();
+    state.settings = {
+      ...state.settings,
+      sourceMode: "constituents",
+      columns: CONSTITUENT_LETTER_COLUMNS,
+      querySocietyKey: "order_of_the_dolphin",
+      queryPeriodStart: "2026-01-01",
+      queryPeriodEnd: "2026-12-31",
+    };
+    const definition = {
+      select_fields: [
+        {
+          query_field: {
+            available_field_name: "System Record ID",
+            selected_field_name: "System Record ID",
+            node_path: [{ id: "296" }],
+          },
+        },
+        {
+          query_field: {
+            available_field_name: "System Record ID",
+            selected_field_name: "Spouse System Record ID",
+            node_path: [{ id: "10516" }],
+          },
+        },
+      ],
+    };
+    vi.mocked(getBlackbaudSavedQueryById)
+      .mockResolvedValueOnce({ ...definition, num_records: 0 })
+      .mockResolvedValueOnce({ ...definition, num_records: 1 });
+    vi.mocked(advanceQueryList).mockImplementation(async ({ job }) => ({
+      job: { ...job, stage: "complete" },
+      snapshot: {
+        headers: Object.values(CONSTITUENT_LETTER_COLUMNS).filter(Boolean),
+        tableRows: [
+          [
+            "10",
+            "11",
+            "Alex Sample",
+            "Alex",
+            "10 Test St",
+            "",
+            "Jacksonville",
+            "FL",
+            "32211",
+            "alex@example.org",
+          ],
+        ],
+        generatedAt: new Date().toISOString(),
+      },
+    }));
+    await refreshLetterSource(
+      state,
+      definitions,
+      today,
+      { action: "refresh" },
+      store,
+      { user: { id: 1 }, origin: "https://example.org" },
+    );
+    expect(state.job.status).toBe("complete");
+    expect(state.snapshot.rows[0].members).toEqual(["10", "11"]);
+    expect(getBlackbaudSavedQueryById).toHaveBeenCalledTimes(2);
+    expect(
+      advanceQueryList.mock.calls[0][0].source.leadFundraiser.enabled,
+    ).toBe(false);
+    const saved = state.snapshot;
+    vi.mocked(getBlackbaudSavedQueryById)
+      .mockResolvedValueOnce(definition)
+      .mockResolvedValueOnce({
+        ...definition,
+        filter_fields: [{ changed: true }],
+      });
+    await refreshLetterSource(
+      state,
+      definitions,
+      today,
+      { action: "refresh" },
+      store,
+      { user: { id: 1 }, origin: "https://example.org" },
+    );
+    expect(state.job.status).toBe("needs_review");
+    expect(state.job.message).toMatch(/changed during/);
+    expect(state.snapshot).toBe(saved);
+  });
   it("opens the unconfigured workspace without a snapshot or any external reads", () => {
     const output = letterWorkspace(
       {
@@ -413,16 +548,14 @@ describe("society letter workflow", () => {
     const item = state.history[0];
     item.status = "sending";
     const providerId = "01a0ca5d-b64e-75bc-902c-e60535d42f84";
-    const read = vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          id: providerId,
-          to: [item.email],
-          tags: [{ name: "society_letter_id", value: item.id }],
-          last_event: "delivered",
-        }),
-      );
+    const read = vi.fn().mockResolvedValue(
+      Response.json({
+        id: providerId,
+        to: [item.email],
+        tags: [{ name: "society_letter_id", value: item.id }],
+        last_event: "delivered",
+      }),
+    );
     await verifyLetterEmail(
       state,
       { deliveryId: item.id, providerId },

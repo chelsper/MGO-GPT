@@ -40,6 +40,61 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("society letter workspace", () => {
+  it("offers constituent/spouse mapping without requiring householded query output", async () => {
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Source & period" }),
+    );
+    fireEvent.change(screen.getByLabelText("Query format"), {
+      target: { value: "constituents" },
+    });
+    expect(screen.getByLabelText("Constituent system record ID")).toHaveValue(
+      "System Record ID",
+    );
+    expect(screen.getByLabelText("Spouse system record ID")).toHaveValue(
+      "Spouse System Record ID",
+    );
+    expect(screen.getByLabelText("Query qualification start")).toBeRequired();
+    expect(
+      screen.getByText(/This option previews households only/),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("shows both members and recipient candidates while disabling preview-only household selection", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings: { ...base.settings, sourceMode: "constituents" },
+        sourceIssue: "Household preview only.",
+        rows: [
+          {
+            ...household,
+            members: ["10", "11"],
+            membersOutsideQuery: ["11"],
+            issues: { post: "Preview only", email: "Preview only" },
+            recipientCandidates: [
+              {
+                constituentId: "10",
+                addressee: "Alex Sample",
+                salutation: "Alex",
+                address: "10 Test St",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    expect(await screen.findByText("Member system IDs: 10, 11")).toBeVisible();
+    expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
+    expect(screen.getByText(/Spouse outside query: 11/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Household preview" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByText("Review address and salutation options"));
+    expect(screen.getByText("Alex Sample")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("loads saved data only and returns to Stewardship", async () => {
     render(<Page />);
     await screen.findByText("Sample Household");

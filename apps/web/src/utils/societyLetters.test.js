@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   LETTER_COLUMNS,
+  CONSTITUENT_LETTER_COLUMNS,
+  verifyConstituentLetterIdColumns,
   dateOnly,
   letterPeriod,
   householdsFromQuery,
@@ -53,6 +55,172 @@ const table = (...rows) => ({
   tableRows: rows.map((row) =>
     Object.keys(LETTER_COLUMNS).map((key) => row[key]),
   ),
+});
+
+describe("constituent query household previews", () => {
+  const previewSettings = {
+    ...settings,
+    sourceMode: "constituents",
+    columns: CONSTITUENT_LETTER_COLUMNS,
+    querySocietyKey: "order_of_the_dolphin",
+    queryPeriodStart: period.start,
+    queryPeriodEnd: period.end,
+  };
+  const row = {
+    constituentId: "10",
+    spouseId: "11",
+    addressee: "Alex Sample",
+    salutation: "Alex",
+    address1: "10 Test Street",
+    address2: "",
+    city: "Jacksonville",
+    state: "FL",
+    postalCode: "32211",
+    email: "alex@example.org",
+  };
+  const output = (...rows) => {
+    const entries = Object.entries(CONSTITUENT_LETTER_COLUMNS).filter(
+      ([, name]) => name,
+    );
+    return {
+      headers: [...entries.map(([, name]) => name), "Constituency Code"],
+      tableRows: rows.map((r, i) => [
+        ...entries.map(([key]) => r[key] || ""),
+        `Code ${i}`,
+      ]),
+    };
+  };
+  const group = (...rows) =>
+    householdsFromQuery(output(...rows), previewSettings, definitions, period);
+  it("groups reciprocal spouses once and ignores duplicate constituency rows", () => {
+    const [household] = group(row, row, {
+      ...row,
+      constituentId: "11",
+      spouseId: "10",
+      addressee: "Pat Sample",
+      salutation: "Pat",
+    });
+    expect(household.members).toEqual(["10", "11"]);
+    expect(household.recipientCandidates).toHaveLength(2);
+    expect(household.membersOutsideQuery).toEqual([]);
+    expect(household).toMatchObject({
+      householdId: "10",
+      emailAllowed: false,
+      mailAllowed: false,
+      addressee: "",
+      sourceMode: "constituents",
+    });
+    expect(group(row, row)).toHaveLength(1);
+  });
+  it("retains a spouse outside the query without claiming to verify that spouse", () => {
+    expect(group(row)[0].membersOutsideQuery).toEqual(["11"]);
+    expect(group({ ...row, spouseId: "" })[0].members).toEqual(["10"]);
+  });
+  it("never merges unrelated people by matching names, addresses, or email", () => {
+    expect(
+      group(
+        { ...row, spouseId: "" },
+        { ...row, constituentId: "20", spouseId: "" },
+      ),
+    ).toHaveLength(2);
+  });
+  it("has stable grouping keys regardless of query order and different member ID lengths", () => {
+    const a = { ...row, constituentId: "9", spouseId: "100" };
+    const b = { ...row, constituentId: "100", spouseId: "9", addressee: "Pat" };
+    expect(group(a, b)).toEqual(group(b, a));
+    expect(group(a, b)[0].householdId).toBe("9");
+  });
+  it.each([
+    [{ ...row, spouseId: "10" }],
+    [{ ...row, spouseId: "bad-id" }],
+    [row, { ...row, spouseId: "12" }],
+    [row, { ...row, email: "different@example.org" }],
+    [row, { ...row, constituentId: "11", spouseId: "12" }],
+    [
+      { ...row, constituentId: "11", spouseId: "10" },
+      { ...row, constituentId: "12", spouseId: "10" },
+    ],
+    [row, { ...row, constituentId: "11", spouseId: "" }],
+  ])(
+    "rejects conflicting or invalid identity/recipient rows (%#)",
+    (...rows) => {
+      expect(() => group(...rows)).toThrow();
+    },
+  );
+  it("retains identifiers for the existing same-period duplicate-letter ledger", () => {
+    const household = group(row)[0];
+    expect(
+      letterDisposition(household, [
+        { ...household, householdId: "11", status: "mailed" },
+      ]).status,
+    ).toBe("covered");
+  });
+  it("does not silently reuse a fixed 2026 query in 2027", () => {
+    expect(() =>
+      householdsFromQuery(
+        output(row),
+        previewSettings,
+        definitions,
+        letterPeriod(settings, "2027-01-01"),
+      ),
+    ).toThrow(/period/);
+  });
+  it("requires distinct mapped columns but permits blank optional mappings", () => {
+    expect(
+      validateLetterSettings(
+        { ...previewSettings, confirmSource: true },
+        definitions,
+        "2026-09-24",
+      ).sourceMode,
+    ).toBe("constituents");
+    expect(() =>
+      validateLetterSettings(
+        {
+          ...previewSettings,
+          columns: {
+            ...previewSettings.columns,
+            spouseId: previewSettings.columns.constituentId,
+          },
+          confirmSource: true,
+        },
+        definitions,
+        "2026-09-24",
+      ),
+    ).toThrow(/distinct/);
+    const data = output(row);
+    data.headers[0] = "Constituent ID";
+    expect(() =>
+      householdsFromQuery(data, previewSettings, definitions, period),
+    ).toThrow(/system record ID/);
+  });
+  it("checks field metadata rather than trusting renamed lookup ID columns", () => {
+    const definition = {
+      select_fields: [
+        {
+          query_field: {
+            available_field_name: "System Record ID",
+            selected_field_name: "System Record ID",
+            node_path: [{ id: "296" }],
+          },
+        },
+        {
+          query_field: {
+            available_field_name: "System Record ID",
+            selected_field_name: "Spouse System Record ID",
+            node_path: [{ id: "10516" }, { id: "10517" }],
+          },
+        },
+      ],
+    };
+    expect(() =>
+      verifyConstituentLetterIdColumns(definition, previewSettings),
+    ).not.toThrow();
+    definition.select_fields[1].query_field.available_field_name =
+      "Constituent ID";
+    expect(() =>
+      verifyConstituentLetterIdColumns(definition, previewSettings),
+    ).toThrow(/lookup IDs/);
+  });
 });
 const parse = (...rows) =>
   householdsFromQuery(table(...rows), settings, definitions, period);

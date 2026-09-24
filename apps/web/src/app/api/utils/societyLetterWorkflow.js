@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { advanceQueryList } from "./constituentQueryList";
+import { getBlackbaudSavedQueryById } from "./blackbaud";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
 import {
@@ -15,6 +16,8 @@ import {
   letterDisposition,
   letterIssue,
   validateLetterSettings,
+  verifyConstituentLetterIdColumns,
+  CONSTITUENT_LETTER_PREVIEW_NOTICE,
 } from "@/utils/societyLetters";
 
 const hash = (value) =>
@@ -43,6 +46,8 @@ function sourceIssue(state, definitions, today) {
     Date.now() - Date.parse(state.snapshot.generatedAt) > 24 * 60 * 60 * 1000
   )
     return "Refresh household eligibility before preparing letters; this snapshot is more than 24 hours old.";
+  if (state.settings.sourceMode === "constituents")
+    return CONSTITUENT_LETTER_PREVIEW_NOTICE;
   return null;
 }
 
@@ -123,7 +128,11 @@ export function previewLetters(state, definitions, today, body) {
     );
   const rows = selected.map((householdId) => {
     const row = state.snapshot.rows.find((r) => r.householdId === householdId);
-    if (!row || letterDisposition(row, state.history).status !== "ready")
+    if (
+      !row ||
+      row.sourceMode === "constituents" ||
+      letterDisposition(row, state.history).status !== "ready"
+    )
       throw letterError(
         "A selected household is already covered or held. Reload the worklist.",
         409,
@@ -297,6 +306,29 @@ export async function refreshLetterSource(
       );
   }
   try {
+    const definitionSignature = async () => {
+      const definition = await getBlackbaudSavedQueryById({
+        userId: context.user.id,
+        origin: context.origin,
+        queryId: state.settings.queryId,
+      });
+      verifyConstituentLetterIdColumns(definition, state.settings);
+      return hash([
+        definition.type_id,
+        definition.select_fields,
+        definition.filter_fields,
+        definition.summary_fields,
+        definition.gift_processing_options,
+        definition.constituent_filters,
+      ]);
+    };
+    if (
+      state.settings.sourceMode === "constituents" &&
+      state.job.stage === "members"
+    ) {
+      state.job.definitionSignature = await definitionSignature();
+      await store.save(state);
+    }
     const { job, snapshot } = await advanceQueryList({
       job: state.job,
       user: context.user,
@@ -309,6 +341,14 @@ export async function refreshLetterSource(
     });
     state.job = job;
     if (snapshot) {
+      if (
+        state.settings.sourceMode === "constituents" &&
+        (!job.definitionSignature ||
+          job.definitionSignature !== (await definitionSignature()))
+      )
+        throw letterError(
+          "The saved NXT query changed during this refresh. Prior results were retained. Restart after confirming the query output fields.",
+        );
       const rows = householdsFromQuery(
         snapshot,
         state.settings,

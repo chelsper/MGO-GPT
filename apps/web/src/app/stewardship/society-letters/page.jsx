@@ -4,6 +4,8 @@ import {
   LETTER_BATCH_LIMIT,
   LETTER_COLUMNS,
   LETTER_TAGS,
+  CONSTITUENT_LETTER_COLUMNS,
+  CONSTITUENT_LETTER_LABELS,
 } from "@/utils/societyLetters";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
@@ -25,6 +27,7 @@ const labels = {
   cancelled: "Cancelled before sending",
 };
 const defaults = {
+  sourceMode: "households",
   queryId: "",
   periodBasis: "calendar_year",
   fiscalYearStartMonth: 7,
@@ -290,6 +293,7 @@ export default function SocietyLettersPage() {
     return () => clearTimeout(timer);
   }, [sendingBatch, busy, data]);
   const ready = (data?.rows || []).filter((row) => row.status === "ready");
+  const householdPreview = data?.settings?.sourceMode === "constituents";
   const filtered = ready.filter((row) =>
     `${row.name} ${row.societyName}`
       .toLowerCase()
@@ -309,7 +313,7 @@ export default function SocietyLettersPage() {
     }, {}),
   );
   const tabs = [
-    ["ready", "Ready to acknowledge"],
+    ["ready", householdPreview ? "Household preview" : "Ready to acknowledge"],
     ["history", "Letter history"],
     ["templates", "Letter templates"],
     ["settings", "Source & period"],
@@ -385,7 +389,12 @@ export default function SocietyLettersPage() {
         <>
           <div className="grid gap-3 sm:grid-cols-3">
             {[
-              ["Ready for a new letter", ready.length],
+              [
+                householdPreview
+                  ? "Households to review"
+                  : "Ready for a new letter",
+                ready.length,
+              ],
               [
                 "Already covered this period",
                 data.rows.filter((r) => r.status === "covered").length,
@@ -608,14 +617,63 @@ export default function SocietyLettersPage() {
                             </td>
                             <td className="p-3">
                               <p className="font-semibold">{row.name}</p>
+                              {row.members?.length > 0 && (
+                                <p className="mt-1 text-xs text-gray-500">
+                                  Member system IDs: {row.members.join(", ")}
+                                </p>
+                              )}
+                              {row.membersOutsideQuery?.length > 0 && (
+                                <p className="mt-1 text-xs text-gray-500">
+                                  Spouse outside query:{" "}
+                                  {row.membersOutsideQuery.join(", ")}.
+                                  Membership and contact restrictions still need
+                                  verification.
+                                </p>
+                              )}
                               <p className="mt-1 text-xs text-gray-500">
                                 {row.reason}
                               </p>
                             </td>
                             <td className="p-3">{row.societyName}</td>
                             <td className="whitespace-pre-line p-3">
-                              {row.issues[channel] ||
-                                (channel === "email" ? row.email : row.address)}
+                              {row.recipientCandidates ? (
+                                <details>
+                                  <summary className="cursor-pointer font-semibold text-emerald-800">
+                                    Review address and salutation options
+                                  </summary>
+                                  <p className="mt-2 text-xs text-gray-500">
+                                    No recipient selected. A primary addressee
+                                    may address only one spouse.
+                                  </p>
+                                  {row.recipientCandidates.map((candidate) => (
+                                    <div
+                                      key={candidate.constituentId}
+                                      className="mt-3 rounded-lg border border-gray-200 p-3"
+                                    >
+                                      <p className="font-semibold">
+                                        {candidate.addressee ||
+                                          "No addressee returned"}
+                                      </p>
+                                      <p>
+                                        Salutation:{" "}
+                                        {candidate.salutation || "Not returned"}
+                                      </p>
+                                      <p>
+                                        {candidate.address ||
+                                          "No address returned"}
+                                      </p>
+                                      <p>{candidate.email}</p>
+                                      <p className="text-xs text-gray-500">
+                                        From constituent{" "}
+                                        {candidate.constituentId}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </details>
+                              ) : (
+                                row.issues[channel] ||
+                                (channel === "email" ? row.email : row.address)
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -955,13 +1013,38 @@ export default function SocietyLettersPage() {
                 Household source and qualification period
               </h2>
               <p className="mt-2 text-sm text-gray-600">
-                Use a saved NXT query of qualified households, not individual
-                portfolio summaries. It must include every member system ID, the
-                stable household/head system ID, period boundaries, approved
-                mailing values, and communication eligibility. No fuzzy
-                household matching or gift-total summing is performed here.
+                Use a saved NXT qualification query, not portfolio summaries.
+                The app can group constituent and spouse system IDs; NXT does
+                not need to household the query. Names and addresses are never
+                used to guess a relationship, and individual gift totals are not
+                added together.
               </p>
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-semibold">
+                  Query format
+                  <select
+                    className={input}
+                    value={settings.sourceMode || "households"}
+                    onChange={(e) => {
+                      setConfirmedSource(false);
+                      setSettings({
+                        ...settings,
+                        sourceMode: e.target.value,
+                        columns:
+                          e.target.value === "constituents"
+                            ? CONSTITUENT_LETTER_COLUMNS
+                            : LETTER_COLUMNS,
+                      });
+                    }}
+                  >
+                    <option value="households">
+                      Already grouped households
+                    </option>
+                    <option value="constituents">
+                      Constituents with spouse IDs (preview only)
+                    </option>
+                  </select>
+                </label>
                 <label className="text-sm font-semibold">
                   NXT saved query ID
                   <input
@@ -1022,6 +1105,62 @@ export default function SocietyLettersPage() {
                     </label>
                   ))}
               </div>
+              {settings.sourceMode === "constituents" && (
+                <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-sm text-blue-900">
+                    This option previews households only. It does not generate
+                    letters, send email, or apply appeal codes. A single-society
+                    query cannot establish whether a spouse qualifies for a
+                    higher society.
+                  </p>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <label className="text-sm font-semibold">
+                      Society qualified by this query
+                      <select
+                        className={input}
+                        required
+                        value={settings.querySocietyKey || ""}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            querySocietyKey: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Choose society</option>
+                        {data.definitions
+                          .filter((d) => settings.societyKeys.includes(d.key))
+                          .map((d) => (
+                            <option key={d.key} value={d.key}>
+                              {d.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    {["queryPeriodStart", "queryPeriodEnd"].map((key) => (
+                      <label key={key} className="text-sm font-semibold">
+                        {key === "queryPeriodStart"
+                          ? "Query qualification start"
+                          : "Query qualification end"}
+                        <input
+                          className={input}
+                          type="date"
+                          required
+                          value={settings[key] || ""}
+                          onChange={(e) =>
+                            setSettings({ ...settings, [key]: e.target.value })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-blue-900">
+                    Enter the dates actually used in the query. A new year
+                    requires re-confirming these dates; a CY2026 query will not
+                    silently qualify people for CY2027.
+                  </p>
+                </div>
+              )}
               <fieldset className="mt-6">
                 <legend className="font-bold">
                   Letter hierarchy, highest first
@@ -1066,20 +1205,30 @@ export default function SocietyLettersPage() {
                   Map returned query columns
                 </summary>
                 <p className="mt-2 text-sm text-gray-600">
-                  Society must be the configured society name or key. Member IDs
-                  must include the household/head ID, separated by |, semicolon,
-                  or comma. Period dates accept YYYY-MM-DD or M/D/YYYY. Email
-                  Allowed and Mail Allowed must be Yes/True/1 only when
-                  deceased, inactive, opt-out, and contact restrictions have
-                  been checked.
+                  {settings.sourceMode === "constituents" ? (
+                    "Map System Record ID and Spouse System Record ID, not lookup IDs. Repeated constituency rows are collapsed. Leave optional mappings blank if that field is not in the query. No communication permission is inferred from an address or email."
+                  ) : (
+                    <>
+                      Society must be the configured society name or key. Member
+                      IDs must include the household/head ID, separated by |,
+                      semicolon, or comma. Period dates accept YYYY-MM-DD or
+                      M/D/YYYY. Email Allowed and Mail Allowed must be
+                      Yes/True/1 only when deceased, inactive, opt-out, and
+                      contact restrictions have been checked.
+                    </>
+                  )}
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.entries(LETTER_COLUMNS).map(([key, label]) => (
+                  {Object.entries(
+                    settings.sourceMode === "constituents"
+                      ? CONSTITUENT_LETTER_LABELS
+                      : LETTER_COLUMNS,
+                  ).map(([key, label]) => (
                     <label className="text-sm font-semibold" key={key}>
                       {label}
                       <input
                         className={input}
-                        value={settings.columns[key]}
+                        value={settings.columns[key] || ""}
                         onChange={(e) =>
                           setSettings({
                             ...settings,
@@ -1089,7 +1238,10 @@ export default function SocietyLettersPage() {
                             },
                           })
                         }
-                        required
+                        required={
+                          settings.sourceMode !== "constituents" ||
+                          !label.includes("(optional)")
+                        }
                       />
                     </label>
                   ))}
@@ -1102,9 +1254,15 @@ export default function SocietyLettersPage() {
                   checked={confirmedSource}
                   onChange={(e) => setConfirmedSource(e.target.checked)}
                 />
-                I verified this query's household membership, giving
-                qualification, period, and communication restrictions. Higher
-                letters cover lower tiers in this hierarchy.
+                {settings.sourceMode === "constituents" ? (
+                  "I verified this query's giving qualification and dates. I understand these are household previews only; recipient selection, restrictions, prior appeals, and higher-society eligibility still need verification."
+                ) : (
+                  <>
+                    I verified this query's household membership, giving
+                    qualification, period, and communication restrictions.
+                    Higher letters cover lower tiers in this hierarchy.
+                  </>
+                )}
               </label>
               <button
                 className={`${primary} mt-5`}
