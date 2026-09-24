@@ -6,7 +6,9 @@ import {
   LETTER_TAGS,
   CONSTITUENT_LETTER_COLUMNS,
   CONSTITUENT_LETTER_LABELS,
+  isLetterPreviewSource,
 } from "@/utils/societyLetters";
+import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
 const endpoint = "/api/stewardship/society-letters";
@@ -183,6 +185,7 @@ export default function SocietyLettersPage() {
   const [preview, setPreview] = useState(null),
     [confirmation, setConfirmation] = useState(null);
   const [receiptIds, setReceiptIds] = useState({});
+  const [societyFilter, setSocietyFilter] = useState("");
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const inFlight = useRef(false);
@@ -293,11 +296,13 @@ export default function SocietyLettersPage() {
     return () => clearTimeout(timer);
   }, [sendingBatch, busy, data]);
   const ready = (data?.rows || []).filter((row) => row.status === "ready");
-  const householdPreview = data?.settings?.sourceMode === "constituents";
-  const filtered = ready.filter((row) =>
-    `${row.name} ${row.societyName}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
+  const householdPreview = isLetterPreviewSource(data?.settings);
+  const filtered = ready.filter(
+    (row) =>
+      (!societyFilter || row.societyKey === societyFilter) &&
+      `${row.name} ${row.societyName}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
   );
   const canSelect = (row) =>
     !row.issues[channel] && (channel !== "email" || data.emailEnabled);
@@ -478,7 +483,7 @@ export default function SocietyLettersPage() {
                 </div>
               )}
               <section className={card}>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
                   <label className="text-sm font-semibold">
                     Find a household
                     <input
@@ -491,6 +496,25 @@ export default function SocietyLettersPage() {
                         setPreview(null);
                       }}
                     />
+                  </label>
+                  <label className="text-sm font-semibold">
+                    Society letter
+                    <select
+                      className={input}
+                      value={societyFilter}
+                      onChange={(e) => {
+                        setSocietyFilter(e.target.value);
+                        setSelected([]);
+                        setPreview(null);
+                      }}
+                    >
+                      <option value="">All societies</option>
+                      {data.definitions.map((d) => (
+                        <option key={d.key} value={d.key}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="text-sm font-semibold">
                     Delivery method
@@ -634,7 +658,29 @@ export default function SocietyLettersPage() {
                                 {row.reason}
                               </p>
                             </td>
-                            <td className="p-3">{row.societyName}</td>
+                            <td className="p-3">
+                              <p className="font-semibold">{row.societyName}</p>
+                              {row.sourceQueries && (
+                                <>
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    Highest match in the configured queries. Not
+                                    yet cleared for delivery.
+                                  </p>
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    Also matched:{" "}
+                                    {row.qualifiedKeys
+                                      .filter((key) => key !== row.societyKey)
+                                      .map(
+                                        (key) =>
+                                          data.definitions.find(
+                                            (d) => d.key === key,
+                                          )?.name || key,
+                                      )
+                                      .join(", ") || "No lower society query"}
+                                  </p>
+                                </>
+                              )}
+                            </td>
                             <td className="whitespace-pre-line p-3">
                               {row.recipientCandidates ? (
                                 <details>
@@ -978,14 +1024,18 @@ export default function SocietyLettersPage() {
                   Upload one Word (.docx) template per society, up to 1 MB. Use
                   the fields below in the letter or email cover message. Keep
                   logos embedded, not linked to external files. Word formatting
-                  is retained; PDF conversion is not included.
+                  is retained; PDF conversion is not included. You can save each
+                  annual society's template before its query is ready. Saving a
+                  template never sends letters.
                 </p>
                 <p className="mt-3 break-words font-mono text-sm">
                   {LETTER_TAGS.map((tag) => `{${tag}}`).join("  ")}
                 </p>
               </div>
               {!data.templates.length && (
-                <p>Choose societies in Source &amp; period first.</p>
+                <p>
+                  Add active annual societies in Organization Settings first.
+                </p>
               )}
               {data.templates.map((template) => (
                 <TemplateEditor
@@ -1000,6 +1050,10 @@ export default function SocietyLettersPage() {
           {tab === "settings" && (
             <form
               className={card}
+              onChange={(event) => {
+                if (event.target.name !== "confirmedSource")
+                  setConfirmedSource(false);
+              }}
               onSubmit={async (event) => {
                 event.preventDefault();
                 const result = await act({
@@ -1030,6 +1084,13 @@ export default function SocietyLettersPage() {
                       setSettings({
                         ...settings,
                         sourceMode: e.target.value,
+                        ...(e.target.value === "society_queries"
+                          ? {
+                              societySources: settings.societyKeys.map((key) =>
+                                sourceForSociety(settings, key),
+                              ),
+                            }
+                          : {}),
                         columns:
                           e.target.value === "constituents"
                             ? CONSTITUENT_LETTER_COLUMNS
@@ -1043,20 +1104,25 @@ export default function SocietyLettersPage() {
                     <option value="constituents">
                       Constituents with spouse IDs (preview only)
                     </option>
+                    <option value="society_queries">
+                      Separate query for each society (preview only)
+                    </option>
                   </select>
                 </label>
-                <label className="text-sm font-semibold">
-                  NXT saved query ID
-                  <input
-                    className={input}
-                    value={settings.queryId}
-                    onChange={(e) =>
-                      setSettings({ ...settings, queryId: e.target.value })
-                    }
-                    inputMode="numeric"
-                    required
-                  />
-                </label>
+                {settings.sourceMode !== "society_queries" && (
+                  <label className="text-sm font-semibold">
+                    NXT saved query ID
+                    <input
+                      className={input}
+                      value={settings.queryId || ""}
+                      onChange={(e) =>
+                        setSettings({ ...settings, queryId: e.target.value })
+                      }
+                      inputMode="numeric"
+                      required
+                    />
+                  </label>
+                )}
                 <label className="text-sm font-semibold">
                   Letter period
                   <select
@@ -1180,14 +1246,22 @@ export default function SocietyLettersPage() {
                       <input
                         type="checkbox"
                         checked={settings.societyKeys.includes(d.key)}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const keys = e.target.checked
+                            ? [...settings.societyKeys, d.key]
+                            : settings.societyKeys.filter((k) => k !== d.key);
                           setSettings({
                             ...settings,
-                            societyKeys: e.target.checked
-                              ? [...settings.societyKeys, d.key]
-                              : settings.societyKeys.filter((k) => k !== d.key),
-                          })
-                        }
+                            societyKeys: keys,
+                            ...(settings.sourceMode === "society_queries"
+                              ? {
+                                  societySources: keys.map((key) =>
+                                    sourceForSociety(settings, key),
+                                  ),
+                                }
+                              : {}),
+                          });
+                        }}
                       />
                       {d.name}
                     </label>
@@ -1200,61 +1274,75 @@ export default function SocietyLettersPage() {
                   Review society definitions
                 </a>
               </fieldset>
-              <details className="mt-6" open={!data.settings}>
-                <summary className="cursor-pointer font-bold">
-                  Map returned query columns
-                </summary>
-                <p className="mt-2 text-sm text-gray-600">
-                  {settings.sourceMode === "constituents" ? (
-                    "Map System Record ID and Spouse System Record ID, not lookup IDs. Repeated constituency rows are collapsed. Leave optional mappings blank if that field is not in the query. No communication permission is inferred from an address or email."
-                  ) : (
-                    <>
-                      Society must be the configured society name or key. Member
-                      IDs must include the household/head ID, separated by |,
-                      semicolon, or comma. Period dates accept YYYY-MM-DD or
-                      M/D/YYYY. Email Allowed and Mail Allowed must be
-                      Yes/True/1 only when deceased, inactive, opt-out, and
-                      contact restrictions have been checked.
-                    </>
-                  )}
-                </p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.entries(
-                    settings.sourceMode === "constituents"
-                      ? CONSTITUENT_LETTER_LABELS
-                      : LETTER_COLUMNS,
-                  ).map(([key, label]) => (
-                    <label className="text-sm font-semibold" key={key}>
-                      {label}
-                      <input
-                        className={input}
-                        value={settings.columns[key] || ""}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            columns: {
-                              ...settings.columns,
-                              [key]: e.target.value,
-                            },
-                          })
-                        }
-                        required={
-                          settings.sourceMode !== "constituents" ||
-                          !label.includes("(optional)")
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-              </details>
+              {settings.sourceMode === "society_queries" && (
+                <SocietyQueryEditors
+                  settings={settings}
+                  definitions={data.definitions}
+                  templates={data.templates}
+                  onChange={(value) => {
+                    setSettings(value);
+                    setConfirmedSource(false);
+                  }}
+                />
+              )}
+              {settings.sourceMode !== "society_queries" && (
+                <details className="mt-6" open={!data.settings}>
+                  <summary className="cursor-pointer font-bold">
+                    Map returned query columns
+                  </summary>
+                  <p className="mt-2 text-sm text-gray-600">
+                    {settings.sourceMode === "constituents" ? (
+                      "Map System Record ID and Spouse System Record ID, not lookup IDs. Repeated constituency rows are collapsed. Leave optional mappings blank if that field is not in the query. No communication permission is inferred from an address or email."
+                    ) : (
+                      <>
+                        Society must be the configured society name or key.
+                        Member IDs must include the household/head ID, separated
+                        by |, semicolon, or comma. Period dates accept
+                        YYYY-MM-DD or M/D/YYYY. Email Allowed and Mail Allowed
+                        must be Yes/True/1 only when deceased, inactive,
+                        opt-out, and contact restrictions have been checked.
+                      </>
+                    )}
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Object.entries(
+                      settings.sourceMode === "constituents"
+                        ? CONSTITUENT_LETTER_LABELS
+                        : LETTER_COLUMNS,
+                    ).map(([key, label]) => (
+                      <label className="text-sm font-semibold" key={key}>
+                        {label}
+                        <input
+                          className={input}
+                          value={settings.columns?.[key] || ""}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              columns: {
+                                ...settings.columns,
+                                [key]: e.target.value,
+                              },
+                            })
+                          }
+                          required={
+                            settings.sourceMode !== "constituents" ||
+                            !label.includes("(optional)")
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              )}
               <label className="mt-6 flex items-start gap-3 text-sm">
                 <input
                   className="mt-1"
                   type="checkbox"
+                  name="confirmedSource"
                   checked={confirmedSource}
                   onChange={(e) => setConfirmedSource(e.target.checked)}
                 />
-                {settings.sourceMode === "constituents" ? (
+                {isLetterPreviewSource(settings) ? (
                   "I verified this query's giving qualification and dates. I understand these are household previews only; recipient selection, restrictions, prior appeals, and higher-society eligibility still need verification."
                 ) : (
                   <>
@@ -1271,11 +1359,12 @@ export default function SocietyLettersPage() {
                 Save source settings
               </button>
               <p className="mt-3 text-xs text-gray-500">
-                Query output is limited to 1,000 rows and 512 KB; larger results
-                are rejected, never partially sent. Opening this workspace never
-                refreshes NXT or sends letters. New calendar and fiscal periods
-                roll forward automatically; overlapping period/hierarchy changes
-                require a reviewed migration.
+                Each query is limited to 1,000 rows and 512 KB. Combined
+                previews are limited to 5,000 households and 4 MB. Larger
+                results are rejected, never partially sent. Opening this
+                workspace never refreshes NXT or sends letters. New calendar and
+                fiscal periods roll forward automatically; overlapping
+                period/hierarchy changes require a reviewed migration.
               </p>
             </form>
           )}

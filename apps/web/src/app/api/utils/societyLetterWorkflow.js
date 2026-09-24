@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { advanceQueryList } from "./constituentQueryList";
+import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
@@ -18,6 +19,7 @@ import {
   validateLetterSettings,
   verifyConstituentLetterIdColumns,
   CONSTITUENT_LETTER_PREVIEW_NOTICE,
+  isLetterPreviewSource,
 } from "@/utils/societyLetters";
 
 const hash = (value) =>
@@ -46,13 +48,12 @@ function sourceIssue(state, definitions, today) {
     Date.now() - Date.parse(state.snapshot.generatedAt) > 24 * 60 * 60 * 1000
   )
     return "Refresh household eligibility before preparing letters; this snapshot is more than 24 hours old.";
-  if (state.settings.sourceMode === "constituents")
+  if (isLetterPreviewSource(state.settings))
     return CONSTITUENT_LETTER_PREVIEW_NOTICE;
   return null;
 }
 
 export function letterWorkspace(state, definitions, today) {
-  const hierarchy = letterHierarchy(definitions, state.settings);
   const issue = sourceIssue(state, definitions, today);
   const period = state.settings ? letterPeriod(state.settings, today) : null;
   const currentRows =
@@ -66,7 +67,11 @@ export function letterWorkspace(state, definitions, today) {
     emailEnabled: emailDeliveryEnabled(),
     definitions: definitions.filter((d) => d.active && d.basis === "annual"),
     period,
-    templates: hierarchy.map((d) => {
+    templates: letterHierarchy(definitions, {
+      societyKeys: definitions
+        .filter((d) => d.active && d.basis === "annual")
+        .map((d) => d.key),
+    }).map((d) => {
       const t = activeTemplate(state, d.key);
       return {
         societyKey: d.key,
@@ -84,11 +89,18 @@ export function letterWorkspace(state, definitions, today) {
     }),
     sourceIssue: issue,
     refreshedAt: state.snapshot?.generatedAt || null,
+    sources: state.snapshot?.sources || [],
     job: state.job
       ? {
           id: state.job.id,
           status: state.job.status,
           message: state.job.message || "",
+          completedSources:
+            state.job.completedSources ?? state.job.sourceIndex ?? 0,
+          totalSources:
+            state.job.totalSources ??
+            state.settings?.societySources?.length ??
+            1,
         }
       : null,
     rows: currentRows.map((row) => ({
@@ -130,7 +142,7 @@ export function previewLetters(state, definitions, today, body) {
     const row = state.snapshot.rows.find((r) => r.householdId === householdId);
     if (
       !row ||
-      row.sourceMode === "constituents" ||
+      isLetterPreviewSource(row) ||
       letterDisposition(row, state.history).status !== "ready"
     )
       throw letterError(
@@ -231,9 +243,22 @@ export async function updateLetterSettings(
   await store.save(state);
 }
 
-export async function saveLetterTemplate(state, body, today, store, userId) {
-  if (!state.settings?.societyKeys.includes(body.societyKey))
-    throw letterError("Choose a configured society.");
+export async function saveLetterTemplate(
+  state,
+  body,
+  today,
+  store,
+  userId,
+  definitions,
+) {
+  if (
+    !definitions?.some(
+      (d) => d.key === body.societyKey && d.active && d.basis === "annual",
+    )
+  )
+    throw letterError(
+      "Choose an active annual society from Organization Settings.",
+    );
   const template = validateLetterTemplate(body.template);
   const version = hash([body.societyKey, template.version]);
   if (!state.templates[version]) {
@@ -269,6 +294,16 @@ export async function refreshLetterSource(
     throw letterError("Configure the household query first.");
   const signature = letterSourceSignature(state, definitions);
   const period = letterPeriod(state.settings, today);
+  if (state.settings.sourceMode === "society_queries")
+    return refreshMultipleSocietySources({
+      state,
+      signature,
+      period,
+      hierarchy: letterHierarchy(definitions, state.settings),
+      body,
+      store,
+      context,
+    });
   if (["refresh", "restart"].includes(body.action)) {
     if (body.action === "restart" && body.confirm !== true)
       throw letterError("Confirm the query restart first.");

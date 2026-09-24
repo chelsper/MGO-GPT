@@ -33,6 +33,52 @@ are not imported automatically.
 
 ## Household Query Contract
 
+### Multiple Annual Society Queries (September 24)
+
+In **Source & period**, choose **Separate query for each society (preview only)**.
+Select the annual letter hierarchy, then configure a distinct saved query ID,
+actual qualification dates, and constituent/spouse column mappings for each
+selected society. Each query may use different output column names. Switching
+from a single constituent query retains that society's existing configuration
+in the editor. Unconfigured sources require their own dates; no query dates are
+invented. Lifetime societies and inactive definitions are excluded.
+
+**Letter templates** now accepts a separate versioned template for every active
+annual society before membership queries are configured. This does not enroll
+that society in the hierarchy or enable any delivery. Existing prepared letters
+retain their frozen versions. The prepared CY2026 OOD template is an organization
+asset, not embedded in the application code or automatically copied to sandbox.
+
+Refresh explicitly processes one source at a time, with its own metadata checks
+before execution and before accepting output. Each request advances at most one
+source; opening or filtering the page performs no NXT work. Resume retains the
+current NXT query job and completed cohorts. An uncertain job creation requires
+an explicitly confirmed restart. A refresh is bound to the initiating account,
+source settings, definition signature and period. New periods require renewed
+confirmation of every query's qualification dates.
+
+The combined preview is replaced only after all queries finish successfully,
+including queries returning zero rows. Failures retain the previous snapshot
+and letter history. The oldest source verification time is used for combined
+freshness. Limits remain 1,000 output rows and 512 KB per query, with at most
+5,000 households and 4 MB of accumulated cohorts across the selected sources.
+Oversized results are rejected, not truncated.
+
+Opposite spouses returned in different society queries form one household only
+when both ID groups agree. Conflicting spouse links, group membership, or recipient
+data for the same constituent reject the refresh. No names, addresses or gift
+totals are used to infer household qualification. The highest matching society
+in the configured hierarchy becomes the proposed letter; the other matches and
+their source query IDs are retained. This is not proof that an excluded higher
+society member has never received a letter: sent-appeal exclusions still require
+independent appeal/history checks before delivery.
+
+All multi-query output remains **preview only**, enforced by the API as well as
+the UI. It cannot generate/reserve letters, send email, or assign appeals.
+Approved joint recipients, communication restrictions and per-member NXT appeal
+verification/write recovery are still required before activating this source.
+Existing already-grouped sources and their frozen delivery history are unchanged.
+
 ### Constituent/Spouse Preview Adapter (September 24)
 
 The Source & period screen also accepts **Constituents with spouse IDs (preview

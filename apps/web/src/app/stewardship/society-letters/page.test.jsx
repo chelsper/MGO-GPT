@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Page from "./page";
 import { LETTER_COLUMNS } from "@/utils/societyLetters";
+import { societyQuerySettings } from "../../../../test/societyQueryFixture";
+import { sourceForSociety } from "./SocietyQueryEditors";
 const household = {
   householdId: "10",
   name: "Sample Household",
@@ -40,6 +42,181 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("society letter workspace", () => {
+  it("provides independent query and template slots for each annual society", async () => {
+    const settings = societyQuerySettings();
+    const definitions = [
+      {
+        key: "presidents_society",
+        name: "President's Society",
+        displayOrder: 1,
+      },
+      {
+        key: "order_of_the_dolphin",
+        name: "Order of the Dolphin",
+        displayOrder: 2,
+      },
+    ];
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings,
+        definitions,
+        templates: [
+          {
+            societyKey: "order_of_the_dolphin",
+            societyName: "Order of the Dolphin",
+            filename: "OOD.docx",
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Source & period" }),
+    );
+    expect(screen.getByLabelText("President's Society query ID")).toHaveValue(
+      "100",
+    );
+    expect(screen.getByLabelText("Order of the Dolphin query ID")).toHaveValue(
+      "101",
+    );
+    expect(screen.getByText("Letter template: OOD.docx")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Order of the Dolphin query ID"), {
+      target: { value: "31043" },
+    });
+    expect(screen.getByLabelText("President's Society query ID")).toHaveValue(
+      "100",
+    );
+    fireEvent.click(
+      screen.getByLabelText(/I verified this query's giving qualification/),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save source settings" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(payload.action).toBe("settings");
+    expect(payload.settings.societySources.map((s) => s.queryId)).toEqual([
+      "100",
+      "31043",
+    ]);
+    expect(payload.settings.confirmSource).toBe(true);
+  });
+  it("preserves the configured single constituent query when switching to multiple queries", () => {
+    const source = societyQuerySettings().societySources[1];
+    const single = {
+      ...source,
+      sourceMode: "constituents",
+      querySocietyKey: source.societyKey,
+    };
+    expect(sourceForSociety(single, source.societyKey)).toEqual(source);
+    expect(sourceForSociety(single, "presidents_society").queryId).toBe("");
+  });
+  it("adds and removes society query cards without a query refresh", async () => {
+    const settings = societyQuerySettings();
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings,
+        definitions: [
+          { key: "presidents_society", name: "President's Society" },
+          { key: "order_of_the_dolphin", name: "Order of the Dolphin" },
+          { key: "new_society", name: "New Annual Society" },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Source & period" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "New Annual Society" }),
+    );
+    expect(screen.getByLabelText("New Annual Society query ID")).toHaveValue(
+      "",
+    );
+    expect(
+      screen.getByLabelText("New Annual Society query qualification start"),
+    ).toHaveValue("");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Order of the Dolphin" }),
+    );
+    expect(
+      screen.queryByLabelText("Order of the Dolphin query ID"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("President's Society query ID")).toHaveValue(
+      "100",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("filters combined household previews by their highest letter without external reads", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        definitions: [
+          ...base.definitions,
+          { key: "order_of_the_dolphin", name: "Order of the Dolphin" },
+        ],
+        rows: [
+          {
+            ...household,
+            issues: { post: "Preview only", email: "Preview only" },
+          },
+          {
+            ...household,
+            householdId: "20",
+            name: "Another Household",
+            societyKey: "order_of_the_dolphin",
+            societyName: "Order of the Dolphin",
+            issues: { post: "Preview only", email: "Preview only" },
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    await screen.findByText("Sample Household");
+    fireEvent.change(screen.getByLabelText("Society letter"), {
+      target: { value: "order_of_the_dolphin" },
+    });
+    expect(screen.getByText("Another Household")).toBeVisible();
+    expect(screen.queryByText("Sample Household")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Household preview" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Select Another Household")).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("offers templates before source setup without loading queries", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings: null,
+        rows: [],
+        templates: [
+          {
+            societyKey: "presidents_society",
+            societyName: "President's Society",
+          },
+          {
+            societyKey: "order_of_the_dolphin",
+            societyName: "Order of the Dolphin",
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Letter templates" }),
+    );
+    expect(
+      screen.getByLabelText("President's Society Word template"),
+    ).toBeVisible();
+    expect(
+      screen.getByLabelText("Order of the Dolphin Word template"),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("offers constituent/spouse mapping without requiring householded query output", async () => {
     render(<Page />);
     fireEvent.click(

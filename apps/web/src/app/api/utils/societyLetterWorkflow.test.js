@@ -447,6 +447,7 @@ describe("society letter workflow", () => {
       today,
       store,
       1,
+      definitions,
     );
     expect(state.templates[previous.version]).toBe(previous);
     expect(Object.keys(state.templates)).toHaveLength(2);

@@ -168,7 +168,14 @@ export async function POST(request) {
         );
         break;
       case "template":
-        await saveLetterTemplate(state, body, ctx.today, store, ctx.user.id);
+        await saveLetterTemplate(
+          state,
+          body,
+          ctx.today,
+          store,
+          ctx.user.id,
+          ctx.definitions,
+        );
         break;
       case "refresh":
       case "resume":

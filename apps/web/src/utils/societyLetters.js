@@ -48,6 +48,9 @@ const REQUIRED_CONSTITUENT_COLUMNS = [
 ];
 export const CONSTITUENT_LETTER_PREVIEW_NOTICE =
   "Household preview only. Letter creation, sending, and NXT appeal updates are not enabled for this source yet. Communication restrictions, existing appeals, and higher-society coverage must be verified first.";
+export const isLetterPreviewSource = (settings) =>
+  ["constituents", "society_queries"].includes(settings?.sourceMode);
+export const MAX_COMBINED_LETTER_HOUSEHOLDS = 5000;
 export const LETTER_TAGS = [
   "addressee",
   "salutation",
@@ -106,7 +109,10 @@ export function letterPeriod(settings, today) {
 }
 
 export function validateLetterSettings(raw, definitions, today) {
-  if (!/^[1-9]\d*$/.test(text(raw?.queryId)))
+  if (
+    raw?.sourceMode !== "society_queries" &&
+    !/^[1-9]\d*$/.test(text(raw?.queryId))
+  )
     throw letterError("Enter the saved NXT household query ID.");
   if (!["calendar_year", "fiscal_year", "custom"].includes(raw.periodBasis))
     throw letterError("Choose a letter period.");
@@ -120,8 +126,59 @@ export function validateLetterSettings(raw, definitions, today) {
   )
     throw letterError("Select the annual societies in this letter hierarchy.");
   const sourceMode = raw.sourceMode || "households";
-  if (!["households", "constituents"].includes(sourceMode))
+  if (!["households", "constituents", "society_queries"].includes(sourceMode))
     throw letterError("Choose a supported household query format.");
+  if (sourceMode === "society_queries") {
+    const sources = raw.societySources;
+    if (
+      !Array.isArray(sources) ||
+      sources.length !== keys.length ||
+      new Set(sources.map((s) => s?.societyKey)).size !== keys.length ||
+      sources.some((s) => !keys.includes(s?.societyKey))
+    )
+      throw letterError(
+        "Configure one qualification query for each selected annual society.",
+      );
+    const societySources = keys.map((societyKey) => {
+      const source = sources.find((s) => s.societyKey === societyKey);
+      const validated = validateLetterSettings(
+        {
+          ...raw,
+          sourceMode: "constituents",
+          querySocietyKey: societyKey,
+          queryId: source.queryId,
+          columns: source.columns,
+          queryPeriodStart: source.queryPeriodStart,
+          queryPeriodEnd: source.queryPeriodEnd,
+        },
+        definitions,
+        today,
+      );
+      return {
+        societyKey,
+        queryId: validated.queryId,
+        columns: validated.columns,
+        queryPeriodStart: validated.queryPeriodStart,
+        queryPeriodEnd: validated.queryPeriodEnd,
+      };
+    });
+    if (
+      new Set(societySources.map((s) => s.queryId)).size !==
+      societySources.length
+    )
+      throw letterError(
+        "Use a different qualification query for each society; do not assign the same cohort to multiple giving levels.",
+      );
+    return {
+      sourceMode,
+      periodBasis: raw.periodBasis,
+      fiscalYearStartMonth: Number(raw.fiscalYearStartMonth || 7),
+      startDate: raw.startDate || "",
+      endDate: raw.endDate || "",
+      societyKeys: keys,
+      societySources,
+    };
+  }
   const constituentSource = sourceMode === "constituents";
   const fieldNames = constituentSource
     ? CONSTITUENT_LETTER_COLUMNS
@@ -350,6 +407,89 @@ export function letterHierarchy(definitions, settings) {
     .sort(
       (a, b) => a.displayOrder - b.displayOrder || a.key.localeCompare(b.key),
     );
+}
+
+// Separate queries can return opposite spouses. Join only identical ID groups,
+// retaining recipient candidates rather than choosing a joint addressee.
+export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
+  const groups = new Map(),
+    owners = new Map();
+  for (const cohort of cohorts) {
+    for (const row of cohort.rows) {
+      if (
+        row.period.key !== period.key ||
+        !hierarchy.some((d) => d.key === row.societyKey)
+      )
+        throw letterError(
+          "Society query results do not share the configured qualification period and hierarchy.",
+        );
+      const members = [...row.members].sort(
+        (a, b) => a.length - b.length || a.localeCompare(b),
+      );
+      const membership = members.join("|");
+      for (const member of members) {
+        if (owners.has(member) && owners.get(member) !== membership)
+          throw letterError(
+            `Member ${member} has conflicting spouse links across society queries. Prior results were retained.`,
+          );
+        owners.set(member, membership);
+      }
+      const group = groups.get(membership) || {
+        row,
+        recipients: new Map(),
+        qualifications: new Set(),
+        sources: [],
+      };
+      for (const candidate of row.recipientCandidates) {
+        const previous = group.recipients.get(candidate.constituentId);
+        if (previous && JSON.stringify(previous) !== JSON.stringify(candidate))
+          throw letterError(
+            `Constituent ${candidate.constituentId} has conflicting recipient details across society queries. Review the output mappings before refreshing.`,
+          );
+        group.recipients.set(candidate.constituentId, candidate);
+      }
+      group.qualifications.add(row.societyKey);
+      group.sources.push({
+        societyKey: cohort.societyKey,
+        queryId: cohort.queryId,
+      });
+      groups.set(membership, group);
+      if (groups.size > MAX_COMBINED_LETTER_HOUSEHOLDS)
+        throw letterError(
+          `The combined preview exceeds ${MAX_COMBINED_LETTER_HOUSEHOLDS.toLocaleString()} households. Reduce the query cohorts; no partial preview was saved.`,
+          413,
+        );
+    }
+  }
+  return [...groups.values()]
+    .map(({ row, recipients, qualifications, sources }) => {
+      const qualifiedKeys = hierarchy
+        .filter((d) => qualifications.has(d.key))
+        .map((d) => d.key);
+      const rank = hierarchy.findIndex((d) => d.key === qualifiedKeys[0]);
+      const candidates = [...recipients.values()].sort(
+        (a, b) =>
+          a.constituentId.length - b.constituentId.length ||
+          a.constituentId.localeCompare(b.constituentId),
+      );
+      return {
+        ...row,
+        name:
+          [...new Set(candidates.map((r) => r.addressee).filter(Boolean))].join(
+            " / ",
+          ) || row.name,
+        recipientCandidates: candidates,
+        membersOutsideQuery: row.members.filter((id) => !recipients.has(id)),
+        societyKey: hierarchy[rank].key,
+        societyName: hierarchy[rank].name,
+        rank,
+        qualifiedKeys,
+        coveredKeys: hierarchy.slice(rank).map((d) => d.key),
+        sourceQueries: sources,
+        sourceMode: "society_queries",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // The query defines qualification. Never infer a household from an address, or
