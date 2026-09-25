@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import LetterRecipientDialog from "./LetterRecipientDialog";
 import { contactChoiceKey } from "@/utils/societyLetterContacts";
 
 const recipient = {
+  householdId: "10",
   name: "Alex & Pat Sample",
   members: ["10", "11"],
   memberNames: [
@@ -54,6 +55,7 @@ beforeEach(() => {
     },
   });
 });
+afterEach(() => vi.restoreAllMocks());
 describe("letter recipient review dialog", () => {
   it("offers organization contacts without picking among them and preserves the organization's address and ID", () => {
     const save = vi.fn();
@@ -236,7 +238,13 @@ describe("letter recipient review dialog", () => {
     );
     expect(close).toHaveBeenCalledOnce();
   });
-  it("opens a draft with current unsaved wording and returns to the edits without saving", () => {
+  it("keeps draft preview beside editable fields without opening a second dialog or saving", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json(
+        { error: "Synthetic preview unavailable." },
+        { status: 422 },
+      ),
+    );
     const save = vi.fn();
     render(
       <LetterRecipientDialog
@@ -259,13 +267,58 @@ describe("letter recipient review dialog", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Preview personalized letter" }),
     );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.load(screen.getByTitle("Alex & Pat Sample personalized draft"));
     expect(
-      screen.getByText(/Draft only, using your current recipient edits/),
+      await screen.findByText("Synthetic preview unavailable."),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(
+      screen.getByRole("region", { name: "Personalized draft document" }),
+    ).toBeVisible();
     expect(screen.getByLabelText("Salutation")).toHaveValue("Alex and Pat");
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "Friends" },
+    });
+    expect(screen.getByText(/Your edits have changed/)).toBeVisible();
+    expect(
+      screen.getByTitle("Alex & Pat Sample personalized draft"),
+    ).not.toBeVisible();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(save).not.toHaveBeenCalled();
+  });
+  it("keeps progress and actions outside scrolling fields and hides spouse labels for organizations", () => {
+    const org = structuredClone(recipient);
+    org.recipientCandidates[0].organizationContacts = {
+      constituencyCodes: ["Foundation"],
+      contacts: [],
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={org}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        navigation={{
+          index: 0,
+          savedCount: 0,
+          items: [org, { householdId: "20", name: "Next" }],
+          onNavigate: vi.fn(),
+          onSkip: vi.fn(),
+        }}
+      />,
+    );
+    const fields = screen.getByRole("region", { name: "Recipient fields" });
+    const actions = screen.getByLabelText("Recipient review actions");
+    expect(fields).not.toContainElement(screen.getByText(/Recipient 1 of 2/));
+    expect(fields).not.toContainElement(actions);
+    expect(
+      within(actions).getByRole("button", { name: "Save & next" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByText("Name merge fields for this recipient"));
+    expect(screen.queryByText("Spouse first name")).not.toBeInTheDocument();
+    expect(screen.queryByText(/For a joint letter/)).not.toBeInTheDocument();
   });
   it("keeps the original review token if saved workspace details change during editing", () => {
     const save = vi.fn();

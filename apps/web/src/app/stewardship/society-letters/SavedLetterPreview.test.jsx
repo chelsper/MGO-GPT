@@ -37,8 +37,50 @@ beforeEach(() => {
     body.append(text, link);
   });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 describe("saved letter preview", () => {
+  it("fits embedded Word pages to the panel and disconnects its resize observer", async () => {
+    let resize;
+    const observe = vi.fn(),
+      disconnect = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback) {
+          resize = callback;
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
+    renderAsync.mockImplementation(async (_content, body) => {
+      const page = body.ownerDocument.createElement("section");
+      page.className = "docx";
+      Object.defineProperty(page, "offsetWidth", { value: 800 });
+      body.append(page);
+    });
+    const view = render(
+      <SavedLetterPreview embedded template={template} onClose={vi.fn()} />,
+    );
+    const frame = screen.getByTitle("President's Society saved Word letter");
+    Object.defineProperty(frame, "clientWidth", {
+      configurable: true,
+      value: 424,
+    });
+    fireEvent.load(frame);
+    await waitFor(() => expect(frame).toHaveAttribute("aria-busy", "false"));
+    expect(frame.contentDocument.body.style.zoom).toBe("0.5");
+    expect(observe).toHaveBeenCalledWith(frame);
+    Object.defineProperty(frame, "clientWidth", { value: 844 });
+    resize();
+    expect(frame.contentDocument.body.style.zoom).toBe("1");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
   it("renders an on-demand fictional sample once and never marks failed loads as viewed", async () => {
     const onReady = vi.fn();
     fetchMock.mockResolvedValueOnce(

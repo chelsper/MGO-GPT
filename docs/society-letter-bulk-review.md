@@ -2,10 +2,11 @@
 
 ## Workflow
 
-Under Stewardship > Society Letter Creation > Ready for letters, use
+Under Stewardship > Society Letter Creation > Letter workspace, use
 **Review recipients in bulk**. Search and society filters apply to the queue.
-The default scope is recipients needing review; **All editable recipients**
-also includes saved choices. Each session contains at most 50 households.
+The default All recipients view reviews recipients needing review. Selecting
+**Reviewed** or a specific review/issue filter includes editable recipients in
+that view, including saved choices. Each session contains at most 50 households.
 
 The reviewer can preview the personalized Word letter, edit the addressee,
 salutation, mailing address, recipient/address-source record, and selected
@@ -19,6 +20,35 @@ already-reviewed households, while skipped ones remain eligible for review.
 Full letter-body overrides are not part of this implementation. Shared Word
 text and merge-field settings remain in Letter templates. Saved recipient
 choices are scoped to the household and period and do not modify NXT.
+
+## Side-by-Side Review (September 25)
+
+On desktop, recipient fields and a personalized Word preview share one dialog.
+Progress stays in the fixed header; Close review, Previous, Skip, and Save & next
+stay in the fixed footer while the fields and preview scroll independently.
+On smaller screens the panels stack and the header/footer remain available.
+Organizations do not display spouse-only name labels or joint-greeting guidance.
+
+**Preview personalized letter** renders the current edits on demand. Typing
+never triggers a render or an NXT request. After edits or a template-version
+change, the previous preview is hidden with a clear **Update letter preview**
+prompt. Reverting to exactly the previewed values can reuse that preview.
+Embedded Word pages fit the panel width and resize without fetching again.
+
+Preview uses the same sandboxed renderer and server validation as before. It
+does not save choices, check the confirmation box, grant readiness, or advance
+the queue. Save still requires explicit recipient-review confirmation. Failed
+saves retain values and the current recipient. Escape from inside the letter
+passes through the parent's unsaved-edit guard, just like closing or skipping.
+No database, API payload, hierarchy, delivery, or NXT-write contract changed.
+
+Side-by-side verification: 4,263 tests passed, with 21 opt-in tests skipped.
+Typecheck, production build, release guard and diff check passed. Focused
+coverage includes stale-preview hiding, explicit refresh/retry, iframe isolation,
+resize cleanup, unchanged review tokens, failed saves, and navigation guards.
+Synthetic browser checks covered desktop/390px mobile layouts, fixed progress
+and actions, an edited greeting, standard letter-size fitting, and in-memory
+Save & next. This step remains local until a separate deployment is requested.
 
 ## Draft Preview Boundary
 
