@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
   readiness: vi.fn(),
   readinessSettings: vi.fn(),
+  exclusionSettings: vi.fn(),
+  exclusionPlan: vi.fn(),
+  exclusionSync: vi.fn(),
+  exclusionRemoval: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
@@ -52,6 +56,12 @@ vi.mock("@/app/api/utils/societyLetterReadiness", () => ({
   runLetterReadiness: mocks.readiness,
   saveReadinessPolicy: mocks.readinessSettings,
 }));
+vi.mock("@/app/api/utils/societyLetterExclusionAppeals", () => ({
+  saveExclusionAppealPolicy: mocks.exclusionSettings,
+  prepareExclusionAppeal: mocks.exclusionPlan,
+  syncExclusionAppeal: mocks.exclusionSync,
+  verifyExclusionRemoval: mocks.exclusionRemoval,
+}));
 vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
   renderSocietyLetter: vi.fn(),
@@ -87,8 +97,72 @@ beforeEach(() => {
     release: mocks.release,
     finishBatch: mocks.finish,
   });
+  mocks.exclusionRemoval.mockResolvedValue(undefined);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("persists the local exclusion before starting NXT write-back", async () => {
+    const plan = { appeal: { id: "773" } };
+    const item = { id: "x", nxt: plan };
+    mocks.exclusionPlan.mockReturnValue(plan);
+    mocks.exclusion.mockResolvedValueOnce(item);
+    const response = await POST(
+      request({ action: "exclude_recipient", revision: 3, confirmNxt: true }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.exclusion.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.exclusionSync.mock.invocationCallOrder[0],
+    );
+    expect(mocks.exclusion.mock.calls[0][6]).toEqual(plan);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+  it("does not run NXT if saving the local exclusion fails", async () => {
+    mocks.exclusionPlan.mockReturnValue({});
+    mocks.exclusion.mockRejectedValueOnce(
+      Object.assign(new Error("conflict"), { status: 409 }),
+    );
+    expect(
+      (
+        await POST(
+          request({
+            action: "exclude_recipient",
+            revision: 3,
+            confirmNxt: true,
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(mocks.exclusionSync).not.toHaveBeenCalled();
+  });
+  it("requires confirmation for continuing NXT writes but not read-only verification", async () => {
+    expect(
+      (await POST(request({ action: "sync_exclusion_appeal", revision: 3 })))
+        .status,
+    ).toBe(422);
+    expect(mocks.exclusionSync).not.toHaveBeenCalled();
+    expect(
+      (await POST(request({ action: "verify_exclusion_appeal", revision: 3 })))
+        .status,
+    ).toBe(200);
+    expect(mocks.exclusionSync.mock.calls[0][5]).toBe(true);
+  });
+  it("blocks local restoration while NXT exclusion remains", async () => {
+    mocks.exclusionRemoval.mockRejectedValueOnce(
+      Object.assign(new Error("Remove in NXT first"), { status: 422 }),
+    );
+    expect(
+      (
+        await POST(
+          request({
+            action: "restore_recipient",
+            revision: 3,
+            exclusionId: "x",
+          }),
+        )
+      ).status,
+    ).toBe(422);
+    expect(mocks.exclusion).not.toHaveBeenCalled();
+  });
   it.each([
     "check_readiness",
     "resume_readiness",
@@ -137,6 +211,9 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "resume_readiness",
     "cancel_readiness",
     "readiness_settings",
+    "exclusion_appeal_settings",
+    "sync_exclusion_appeal",
+    "verify_exclusion_appeal",
   ])("denies non-reviewer %s", async (action) => {
     mocks.workspace.mockResolvedValue({
       sessionUser: { id: 1, active: true, role: "mgo" },

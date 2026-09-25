@@ -3,6 +3,7 @@ import { isBlackbaudQuotaExceededError } from "./blackbaud";
 import { readinessReader, letterRecordId } from "./societyLetterReadinessNxt";
 import { recipientReviewForRow } from "./societyLetterRecipients";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
+import { exclusionAppealWorkspace } from "./societyLetterExclusionAppeals";
 import {
   letterDisposition,
   letterError,
@@ -52,6 +53,11 @@ function sourceProblem(state, definitions, today) {
 }
 
 function policyProblem(state, definitions, today) {
+  if (
+    state.readiness?.exclusionPolicy &&
+    !exclusionAppealWorkspace(state, definitions, today).current
+  )
+    return "Verify the exclusion appeal settings for this period before checking NXT.";
   const policy = state.readiness?.policy;
   if (
     !policy ||
@@ -88,6 +94,7 @@ function inputs(state, definitions, row, channel) {
     recipient?.savedAt,
     template?.version,
     state.readiness?.policy,
+    state.readiness?.exclusionPolicy,
     channel,
     state.history,
     state.exclusions,
@@ -157,14 +164,24 @@ export async function saveReadinessPolicy(
     throw letterError("Configure 1-10 annual societies first.");
   const appeals = {};
   const ids = new Set();
+  const exclusionIds = new Set(
+    Object.values(state.readiness?.exclusionPolicy?.appeals || {}).map(
+      (a) => a.id,
+    ),
+  );
   for (const tier of hierarchy) {
     const id = letterRecordId(body.appeals?.[tier.key]?.id);
     const description = String(
       body.appeals?.[tier.key]?.description || "",
     ).trim();
-    if (!description || description.length > 300 || ids.has(id))
+    if (
+      !description ||
+      description.length > 300 ||
+      ids.has(id) ||
+      exclusionIds.has(id)
+    )
       throw letterError(
-        "Use a distinct period-specific appeal ID and its exact description for each society.",
+        "Use a distinct period-specific letter-sent appeal ID, separate from exclusion appeals, and its exact description for each society.",
       );
     ids.add(id);
     const found = await reader.appeal(id);
@@ -230,6 +247,7 @@ export function evaluateLetterReadiness(
   hierarchy,
   today,
   channel,
+  exclusionPolicy = null,
 ) {
   const reasons = [];
   const add = (text) => {
@@ -238,6 +256,7 @@ export function evaluateLetterReadiness(
   const rank = hierarchy.findIndex((d) => d.key === row.societyKey);
   let acknowledged = false;
   let householdUnverified = false;
+  let excludedInNxt = false;
   for (const id of row.members) {
     const data = members[id];
     const profile = data?.profile;
@@ -286,6 +305,13 @@ export function evaluateLetterReadiness(
         "NXT has consent instructions that need staff review before using this letter.",
       );
     for (const appeal of data.appeals) {
+      if (
+        exclusionPolicy?.periodKey === row.period.key &&
+        Object.values(exclusionPolicy.appeals).some(
+          (a) => a.id === String(appeal.appeal?.id),
+        )
+      )
+        excludedInNxt = true;
       if (!appeal.appeal?.id) {
         add(
           "An assigned appeal could not be identified. Review prior letter history in NXT.",
@@ -303,6 +329,10 @@ export function evaluateLetterReadiness(
         "A household member requests no email, or NXT did not confirm the email restriction flag.",
       );
   }
+  if (excludedInNxt)
+    return review(
+      "A household member has an exclusion appeal for this period in NXT. Review the exclusion before preparing any letter; this is not a sent acknowledgment.",
+    );
   if (acknowledged && !householdUnverified)
     return {
       status: "already_acknowledged",
@@ -516,6 +546,7 @@ export async function runLetterReadiness(
           letterHierarchy(definitions, state.settings),
           today,
           job.channel,
+          state.readiness.exclusionPolicy,
         );
       }
     } catch (error) {

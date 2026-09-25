@@ -212,6 +212,56 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("read-only society readiness", () => {
+  it("holds an NXT exclusion appeal without treating it as a sent letter", async () => {
+    const { state, row, template, recipient } = await setup();
+    const members = { 10: member("10", "11"), 11: member("11", "10") };
+    members["11"].appeals = [{ appeal: { id: "772" } }];
+    const policy = {
+      periodKey: row.period.key,
+      appeals: { ood: { id: "772" } },
+    };
+    const result = evaluateLetterReadiness(
+      { ...row, ...recipient },
+      template,
+      members,
+      state.readiness.policy,
+      definitions,
+      today,
+      "post",
+      policy,
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.reasons[0]).toContain("exclusion appeal");
+    expect(state.history).toEqual([]);
+    const nextPeriod = { ...policy, periodKey: "another-period" };
+    expect(
+      evaluateLetterReadiness(
+        { ...row, ...recipient },
+        template,
+        members,
+        state.readiness.policy,
+        definitions,
+        today,
+        "post",
+        nextPeriod,
+      ).status,
+    ).toBe("ready_for_preview");
+  });
+  it("rejects reusing an exclusion appeal as a sent appeal", async () => {
+    const { state, store, reader, policyBody } = await setup();
+    state.readiness.exclusionPolicy = { appeals: { ood: { id: "101" } } };
+    await expect(
+      saveReadinessPolicy(
+        state,
+        definitions,
+        today,
+        policyBody,
+        store,
+        ctx,
+        reader,
+      ),
+    ).rejects.toThrow(/separate from exclusion/);
+  });
   it("checks both spouses and preserves membership, choices, delivery flags, and history", async () => {
     const { state, row, run, reader } = await setup();
     const original = structuredClone({

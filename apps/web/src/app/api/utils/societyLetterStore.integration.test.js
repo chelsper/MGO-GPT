@@ -101,6 +101,39 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("keeps an uncertain exclusion POST across lease release and later acquisition", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    state.readiness = {
+      exclusionPolicy: { periodKey: "2026", appeals: { ood: { id: "772" } } },
+    };
+    state.exclusions = [
+      {
+        id: "exclude-test",
+        members: ["10", "11"],
+        nxt: {
+          appeal: { id: "772" },
+          date: "2026-09-25",
+          comments: "Pilot reason",
+          members: [
+            { id: "10", status: "uncertain" },
+            { id: "11", status: "pending" },
+          ],
+        },
+      },
+    ];
+    await store.save(state);
+    await store.release();
+    await expect(acquireSocietyLetters(1, 0)).rejects.toMatchObject({
+      status: 409,
+    });
+    const reloaded = await readSocietyLetterState();
+    const next = await acquireSocietyLetters(1, reloaded.revision);
+    expect(reloaded.exclusions).toEqual(state.exclusions);
+    expect(reloaded.readiness).toEqual(state.readiness);
+    expect(reloaded.history).toEqual([]);
+    await next.release();
+  });
   it("persists readiness checkpoints independently without reserving letters", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const state = await readSocietyLetterState();

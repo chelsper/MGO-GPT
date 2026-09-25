@@ -13,6 +13,9 @@ import {
 import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
 import LetterMergeFieldsEditor from "./LetterMergeFieldsEditor";
 import LetterExclusionDialog from "./LetterExclusionDialog";
+import ExclusionAppealSettings, {
+  ExclusionSyncStatus,
+} from "./ExclusionAppealSettings";
 import LetterRecipientDialog from "./LetterRecipientDialog";
 import LetterReadinessPanel, { readinessLabels } from "./LetterReadinessPanel";
 import QueryColumnMapper from "./QueryColumnMapper";
@@ -555,6 +558,12 @@ export default function SocietyLettersPage() {
           </nav>
           {tab === "ready" && (
             <>
+              <ExclusionAppealSettings
+                key={`${data.period?.key}/${data.exclusionAppeals?.policy?.savedAt || "new"}`}
+                data={data}
+                busy={busy || refreshing || !!sendingBatch}
+                act={act}
+              />
               <LetterReadinessPanel
                 data={data}
                 channel={channel}
@@ -1324,6 +1333,14 @@ export default function SocietyLettersPage() {
                 anything; recipients reappear only if they remain in the current
                 membership list and are not already covered or prepared.
               </p>
+              <div className="mt-4">
+                <ExclusionAppealSettings
+                  key={`${data.period?.key}/${data.exclusionAppeals?.policy?.savedAt || "new"}`}
+                  data={data}
+                  busy={busy || refreshing || !!sendingBatch}
+                  act={act}
+                />
+              </div>
               {!(data.exclusions || []).length && (
                 <p className="mt-5 text-gray-600">
                   No recipients excluded for this period.
@@ -1342,6 +1359,11 @@ export default function SocietyLettersPage() {
                     <p className="mt-1 text-sm text-gray-600">
                       {item.reason || "No reason recorded."}
                     </p>
+                    <ExclusionSyncStatus
+                      item={item}
+                      busy={busy || refreshing || !!sendingBatch}
+                      act={act}
+                    />
                   </div>
                   <button
                     className={button}
@@ -1351,7 +1373,9 @@ export default function SocietyLettersPage() {
                       act({ action: "restore_recipient", exclusionId: item.id })
                     }
                   >
-                    Restore to holding list
+                    {item.nxt
+                      ? "Verify NXT removal and restore"
+                      : "Restore to holding list"}
                   </button>
                 </div>
               ))}
@@ -1688,16 +1712,21 @@ export default function SocietyLettersPage() {
           {excluding && (
             <LetterExclusionDialog
               recipient={excluding}
+              appealSettings={data.exclusionAppeals}
+              today={data.today}
               busy={busy}
               error={error}
               onClose={() => setExcluding(null)}
-              onSave={async (reason) => {
+              onSave={async (values) => {
                 const result = await act({
                   action: "exclude_recipient",
                   householdId: excluding.householdId,
-                  reason,
+                  ...values,
                 });
-                if (result) setExcluding(null);
+                if (result) {
+                  setExcluding(null);
+                  setTab("excluded");
+                }
               }}
             />
           )}

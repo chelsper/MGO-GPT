@@ -12,6 +12,7 @@ import {
   letterReadinessWorkspace,
 } from "./societyLetterReadiness";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
+import { exclusionAppealWorkspace } from "./societyLetterExclusionAppeals";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
 import {
   renderSocietyLetter,
@@ -102,6 +103,7 @@ export function letterWorkspace(state, definitions, today) {
     }),
     sourceIssue: issue,
     readiness: letterReadinessWorkspace(state, definitions, today),
+    exclusionAppeals: exclusionAppealWorkspace(state, definitions, today),
     exclusions: (state.exclusions || []).filter(
       (item) =>
         !item.restoredAt &&
@@ -282,6 +284,7 @@ export async function updateLetterExclusion(
   body,
   store,
   userId,
+  nxt = null,
 ) {
   const period = state.settings && letterPeriod(state.settings, today);
   if (!period) throw letterError("Choose a letter period first.");
@@ -340,12 +343,21 @@ export async function updateLetterExclusion(
       name: row.name,
       period: { ...period },
       reason: body.reason.trim(),
+      ...(nxt
+        ? {
+            nxt,
+            exclusionDate: nxt.date,
+            societyKey: nxt.societyKey,
+            societyName: nxt.societyName,
+          }
+        : {}),
       excludedAt: timestamp,
       excludedBy: userId,
     });
   }
   state.exclusions = exclusions;
   await store.save(state);
+  return body.action === "exclude_recipient" ? exclusions.at(-1) : null;
 }
 
 export async function updateLetterSettings(

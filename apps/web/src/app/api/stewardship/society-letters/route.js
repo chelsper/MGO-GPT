@@ -31,6 +31,12 @@ import {
   saveReadinessPolicy,
 } from "@/app/api/utils/societyLetterReadiness";
 import { letterError } from "@/utils/societyLetters";
+import {
+  saveExclusionAppealPolicy,
+  prepareExclusionAppeal,
+  syncExclusionAppeal,
+  verifyExclusionRemoval,
+} from "@/app/api/utils/societyLetterExclusionAppeals";
 
 export const maxDuration = 120;
 const headers = {
@@ -166,6 +172,9 @@ export async function POST(request) {
       "check_readiness",
       "resume_readiness",
       "cancel_readiness",
+      "exclusion_appeal_settings",
+      "sync_exclusion_appeal",
+      "verify_exclusion_appeal",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -173,6 +182,35 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "exclusion_appeal_settings":
+        await saveExclusionAppealPolicy(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "sync_exclusion_appeal":
+      case "verify_exclusion_appeal": {
+        if (body.action === "sync_exclusion_appeal" && body.confirmNxt !== true)
+          throw letterError(
+            "Confirm applying the exclusion appeal to remaining household members.",
+          );
+        const item = (state.exclusions || []).find(
+          (e) => e.id === body.exclusionId && !e.restoredAt,
+        );
+        await syncExclusionAppeal(
+          state,
+          item,
+          store,
+          ctx,
+          undefined,
+          body.action === "verify_exclusion_appeal",
+        );
+        break;
+      }
       case "readiness_settings":
         await saveReadinessPolicy(
           state,
@@ -206,16 +244,32 @@ export async function POST(request) {
         );
         break;
       case "exclude_recipient":
-      case "restore_recipient":
-        await updateLetterExclusion(
+      case "restore_recipient": {
+        if (body.action === "restore_recipient") {
+          const item = (state.exclusions || []).find(
+            (e) => e.id === body.exclusionId && !e.restoredAt,
+          );
+          await verifyExclusionRemoval(item, ctx);
+        }
+        // Once configured, an exclusion cannot silently omit its NXT write-back.
+        const shouldRecord =
+          body.action === "exclude_recipient" &&
+          (body.confirmNxt === true || !!state.readiness?.exclusionPolicy);
+        const nxt = shouldRecord
+          ? prepareExclusionAppeal(state, ctx.definitions, ctx.today, body)
+          : null;
+        const item = await updateLetterExclusion(
           state,
           ctx.definitions,
           ctx.today,
           body,
           store,
           ctx.user.id,
+          nxt,
         );
+        if (nxt) await syncExclusionAppeal(state, item, store, ctx);
         break;
+      }
       case "settings":
         await updateLetterSettings(
           state,

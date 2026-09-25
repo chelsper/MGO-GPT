@@ -251,7 +251,7 @@ export default function LetterReadinessPanel({
         Checks expire after 24 hours or when source, recipient, template, or
         period details change. Active solicit codes and consent instructions
         require staff review. Ready for preview does not enable sending or
-        appeal updates.
+        letter-sent appeal updates. Exclusion appeals are configured separately.
       </p>
     </section>
   );

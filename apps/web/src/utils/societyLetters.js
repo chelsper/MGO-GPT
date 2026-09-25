@@ -69,7 +69,7 @@ const REQUIRED_CONSTITUENT_COLUMNS = [
   "city",
 ];
 export const CONSTITUENT_LETTER_PREVIEW_NOTICE =
-  "Household preview only. Letter creation, sending, and NXT appeal updates are not enabled for this source yet. Communication restrictions, existing appeals, and higher-society coverage must be verified first.";
+  "Household preview only. Letter creation, sending, and letter-sent appeal updates are not enabled for this source yet. Communication restrictions, existing appeals, and higher-society coverage must be verified first. Separately configured exclusion appeals can be recorded when you confirm an exclusion.";
 export const isLetterPreviewSource = (settings) =>
   ["constituents", "society_queries"].includes(settings?.sourceMode);
 export const MAX_COMBINED_LETTER_HOUSEHOLDS = 5000;
