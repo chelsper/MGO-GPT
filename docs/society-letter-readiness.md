@@ -15,10 +15,13 @@ batches, send email, mark letters acknowledged, or assign NXT appeals.
    by readiness.
 2. Review and save the recipient and address choices for each household. Individuals
    without spouses are supported; missing choices require review without NXT calls.
-3. Under **Letter appeal settings for this period**, enter each society's dedicated
-   letter-sent appeal system record ID and exact description. Use distinct appeals
+3. Under **Setup > Appeal settings > Letter appeal settings for this period**, enter each society's dedicated
+   letter-sent Appeal ID/code (Lookup ID) and exact description. The app resolves
+   the numeric system record ID; **System record ID (advanced)** remains available
+   for explicitly numeric mappings. Existing saved numeric settings are retained.
+   Numeric lookup codes are never interpreted as system IDs. Use distinct appeals
    reserved for that society and recognition period, not general fundraising appeals.
-   Saving verifies their IDs/descriptions using GET requests. The operator must
+   Saving verifies codes/IDs, exact descriptions, and active status using GET requests. The operator must
    confirm that the connected account can read all communication restrictions.
 4. Choose postal or email, narrow the holding list if desired, and select
    **Check readiness**. Only the filtered households are included. Successful fresh
@@ -33,6 +36,12 @@ does not have an overnight worker.
 
 ## Safety and limits
 
+- Code-based setup uses one bounded appeal-catalog GET, shared across all selected
+  societies for that save. Missing, ambiguous, inactive, or mismatched appeals and
+  incomplete catalogs do not replace saved policy. A catalog larger than 5,000
+  rows is rejected, never partially matched. Catalog verification and code matching
+  use the same helpers as exclusion appeals. Configuration reads never assign
+  appeals, send messages, or start constituent readiness checks.
 - One NXT household per request, sequential reads, no request-level retries. Up to
   ten local-only checks can be processed per request. The reader has a 12-call,
   60-second budget and a five-second timeout per call. A spouse pair normally uses

@@ -14,6 +14,7 @@ import {
   renderSocietyLetter,
   validateLetterTemplate,
   inspectLetterTemplate,
+  renderSocietyLetterSample,
 } from "@/app/api/utils/societyLetterDocuments";
 import {
   letterWorkspace,
@@ -33,7 +34,7 @@ import {
   runLetterReadiness,
   saveReadinessPolicy,
 } from "@/app/api/utils/societyLetterReadiness";
-import { letterError } from "@/utils/societyLetters";
+import { letterError, letterPeriod } from "@/utils/societyLetters";
 import {
   saveExclusionAppealPolicy,
   prepareExclusionAppeal,
@@ -178,6 +179,51 @@ export async function POST(request) {
     }
     if (body?.action === "inspect_query")
       return json(await inspectLetterQueryFields(body, ctx));
+    if (body?.action === "preview_template_sample") {
+      const state = await readSocietyLetterState();
+      const template = /^[a-f0-9]{64}$/.test(body.templateVersion || "")
+        ? state.templates[body.templateVersion]
+        : null;
+      const society = ctx.definitions.find(
+        (item) =>
+          item.key === template?.societyKey &&
+          item.active &&
+          item.basis === "annual",
+      );
+      if (!template || !society)
+        throw letterError(
+          "Saved annual society letter not found. Reload setup.",
+          404,
+        );
+      const latest = Object.values(state.templates)
+        .filter((item) => item.societyKey === society.key)
+        .sort((a, b) => b.sequence - a.sequence)[0];
+      if (latest.version !== template.version)
+        throw letterError(
+          "This letter was replaced. Reload setup to preview the current version.",
+          409,
+        );
+      const period = letterPeriod(
+        state.settings || { periodBasis: "calendar_year" },
+        ctx.today,
+      );
+      const rendered = renderSocietyLetterSample(
+        template,
+        society.name,
+        period,
+        ctx.today,
+      );
+      return new Response(rendered.document, {
+        headers: {
+          ...headers,
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition":
+            'attachment; filename="society-letter-sample.docx"',
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
     if (body?.action === "inspect_template") {
       let content = body.content;
       if (body.templateVersion) {

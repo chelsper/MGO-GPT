@@ -11,6 +11,31 @@ tables initialize on the first authorized workspace read after deployment.
 Advancement Services and Admin users open **Stewardship > Society Letter
 Creation**. Access uses the signed-in user's real role, not an impersonated MGO.
 
+### Guided Setup (September 25)
+
+Use **Setup > Setup checklist** for the next configuration action. Source and
+period, query-field mappings, saved letters/merge settings, and fictional sample
+previews are grouped here. **Setup > Appeal settings** contains letter-sent and
+exclusion appeal configuration; readiness checks stay in the daily holding list.
+
+Progress reflects saved settings only. Field mappings count as checked after a
+completed membership snapshot matches those settings and the current period;
+this does not replace the separate 24-hour delivery-readiness checks. Editing a
+source does not execute its query. Save it first, then explicitly select **Load
+membership from saved queries**. Unsaved source changes disable that refresh.
+
+Sample preview uses the saved Word template and merge settings with fictional
+names and addresses. It reads no constituent data, acquires no state-write lease,
+does not run queries, and creates no history or NXT updates. Preview indicators
+last for the current page visit and invalidate when source, period, society, or
+template version changes. Returning users are not asked to repeat samples in
+the daily holding list. Samples do not approve real recipients or enable sending.
+
+No database migration, background job, or delivery-policy change is introduced.
+These setup changes require deployment before appearing in production.
+
+### Letter Preparation
+
 1. Configure a saved NXT query of qualified households and map its output fields.
 2. Choose current calendar year, current fiscal year, or explicit period dates.
 3. Select the annual society hierarchy from Organization Settings. Its display

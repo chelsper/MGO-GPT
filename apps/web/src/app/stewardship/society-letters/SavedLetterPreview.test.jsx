@@ -39,6 +39,43 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("saved letter preview", () => {
+  it("renders an on-demand fictional sample once and never marks failed loads as viewed", async () => {
+    const onReady = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ error: "Map the Word fields first." }, { status: 422 }),
+    );
+    const view = render(
+      <SavedLetterPreview
+        template={template}
+        sample
+        onReady={onReady}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.load(screen.getByTitle("President's Society sample letter"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Map the Word fields first.",
+    );
+    expect(onReady).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try preview again" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledWith(template.version));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      action: "preview_template_sample",
+      templateVersion: template.version,
+    });
+    expect(screen.getByText("Sample only: fictional recipient")).toBeVisible();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    view.rerender(
+      <SavedLetterPreview
+        template={template}
+        sample
+        onReady={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(renderAsync).toHaveBeenCalledOnce();
+  });
   it("renders an on-demand personalized draft without offering the unmerged template as a letter download", async () => {
     const draft = {
       name: "Alex Sample",

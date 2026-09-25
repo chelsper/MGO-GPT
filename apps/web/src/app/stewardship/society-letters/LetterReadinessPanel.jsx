@@ -12,8 +12,20 @@ export const readinessLabels = {
   already_acknowledged: "Already acknowledged",
 };
 
-function ReadinessSettings({ data, busy, act }) {
-  const [appeals, setAppeals] = useState(data.readiness.policy?.appeals || {});
+export function ReadinessSettings({ data, busy, act }) {
+  const [appeals, setAppeals] = useState(() =>
+    Object.fromEntries(
+      Object.entries(data.readiness.policy?.appeals || {}).map(
+        ([key, appeal]) => [
+          key,
+          {
+            ...appeal,
+            identifierType: appeal.lookupId ? "lookup" : "system",
+          },
+        ],
+      ),
+    ),
+  );
   const [confirm, setConfirm] = useState(false);
   const tiers = data.definitions.filter((d) =>
     data.settings.societyKeys.includes(d.key),
@@ -32,49 +44,121 @@ function ReadinessSettings({ data, busy, act }) {
       </summary>
       <p className="mt-2 text-sm text-gray-600">
         Use each society&apos;s dedicated {data.period.start} to{" "}
-        {data.period.end} letter-sent appeal. Enter the NXT appeal system record
-        ID, not its lookup code. Saving verifies the ID and description; it does
-        not assign appeals.
+        {data.period.end} letter-sent appeal. Enter the Appeal ID/code shown in
+        NXT and its exact description. The app finds and verifies the system
+        record ID for you. Saving settings does not assign appeals or send
+        letters.
       </p>
       <form
         className="mt-4 space-y-4"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (await act({ action: "readiness_settings", appeals, confirm }))
+          const requested = Object.fromEntries(
+            tiers.map((tier) => {
+              const appeal = appeals[tier.key] || {};
+              return [
+                tier.key,
+                {
+                  [appeal.identifierType === "system" ? "id" : "lookupId"]:
+                    appeal.identifierType === "system"
+                      ? appeal.id || ""
+                      : appeal.lookupId || "",
+                  description: appeal.description || "",
+                },
+              ];
+            }),
+          );
+          if (
+            await act({
+              action: "readiness_settings",
+              appeals: requested,
+              confirm,
+            })
+          )
             setConfirm(false);
         }}
       >
-        {tiers.map((tier) => (
-          <fieldset
-            key={tier.key}
-            className="grid gap-3 sm:grid-cols-[12rem_1fr]"
-          >
-            <legend className="mb-2 font-semibold">{tier.name}</legend>
-            <label className="text-sm font-semibold">
-              Appeal system record ID
-              <input
-                className={input}
-                aria-label={`${tier.name} appeal system record ID`}
-                value={appeals[tier.key]?.id || ""}
-                required
-                pattern="[1-9][0-9]{0,17}"
-                maxLength={18}
-                onChange={(e) => edit(tier.key, "id", e.target.value)}
-              />
-            </label>
-            <label className="text-sm font-semibold">
-              Exact appeal description
-              <input
-                className={input}
-                aria-label={`${tier.name} appeal description`}
-                value={appeals[tier.key]?.description || ""}
-                required
-                maxLength={300}
-                onChange={(e) => edit(tier.key, "description", e.target.value)}
-              />
-            </label>
-          </fieldset>
-        ))}
+        {tiers.map((tier) => {
+          const appeal = appeals[tier.key] || {};
+          const system = appeal.identifierType === "system";
+          const saved = data.readiness.policy?.appeals?.[tier.key];
+          const unchanged =
+            saved &&
+            appeal.description === saved.description &&
+            (system
+              ? appeal.id === saved.id
+              : appeal.lookupId === saved.lookupId);
+          return (
+            <fieldset
+              key={tier.key}
+              className="grid gap-4 md:grid-cols-[minmax(16rem,1fr)_2fr]"
+            >
+              <legend className="mb-2 font-semibold">{tier.name}</legend>
+              <div className="min-w-0 space-y-3">
+                <label className="block text-sm font-semibold">
+                  Find appeal by
+                  <select
+                    className={input}
+                    aria-label={`${tier.name} find appeal by`}
+                    value={system ? "system" : "lookup"}
+                    onChange={(e) =>
+                      edit(tier.key, "identifierType", e.target.value)
+                    }
+                  >
+                    <option value="lookup">Appeal code (Lookup ID)</option>
+                    <option value="system">System record ID (advanced)</option>
+                  </select>
+                </label>
+                <label className="text-sm font-semibold">
+                  {system
+                    ? "Appeal system record ID"
+                    : "Appeal code (Lookup ID)"}
+                  <input
+                    className={input}
+                    aria-label={`${tier.name} ${system ? "appeal system record ID" : "appeal code"}`}
+                    value={(system ? appeal.id : appeal.lookupId) || ""}
+                    required
+                    pattern={system ? "[1-9][0-9]{0,17}" : undefined}
+                    inputMode={system ? "numeric" : "text"}
+                    title={
+                      system
+                        ? "Enter the numeric NXT system record ID, not the appeal code."
+                        : undefined
+                    }
+                    maxLength={system ? 18 : 100}
+                    onChange={(e) =>
+                      edit(tier.key, system ? "id" : "lookupId", e.target.value)
+                    }
+                  />
+                </label>
+                <p className="text-xs text-gray-600">
+                  {system
+                    ? "The numeric ID from the NXT appeal record URL, not its user-defined code."
+                    : "Use the Appeal ID shown in NXT, such as CY26PRESSOC-MGO."}
+                </p>
+              </div>
+              <label className="text-sm font-semibold">
+                Exact appeal description
+                <input
+                  className={input}
+                  aria-label={`${tier.name} appeal description`}
+                  value={appeal.description || ""}
+                  required
+                  maxLength={300}
+                  onChange={(e) =>
+                    edit(tier.key, "description", e.target.value)
+                  }
+                />
+              </label>
+              {unchanged && (
+                <p className="text-sm text-emerald-800 md:col-span-2">
+                  Saved appeal: {saved.lookupId || "appeal"} (system record ID{" "}
+                  {saved.id}).
+                </p>
+              )}
+            </fieldset>
+          );
+        })}
         <label className="flex items-start gap-3 text-sm">
           <input
             type="checkbox"
@@ -102,6 +186,7 @@ export default function LetterReadinessPanel({
   busy,
   blocked,
   act,
+  onOpenSettings,
 }) {
   const [running, setRunning] = useState(false);
   const [, refreshClock] = useState(0);
@@ -241,12 +326,18 @@ export default function LetterReadinessPanel({
           )}
         </div>
       )}
-      <ReadinessSettings
-        key={`${data.period.key}/${data.readiness.policy?.savedAt || "new"}`}
-        data={data}
-        busy={busy || blocked || !!active}
-        act={act}
-      />
+      {onOpenSettings ? (
+        <button className={`${button} mt-4`} onClick={onOpenSettings}>
+          Open appeal settings
+        </button>
+      ) : (
+        <ReadinessSettings
+          key={`${data.period.key}/${data.readiness.policy?.savedAt || "new"}`}
+          data={data}
+          busy={busy || blocked || !!active}
+          act={act}
+        />
+      )}
       <p className="mt-3 text-xs text-gray-500">
         Checks expire after 24 hours or when source, recipient, template, or
         period details change. Active solicit codes and consent instructions

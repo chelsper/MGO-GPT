@@ -8,6 +8,7 @@ import {
   validateLetterTemplate,
   renderSocietyLetter,
   letterArchive,
+  renderSocietyLetterSample,
 } from "./societyLetterDocuments";
 import { LETTER_TAGS } from "@/utils/societyLetters";
 import { contactChoiceKey } from "@/utils/societyLetterContacts";
@@ -24,6 +25,30 @@ const row = {
   letterDate: "2026-09-22",
 };
 describe("society Word letters", () => {
+  it("renders a setup sample with fictional values for every supported merge field", () => {
+    const template = validateLetterTemplate({
+      ...templateFixture(),
+      content: wordFixture(
+        LETTER_TAGS.map((tag) => `{${tag}}`).join(" | "),
+      ).generate({ type: "base64" }),
+    });
+    const result = renderSocietyLetterSample(
+      template,
+      "Order of the Dolphin",
+      row.period,
+      "2026-09-25",
+    );
+    const xml = new PizZip(result.document).file("word/document.xml").asText();
+    expect(xml).toContain("Alex");
+    expect(xml).toContain("Jordan");
+    expect(xml).toContain("123 Sample Street");
+    expect(xml).toContain("Suite 200");
+    expect(xml).toContain("Example City");
+    expect(xml).toContain("00000");
+    expect(xml).toContain("Order of the Dolphin");
+    expect(xml).toContain("2026-09-25");
+    expect(xml).not.toMatch(/\{[a-z_]+\}/);
+  });
   it("renders the selected organization contact's names with the organization's reviewed address", () => {
     const contact = {
       role: "Society letter contact",

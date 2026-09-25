@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { blackbaudApiFetch } from "./blackbaud";
 import { letterRecordId } from "./societyLetterReadinessNxt";
 import {
+  completeAppealCatalog,
+  appealByLookupCode,
+} from "./societyLetterAppealCatalog";
+import {
   letterError,
   letterHierarchy,
   letterPeriod,
@@ -119,19 +123,7 @@ export function exclusionAppealClient(ctx, fetcher = blackbaudApiFetch) {
       const result = await request(
         "/fundraising/v1/appeals?include_inactive=true&limit=5000",
       );
-      // SKY may provide a next_link even when count confirms all rows returned.
-      if (
-        !Array.isArray(result?.value) ||
-        !Number.isInteger(result.count) ||
-        result.count !== result.value.length ||
-        result.count > 5000 ||
-        result.value.some((r) => !r?.id || typeof r.description !== "string") ||
-        new Set(result.value.map((r) => String(r.id))).size !== result.count
-      )
-        throw letterError(
-          "The complete appeal catalog could not be verified. Exclusion appeal settings were not approved.",
-        );
-      return result.value;
+      return completeAppealCatalog(result);
     },
     appeals,
     async profile(id) {
@@ -163,37 +155,11 @@ export function exclusionAppealClient(ctx, fetcher = blackbaudApiFetch) {
 }
 
 function resolveAppeal(catalog, requested) {
-  const lookupId = String(requested?.lookupId || "").trim();
-  const description = String(requested?.description || "").trim();
-  if (
-    !lookupId ||
-    lookupId.length > 100 ||
-    !description ||
-    description.length > 300
-  )
-    throw letterError(
-      "Enter each exclusion appeal's lookup code and exact description.",
-    );
-  const byCode = catalog.filter(
-    (a) => a.lookup_id?.toLowerCase() === lookupId.toLowerCase(),
-  );
-  const byDescription = catalog.filter(
-    (a) => a.description.trim().toLowerCase() === description.toLowerCase(),
-  );
-  if (
-    byCode.length !== 1 ||
-    byDescription.length !== 1 ||
-    byCode[0].id !== byDescription[0].id ||
-    byCode[0].description !== description ||
-    byCode[0].inactive !== false
-  )
-    throw letterError(
-      "An exclusion appeal is missing, inactive, or ambiguous. Verify its lookup code and exact description in NXT.",
-    );
+  const appeal = appealByLookupCode(catalog, requested, "exclusion");
   return {
-    id: letterRecordId(byCode[0].id),
-    lookupId: byCode[0].lookup_id,
-    description,
+    id: letterRecordId(appeal.id),
+    lookupId: appeal.lookup_id,
+    description: appeal.description,
   };
 }
 

@@ -1,5 +1,9 @@
 import { blackbaudApiFetch } from "./blackbaud";
 import { letterError } from "@/utils/societyLetters";
+import {
+  completeAppealCatalog,
+  appealByLookupCode,
+} from "./societyLetterAppealCatalog";
 
 const idPattern = /^[1-9][0-9]{0,17}$/;
 export function letterRecordId(value) {
@@ -13,6 +17,7 @@ export function letterRecordId(value) {
 export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
   let calls = 0;
   const deadline = Date.now() + 60000;
+  let catalog;
   async function get(path) {
     if (++calls > 12 || Date.now() > deadline)
       throw letterError(
@@ -51,6 +56,22 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
     return payload.value;
   }
   return {
+    async appealByCode(lookupId, description) {
+      if (!catalog)
+        catalog = completeAppealCatalog(
+          await get("/fundraising/v1/appeals?include_inactive=true&limit=5000"),
+        );
+      const appeal = appealByLookupCode(
+        catalog,
+        { lookupId, description },
+        "letter-sent",
+      );
+      return {
+        id: letterRecordId(appeal.id),
+        lookupId: appeal.lookup_id,
+        description: appeal.description,
+      };
+    },
     async appeal(id) {
       id = letterRecordId(id);
       const appeal = await get(`/fundraising/v1/appeals/${id}`);
@@ -58,7 +79,17 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
         throw letterError(
           "The letter appeal could not be verified in NXT. Check its system record ID.",
         );
-      return { id, description: appeal.description };
+      if (appeal.inactive !== false)
+        throw letterError(
+          "The letter-sent appeal is inactive or its active status could not be verified. Check NXT before saving.",
+        );
+      return {
+        id,
+        ...(typeof appeal.lookup_id === "string"
+          ? { lookupId: appeal.lookup_id }
+          : {}),
+        description: appeal.description,
+      };
     },
     async member(id) {
       id = letterRecordId(id);

@@ -142,6 +142,36 @@ function draftSetup() {
   };
 }
 describe("society letter workflow", () => {
+  it("reports setup from saved source and snapshot identity without treating it as delivery readiness", () => {
+    const { state } = setup();
+    state.settings.societyKeys = definitions
+      .filter((d) => d.active && d.basis === "annual")
+      .map((d) => d.key);
+    state.snapshot.signature = letterSourceSignature(state, definitions);
+    state.snapshot.generatedAt = "2020-01-01T00:00:00Z";
+    const before = structuredClone(state);
+    const view = letterWorkspace(state, definitions, today);
+    expect(view.setup).toMatchObject({
+      sourceConfigured: true,
+      membershipCurrent: true,
+    });
+    expect(view.sourceIssue).toMatch(/more than 24 hours/);
+    expect(state).toEqual(before);
+    const key = view.setup.key;
+    state.settings.queryId = "456";
+    const changed = letterWorkspace(state, definitions, today);
+    expect(changed.setup.membershipCurrent).toBe(false);
+    expect(changed.setup.key).not.toBe(key);
+    expect(
+      letterWorkspace(state, definitions, "2027-01-01").setup.membershipCurrent,
+    ).toBe(false);
+    state.settings = null;
+    expect(
+      letterWorkspace(state, definitions, today).setup.sourceConfigured,
+    ).toBe(false);
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+    expect(advanceQueryList).not.toHaveBeenCalled();
+  });
   it("merges unsaved recipient choices with the highest selected society template without persisting or enabling delivery", () => {
     const { state, store, body } = draftSetup();
     const before = structuredClone(state);

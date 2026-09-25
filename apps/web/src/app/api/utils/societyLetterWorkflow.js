@@ -70,6 +70,17 @@ export function letterWorkspace(state, definitions, today) {
   const issue = sourceIssue(state, definitions, today);
   const signature = letterSourceSignature(state, definitions);
   const period = state.settings ? letterPeriod(state.settings, today) : null;
+  let sourceConfigured = false;
+  try {
+    validateLetterSettings(
+      { ...state.settings, confirmSource: true },
+      definitions,
+      today,
+    );
+    sourceConfigured = true;
+  } catch {
+    // Saved settings may need attention after a period or society change.
+  }
   const currentRows =
     period && state.snapshot?.period?.key === period.key
       ? state.snapshot.rows
@@ -81,6 +92,15 @@ export function letterWorkspace(state, definitions, today) {
     emailEnabled: emailDeliveryEnabled(),
     definitions: definitions.filter((d) => d.active && d.basis === "annual"),
     period,
+    setup: {
+      key: hash([signature, period?.key]),
+      sourceConfigured,
+      membershipCurrent: Boolean(
+        sourceConfigured &&
+        state.snapshot?.period?.key === period?.key &&
+        state.snapshot?.signature === signature,
+      ),
+    },
     templates: letterHierarchy(definitions, {
       societyKeys: definitions
         .filter((d) => d.active && d.basis === "annual")

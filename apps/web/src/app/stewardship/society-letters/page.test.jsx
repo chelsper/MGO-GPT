@@ -85,7 +85,98 @@ function reviewRow(id, saved = false) {
     },
   };
 }
+async function setupTab(name) {
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Setup", exact: true }),
+  );
+  return screen.findByRole("button", { name, exact: true });
+}
 describe("society letter workspace", () => {
+  it("separates setup from daily review and directs mapping work without making requests", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        setup: { key: "one", sourceConfigured: true, membershipCurrent: false },
+      }),
+    );
+    render(<Page />);
+    await screen.findByRole("button", { name: "Open setup checklist" });
+    expect(
+      screen.queryByRole("button", { name: "Source & period" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Letter templates" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("NXT exclusion appeal settings"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open setup checklist" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Your letter setup checklist" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review field mappings" }),
+    );
+    expect(
+      screen.getByText("Map returned query columns").closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      screen.getByRole("button", {
+        name: "Load membership from saved queries",
+      }),
+    ).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "NXT saved query ID" }),
+      { target: { value: "456" } },
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Load membership from saved queries",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("Save your source changes before loading membership."),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Appeal settings", exact: true }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "NXT appeal settings" }),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("moves multiple-society appeal forms into setup while retaining daily readiness controls", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        readiness: {
+          policy: null,
+          issue: "Save letter appeal settings",
+          job: null,
+        },
+      }),
+    );
+    render(<Page />);
+    await screen.findByRole("heading", { name: "Check letter readiness" });
+    expect(
+      screen.queryByText("Letter appeal settings for this period"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("NXT exclusion appeal settings"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open appeal settings" }),
+    );
+    expect(
+      screen.getByText("Letter appeal settings for this period"),
+    ).toBeVisible();
+    expect(screen.getByText("NXT exclusion appeal settings")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("reads saved Word fields and saves per-placeholder mappings without uploading a replacement", async () => {
     let template = {
       societyKey: "ood",
@@ -123,9 +214,7 @@ describe("society letter workspace", () => {
       return Response.json({ ...base, templates: [template] });
     });
     const view = render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Letter templates" }),
-    );
+    fireEvent.click(await setupTab("Letter templates"));
     fireEvent.click(
       screen.getByRole("button", { name: "Read fields from Word letter" }),
     );
@@ -160,9 +249,7 @@ describe("society letter workspace", () => {
     ]);
     view.unmount();
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Letter templates" }),
-    );
+    fireEvent.click(await setupTab("Letter templates"));
     expect(
       screen.getByLabelText("Order of the Dolphin fill First_Name with"),
     ).toHaveValue("first_names");
@@ -373,9 +460,7 @@ describe("society letter workspace", () => {
   });
   it("guides a grouped source to constituent fields without changing saved settings or running a query", async () => {
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Source & period" }),
-    );
+    fireEvent.click(await setupTab("Source & period"));
     fireEvent.click(
       screen.getByRole("button", { name: "Use constituent and spouse fields" }),
     );
@@ -489,9 +574,7 @@ describe("society letter workspace", () => {
       return Response.json(base);
     });
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Source & period" }),
-    );
+    fireEvent.click(await setupTab("Source & period"));
     fireEvent.click(screen.getByText("Map returned query columns"));
     fireEvent.change(screen.getByLabelText("Addressee"), {
       target: { value: "Joint Addressee" },
@@ -600,9 +683,7 @@ describe("society letter workspace", () => {
       return Response.json({ ...base, templates: [template] });
     });
     const first = render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Letter templates" }),
-    );
+    fireEvent.click(await setupTab("Letter templates"));
     expect(
       screen.getByRole("button", { name: "Preview saved letter" }),
     ).toBeVisible();
@@ -654,9 +735,7 @@ describe("society letter workspace", () => {
     });
     first.unmount();
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Letter templates" }),
-    );
+    fireEvent.click(await setupTab("Letter templates"));
     expect(
       screen.getByLabelText("President's Society use Letter date"),
     ).not.toBeChecked();
@@ -693,9 +772,7 @@ describe("society letter workspace", () => {
       }),
     );
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Letter templates" }),
-    );
+    fireEvent.click(await setupTab("Letter templates"));
     const high = within(
       screen.getByRole("form", { name: "President's Society letter template" }),
     );
@@ -760,9 +837,7 @@ describe("society letter workspace", () => {
       }),
     );
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Source & period" }),
-    );
+    fireEvent.click(await setupTab("Source & period"));
     expect(screen.getByLabelText("President's Society query ID")).toHaveValue(
       "100",
     );
@@ -815,9 +890,7 @@ describe("society letter workspace", () => {
       }),
     );
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Source & period" }),
-    );
+    fireEvent.click(await setupTab("Source & period"));
     fireEvent.click(
       screen.getByRole("checkbox", { name: "New Annual Society" }),
     );
@@ -895,9 +968,7 @@ describe("society letter workspace", () => {
       }),
     );
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Letter templates" }),
-    );
+    fireEvent.click(await setupTab("Letter templates"));
     expect(
       screen.getByLabelText("President's Society Word template"),
     ).toBeVisible();
@@ -908,9 +979,7 @@ describe("society letter workspace", () => {
   });
   it("offers constituent/spouse mapping without requiring householded query output", async () => {
     render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Source & period" }),
-    );
+    fireEvent.click(await setupTab("Source & period"));
     fireEvent.change(screen.getByLabelText("Query format"), {
       target: { value: "constituents" },
     });

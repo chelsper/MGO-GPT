@@ -647,6 +647,170 @@ describe("read-only society readiness", () => {
 });
 
 describe("readiness NXT reader", () => {
+  const appealCatalog = () => [
+    {
+      id: "100",
+      lookup_id: "CY26PRESSOC-MGO",
+      description: "CY2026 Presidents Letter",
+      inactive: false,
+    },
+    {
+      id: "101",
+      lookup_id: "CY26OOD-MGO",
+      description: "CY2026 OOD Letter",
+      inactive: false,
+    },
+  ];
+  const codePolicy = () => ({
+    confirm: true,
+    appeals: {
+      presidents: {
+        lookupId: "CY26PRESSOC-MGO",
+        description: "CY2026 Presidents Letter",
+      },
+      ood: { lookupId: "CY26OOD-MGO", description: "CY2026 OOD Letter" },
+    },
+  });
+  it("resolves both appeal codes with one complete catalog GET and saves verified IDs atomically", async () => {
+    const { state, store } = await setup();
+    const history = structuredClone(state.history);
+    const fetcher = vi.fn(async () => ({
+      count: 2,
+      value: appealCatalog(),
+      next_link: "/ignored",
+    }));
+    store.save.mockClear();
+    await saveReadinessPolicy(
+      state,
+      definitions,
+      today,
+      codePolicy(),
+      store,
+      ctx,
+      readinessReader(ctx, fetcher),
+    );
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+      "/fundraising/v1/appeals?include_inactive=true&limit=5000",
+      expect.objectContaining({
+        method: "GET",
+        timeoutMs: 5000,
+        maxRetries: 0,
+      }),
+    );
+    expect(store.save).toHaveBeenCalledOnce();
+    expect(state.readiness.policy.appeals.presidents).toEqual({
+      id: "100",
+      lookupId: "CY26PRESSOC-MGO",
+      description: "CY2026 Presidents Letter",
+    });
+    expect(state.readiness.policy.appeals.ood.id).toBe("101");
+    expect(state.history).toEqual(history);
+  });
+  it.each([
+    "unknown",
+    "description",
+    "inactive",
+    "unknown-active",
+    "duplicate-code",
+    "duplicate-description",
+    "partial",
+    "exclusion",
+    "same-society",
+    "both-identifiers",
+    "invalid-id",
+    "throttled",
+  ])("rejects %s and preserves all previous settings", async (scenario) => {
+    const { state, store } = await setup();
+    const catalog = appealCatalog();
+    const body = codePolicy();
+    if (scenario === "unknown") body.appeals.ood.lookupId = "NOT-FOUND";
+    if (scenario === "description")
+      body.appeals.ood.description = "Wrong description";
+    if (scenario === "inactive") catalog[1].inactive = true;
+    if (scenario === "unknown-active") delete catalog[1].inactive;
+    if (scenario === "duplicate-code")
+      catalog.push({ ...catalog[1], id: "102", description: "Other letter" });
+    if (scenario === "duplicate-description")
+      catalog.push({ ...catalog[1], id: "102", lookup_id: "OTHER" });
+    if (scenario === "exclusion")
+      state.readiness.exclusionPolicy = { appeals: { ood: { id: "101" } } };
+    if (scenario === "same-society")
+      body.appeals.ood = { ...body.appeals.presidents };
+    if (scenario === "both-identifiers") body.appeals.presidents.id = "999";
+    if (scenario === "invalid-id") catalog[1].id = "../invalid";
+    const fetcher = vi.fn(async () => {
+      if (scenario === "throttled") throw new Error("quota");
+      return {
+        count: catalog.length + (scenario === "partial" ? 1 : 0),
+        value: catalog,
+      };
+    });
+    const before = structuredClone(state);
+    store.save.mockClear();
+    await expect(
+      saveReadinessPolicy(
+        state,
+        definitions,
+        today,
+        body,
+        store,
+        ctx,
+        readinessReader(ctx, fetcher),
+      ),
+    ).rejects.toThrow();
+    expect(store.save).not.toHaveBeenCalled();
+    expect(state).toEqual(before);
+    expect(
+      fetcher.mock.calls.every(([, options]) => options.method === "GET"),
+    ).toBe(true);
+  });
+  it("treats numeric lookup codes as codes and never substitutes a system ID", async () => {
+    const fetcher = vi.fn(async () => ({
+      count: 1,
+      value: [{ ...appealCatalog()[0], id: "999", lookup_id: "100" }],
+    }));
+    const reader = readinessReader(ctx, fetcher);
+    expect(
+      await reader.appealByCode("100", "CY2026 Presidents Letter"),
+    ).toMatchObject({ id: "999", lookupId: "100" });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it("preserves explicit numeric-ID setup and verifies active status", async () => {
+    const fetcher = vi.fn(async () => appealCatalog()[0]);
+    expect(await readinessReader(ctx, fetcher).appeal("100")).toEqual({
+      id: "100",
+      lookupId: "CY26PRESSOC-MGO",
+      description: "CY2026 Presidents Letter",
+    });
+    expect(fetcher.mock.calls[0][0]).toBe("/fundraising/v1/appeals/100");
+    fetcher.mockResolvedValue({ ...appealCatalog()[0], inactive: true });
+    await expect(readinessReader(ctx, fetcher).appeal("100")).rejects.toThrow(
+      /inactive/,
+    );
+  });
+  it.each([
+    {},
+    { value: [] },
+    { count: 1, value: [] },
+    {
+      count: 2,
+      value: [
+        { id: "1", description: "A" },
+        { id: "1", description: "B" },
+      ],
+    },
+    { count: 1, value: [null] },
+    { count: 1, value: [{ id: "1" }] },
+  ])(
+    "rejects an incomplete or malformed appeal catalog %j",
+    async (payload) => {
+      const fetcher = vi.fn(async () => payload);
+      await expect(
+        readinessReader(ctx, fetcher).appealByCode("CODE", "A"),
+      ).rejects.toThrow(/catalog/);
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
+  );
   const payloads = () => [
     member("10").profile,
     { count: 0, value: [] },

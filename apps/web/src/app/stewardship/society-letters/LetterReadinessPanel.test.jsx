@@ -6,7 +6,7 @@ import {
   screen,
   cleanup,
 } from "@testing-library/react";
-import Panel from "./LetterReadinessPanel";
+import Panel, { ReadinessSettings } from "./LetterReadinessPanel";
 const base = {
   period: { key: "2026", start: "2026-01-01", end: "2026-12-31" },
   settings: { societyKeys: ["ood"] },
@@ -21,6 +21,136 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe("readiness panel", () => {
+  it("accepts an appeal code without a numeric-format validation error and sends only the selected identifier", () => {
+    const act = vi.fn();
+    render(<ReadinessSettings data={base} busy={false} act={act} />);
+    fireEvent.click(screen.getByText("Letter appeal settings for this period"));
+    const code = screen.getByLabelText("Order of the Dolphin appeal code");
+    fireEvent.change(code, { target: { value: "CY26OOD-MGO" } });
+    fireEvent.change(
+      screen.getByLabelText("Order of the Dolphin appeal description"),
+      { target: { value: "CY2026 OOD Letter Sent via JUMGOGPT" } },
+    );
+    expect(code.checkValidity()).toBe(true);
+    expect(code).not.toHaveAttribute("pattern");
+    expect(
+      screen.getByRole("button", { name: "Verify and save appeal settings" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Verify and save appeal settings" }),
+    );
+    expect(act).toHaveBeenCalledExactlyOnceWith({
+      action: "readiness_settings",
+      confirm: true,
+      appeals: {
+        ood: {
+          lookupId: "CY26OOD-MGO",
+          description: "CY2026 OOD Letter Sent via JUMGOGPT",
+        },
+      },
+    });
+  });
+  it("retains old numeric-ID mappings and can switch explicitly to a code without sending the stale ID", () => {
+    const act = vi.fn();
+    render(
+      <ReadinessSettings
+        data={{
+          ...base,
+          readiness: {
+            policy: {
+              appeals: { ood: { id: "100", description: "OOD letter" } },
+            },
+          },
+        }}
+        busy={false}
+        act={act}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Order of the Dolphin appeal system record ID"),
+    ).toHaveValue("100");
+    fireEvent.click(screen.getByText("Letter appeal settings for this period"));
+    expect(
+      screen.getByLabelText("Order of the Dolphin find appeal by"),
+    ).toHaveValue("system");
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Verify and save appeal settings" }),
+    );
+    expect(act).toHaveBeenLastCalledWith({
+      action: "readiness_settings",
+      confirm: true,
+      appeals: { ood: { id: "100", description: "OOD letter" } },
+    });
+    fireEvent.change(
+      screen.getByLabelText("Order of the Dolphin find appeal by"),
+      { target: { value: "lookup" } },
+    );
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    fireEvent.change(
+      screen.getByLabelText("Order of the Dolphin appeal code"),
+      { target: { value: "CODE" } },
+    );
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Verify and save appeal settings" }),
+    );
+    expect(act).toHaveBeenLastCalledWith({
+      action: "readiness_settings",
+      confirm: true,
+      appeals: { ood: { lookupId: "CODE", description: "OOD letter" } },
+    });
+  });
+  it("reopens verified codes as codes and hides the saved mapping note when edited", () => {
+    render(
+      <ReadinessSettings
+        data={{
+          ...base,
+          readiness: {
+            policy: {
+              appeals: {
+                ood: { id: "100", lookupId: "OOD", description: "OOD letter" },
+              },
+            },
+          },
+        }}
+        busy={false}
+        act={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Order of the Dolphin appeal code"),
+    ).toHaveValue("OOD");
+    fireEvent.click(screen.getByText("Letter appeal settings for this period"));
+    expect(screen.getByText(/Saved appeal: OOD/)).toBeVisible();
+    fireEvent.change(
+      screen.getByLabelText("Order of the Dolphin appeal code"),
+      { target: { value: "OTHER" } },
+    );
+    expect(screen.queryByText(/Saved appeal:/)).not.toBeInTheDocument();
+  });
+  it("links to separate setup without starting a readiness check or showing configuration forms", () => {
+    const act = vi.fn(),
+      openSettings = vi.fn();
+    render(
+      <Panel
+        data={base}
+        rows={rows}
+        channel="post"
+        act={act}
+        onOpenSettings={openSettings}
+      />,
+    );
+    expect(
+      screen.queryByText("Letter appeal settings for this period"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open appeal settings" }),
+    );
+    expect(openSettings).toHaveBeenCalledOnce();
+    expect(act).not.toHaveBeenCalled();
+  });
   it("opens without NXT requests and starts only explicitly", async () => {
     const act = vi.fn(async () => base);
     render(<Panel data={base} rows={rows} channel="post" act={act} />);

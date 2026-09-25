@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   validateTemplate: vi.fn(),
   inspectTemplate: vi.fn(),
   recipientPreview: vi.fn(),
+  samplePreview: vi.fn(),
+  definitions: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
@@ -33,7 +35,7 @@ vi.mock("@/app/api/utils/organizationSettings", () => ({
   getOrganizationSettings: async () => ({ timeZone: "America/New_York" }),
 }));
 vi.mock("@/app/api/utils/givingSocietyConfigurations", () => ({
-  listGivingSocietyConfigurations: async () => [],
+  listGivingSocietyConfigurations: mocks.definitions,
 }));
 vi.mock("@/app/api/utils/societyLetterStore", () => ({
   ensureSocietyLetterSchema: mocks.ownSchema,
@@ -71,6 +73,7 @@ vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   renderSocietyLetter: vi.fn(),
   validateLetterTemplate: mocks.validateTemplate,
   inspectLetterTemplate: mocks.inspectTemplate,
+  renderSocietyLetterSample: mocks.samplePreview,
 }));
 import { GET, POST } from "./route";
 const url = "https://example.org/api/stewardship/society-letters";
@@ -87,6 +90,7 @@ const request = (body, headers = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.auth.mockResolvedValue({ user: { email: "staff@example.org" } });
+  mocks.definitions.mockResolvedValue([]);
   mocks.release.mockResolvedValue(undefined);
   mocks.workspace.mockResolvedValue({
     sessionUser: { id: 1, active: true, role: "advancement_services" },
@@ -107,6 +111,106 @@ beforeEach(() => {
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("renders a fictional setup sample without acquiring a write lease, refreshing queries, or sending letters", async () => {
+    const version = "a".repeat(64);
+    const template = { societyKey: "ood", version, sequence: 1 };
+    mocks.definitions.mockResolvedValue([
+      {
+        key: "ood",
+        name: "Order of the Dolphin",
+        active: true,
+        basis: "annual",
+      },
+    ]);
+    mocks.read.mockResolvedValue({
+      templates: { [version]: template },
+      settings: { periodBasis: "calendar_year" },
+    });
+    mocks.samplePreview.mockReturnValue({
+      document: Buffer.from("fictional sample"),
+    });
+    const response = await POST(
+      request({
+        action: "preview_template_sample",
+        templateVersion: version,
+        recipientConstituentId: "not-used",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("fictional sample");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(mocks.samplePreview).toHaveBeenCalledWith(
+      template,
+      "Order of the Dolphin",
+      expect.objectContaining({
+        start: expect.any(String),
+        end: expect.any(String),
+      }),
+      expect.any(String),
+    );
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.recipientPreview).not.toHaveBeenCalled();
+    expect(mocks.inspect).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it.each([
+    "anonymous",
+    "mgo",
+    "cross-origin",
+    "missing",
+    "inactive",
+    "replaced",
+  ])("rejects %s sample previews", async (kind) => {
+    const version = "a".repeat(64);
+    const template = { societyKey: "ood", version, sequence: 1 };
+    mocks.definitions.mockResolvedValue([
+      {
+        key: "ood",
+        name: "Order of the Dolphin",
+        active: kind !== "inactive",
+        basis: "annual",
+      },
+    ]);
+    mocks.read.mockResolvedValue({
+      templates:
+        kind === "missing"
+          ? {}
+          : {
+              [version]: template,
+              ...(kind === "replaced"
+                ? {
+                    newer: {
+                      ...template,
+                      version: "b".repeat(64),
+                      sequence: 2,
+                    },
+                  }
+                : {}),
+            },
+    });
+    if (kind === "anonymous") mocks.auth.mockResolvedValue(null);
+    if (kind === "mgo")
+      mocks.workspace.mockResolvedValue({
+        sessionUser: { active: true, role: "mgo" },
+      });
+    const response = await POST(
+      request(
+        { action: "preview_template_sample", templateVersion: version },
+        kind === "cross-origin" ? { Origin: "https://other.example.org" } : {},
+      ),
+    );
+    expect(response.status).toBe(
+      kind === "anonymous"
+        ? 401
+        : ["mgo", "cross-origin"].includes(kind)
+          ? 403
+          : kind === "replaced"
+            ? 409
+            : 404,
+    );
+    expect(mocks.samplePreview).not.toHaveBeenCalled();
+    expect(mocks.acquire).not.toHaveBeenCalled();
+  });
   it("inspects a saved Word template without taking a mutation lease or calling NXT", async () => {
     const version = "a".repeat(64);
     mocks.read.mockResolvedValueOnce({

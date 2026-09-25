@@ -19,8 +19,12 @@ import ExclusionAppealSettings, {
 } from "./ExclusionAppealSettings";
 import LetterRecipientDialog from "./LetterRecipientDialog";
 import RecipientReviewQueue from "./RecipientReviewQueue";
-import LetterReadinessPanel, { readinessLabels } from "./LetterReadinessPanel";
+import LetterReadinessPanel, {
+  readinessLabels,
+  ReadinessSettings,
+} from "./LetterReadinessPanel";
 import QueryColumnMapper from "./QueryColumnMapper";
+import LetterSetupChecklist from "./LetterSetupChecklist";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
 const endpoint = "/api/stewardship/society-letters";
@@ -393,9 +397,28 @@ export default function SocietyLettersPage() {
   const [reviewQueue, setReviewQueue] = useState(null);
   const [reviewScope, setReviewScope] = useState("unreviewed");
   const [reviewNotice, setReviewNotice] = useState("");
+  const [sampleViews, setSampleViews] = useState([]);
+  const [showMappings, setShowMappings] = useState(false);
+  const setupContent = useRef(null);
+  const [setupNavigation, setSetupNavigation] = useState(0);
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const inFlight = useRef(false);
+  const setupOpen = ["setup", "templates", "settings", "appeals"].includes(tab);
+  function navigateSetup(destination) {
+    setShowMappings(destination === "fields");
+    setTab(
+      ["fields", "source"].includes(destination) ? "settings" : destination,
+    );
+    setSetupNavigation((value) => value + 1);
+  }
+  useEffect(() => {
+    if (!setupNavigation) return;
+    const target = showMappings
+      ? document.getElementById("letter-query-mappings")
+      : setupContent.current;
+    target?.focus();
+  }, [setupNavigation]);
   function accept(payload) {
     setData(payload);
     setSettings(
@@ -503,6 +526,10 @@ export default function SocietyLettersPage() {
     return () => clearTimeout(timer);
   }, [sendingBatch, busy, data]);
   const ready = (data?.rows || []).filter((row) => row.status === "ready");
+  const sourceDirty = Boolean(
+    data?.settings &&
+    JSON.stringify(settings) !== JSON.stringify(data.settings),
+  );
   const householdPreview = isLetterPreviewSource(data?.settings);
   const filtered = ready.filter(
     (row) =>
@@ -533,9 +560,13 @@ export default function SocietyLettersPage() {
     ["ready", "Ready for letters"],
     ["excluded", `Excluded (${data?.exclusions?.length || 0})`],
     ["history", "Letter history"],
-    ["templates", "Letter templates"],
-    ["settings", "Source & period"],
+    ["setup", "Setup"],
   ];
+  async function refreshMembership() {
+    const action = data.job?.status === "running" ? "resume" : "refresh";
+    const result = await act({ action, jobId: data.job?.id });
+    if (result?.job?.status === "running") setRefreshing(true);
+  }
   function changeSourceMode(mode, fields) {
     const constituentColumns = Object.fromEntries(
       Object.entries(CONSTITUENT_LETTER_COLUMNS).map(([key, fallback]) => {
@@ -611,13 +642,8 @@ export default function SocietyLettersPage() {
         {data?.settings && (
           <button
             className={button}
-            disabled={busy || refreshing || !!sendingBatch}
-            onClick={async () => {
-              const action =
-                data.job?.status === "running" ? "resume" : "refresh";
-              const result = await act({ action, jobId: data.job?.id });
-              if (result?.job?.status === "running") setRefreshing(true);
-            }}
+            disabled={busy || refreshing || !!sendingBatch || sourceDirty}
+            onClick={refreshMembership}
           >
             {refreshing
               ? "Refreshing membership..."
@@ -685,21 +711,76 @@ export default function SocietyLettersPage() {
             {tabs.map(([key, label]) => (
               <button
                 key={key}
-                className={tab === key ? primary : button}
-                aria-pressed={tab === key}
-                onClick={() => setTab(key)}
+                className={
+                  (key === "setup" ? setupOpen : tab === key) ? primary : button
+                }
+                aria-pressed={key === "setup" ? setupOpen : tab === key}
+                onClick={() => navigateSetup(key)}
               >
                 {label}
               </button>
             ))}
           </nav>
+          {setupOpen && (
+            <>
+              <nav
+                aria-label="Letter setup"
+                className="flex flex-wrap gap-2 border-b border-gray-200 pb-4"
+              >
+                {[
+                  ["setup", "Setup checklist"],
+                  ["settings", "Source & period"],
+                  ["templates", "Letter templates"],
+                  ["appeals", "Appeal settings"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    className={tab === key ? primary : button}
+                    aria-pressed={tab === key}
+                    onClick={() => navigateSetup(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+              <div
+                ref={setupContent}
+                tabIndex={-1}
+                className="scroll-mt-24 focus:outline-none"
+              >
+                <h2 className="sr-only">
+                  {tab === "setup"
+                    ? "Setup checklist"
+                    : tab === "settings"
+                      ? "Source and period settings"
+                      : tab === "appeals"
+                        ? "Appeal settings"
+                        : "Saved letter settings"}
+                </h2>
+              </div>
+            </>
+          )}
+          {tab === "setup" && (
+            <LetterSetupChecklist
+              data={data}
+              viewed={sampleViews}
+              onViewed={(key) =>
+                setSampleViews((current) =>
+                  current.includes(key) ? current : [...current, key],
+                )
+              }
+              onNavigate={navigateSetup}
+              busy={busy || refreshing || !!sendingBatch}
+            />
+          )}
           {tab === "ready" && (
             <>
-              <ExclusionAppealSettings
-                key={`${data.period?.key}/${data.exclusionAppeals?.policy?.savedAt || "new"}`}
+              <LetterSetupChecklist
+                compact
                 data={data}
+                viewed={sampleViews}
+                onNavigate={navigateSetup}
                 busy={busy || refreshing || !!sendingBatch}
-                act={act}
               />
               <LetterReadinessPanel
                 data={data}
@@ -715,6 +796,7 @@ export default function SocietyLettersPage() {
                   !!confirmation
                 }
                 act={act}
+                onOpenSettings={() => navigateSetup("appeals")}
               />
               <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <h2 className="font-bold text-emerald-950">
@@ -1531,12 +1613,12 @@ export default function SocietyLettersPage() {
                 membership list and are not already covered or prepared.
               </p>
               <div className="mt-4">
-                <ExclusionAppealSettings
-                  key={`${data.period?.key}/${data.exclusionAppeals?.policy?.savedAt || "new"}`}
-                  data={data}
-                  busy={busy || refreshing || !!sendingBatch}
-                  act={act}
-                />
+                <button
+                  className={button}
+                  onClick={() => navigateSetup("appeals")}
+                >
+                  Open appeal settings
+                </button>
               </div>
               {!(data.exclusions || []).length && (
                 <p className="mt-5 text-gray-600">
@@ -1578,325 +1660,428 @@ export default function SocietyLettersPage() {
               ))}
             </section>
           )}
-          {tab === "settings" && (
-            <form
-              className={card}
-              onChange={(event) => {
-                if (event.target.name !== "confirmedSource")
-                  setConfirmedSource(false);
-              }}
-              onSubmit={async (event) => {
-                event.preventDefault();
-                const result = await act({
-                  action: "settings",
-                  settings: { ...settings, confirmSource: confirmedSource },
-                });
-                if (result) setConfirmedSource(false);
-              }}
-            >
-              <h2 className="text-xl font-bold">
-                Household source and qualification period
-              </h2>
+          {tab === "appeals" && (
+            <section className={card} aria-label="Appeal configuration">
+              <h2 className="text-xl font-bold">NXT appeal settings</h2>
               <p className="mt-2 text-sm text-gray-600">
-                Use a saved NXT qualification query, not portfolio summaries.
-                The app can group constituent and spouse system IDs; NXT does
-                not need to household the query. Names and addresses are never
-                used to guess a relationship, and individual gift totals are not
-                added together.
+                Configure letter-sent and exclusion appeals here. Saving
+                settings does not assign an appeal or send a letter. Recipient
+                readiness checks remain in the holding list.
               </p>
-              {(!settings.sourceMode ||
-                settings.sourceMode === "households") && (
-                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                  <h3 className="font-bold">
-                    Does your query return people and spouse IDs?
-                  </h3>
-                  <p className="mt-1 text-sm">
-                    The form below is for queries already grouped into
-                    households. For a normal constituent query, switch formats
-                    instead of trying to supply Household ID, Member IDs, or
-                    permission columns. Individuals without a spouse are
-                    included too.
-                  </p>
-                  <button
-                    type="button"
-                    className={`${button} mt-3`}
-                    onClick={() => changeSourceMode("constituents")}
-                  >
-                    Use constituent and spouse fields
-                  </button>
-                  <p className="mt-2 text-xs text-gray-600">
-                    Changes this form only until you save. Query ID and letter
-                    period are retained; select the query's society and confirm
-                    its actual qualification dates.
-                  </p>
-                </div>
+              {data.readiness && (
+                <ReadinessSettings
+                  key={`${data.period?.key}/${data.readiness.policy?.savedAt || "new"}`}
+                  data={data}
+                  busy={
+                    busy ||
+                    refreshing ||
+                    !!sendingBatch ||
+                    ["running", "paused"].includes(data.readiness.job?.status)
+                  }
+                  act={act}
+                />
               )}
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <label className="text-sm font-semibold">
-                  Query format
-                  <select
-                    className={input}
-                    value={settings.sourceMode || "households"}
-                    onChange={(e) => changeSourceMode(e.target.value)}
-                  >
-                    <option value="households">
-                      Already grouped households (advanced)
-                    </option>
-                    <option value="constituents">
-                      Constituents with spouse IDs (preview only)
-                    </option>
-                    <option value="society_queries">
-                      Separate query for each society (preview only)
-                    </option>
-                  </select>
-                </label>
-                {settings.sourceMode !== "society_queries" && (
-                  <label className="text-sm font-semibold">
-                    NXT saved query ID
-                    <input
-                      className={input}
-                      value={settings.queryId || ""}
-                      onChange={(e) =>
-                        setSettings({ ...settings, queryId: e.target.value })
+              <div className="mt-4">
+                <ExclusionAppealSettings
+                  key={`${data.period?.key}/${data.exclusionAppeals?.policy?.savedAt || "new"}`}
+                  data={data}
+                  busy={
+                    busy ||
+                    refreshing ||
+                    !!sendingBatch ||
+                    ["running", "paused"].includes(data.readiness?.job?.status)
+                  }
+                  act={act}
+                />
+              </div>
+            </section>
+          )}
+          {tab === "settings" && (
+            <>
+              {data.settings && (
+                <section
+                  className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4"
+                  aria-label="Check saved source output"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="max-w-2xl">
+                      <h2 className="font-bold">Check saved source output</h2>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Save changes below first, then load membership to check
+                        the returned fields. This runs the saved queries but
+                        does not create letters or change NXT records.
+                      </p>
+                    </div>
+                    <button
+                      className={button}
+                      disabled={
+                        busy ||
+                        refreshing ||
+                        !!sendingBatch ||
+                        !data.setup?.sourceConfigured ||
+                        sourceDirty
                       }
-                      inputMode="numeric"
-                      required
-                    />
-                  </label>
+                      onClick={refreshMembership}
+                    >
+                      {refreshing
+                        ? "Loading membership..."
+                        : data.job?.status === "running"
+                          ? "Resume saved query check"
+                          : "Load membership from saved queries"}
+                    </button>
+                  </div>
+                  {sourceDirty && (
+                    <p className="mt-2 text-sm text-amber-900">
+                      Save your source changes before loading membership.
+                    </p>
+                  )}
+                  {data.job?.message && (
+                    <p role="status" className="mt-2 text-sm text-gray-700">
+                      {data.job.message}
+                    </p>
+                  )}
+                  {data.setup?.membershipCurrent && (
+                    <p className="mt-2 text-sm font-semibold text-emerald-800">
+                      A completed membership result is available for the saved
+                      settings. Delivery checks remain separate.
+                    </p>
+                  )}
+                </section>
+              )}
+              <form
+                className={card}
+                onChange={(event) => {
+                  if (event.target.name !== "confirmedSource")
+                    setConfirmedSource(false);
+                }}
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  const result = await act({
+                    action: "settings",
+                    settings: { ...settings, confirmSource: confirmedSource },
+                  });
+                  if (result) setConfirmedSource(false);
+                }}
+              >
+                <h2 className="text-xl font-bold">
+                  Household source and qualification period
+                </h2>
+                <p className="mt-2 text-sm text-gray-600">
+                  Use a saved NXT qualification query, not portfolio summaries.
+                  The app can group constituent and spouse system IDs; NXT does
+                  not need to household the query. Names and addresses are never
+                  used to guess a relationship, and individual gift totals are
+                  not added together.
+                </p>
+                {(!settings.sourceMode ||
+                  settings.sourceMode === "households") && (
+                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <h3 className="font-bold">
+                      Does your query return people and spouse IDs?
+                    </h3>
+                    <p className="mt-1 text-sm">
+                      The form below is for queries already grouped into
+                      households. For a normal constituent query, switch formats
+                      instead of trying to supply Household ID, Member IDs, or
+                      permission columns. Individuals without a spouse are
+                      included too.
+                    </p>
+                    <button
+                      type="button"
+                      className={`${button} mt-3`}
+                      onClick={() => changeSourceMode("constituents")}
+                    >
+                      Use constituent and spouse fields
+                    </button>
+                    <p className="mt-2 text-xs text-gray-600">
+                      Changes this form only until you save. Query ID and letter
+                      period are retained; select the query's society and
+                      confirm its actual qualification dates.
+                    </p>
+                  </div>
                 )}
-                <label className="text-sm font-semibold">
-                  Letter period
-                  <select
-                    className={input}
-                    value={settings.periodBasis}
-                    onChange={(e) =>
-                      setSettings({ ...settings, periodBasis: e.target.value })
-                    }
-                  >
-                    <option value="calendar_year">Current calendar year</option>
-                    <option value="fiscal_year">Current fiscal year</option>
-                    <option value="custom">Custom established period</option>
-                  </select>
-                </label>
-                {settings.periodBasis === "fiscal_year" && (
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
                   <label className="text-sm font-semibold">
-                    Fiscal start month
-                    <input
+                    Query format
+                    <select
                       className={input}
-                      type="number"
-                      min={1}
-                      max={12}
-                      value={settings.fiscalYearStartMonth}
+                      value={settings.sourceMode || "households"}
+                      onChange={(e) => changeSourceMode(e.target.value)}
+                    >
+                      <option value="households">
+                        Already grouped households (advanced)
+                      </option>
+                      <option value="constituents">
+                        Constituents with spouse IDs (preview only)
+                      </option>
+                      <option value="society_queries">
+                        Separate query for each society (preview only)
+                      </option>
+                    </select>
+                  </label>
+                  {settings.sourceMode !== "society_queries" && (
+                    <label className="text-sm font-semibold">
+                      NXT saved query ID
+                      <input
+                        className={input}
+                        value={settings.queryId || ""}
+                        onChange={(e) =>
+                          setSettings({ ...settings, queryId: e.target.value })
+                        }
+                        inputMode="numeric"
+                        required
+                      />
+                    </label>
+                  )}
+                  <label className="text-sm font-semibold">
+                    Letter period
+                    <select
+                      className={input}
+                      value={settings.periodBasis}
                       onChange={(e) =>
                         setSettings({
                           ...settings,
-                          fiscalYearStartMonth: Number(e.target.value),
+                          periodBasis: e.target.value,
                         })
                       }
-                    />
+                    >
+                      <option value="calendar_year">
+                        Current calendar year
+                      </option>
+                      <option value="fiscal_year">Current fiscal year</option>
+                      <option value="custom">Custom established period</option>
+                    </select>
                   </label>
-                )}
-                {settings.periodBasis === "custom" &&
-                  ["startDate", "endDate"].map((key) => (
-                    <label className="text-sm font-semibold" key={key}>
-                      {key === "startDate" ? "Period start" : "Period end"}
+                  {settings.periodBasis === "fiscal_year" && (
+                    <label className="text-sm font-semibold">
+                      Fiscal start month
                       <input
                         className={input}
-                        type="date"
-                        value={settings[key]}
-                        onChange={(e) =>
-                          setSettings({ ...settings, [key]: e.target.value })
-                        }
-                        required
-                      />
-                    </label>
-                  ))}
-              </div>
-              {settings.sourceMode === "constituents" && (
-                <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-sm text-blue-900">
-                    This option previews households only. It does not generate
-                    letters, send email, or apply appeal codes. A single-society
-                    query cannot establish whether a spouse qualifies for a
-                    higher society.
-                  </p>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                    <label className="text-sm font-semibold">
-                      Society qualified by this query
-                      <select
-                        className={input}
-                        required
-                        value={settings.querySocietyKey || ""}
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={settings.fiscalYearStartMonth}
                         onChange={(e) =>
                           setSettings({
                             ...settings,
-                            querySocietyKey: e.target.value,
+                            fiscalYearStartMonth: Number(e.target.value),
                           })
                         }
-                      >
-                        <option value="">Choose society</option>
-                        {data.definitions
-                          .filter((d) => settings.societyKeys.includes(d.key))
-                          .map((d) => (
-                            <option key={d.key} value={d.key}>
-                              {d.name}
-                            </option>
-                          ))}
-                      </select>
+                      />
                     </label>
-                    {["queryPeriodStart", "queryPeriodEnd"].map((key) => (
-                      <label key={key} className="text-sm font-semibold">
-                        {key === "queryPeriodStart"
-                          ? "Query qualification start"
-                          : "Query qualification end"}
+                  )}
+                  {settings.periodBasis === "custom" &&
+                    ["startDate", "endDate"].map((key) => (
+                      <label className="text-sm font-semibold" key={key}>
+                        {key === "startDate" ? "Period start" : "Period end"}
                         <input
                           className={input}
                           type="date"
-                          required
-                          value={settings[key] || ""}
+                          value={settings[key]}
                           onChange={(e) =>
                             setSettings({ ...settings, [key]: e.target.value })
                           }
+                          required
                         />
                       </label>
                     ))}
+                </div>
+                {settings.sourceMode === "constituents" && (
+                  <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                    <p className="text-sm text-blue-900">
+                      This option previews households only. It does not generate
+                      letters, send email, or apply appeal codes. A
+                      single-society query cannot establish whether a spouse
+                      qualifies for a higher society.
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                      <label className="text-sm font-semibold">
+                        Society qualified by this query
+                        <select
+                          className={input}
+                          required
+                          value={settings.querySocietyKey || ""}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              querySocietyKey: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="">Choose society</option>
+                          {data.definitions
+                            .filter((d) => settings.societyKeys.includes(d.key))
+                            .map((d) => (
+                              <option key={d.key} value={d.key}>
+                                {d.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      {["queryPeriodStart", "queryPeriodEnd"].map((key) => (
+                        <label key={key} className="text-sm font-semibold">
+                          {key === "queryPeriodStart"
+                            ? "Query qualification start"
+                            : "Query qualification end"}
+                          <input
+                            className={input}
+                            type="date"
+                            required
+                            value={settings[key] || ""}
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                [key]: e.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-blue-900">
+                      Enter the dates actually used in the query. A new year
+                      requires re-confirming these dates; a CY2026 query will
+                      not silently qualify people for CY2027.
+                    </p>
                   </div>
-                  <p className="mt-3 text-xs text-blue-900">
-                    Enter the dates actually used in the query. A new year
-                    requires re-confirming these dates; a CY2026 query will not
-                    silently qualify people for CY2027.
+                )}
+                <fieldset className="mt-6">
+                  <legend className="font-bold">
+                    Letter hierarchy, highest first
+                  </legend>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Uses the order in Organization Settings. Select only tiers
+                    where a higher letter should replace every lower letter.
+                    Lifetime societies are not part of this first annual-letter
+                    workflow.
                   </p>
-                </div>
-              )}
-              <fieldset className="mt-6">
-                <legend className="font-bold">
-                  Letter hierarchy, highest first
-                </legend>
-                <p className="mt-1 text-sm text-gray-600">
-                  Uses the order in Organization Settings. Select only tiers
-                  where a higher letter should replace every lower letter.
-                  Lifetime societies are not part of this first annual-letter
-                  workflow.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-4">
-                  {data.definitions.map((d) => (
-                    <label
-                      key={d.key}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={settings.societyKeys.includes(d.key)}
-                        onChange={(e) => {
-                          const keys = e.target.checked
-                            ? [...settings.societyKeys, d.key]
-                            : settings.societyKeys.filter((k) => k !== d.key);
-                          setSettings({
-                            ...settings,
-                            societyKeys: keys,
-                            ...(settings.sourceMode === "society_queries"
-                              ? {
-                                  societySources: keys.map((key) =>
-                                    sourceForSociety(settings, key),
-                                  ),
-                                }
-                              : {}),
-                          });
-                        }}
-                      />
-                      {d.name}
-                    </label>
-                  ))}
-                </div>
-                <a
-                  className="mt-3 inline-block text-sm font-semibold text-emerald-800 underline"
-                  href="/organization-configurations"
-                >
-                  Review society definitions
-                </a>
-              </fieldset>
-              {settings.sourceMode === "society_queries" && (
-                <SocietyQueryEditors
-                  settings={settings}
-                  definitions={data.definitions}
-                  templates={data.templates}
-                  onChange={(value) => {
-                    setSettings(value);
-                    setConfirmedSource(false);
-                  }}
-                />
-              )}
-              {settings.sourceMode !== "society_queries" && (
-                <details className="mt-6" open={!data.refreshedAt}>
-                  <summary className="cursor-pointer font-bold">
-                    Map returned query columns
-                  </summary>
-                  <p className="mt-2 text-sm text-gray-600">
-                    {settings.sourceMode === "constituents" ? (
-                      "Map System Record ID and Spouse System Record ID, not lookup IDs. Repeated constituency rows are collapsed. Leave optional mappings blank if that field is not in the query. No communication permission is inferred from an address or email."
-                    ) : (
-                      <>
-                        Society must be the configured society name or key.
-                        Member IDs must include the household/head ID, separated
-                        by |, semicolon, or comma. Period dates accept
-                        YYYY-MM-DD or M/D/YYYY. Email Allowed and Mail Allowed
-                        must be Yes/True/1 only when deceased, inactive,
-                        opt-out, and contact restrictions have been checked.
-                      </>
-                    )}
-                  </p>
-                  <QueryColumnMapper
-                    queryId={settings.queryId}
-                    columns={settings.columns}
-                    constituent={settings.sourceMode === "constituents"}
-                    onUseConstituents={(fields) =>
-                      changeSourceMode("constituents", fields)
-                    }
-                    labels={
-                      settings.sourceMode === "constituents"
-                        ? CONSTITUENT_LETTER_LABELS
-                        : GROUPED_LETTER_LABELS
-                    }
-                    onChange={(columns) => {
-                      setSettings({ ...settings, columns });
+                  <div className="mt-3 flex flex-wrap gap-4">
+                    {data.definitions.map((d) => (
+                      <label
+                        key={d.key}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={settings.societyKeys.includes(d.key)}
+                          onChange={(e) => {
+                            const keys = e.target.checked
+                              ? [...settings.societyKeys, d.key]
+                              : settings.societyKeys.filter((k) => k !== d.key);
+                            setSettings({
+                              ...settings,
+                              societyKeys: keys,
+                              ...(settings.sourceMode === "society_queries"
+                                ? {
+                                    societySources: keys.map((key) =>
+                                      sourceForSociety(settings, key),
+                                    ),
+                                  }
+                                : {}),
+                            });
+                          }}
+                        />
+                        {d.name}
+                      </label>
+                    ))}
+                  </div>
+                  <a
+                    className="mt-3 inline-block text-sm font-semibold text-emerald-800 underline"
+                    href="/organization-configurations"
+                  >
+                    Review society definitions
+                  </a>
+                </fieldset>
+                {settings.sourceMode === "society_queries" && (
+                  <SocietyQueryEditors
+                    settings={settings}
+                    definitions={data.definitions}
+                    templates={data.templates}
+                    showMappings={showMappings}
+                    onChange={(value) => {
+                      setSettings(value);
                       setConfirmedSource(false);
                     }}
                   />
-                </details>
-              )}
-              <label className="mt-6 flex items-start gap-3 text-sm">
-                <input
-                  className="mt-1"
-                  type="checkbox"
-                  name="confirmedSource"
-                  checked={confirmedSource}
-                  onChange={(e) => setConfirmedSource(e.target.checked)}
-                />
-                {isLetterPreviewSource(settings) ? (
-                  "I verified this query's giving qualification and dates. I understand these are household previews only; recipient selection, restrictions, prior appeals, and higher-society eligibility still need verification."
-                ) : (
-                  <>
-                    I verified this query's household membership, giving
-                    qualification, period, and communication restrictions.
-                    Higher letters cover lower tiers in this hierarchy.
-                  </>
                 )}
-              </label>
-              <button
-                className={`${primary} mt-5`}
-                disabled={busy || !confirmedSource}
-              >
-                Save source settings
-              </button>
-              <p className="mt-3 text-xs text-gray-500">
-                Each query is limited to 1,000 rows and 512 KB. Combined
-                previews are limited to 5,000 households and 4 MB. Larger
-                results are rejected, never partially sent. Opening this
-                workspace never refreshes NXT or sends letters. New calendar and
-                fiscal periods roll forward automatically; overlapping
-                period/hierarchy changes require a reviewed migration.
-              </p>
-            </form>
+                {settings.sourceMode !== "society_queries" && (
+                  <details
+                    id="letter-query-mappings"
+                    tabIndex={-1}
+                    className="mt-6"
+                    open={showMappings || !data.refreshedAt}
+                  >
+                    <summary className="cursor-pointer font-bold">
+                      Map returned query columns
+                    </summary>
+                    <p className="mt-2 text-sm text-gray-600">
+                      {settings.sourceMode === "constituents" ? (
+                        "Map System Record ID and Spouse System Record ID, not lookup IDs. Repeated constituency rows are collapsed. Leave optional mappings blank if that field is not in the query. No communication permission is inferred from an address or email."
+                      ) : (
+                        <>
+                          Society must be the configured society name or key.
+                          Member IDs must include the household/head ID,
+                          separated by |, semicolon, or comma. Period dates
+                          accept YYYY-MM-DD or M/D/YYYY. Email Allowed and Mail
+                          Allowed must be Yes/True/1 only when deceased,
+                          inactive, opt-out, and contact restrictions have been
+                          checked.
+                        </>
+                      )}
+                    </p>
+                    <QueryColumnMapper
+                      queryId={settings.queryId}
+                      columns={settings.columns}
+                      constituent={settings.sourceMode === "constituents"}
+                      onUseConstituents={(fields) =>
+                        changeSourceMode("constituents", fields)
+                      }
+                      labels={
+                        settings.sourceMode === "constituents"
+                          ? CONSTITUENT_LETTER_LABELS
+                          : GROUPED_LETTER_LABELS
+                      }
+                      onChange={(columns) => {
+                        setSettings({ ...settings, columns });
+                        setConfirmedSource(false);
+                      }}
+                    />
+                  </details>
+                )}
+                <label className="mt-6 flex items-start gap-3 text-sm">
+                  <input
+                    className="mt-1"
+                    type="checkbox"
+                    name="confirmedSource"
+                    checked={confirmedSource}
+                    onChange={(e) => setConfirmedSource(e.target.checked)}
+                  />
+                  {isLetterPreviewSource(settings) ? (
+                    "I verified this query's giving qualification and dates. I understand these are household previews only; recipient selection, restrictions, prior appeals, and higher-society eligibility still need verification."
+                  ) : (
+                    <>
+                      I verified this query's household membership, giving
+                      qualification, period, and communication restrictions.
+                      Higher letters cover lower tiers in this hierarchy.
+                    </>
+                  )}
+                </label>
+                <button
+                  className={`${primary} mt-5`}
+                  disabled={busy || !confirmedSource}
+                >
+                  Save source settings
+                </button>
+                <p className="mt-3 text-xs text-gray-500">
+                  Each query is limited to 1,000 rows and 512 KB. Combined
+                  previews are limited to 5,000 households and 4 MB. Larger
+                  results are rejected, never partially sent. Opening this
+                  workspace never refreshes NXT or sends letters. New calendar
+                  and fiscal periods roll forward automatically; overlapping
+                  period/hierarchy changes require a reviewed migration.
+                </p>
+              </form>
+            </>
           )}
           {confirmation && (
             <BatchConfirmation

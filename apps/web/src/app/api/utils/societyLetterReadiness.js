@@ -170,21 +170,29 @@ export async function saveReadinessPolicy(
     ),
   );
   for (const tier of hierarchy) {
-    const id = letterRecordId(body.appeals?.[tier.key]?.id);
-    const description = String(
-      body.appeals?.[tier.key]?.description || "",
-    ).trim();
+    const requested = body.appeals?.[tier.key] || {};
+    const lookupId = String(requested.lookupId || "").trim();
+    const requestedId = String(requested.id || "").trim();
+    const description = String(requested.description || "").trim();
     if (
+      (!lookupId && !requestedId) ||
+      (lookupId && requestedId) ||
+      lookupId.length > 100 ||
       !description ||
-      description.length > 300 ||
-      ids.has(id) ||
-      exclusionIds.has(id)
+      description.length > 300
     )
+      throw letterError(
+        `Enter either the appeal code or numeric system record ID and the exact description for ${tier.name}.`,
+      );
+    const found = lookupId
+      ? await reader.appealByCode(lookupId, description)
+      : await reader.appeal(letterRecordId(requestedId));
+    const id = letterRecordId(found.id);
+    if (ids.has(id) || exclusionIds.has(id))
       throw letterError(
         "Use a distinct period-specific letter-sent appeal ID, separate from exclusion appeals, and its exact description for each society.",
       );
     ids.add(id);
-    const found = await reader.appeal(id);
     if (found.description !== description)
       throw letterError(
         `The appeal description for ${tier.name} does not match NXT. Check the ID and exact description.`,

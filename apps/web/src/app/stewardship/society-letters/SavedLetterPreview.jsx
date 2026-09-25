@@ -10,12 +10,22 @@ const previewShell = `<!doctype html><html><head>
 <style>body{margin:0;background:#edf1ef}a{pointer-events:none}.docx-wrapper{padding:20px!important;width:max-content;min-width:100%;box-sizing:border-box;background:#edf1ef!important}</style>
 </head><body></body></html>`;
 
-export default function SavedLetterPreview({ template, draft, onClose }) {
+export default function SavedLetterPreview({
+  template,
+  draft,
+  sample = false,
+  onReady,
+  onClose,
+}) {
   const dialogRef = useRef(null);
+  const callbacks = useRef({ onClose, onReady });
   const [frame, setFrame] = useState(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    callbacks.current = { onClose, onReady };
+  }, [onClose, onReady]);
   useEffect(() => {
     const dialog = dialogRef.current;
     dialog.showModal();
@@ -28,7 +38,7 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
     const closeOnEscape = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        callbacks.current.onClose();
       }
     };
     doc.addEventListener("keydown", closeOnEscape);
@@ -37,17 +47,24 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
       setError("");
       try {
         const response = await fetch(
-          draft
+          draft || sample
             ? "/api/stewardship/society-letters"
             : savedTemplateUrl(template.version),
           {
             cache: "no-store",
             signal: controller.signal,
-            ...(draft
+            ...(draft || sample
               ? {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(draft.request),
+                  body: JSON.stringify(
+                    sample
+                      ? {
+                          action: "preview_template_sample",
+                          templateVersion: template.version,
+                        }
+                      : draft.request,
+                  ),
                 }
               : {}),
           },
@@ -77,6 +94,7 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
           .querySelectorAll("a")
           .forEach((link) => link.removeAttribute("href"));
         setStatus("ready");
+        callbacks.current.onReady?.(template.version);
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(
@@ -92,7 +110,7 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
       doc.removeEventListener("keydown", closeOnEscape);
       doc.body.replaceChildren();
     };
-  }, [frame, template.version, draft, attempt, onClose]);
+  }, [frame, template.version, draft, sample, attempt]);
   return (
     <dialog
       ref={dialogRef}
@@ -107,7 +125,11 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
-            {draft ? "Personalized draft" : "Saved template"}
+            {sample
+              ? "Sample only: fictional recipient"
+              : draft
+                ? "Personalized draft"
+                : "Saved template"}
           </p>
           <h2
             id="saved-letter-preview-title"
@@ -134,16 +156,18 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
         id="saved-letter-preview-description"
         className="my-4 text-sm text-gray-600"
       >
-        {draft
-          ? "Draft only, using your current recipient edits and the saved template. Nothing is saved, sent, or marked complete. Delivery checks are still required."
-          : "This is the saved Word file, not unsaved edits or a personalized letter. Merge-field tags remain visible. Nothing is sent or marked complete."}
+        {sample
+          ? "Uses fictional names and addresses with the saved template and merge settings. Check formatting and field placement. This does not verify real recipient data, save a review, create a batch, or send anything."
+          : draft
+            ? "Draft only, using your current recipient edits and the saved template. Nothing is saved, sent, or marked complete. Delivery checks are still required."
+            : "This is the saved Word file, not unsaved edits or a personalized letter. Merge-field tags remain visible. Nothing is sent or marked complete."}
       </p>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-gray-600">
           Browser layout may differ from Word. On small screens, scroll across
           the page.
         </p>
-        {!draft && (
+        {!draft && !sample && (
           <a
             href={savedTemplateUrl(template.version)}
             download={template.filename}
@@ -155,9 +179,11 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
       </div>
       {status === "loading" && (
         <p role="status" className="mb-3 text-sm text-gray-600">
-          {draft
-            ? "Loading personalized draft..."
-            : "Loading saved letter preview..."}
+          {sample
+            ? "Loading sample letter..."
+            : draft
+              ? "Loading personalized draft..."
+              : "Loading saved letter preview..."}
         </p>
       )}
       {status === "error" && (
@@ -177,9 +203,11 @@ export default function SavedLetterPreview({ template, draft, onClose }) {
       )}
       <iframe
         title={
-          draft
-            ? `${draft.name} personalized draft`
-            : `${template.societyName} saved Word letter`
+          sample
+            ? `${template.societyName} sample letter`
+            : draft
+              ? `${draft.name} personalized draft`
+              : `${template.societyName} saved Word letter`
         }
         sandbox="allow-same-origin"
         srcDoc={previewShell}

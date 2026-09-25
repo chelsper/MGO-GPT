@@ -213,6 +213,40 @@ export function renderSocietyLetter(template, row, today) {
   };
 }
 
+export function renderSocietyLetterSample(
+  template,
+  societyName,
+  period,
+  today,
+) {
+  return renderSocietyLetter(
+    template,
+    {
+      members: ["sample-primary", "sample-spouse"],
+      name: "Alex Example & Jordan Example",
+      firstName: "Alex",
+      lastName: "Example",
+      spouseFirstName: "Jordan",
+      spouseLastName: "Example",
+      addressee: "Alex and Jordan Example",
+      salutation: "Alex and Jordan",
+      address:
+        "123 Sample Street\nSuite 200\nExample City FL 00000\nUnited States",
+      addressParts: {
+        address_line_1: "123 Sample Street",
+        address_line_2: "Suite 200",
+        city: "Example City",
+        state: "FL",
+        zip: "00000",
+        country: "United States",
+      },
+      societyName,
+      period,
+    },
+    today,
+  );
+}
+
 export function letterArchive(items, templates) {
   const zip = new PizZip();
   for (const item of items) {

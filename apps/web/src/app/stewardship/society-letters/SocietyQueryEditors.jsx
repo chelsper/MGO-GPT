@@ -40,6 +40,7 @@ export default function SocietyQueryEditors({
   definitions,
   templates,
   onChange,
+  showMappings = false,
 }) {
   const societies = definitions
     .filter((d) => settings.societyKeys.includes(d.key))
@@ -56,7 +57,12 @@ export default function SocietyQueryEditors({
     });
   }
   return (
-    <section className="mt-6 space-y-4" aria-label="Annual society queries">
+    <section
+      id="letter-query-mappings"
+      tabIndex={-1}
+      className="mt-6 scroll-mt-24 space-y-4 focus:outline-none"
+      aria-label="Annual society queries"
+    >
       <div>
         <h3 className="text-lg font-bold">One query for each annual society</h3>
         <p className="mt-1 text-sm text-gray-600">
@@ -119,7 +125,7 @@ export default function SocietyQueryEditors({
               Use the dates actually set in this query. Every query must match
               the letter period above.
             </p>
-            <details className="mt-4">
+            <details className="mt-4" open={showMappings || undefined}>
               <summary className="cursor-pointer font-semibold text-emerald-800">
                 Output columns for {society.name}
               </summary>
