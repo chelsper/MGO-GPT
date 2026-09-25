@@ -20,9 +20,16 @@ import ExclusionAppealSettings, {
 import LetterRecipientDialog from "./LetterRecipientDialog";
 import RecipientReviewQueue from "./RecipientReviewQueue";
 import LetterReadinessPanel, {
-  readinessLabels,
   ReadinessSettings,
 } from "./LetterReadinessPanel";
+import LetterWorkspaceFilters from "./LetterWorkspaceFilters";
+import LetterWorkspaceRow from "./LetterWorkspaceRow";
+import {
+  ATTENTION_FILTERS,
+  letterReviewCounts,
+  letterReviewView,
+  matchesLetterReview,
+} from "./letterWorkspaceView";
 import QueryColumnMapper from "./QueryColumnMapper";
 import LetterSetupChecklist from "./LetterSetupChecklist";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
@@ -395,7 +402,8 @@ export default function SocietyLettersPage() {
   const [excluding, setExcluding] = useState(null);
   const [reviewingRecipient, setReviewingRecipient] = useState(null);
   const [reviewQueue, setReviewQueue] = useState(null);
-  const [reviewScope, setReviewScope] = useState("unreviewed");
+  const [reviewFilter, setReviewFilter] = useState("all");
+  const [attentionFilter, setAttentionFilter] = useState("all");
   const [reviewNotice, setReviewNotice] = useState("");
   const [sampleViews, setSampleViews] = useState([]);
   const [showMappings, setShowMappings] = useState(false);
@@ -531,19 +539,55 @@ export default function SocietyLettersPage() {
     JSON.stringify(settings) !== JSON.stringify(data.settings),
   );
   const householdPreview = isLetterPreviewSource(data?.settings);
-  const filtered = ready.filter(
+  const matching = ready.filter(
     (row) =>
       (!societyFilter || row.societyKey === societyFilter) &&
       `${row.name} ${row.societyName}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
+  const views = new Map(
+    matching.map((row) => [
+      row.householdId,
+      letterReviewView(row, channel, data?.sourceIssue),
+    ]),
+  );
+  const counts = letterReviewCounts([...views.values()]);
+  const reviewMatches = matching.filter((row) =>
+    matchesLetterReview(views.get(row.householdId), reviewFilter),
+  );
+  const attentionCounts = Object.fromEntries(
+    ATTENTION_FILTERS.map(([key]) => [
+      key,
+      reviewMatches.filter((row) =>
+        views.get(row.householdId).attention.includes(key),
+      ).length,
+    ]),
+  );
+  const filtered = reviewMatches.filter(
+    (row) =>
+      attentionFilter === "all" ||
+      views.get(row.householdId).attention.includes(attentionFilter),
+  );
+  const reviewingUnreviewed =
+    reviewFilter === "all" && attentionFilter === "all";
+  function changeReviewFilter(value) {
+    setReviewFilter(value);
+    setAttentionFilter("all");
+    setSelected([]);
+    setPreview(null);
+  }
+  function changeAttentionFilter(value) {
+    setAttentionFilter(value);
+    setSelected([]);
+    setPreview(null);
+  }
   const canSelect = (row) =>
     !row.issues[channel] && (channel !== "email" || data.emailEnabled);
   const reviewable = filtered.filter(
     (row) =>
       row.recipientReview?.editable &&
-      (reviewScope === "all" || row.recipientReview.status !== "saved"),
+      (!reviewingUnreviewed || row.recipientReview.status !== "saved"),
   );
   const batches = Object.values(
     (data?.history || []).reduce((groups, item) => {
@@ -557,7 +601,7 @@ export default function SocietyLettersPage() {
     }, {}),
   );
   const tabs = [
-    ["ready", "Ready for letters"],
+    ["ready", "Letter workspace"],
     ["excluded", `Excluded (${data?.exclusions?.length || 0})`],
     ["history", "Letter history"],
     ["setup", "Setup"],
@@ -798,24 +842,6 @@ export default function SocietyLettersPage() {
                 act={act}
                 onOpenSettings={() => navigateSetup("appeals")}
               />
-              <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <h2 className="font-bold text-emerald-950">
-                  Your letter holding list
-                </h2>
-                <p className="mt-1 text-sm text-emerald-950">
-                  After you load membership, recipients stay here while you
-                  prepare. Opening or leaving this page never sends letters or
-                  marks them sent. Exclude a recipient for this period if you do
-                  not want them to receive a letter; restore them later from
-                  Excluded.
-                </p>
-                {householdPreview && (
-                  <p className="mt-2 text-sm text-emerald-950">
-                    You can organize this list now. Delivery checks are still
-                    required before these recipients can receive letters.
-                  </p>
-                )}
-              </section>
               {data.sourceIssue && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <p>{data.sourceIssue}</p>
@@ -854,7 +880,15 @@ export default function SocietyLettersPage() {
                   )}
                 </div>
               )}
-              <section className={card}>
+              <section className={card} aria-labelledby="letter-holding-title">
+                <h2 id="letter-holding-title" className="text-lg font-bold">
+                  Your letter holding list
+                </h2>
+                <p className="mb-5 mt-1 text-sm text-gray-600">
+                  Review recipients at your pace. Nothing is sent when you open
+                  this list or save recipient choices. Exclude someone for this
+                  period when needed; find them again in Excluded.
+                </p>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <label className="text-sm font-semibold">
                     Find a household
@@ -895,6 +929,7 @@ export default function SocietyLettersPage() {
                       value={channel}
                       onChange={(e) => {
                         setChannel(e.target.value);
+                        setAttentionFilter("all");
                         setSelected([]);
                         setPreview(null);
                       }}
@@ -906,6 +941,36 @@ export default function SocietyLettersPage() {
                     </select>
                   </label>
                 </div>
+                <LetterWorkspaceFilters
+                  value={reviewFilter}
+                  onChange={changeReviewFilter}
+                  counts={counts}
+                  attention={attentionFilter}
+                  onAttentionChange={changeAttentionFilter}
+                  attentionCounts={attentionCounts}
+                  channel={channel}
+                />
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <p role="status">
+                    Showing {filtered.length} of {matching.length} matching
+                    recipients
+                  </p>
+                  {(reviewFilter !== "all" ||
+                    attentionFilter !== "all" ||
+                    search ||
+                    societyFilter) && (
+                    <button
+                      className="min-h-11 font-semibold text-emerald-800 underline underline-offset-4"
+                      onClick={() => {
+                        changeReviewFilter("all");
+                        setSearch("");
+                        setSocietyFilter("");
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
                 {channel === "email" && !data.emailEnabled && (
                   <p className="mt-3 text-sm text-amber-900">
                     Email delivery is off for this environment until the
@@ -913,24 +978,9 @@ export default function SocietyLettersPage() {
                     preparation is available after setup.
                   </p>
                 )}
-                {filtered.some((row) => row.recipientReview) && (
+                {matching.some((row) => row.recipientReview) && (
                   <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                     <div className="flex flex-wrap items-end gap-3">
-                      <label className="text-sm font-semibold">
-                        Recipient review
-                        <select
-                          className={input}
-                          value={reviewScope}
-                          onChange={(event) =>
-                            setReviewScope(event.target.value)
-                          }
-                        >
-                          <option value="unreviewed">
-                            Needs recipient review
-                          </option>
-                          <option value="all">All editable recipients</option>
-                        </select>
-                      </label>
                       <button
                         type="button"
                         className={primary}
@@ -951,7 +1001,11 @@ export default function SocietyLettersPage() {
                         Review recipients in bulk
                       </button>
                       <span className="pb-3 text-sm text-emerald-900">
-                        {reviewable.length} available in this view
+                        {reviewable.length}{" "}
+                        {reviewingUnreviewed
+                          ? "unreviewed recipients"
+                          : "editable recipients"}{" "}
+                        in this view
                       </span>
                     </div>
                     <p className="mt-3 text-sm text-gray-600">
@@ -984,7 +1038,7 @@ export default function SocietyLettersPage() {
                       setPreview(null);
                     }}
                   >
-                    Select ready households (up to {LETTER_BATCH_LIMIT})
+                    Select eligible households (up to {LETTER_BATCH_LIMIT})
                   </button>
                   <button
                     className={button}
@@ -1019,22 +1073,33 @@ export default function SocietyLettersPage() {
                 {!filtered.length ? (
                   <p className="py-8 text-gray-600">
                     {data.refreshedAt
-                      ? "No new households match this view. Completed acknowledgments are in Letter history."
+                      ? "No recipients match these filters. Clear filters to see the holding list; completed acknowledgments are in Letter history."
                       : "Configure and refresh your household query to see eligible recipients."}
                   </p>
                 ) : (
-                  <div className="max-h-[600px] overflow-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-gray-50">
+                  <div
+                    className="max-h-[600px] overflow-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700"
+                    role="region"
+                    aria-label="Scrollable letter recipients"
+                    tabIndex={0}
+                  >
+                    <p className="sticky left-0 mb-2 max-w-full text-xs text-gray-500 md:hidden">
+                      Scroll across to see review status and recipient actions.
+                    </p>
+                    <table
+                      className="w-full min-w-[760px] text-left text-sm"
+                      aria-label="Letter recipients"
+                    >
+                      <thead className="sticky top-0 z-10 bg-gray-50">
                         <tr>
                           {[
                             "Select",
-                            "Household",
-                            "Letter",
-                            "Recipient / eligibility",
-                            "Holding list",
+                            "Recipient & letter",
+                            "Recipient review",
+                            "Delivery readiness",
+                            "Actions",
                           ].map((h) => (
-                            <th key={h} className="p-3">
+                            <th key={h} scope="col" className="p-3">
                               {h}
                             </th>
                           ))}
@@ -1042,221 +1107,51 @@ export default function SocietyLettersPage() {
                       </thead>
                       <tbody>
                         {filtered.map((row) => (
-                          <tr
+                          <LetterWorkspaceRow
                             key={row.householdId}
-                            className="border-t border-gray-100"
-                          >
-                            <td className="p-3">
-                              <input
-                                aria-label={`Select ${row.name}`}
-                                type="checkbox"
-                                checked={selected.includes(row.householdId)}
-                                disabled={
-                                  busy ||
-                                  !canSelect(row) ||
-                                  (!selected.includes(row.householdId) &&
-                                    selected.length >= LETTER_BATCH_LIMIT)
-                                }
-                                onChange={(e) => {
-                                  setPreview(null);
-                                  setSelected(
-                                    e.target.checked
-                                      ? [...selected, row.householdId]
-                                      : selected.filter(
-                                          (id) => id !== row.householdId,
-                                        ),
-                                  );
-                                }}
-                              />
-                            </td>
-                            <td className="p-3">
-                              <p className="font-semibold">{row.name}</p>
-                              {row.members?.length > 0 && (
-                                <p className="mt-1 text-xs text-gray-500">
-                                  Member system IDs: {row.members.join(", ")}
-                                </p>
-                              )}
-                              {row.membersOutsideQuery?.length > 0 && (
-                                <p className="mt-1 text-xs text-gray-500">
-                                  Spouse outside query:{" "}
-                                  {row.membersOutsideQuery.join(", ")}.
-                                  Membership and contact restrictions still need
-                                  verification.
-                                </p>
-                              )}
-                              <p className="mt-1 text-xs text-gray-500">
-                                {row.reason}
-                              </p>
-                            </td>
-                            <td className="p-3">
-                              <p className="font-semibold">{row.societyName}</p>
-                              {row.sourceQueries && (
-                                <>
-                                  <p className="mt-1 text-xs text-gray-500">
-                                    Highest match in the configured queries. Not
-                                    yet cleared for delivery.
-                                  </p>
-                                  <p className="mt-1 text-xs text-gray-500">
-                                    Also matched:{" "}
-                                    {row.qualifiedKeys
-                                      .filter((key) => key !== row.societyKey)
-                                      .map(
-                                        (key) =>
-                                          data.definitions.find(
-                                            (d) => d.key === key,
-                                          )?.name || key,
-                                      )
-                                      .join(", ") || "No lower society query"}
-                                  </p>
-                                </>
-                              )}
-                            </td>
-                            <td className="whitespace-pre-line p-3">
-                              {row.recipientCandidates ? (
-                                <>
-                                  {row.readiness?.[channel] && (
-                                    <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
-                                      <p className="font-semibold">
-                                        {
-                                          readinessLabels[
-                                            row.readiness[channel].status
-                                          ]
-                                        }
-                                      </p>
-                                      {row.readiness[channel].reasons.map(
-                                        (reason) => (
-                                          <p
-                                            className="mt-1 text-gray-600"
-                                            key={reason}
-                                          >
-                                            {reason}
-                                          </p>
-                                        ),
-                                      )}
-                                    </div>
-                                  )}
-                                  <p className="mb-2 text-sm font-semibold text-gray-700">
-                                    {row.recipientReview?.status === "saved"
-                                      ? "Recipient choices saved"
-                                      : row.recipientReview?.status ===
-                                          "needs_review"
-                                        ? "Recipient choices need review"
-                                        : "Choose letter recipient"}
-                                  </p>
-                                  {row.recipientReview?.status === "saved" && (
-                                    <div className="mb-3 text-sm text-gray-600">
-                                      <p>{row.addressee}</p>
-                                      <p>
-                                        {row.address ||
-                                          "No mailing address selected"}
-                                      </p>
-                                      <p>Salutation: {row.salutation}</p>
-                                      <p className="mt-1 text-xs">
-                                        Saved for this period. No letter has
-                                        been sent.
-                                      </p>
-                                    </div>
-                                  )}
-                                  <button
-                                    className={`${button} mb-3`}
-                                    disabled={
-                                      busy ||
-                                      refreshing ||
-                                      !!sendingBatch ||
-                                      !row.recipientReview?.editable
-                                    }
-                                    aria-label={`Review letter recipient for ${row.name}`}
-                                    onClick={() => {
-                                      setError("");
-                                      setReviewingRecipient(row);
-                                    }}
-                                  >
-                                    {row.recipientReview?.status === "saved"
-                                      ? "Edit recipient choices"
-                                      : "Review letter recipient"}
-                                  </button>
-                                  <details>
-                                    <summary className="cursor-pointer font-semibold text-emerald-800">
-                                      Review address and salutation options
-                                    </summary>
-                                    <p className="mt-2 text-xs text-gray-500">
-                                      Returned query details. A primary
-                                      addressee may address only one spouse; use
-                                      recipient review to save joint wording.
-                                    </p>
-                                    {row.recipientCandidates.map(
-                                      (candidate) => (
-                                        <div
-                                          key={candidate.constituentId}
-                                          className="mt-3 rounded-lg border border-gray-200 p-3"
-                                        >
-                                          <p className="font-semibold">
-                                            {candidate.addressee ||
-                                              "No addressee returned"}
-                                          </p>
-                                          <p>
-                                            Salutation:{" "}
-                                            {candidate.salutation ||
-                                              "Not returned"}
-                                          </p>
-                                          <p>
-                                            {candidate.address ||
-                                              "No address returned"}
-                                          </p>
-                                          {candidate.emailCandidates?.length >
-                                          1 ? (
-                                            <div className="mt-2 text-sm">
-                                              <p className="font-semibold">
-                                                Multiple email values: choose
-                                                during recipient review
-                                              </p>
-                                              <ul className="list-inside list-disc">
-                                                {candidate.emailCandidates.map(
-                                                  (email) => (
-                                                    <li key={email}>{email}</li>
-                                                  ),
-                                                )}
-                                              </ul>
-                                              <p className="text-xs text-gray-500">
-                                                No email was selected
-                                                automatically. Mailing details
-                                                are retained separately.
-                                              </p>
-                                            </div>
-                                          ) : (
-                                            <p>{candidate.email}</p>
-                                          )}
-                                          <p className="text-xs text-gray-500">
-                                            From constituent{" "}
-                                            {candidate.constituentId}
-                                          </p>
-                                        </div>
-                                      ),
-                                    )}
-                                  </details>
-                                </>
-                              ) : (
-                                row.issues[channel] ||
-                                (channel === "email" ? row.email : row.address)
-                              )}
-                            </td>
-                            <td className="p-3">
-                              <button
-                                className={button}
-                                disabled={busy || refreshing || !!sendingBatch}
-                                onClick={() => {
-                                  setError("");
-                                  setExcluding({
-                                    ...row,
-                                    period: row.period || data.period,
-                                  });
-                                }}
-                                aria-label={`Exclude ${row.name} for this period`}
-                              >
-                                Exclude for this period
-                              </button>
-                            </td>
-                          </tr>
+                            row={row}
+                            view={views.get(row.householdId)}
+                            channel={channel}
+                            definitions={data.definitions}
+                            sourceIssue={data.sourceIssue}
+                            checked={selected.includes(row.householdId)}
+                            selectionDisabled={
+                              busy ||
+                              !canSelect(row) ||
+                              (!selected.includes(row.householdId) &&
+                                selected.length >= LETTER_BATCH_LIMIT)
+                            }
+                            reviewDisabled={
+                              busy ||
+                              refreshing ||
+                              !!sendingBatch ||
+                              !row.recipientReview?.editable
+                            }
+                            excludeDisabled={
+                              busy || refreshing || !!sendingBatch
+                            }
+                            onSelect={(checked) => {
+                              setPreview(null);
+                              setSelected(
+                                checked
+                                  ? [...selected, row.householdId]
+                                  : selected.filter(
+                                      (id) => id !== row.householdId,
+                                    ),
+                              );
+                            }}
+                            onReview={() => {
+                              setError("");
+                              setReviewingRecipient(row);
+                            }}
+                            onExclude={() => {
+                              setError("");
+                              setExcluding({
+                                ...row,
+                                period: row.period || data.period,
+                              });
+                            }}
+                          />
                         ))}
                       </tbody>
                     </table>

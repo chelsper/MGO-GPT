@@ -60,12 +60,43 @@ are not imported automatically.
 
 ### Holding List And Exclusions (September 24)
 
-**Ready for letters** is the saved membership holding list, not a send queue.
+**Letter workspace** is the saved membership holding list, not a send queue.
 Recipients remain available across visits until refreshed qualification, letter
 history, or an explicit exclusion changes their disposition. Opening the page,
 loading fields, and organizing this list never send letters or write NXT appeals.
 Constituent/spouse and multiple-query sources remain preview-only for delivery,
 but their holding lists can be organized before delivery verification is complete.
+
+### Daily Review Filters (September 25)
+
+The workspace uses only the current saved payload for count-based **All
+recipients**, **Needs review**, **Reviewed**, and **Needs attention** filters.
+Search and society selection scope these counts. Reviewed means a current saved
+recipient review, never approval for delivery. Needs attention is an overlapping
+facet: a reviewed recipient can still have a missing address or an expired NXT
+readiness check. Older grouped sources without recipient-review metadata are not
+invented as reviewed; they remain available under All recipients.
+
+**Focus on an issue** narrows the selected review view to changed or unavailable
+recipient choices, missing address/email/greeting, multiple organization contact
+choices, or a saved readiness issue. Missing-detail checks consider returned
+options before review, and use the actual saved choices after review. An
+intentionally blank saved address never falls back to a query address. Email
+issues are scoped to the email channel. A reviewed organization greeting is a
+valid choice; multiple optional contacts do not force another review afterward.
+
+Compact rows keep recipient-review and delivery-readiness labels separate.
+Supporting member IDs, addresses, greetings, and query details expand on demand;
+known delivery blockers remain visible. No filtering, counting, or expansion
+fetches NXT data. Filter changes clear selected delivery rows and batch previews.
+Readiness checks operate on the visible rows, only after the existing explicit
+action. Their expiry, server checks, source restrictions, and sending rules are
+unchanged.
+
+Bulk review defaults to unreviewed recipients in All recipients. Selecting a
+review-status or issue filter reviews editable recipients within that view,
+including previously reviewed recipients when applicable. The 50-recipient cap,
+individual save confirmations, revision tokens, and skip behavior remain intact.
 
 Reviewers can **Exclude for this period**, with an optional reason, then restore
 from **Excluded**. An exclusion covers all society levels and both delivery

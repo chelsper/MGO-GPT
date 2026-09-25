@@ -92,6 +92,159 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("filters review and attention from saved data without treating reviewed recipients as deliverable", async () => {
+    const changed = reviewRow("30");
+    changed.recipientReview.status = "needs_review";
+    const missingAddress = reviewRow("40", true);
+    missingAddress.recipientReview.values.address = "";
+    const staleCheck = reviewRow("50", true);
+    staleCheck.readiness = {
+      post: {
+        status: "needs_review",
+        reasons: ["Check expired. Check readiness again."],
+      },
+    };
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        rows: [
+          reviewRow("10"),
+          reviewRow("20", true),
+          changed,
+          missingAddress,
+          staleCheck,
+          { ...reviewRow("60"), status: "covered" },
+          { ...reviewRow("70"), status: "excluded" },
+        ],
+      }),
+    );
+    render(<Page />);
+    await screen.findByRole("button", { name: "Letter workspace" });
+    expect(
+      screen.queryByRole("button", { name: "Ready for letters" }),
+    ).not.toBeInTheDocument();
+    const filters = within(
+      screen.getByRole("group", { name: "Recipient review filters" }),
+    );
+    expect(
+      filters.getByRole("button", { name: "All recipients 5" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      filters.getByRole("button", { name: "Needs review 2" }),
+    ).toBeVisible();
+    expect(filters.getByRole("button", { name: "Reviewed 3" })).toBeVisible();
+    fireEvent.click(filters.getByRole("button", { name: "Needs attention 3" }));
+    expect(
+      screen.queryByLabelText("Select Household 10"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Select Household 30")).toBeDisabled();
+    expect(screen.getByLabelText("Select Household 40")).toBeDisabled();
+    expect(
+      screen.getByText("Check expired. Check readiness again."),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Focus on an issue"), {
+      target: { value: "address" },
+    });
+    expect(
+      screen.getByText("Showing 1 of 5 matching recipients"),
+    ).toBeVisible();
+    expect(
+      screen.queryByLabelText("Select Household 50"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(filters.getByRole("button", { name: "Reviewed 3" }));
+    expect(screen.getByLabelText("Focus on an issue")).toHaveValue("all");
+    expect(screen.getByLabelText("Select Household 20")).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review recipients in bulk" }),
+    );
+    expect(screen.getByText(/Recipient 1 of 3/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+    fireEvent.change(screen.getByLabelText("Find a household"), {
+      target: { value: "Household 10" },
+    });
+    expect(
+      filters.getByRole("button", { name: "All recipients 1" }),
+    ).toBeVisible();
+    expect(filters.getByRole("button", { name: "Reviewed 0" })).toBeVisible();
+    expect(screen.getByText(/No recipients match these filters/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(
+      screen.getByText("Showing 5 of 5 matching recipients"),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("resets hidden selections and channel-specific issue filters without any NXT requests", async () => {
+    const eligible = {
+      ...reviewRow("10", true),
+      issues: { post: null, email: null },
+    };
+    fetchMock.mockResolvedValue(
+      Response.json({ ...base, rows: [eligible, reviewRow("20")] }),
+    );
+    render(<Page />);
+    fireEvent.click(await screen.findByLabelText("Select Household 10"));
+    expect(
+      screen.getByRole("button", { name: "Review selected letters" }),
+    ).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Needs review 1" }));
+    expect(
+      screen.getByRole("button", { name: "Review selected letters" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "All recipients 2" }));
+    expect(screen.getByLabelText("Select Household 10")).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("Select Household 10"));
+    fireEvent.change(screen.getByLabelText("Focus on an issue"), {
+      target: { value: "address" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Review selected letters" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Delivery method"), {
+      target: { value: "email" },
+    });
+    expect(screen.getByLabelText("Focus on an issue")).toHaveValue("all");
+    expect(
+      screen.queryByRole("option", { name: /Mailing address missing/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /Email missing or not selected/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Select Household 10")).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("scopes review counts by society and keeps legacy rows available only in All unless they have a known issue", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        definitions: [
+          ...base.definitions,
+          { key: "ood", name: "Order of the Dolphin" },
+        ],
+        rows: [
+          reviewRow("10"),
+          {
+            ...reviewRow("20", true),
+            societyKey: "ood",
+            societyName: "Order of the Dolphin",
+          },
+          { ...household, householdId: "90" },
+        ],
+      }),
+    );
+    render(<Page />);
+    await screen.findByRole("button", { name: "All recipients 3" });
+    fireEvent.change(screen.getByLabelText("Society letter"), {
+      target: { value: "ood" },
+    });
+    expect(
+      screen.getByRole("button", { name: "All recipients 1" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reviewed 1" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Needs review 0" }),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("separates setup from daily review and directs mapping work without making requests", async () => {
     fetchMock.mockResolvedValue(
       Response.json({
@@ -363,9 +516,7 @@ describe("society letter workspace", () => {
     expect(
       await screen.findByRole("button", { name: "Review recipients in bulk" }),
     ).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Recipient review"), {
-      target: { value: "all" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Reviewed 52" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Review recipients in bulk" }),
     );
@@ -509,7 +660,7 @@ describe("society letter workspace", () => {
       });
     });
     const first = render(<Page />);
-    await screen.findByRole("button", { name: "Ready for letters" });
+    await screen.findByRole("button", { name: "Letter workspace" });
     expect(screen.getByText("Your letter holding list")).toBeVisible();
     expect(screen.getByLabelText(`Select ${household.name}`)).toBeDisabled();
     fireEvent.click(
@@ -538,7 +689,7 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: `Restore ${household.name}` }),
     );
     await screen.findByRole("button", { name: "Excluded (0)" });
-    fireEvent.click(screen.getByRole("button", { name: "Ready for letters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Letter workspace" }));
     expect(screen.getByLabelText(`Select ${household.name}`)).toBeDisabled();
     expect(
       fetchMock.mock.calls
@@ -944,7 +1095,7 @@ describe("society letter workspace", () => {
     expect(screen.getByText("Another Household")).toBeVisible();
     expect(screen.queryByText("Sample Household")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Ready for letters" }),
+      screen.getByRole("button", { name: "Letter workspace" }),
     ).toBeVisible();
     expect(screen.getByLabelText("Select Another Household")).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -1022,11 +1173,22 @@ describe("society letter workspace", () => {
       }),
     );
     render(<Page />);
-    expect(await screen.findByText("Member system IDs: 10, 11")).toBeVisible();
+    const expand = await screen.findByRole("button", {
+      name: "Show details for Sample Household",
+    });
+    expect(
+      screen.queryByText("Member system IDs: 10, 11"),
+    ).not.toBeInTheDocument();
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(expand);
+    expect(screen.getByText("Member system IDs: 10, 11")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Hide details for Sample Household" }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
     expect(screen.getByText(/Spouse outside query: 11/)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Ready for letters" }),
+      screen.getByRole("button", { name: "Letter workspace" }),
     ).toBeVisible();
     fireEvent.click(screen.getByText("Review address and salutation options"));
     expect(screen.getByText("Alex Sample")).toBeVisible();
@@ -1072,7 +1234,7 @@ describe("society letter workspace", () => {
     render(<Page />);
     await screen.findByText("Sample Household");
     fireEvent.click(
-      screen.getByRole("button", { name: /Select ready households/ }),
+      screen.getByRole("button", { name: /Select eligible households/ }),
     );
     expect(screen.getByLabelText("Select Sample Household")).toBeChecked();
     expect(fetchMock).toHaveBeenCalledTimes(1);
