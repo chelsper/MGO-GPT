@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   exclusionSync: vi.fn(),
   exclusionRemoval: vi.fn(),
   validateTemplate: vi.fn(),
+  inspectTemplate: vi.fn(),
   recipientPreview: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
@@ -69,6 +70,7 @@ vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
   renderSocietyLetter: vi.fn(),
   validateLetterTemplate: mocks.validateTemplate,
+  inspectLetterTemplate: mocks.inspectTemplate,
 }));
 import { GET, POST } from "./route";
 const url = "https://example.org/api/stewardship/society-letters";
@@ -105,6 +107,44 @@ beforeEach(() => {
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("inspects a saved Word template without taking a mutation lease or calling NXT", async () => {
+    const version = "a".repeat(64);
+    mocks.read.mockResolvedValueOnce({
+      templates: { [version]: { content: "saved Word bytes" } },
+    });
+    mocks.inspectTemplate.mockReturnValueOnce({
+      fields: [{ name: "City", suggestedField: "city" }],
+    });
+    const response = await POST(
+      request({ action: "inspect_template", templateVersion: version }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).fields[0].name).toBe("City");
+    expect(mocks.inspectTemplate).toHaveBeenCalledWith("saved Word bytes");
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.inspect).not.toHaveBeenCalled();
+  });
+  it.each(["anonymous", "mgo", "cross-origin"])(
+    "blocks %s Word inspection",
+    async (kind) => {
+      if (kind === "anonymous") mocks.auth.mockResolvedValueOnce(null);
+      if (kind === "mgo")
+        mocks.workspace.mockResolvedValueOnce({
+          sessionUser: { active: true, role: "mgo" },
+        });
+      const response = await POST(
+        request(
+          { action: "inspect_template", content: "anything" },
+          kind === "cross-origin"
+            ? { Origin: "https://other.example.org" }
+            : {},
+        ),
+      );
+      expect(response.status).toBe(kind === "anonymous" ? 401 : 403);
+      expect(mocks.inspectTemplate).not.toHaveBeenCalled();
+    },
+  );
   it("renders a recipient draft without a revision, mutation lease, NXT work, or delivery", async () => {
     mocks.recipientPreview.mockReturnValueOnce({
       document: Buffer.from("personalized draft"),

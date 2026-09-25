@@ -18,6 +18,7 @@ import { buildResendFromAddress } from "./sendSubmissionEmail";
 import {
   renderSocietyLetter,
   validateLetterTemplate,
+  inspectLetterTemplate,
 } from "./societyLetterDocuments";
 import {
   LETTER_BATCH_LIMIT,
@@ -98,6 +99,7 @@ export function letterWorkspace(state, definitions, today) {
               savedAt: t.savedAt,
               mergeSettings: normalizeLetterMergeSettings(t.mergeSettings),
               usedFields: t.usedFields || [],
+              wordFields: t.wordFields || null,
             }
           : {}),
       };
@@ -463,6 +465,13 @@ export async function saveLetterTemplate(
     };
   }
   const template = validateLetterTemplate(raw);
+  if (
+    !template.mergeSettings.wordBindings &&
+    inspectLetterTemplate(template.content).legacy
+  )
+    throw letterError(
+      "Read fields from Word letter and save a value for each placeholder before saving this template.",
+    );
   const version = hash([body.societyKey, template.version]);
   if (!state.templates[version]) {
     if (Object.keys(state.templates).length >= 100)

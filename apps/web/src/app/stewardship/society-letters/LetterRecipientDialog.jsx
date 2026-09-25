@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { letterNameMergeData } from "@/utils/societyLetters";
+import {
+  letterNameMergeData,
+  letterAddressMergeData,
+  LETTER_ADDRESS_TAGS,
+  LETTER_FIELD_LABELS,
+  formatLetterAddress,
+} from "@/utils/societyLetters";
 import SavedLetterPreview from "./SavedLetterPreview";
 
 const input =
@@ -49,6 +55,7 @@ export default function LetterRecipientDialog({
     ),
   ];
   const mergeNames = letterNameMergeData({ ...recipient, ...values });
+  const mergeAddress = letterAddressMergeData({ ...recipient, ...values });
   const labelFor = (item) => {
     const name = recipient.memberNames?.find(
       (member) => member.constituentId === item.constituentId,
@@ -56,7 +63,11 @@ export default function LetterRecipientDialog({
     return `${name || item.addressee || "Constituent"} (ID ${item.constituentId})`;
   };
   function change(field, value) {
-    setValues((current) => ({ ...current, [field]: value }));
+    setValues((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "address" ? { addressParts: null } : {}),
+    }));
     setConfirmed(false);
   }
   function chooseRecipient(id) {
@@ -69,6 +80,9 @@ export default function LetterRecipientDialog({
             addressee: selected.addressee || "",
             salutation: selected.salutation || "",
             address: selected.address || "",
+            ...(selected.addressParts
+              ? { addressParts: selected.addressParts }
+              : {}),
             email: "",
           }
         : blank,
@@ -229,6 +243,7 @@ export default function LetterRecipientDialog({
                         ...current,
                         addressConstituentId: source.constituentId,
                         address: source.address || "",
+                        addressParts: source.addressParts || null,
                       }));
                       setConfirmed(false);
                     }}
@@ -258,6 +273,42 @@ export default function LetterRecipientDialog({
                   here. You can correct this letter's address or leave it blank
                   for later; a postal letter will still need a verified address.
                 </p>
+                <details className="rounded-lg border border-gray-200 p-3 text-sm">
+                  <summary className="cursor-pointer font-semibold">
+                    Separate address merge fields
+                  </summary>
+                  <p className="mt-2 text-gray-600">
+                    Use these when your letter merges street, city, state and
+                    ZIP separately. Older saved results may only contain the
+                    full address; enter the parts here or use Full mailing
+                    address in the template settings. Changes apply only to this
+                    letter.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {LETTER_ADDRESS_TAGS.map((key) => (
+                      <label key={key} className="font-semibold">
+                        {LETTER_FIELD_LABELS[key]}
+                        <input
+                          className={input}
+                          maxLength={300}
+                          value={mergeAddress[key]}
+                          onChange={(event) => {
+                            const parts = {
+                              ...mergeAddress,
+                              [key]: event.target.value,
+                            };
+                            setValues((current) => ({
+                              ...current,
+                              addressParts: parts,
+                              address: formatLetterAddress(parts),
+                            }));
+                            setConfirmed(false);
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </details>
                 <label className="block text-sm font-semibold">
                   Email (optional)
                   <select

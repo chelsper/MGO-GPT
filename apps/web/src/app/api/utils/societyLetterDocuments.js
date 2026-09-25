@@ -4,23 +4,25 @@ import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import {
   LETTER_TAGS,
+  LETTER_ADDRESS_TAGS,
   letterError,
   letterMergeData,
+  letterAddressMergeData,
   letterNameIssue,
   mergeLetterText,
   normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
+import {
+  processLetterWordFields,
+  wordFieldSource,
+} from "./societyLetterWordFields";
 
 export const MAX_TEMPLATE_BYTES = 1024 * 1024;
 const sample = Object.fromEntries(
   LETTER_TAGS.map((tag) => [tag, `Sample ${tag.replaceAll("_", " ")}`]),
 );
 
-function templateDocument(
-  base64,
-  selectedFields = LETTER_TAGS,
-  usedFields = new Set(),
-) {
+function validatedTemplateZip(base64) {
   const buffer = Buffer.from(base64, "base64");
   if (!buffer.length || buffer.length > MAX_TEMPLATE_BYTES)
     throw letterError("Upload a Word .docx template no larger than 1 MB.");
@@ -67,12 +69,28 @@ function templateDocument(
       throw letterError(
         "Remove external document links, linked images, and embedded content from the template.",
       );
+  }
+  return zip;
+}
+
+export function inspectLetterTemplate(content) {
+  return processLetterWordFields(validatedTemplateZip(content));
+}
+
+function templateDocument(base64, settings, usedFields = new Set()) {
+  const zip = validatedTemplateZip(base64);
+  if (settings.wordBindings) processLetterWordFields(zip, settings);
+  for (const file of Object.values(zip.files)) {
     if (/^word\/.+\.xml$/.test(file.name)) {
+      const xml = file.asText();
       const visible = xml.replace(/<[^>]*>/g, "");
       for (const match of visible.matchAll(/\{([^{}]+)\}/g)) {
-        if (!LETTER_TAGS.includes(match[1].trim()))
+        const field = settings.wordBindings
+          ? wordFieldSource(match[1].trim(), settings)
+          : match[1].trim();
+        if (!LETTER_TAGS.includes(field))
           throw letterError(
-            `Unsupported merge field: ${match[1].slice(0, 60)}. Use only the listed fields.`,
+            `Choose a value for Word field ${match[1].slice(0, 60)} in the template's merge-field settings.`,
           );
       }
     }
@@ -82,14 +100,17 @@ function templateDocument(
     linebreaks: true,
     errorLogging: false,
     parser: (tag) => {
-      if (!LETTER_TAGS.includes(tag.trim()))
+      const field = settings.wordBindings
+        ? wordFieldSource(tag.trim(), settings)
+        : tag.trim();
+      if (!LETTER_TAGS.includes(field))
         throw letterError("Use only the listed merge fields.");
-      usedFields.add(tag.trim());
-      return { get: (data) => data[tag.trim()] || "" };
+      usedFields.add(field);
+      return { get: (data) => data[field] || "" };
     },
   });
   for (const field of usedFields) {
-    if (!selectedFields.includes(field))
+    if (!settings.fields.includes(field))
       throw letterError(
         `Select the merge field {${field}} or remove it from the Word letter before saving.`,
       );
@@ -123,7 +144,7 @@ export function validateLetterTemplate(raw) {
       "Add an email subject (up to 200 characters) and cover message.",
     );
   try {
-    templateDocument(content, mergeSettings.fields, usedFields).render(sample);
+    templateDocument(content, mergeSettings, usedFields).render(sample);
     for (const text of [subject, emailBody]) {
       for (const match of text.matchAll(/\{([^{}]+)\}/g)) {
         const field = match[1].trim();
@@ -148,6 +169,9 @@ export function validateLetterTemplate(raw) {
     subject,
     emailBody,
     mergeSettings,
+    ...(mergeSettings.wordBindings
+      ? { wordFields: inspectLetterTemplate(content) }
+      : {}),
     usedFields: LETTER_TAGS.filter((field) => usedFields.has(field)),
     version: createHash("sha256")
       .update(JSON.stringify([content, subject, emailBody, mergeSettings]))
@@ -157,19 +181,30 @@ export function validateLetterTemplate(raw) {
 
 export function renderSocietyLetter(template, row, today) {
   const settings = normalizeLetterMergeSettings(template.mergeSettings);
+  if (!settings.wordBindings && inspectLetterTemplate(template.content).legacy)
+    throw letterError(
+      "This letter still uses Word mail-merge placeholders. Open Letter templates, read the Word fields, and save their mappings before previewing or creating letters.",
+    );
   const data = letterMergeData(row, today, settings);
   const usedFields = new Set();
-  const document = templateDocument(
-    template.content,
-    settings.fields,
-    usedFields,
-  );
+  const document = templateDocument(template.content, settings, usedFields);
   for (const value of [template.subject, template.emailBody]) {
     for (const match of String(value).matchAll(/\{([^{}]+)\}/g))
       usedFields.add(match[1].trim());
   }
   const nameIssue = letterNameIssue(row, [...usedFields]);
   if (nameIssue) throw letterError(nameIssue);
+  if (
+    [...usedFields].some((key) => LETTER_ADDRESS_TAGS.includes(key)) &&
+    !letterAddressMergeData(row).address_line_1
+  )
+    throw letterError(
+      "Separate address fields are not available for this recipient. Use the full mailing-address block in Letter templates, or enter the separate address fields in recipient review.",
+    );
+  if (usedFields.has("address") && !data.address)
+    throw letterError(
+      "Add a mailing address in recipient review before previewing this letter.",
+    );
   document.render(data);
   return {
     document: document.toBuffer(),

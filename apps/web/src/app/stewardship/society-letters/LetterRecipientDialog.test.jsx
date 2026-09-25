@@ -54,6 +54,46 @@ beforeEach(() => {
   });
 });
 describe("letter recipient review dialog", () => {
+  it("edits address components together and clears them after a free-form correction", () => {
+    const save = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        onSave={save}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByText("Separate address merge fields"));
+    fireEvent.change(screen.getByLabelText("Street line 1"), {
+      target: { value: "25 Test St" },
+    });
+    fireEvent.change(screen.getByLabelText("City"), {
+      target: { value: "Boston" },
+    });
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      "25 Test St\nBoston",
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    expect(save.mock.calls[0][0].addressParts).toMatchObject({
+      address_line_1: "25 Test St",
+      city: "Boston",
+    });
+    fireEvent.change(screen.getByLabelText("Mailing address"), {
+      target: { value: "Different address" },
+    });
+    expect(screen.getByLabelText("City")).toHaveValue("");
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    ).not.toBeChecked();
+  });
   it("protects unsaved choices on skip, jump, close, and Escape", () => {
     const navigate = vi.fn(),
       skip = vi.fn(),

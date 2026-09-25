@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import Page from "./page";
-import { LETTER_COLUMNS } from "@/utils/societyLetters";
+import { LETTER_COLUMNS, LETTER_TAGS } from "@/utils/societyLetters";
 import { societyQuerySettings } from "../../../../test/societyQueryFixture";
 import { sourceForSociety } from "./SocietyQueryEditors";
 const household = {
@@ -86,6 +86,87 @@ function reviewRow(id, saved = false) {
   };
 }
 describe("society letter workspace", () => {
+  it("reads saved Word fields and saves per-placeholder mappings without uploading a replacement", async () => {
+    let template = {
+      societyKey: "ood",
+      societyName: "Order of the Dolphin",
+      filename: "OOD.docx",
+      version: "v1",
+      subject: "Society letter",
+      emailBody: "Hello",
+      mergeSettings: { fields: LETTER_TAGS, dateFormat: "iso" },
+    };
+    const fields = {
+      fields: [
+        { name: "First_Name", suggestedField: "first_name" },
+        { name: "Address_Line_1", suggestedField: "address_line_1" },
+      ],
+      hasAddressBlock: true,
+      hasDateLabel: true,
+    };
+    const requests = [];
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        if (body.action === "inspect_template") return Response.json(fields);
+        expect(body.action).toBe("template");
+        expect(body.existingVersion).toBe("v1");
+        expect(body.template).not.toHaveProperty("content");
+        template = {
+          ...template,
+          ...body.template,
+          wordFields: fields,
+          version: "v2",
+        };
+      }
+      return Response.json({ ...base, templates: [template] });
+    });
+    const view = render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Letter templates" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Read fields from Word letter" }),
+    );
+    const mapping = await screen.findByLabelText(
+      "Order of the Dolphin fill First_Name with",
+    );
+    expect(mapping).toHaveValue("first_name");
+    fireEvent.change(mapping, { target: { value: "first_names" } });
+    expect(
+      screen.queryByLabelText("Order of the Dolphin fill Address_Line_1 with"),
+    ).not.toBeInTheDocument();
+    fireEvent.change(
+      screen.getByLabelText("Order of the Dolphin address layout"),
+      { target: { value: "components" } },
+    );
+    expect(
+      screen.getByLabelText("Order of the Dolphin fill Address_Line_1 with"),
+    ).toHaveValue("address_line_1");
+    fireEvent.change(
+      screen.getByLabelText("Order of the Dolphin address layout"),
+      { target: { value: "block" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save template and field settings" }),
+    );
+    await waitFor(() => expect(template.version).toBe("v2"));
+    expect(template.mergeSettings.wordBindings.First_Name).toBe("first_names");
+    expect(template.mergeSettings.mergeDateLabel).toBe(true);
+    expect(requests.map((item) => item.action)).toEqual([
+      "inspect_template",
+      "template",
+    ]);
+    view.unmount();
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Letter templates" }),
+    );
+    expect(
+      screen.getByLabelText("Order of the Dolphin fill First_Name with"),
+    ).toHaveValue("first_names");
+  });
   it("reviews a filtered queue, saves individually with current revisions, and leaves skipped households unchanged", async () => {
     let workspace = {
       ...base,

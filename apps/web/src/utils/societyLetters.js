@@ -80,11 +80,20 @@ export const LETTER_NAME_TAGS = [
   "spouse_last_name",
   "first_names",
 ];
+export const LETTER_ADDRESS_TAGS = [
+  "address_line_1",
+  "address_line_2",
+  "city",
+  "state",
+  "zip",
+  "country",
+];
 export const LETTER_TAGS = [
   "addressee",
   "salutation",
   ...LETTER_NAME_TAGS,
   "address",
+  ...LETTER_ADDRESS_TAGS,
   "household_name",
   "society_name",
   "period_start",
@@ -100,6 +109,12 @@ export const LETTER_FIELD_LABELS = {
   spouse_last_name: "Spouse last name",
   first_names: "Individual or household first names",
   address: "Mailing address",
+  address_line_1: "Street line 1",
+  address_line_2: "Street line 2 (optional)",
+  city: "City",
+  state: "State",
+  zip: "ZIP / postal code",
+  country: "Country (optional)",
   household_name: "Individual or household name",
   society_name: "Society name",
   period_start: "Qualification period start",
@@ -117,9 +132,34 @@ export function normalizeLetterMergeSettings(raw) {
     !["iso", "long_us"].includes(dateFormat)
   )
     throw letterError("Choose supported merge fields and a date format.");
+  const bindings = raw?.wordBindings;
+  if (
+    bindings !== undefined &&
+    (!bindings ||
+      typeof bindings !== "object" ||
+      Array.isArray(bindings) ||
+      Object.keys(bindings).length > 100 ||
+      Object.entries(bindings).some(
+        ([key, value]) =>
+          !/^[A-Za-z][A-Za-z0-9_ .-]{0,79}$/.test(key) ||
+          ["__proto__", "constructor", "prototype"].includes(key) ||
+          !LETTER_TAGS.includes(value),
+      ) ||
+      !["block", "components"].includes(raw.wordAddressMode || "block"))
+  )
+    throw letterError("Choose a supported value for every Word merge field.");
   return {
     fields: LETTER_TAGS.filter((field) => fields.includes(field)),
     dateFormat,
+    ...(bindings === undefined
+      ? {}
+      : {
+          wordBindings: Object.fromEntries(
+            Object.entries(bindings).sort(([a], [b]) => a.localeCompare(b)),
+          ),
+          wordAddressMode: raw.wordAddressMode || "block",
+          mergeDateLabel: raw.mergeDateLabel === true,
+        }),
   };
 }
 export const LETTER_BATCH_LIMIT = 50;
@@ -458,6 +498,14 @@ export function constituentHouseholdsFromQuery(
         constituentId: row.constituentId,
         addressee: row.addressee,
         salutation: row.salutation,
+        addressParts: {
+          address_line_1: row.address1,
+          address_line_2: row.address2,
+          city: row.city,
+          state: row.state,
+          zip: row.postalCode,
+          country: row.country,
+        },
         email: row.email,
         ...(table.metadata?.emailCandidates?.[row.constituentId]
           ? {
@@ -909,6 +957,7 @@ export function letterMergeData(row, today, mergeSettings) {
     salutation: row.salutation,
     ...letterNameMergeData(row),
     address: row.address,
+    ...letterAddressMergeData(row),
     household_name: row.name,
     society_name: row.societyName,
     period_start: row.period.start,
@@ -933,6 +982,30 @@ export function letterMergeData(row, today, mergeSettings) {
   return Object.fromEntries(
     settings.fields.map((field) => [field, data[field]]),
   );
+}
+
+export function letterAddressMergeData(row) {
+  const candidate = row.recipientCandidates?.find(
+    (item) => item.constituentId === row.addressConstituentId,
+  );
+  // Never derive structured fields from a free-form address or reuse parts after edits.
+  const parts =
+    row.addressParts ??
+    (candidate?.address === row.address ? candidate?.addressParts : null);
+  return Object.fromEntries(
+    LETTER_ADDRESS_TAGS.map((key) => [key, text(parts?.[key])]),
+  );
+}
+
+export function formatLetterAddress(parts) {
+  return [
+    parts.address_line_1,
+    parts.address_line_2,
+    [parts.city, parts.state, parts.zip].filter(Boolean).join(" "),
+    parts.country,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function mergeLetterText(template, data) {

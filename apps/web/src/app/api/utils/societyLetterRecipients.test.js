@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   recipientReviewForRow,
   saveLetterRecipientReview,
+  validateLetterRecipientChoices,
 } from "./societyLetterRecipients";
 
 function setup() {
@@ -80,6 +81,39 @@ function setup() {
 }
 
 describe("saved society letter recipients", () => {
+  it("saves explicit address components but rejects components that disagree with the reviewed address", async () => {
+    const { state, row, signature, body, save } = setup();
+    body.addressParts = {
+      address_line_1: "11 Test St",
+      address_line_2: "",
+      city: "Jacksonville",
+      state: "FL",
+      zip: "32211",
+      country: "",
+    };
+    await save();
+    expect(
+      recipientReviewForRow(state, row, signature).values.addressParts,
+    ).toEqual(body.addressParts);
+    expect(() =>
+      validateLetterRecipientChoices(state, row, signature, {
+        ...body,
+        address: "Some other address",
+      }),
+    ).toThrow(/do not match/);
+  });
+  it("uses only the selected address owner's saved parts and never parses an edited address", () => {
+    const { state, row, signature, body } = setup();
+    row.recipientCandidates[1].addressParts = { address_line_1: "11 Test St" };
+    body.reviewToken = recipientReviewForRow(state, row, signature).token;
+    expect(
+      validateLetterRecipientChoices(state, row, signature, body).addressParts,
+    ).toBeUndefined();
+    body.address = "11 Test St";
+    expect(
+      validateLetterRecipientChoices(state, row, signature, body).addressParts,
+    ).toEqual({ address_line_1: "11 Test St" });
+  });
   it("saves explicit joint wording and a spouse address without altering source rows or permissions", async () => {
     const { row, state, signature, body, store, save } = setup();
     const original = structuredClone(row);

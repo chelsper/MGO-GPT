@@ -95,6 +95,8 @@ function BatchConfirmation({ value, busy, onCancel, onConfirm }) {
 
 function TemplateEditor({ template, busy, save, onEdit }) {
   const [file, setFile] = useState(null);
+  const [wordFields, setWordFields] = useState(template.wordFields || null);
+  const [readingFields, setReadingFields] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const fileInput = useRef(null),
@@ -111,6 +113,64 @@ function TemplateEditor({ template, busy, save, onEdit }) {
       "Dear {salutation},\n\nPlease find your {society_name} letter attached. Thank you for your support.",
   );
   const [error, setError] = useState("");
+  async function fileContent() {
+    if (!file) return null;
+    if (!/\.docx$/i.test(file.name) || file.size > 1024 * 1024)
+      throw new Error("Choose a Word .docx template up to 1 MB.");
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = () =>
+        reject(new Error("The Word file could not be read."));
+      reader.readAsDataURL(file);
+    });
+  }
+  async function readWordFields() {
+    setReadingFields(true);
+    setError("");
+    try {
+      const content = await fileContent();
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "inspect_template",
+          ...(file ? { content } : { templateVersion: template.version }),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.error || "Word fields could not be read.");
+      setWordFields(result);
+      setMergeSettings((current) => {
+        const bindings = Object.fromEntries(
+          result.fields.map(({ name, suggestedField }) => [
+            name,
+            current.wordBindings?.[name] || suggestedField,
+          ]),
+        );
+        return {
+          ...current,
+          wordBindings: bindings,
+          fields: [
+            ...new Set([
+              ...current.fields,
+              ...Object.values(bindings).filter(Boolean),
+              "address",
+              "letter_date",
+            ]),
+          ],
+          wordAddressMode: current.wordAddressMode || "block",
+          mergeDateLabel: current.mergeDateLabel ?? result.hasDateLabel,
+        };
+      });
+      onEdit();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setReadingFields(false);
+    }
+  }
   function insertField(target, token) {
     const element =
       target === "subject" ? subjectInput.current : messageInput.current;
@@ -138,14 +198,7 @@ function TemplateEditor({ template, busy, save, onEdit }) {
       return;
     }
     try {
-      const content = file
-        ? await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result).split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          })
-        : null;
+      const content = await fileContent();
       const result = await save({
         action: "template",
         societyKey: template.societyKey,
@@ -230,7 +283,11 @@ function TemplateEditor({ template, busy, save, onEdit }) {
                 className={input}
                 type="file"
                 accept=".docx"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                disabled={busy || readingFields}
+                onChange={(e) => {
+                  setFile(e.target.files?.[0] || null);
+                  setWordFields(null);
+                }}
               />
             </label>
             {template.version && (
@@ -244,6 +301,10 @@ function TemplateEditor({ template, busy, save, onEdit }) {
                   className={`${button} mt-2`}
                   onClick={() => {
                     setFile(null);
+                    setWordFields(template.wordFields || null);
+                    setMergeSettings(
+                      normalizeLetterMergeSettings(template.mergeSettings),
+                    );
                     setReplacing(false);
                   }}
                 >
@@ -288,14 +349,18 @@ function TemplateEditor({ template, busy, save, onEdit }) {
           onEdit();
         }}
         onInsert={insertField}
-        busy={busy}
+        busy={busy || readingFields}
+        wordFields={wordFields}
+        onReadFields={readWordFields}
+        canReadFields={Boolean(file || template.version)}
+        readingFields={readingFields}
       />
       {error && (
         <p role="alert" className="mt-3 text-red-800">
           {error}
         </p>
       )}
-      <button disabled={busy} className={`${primary} mt-4`}>
+      <button disabled={busy || readingFields} className={`${primary} mt-4`}>
         Save template and field settings
       </button>
       {previewOpen && (

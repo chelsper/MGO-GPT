@@ -13,6 +13,7 @@ import {
   letterArchive,
   renderSocietyLetter,
   validateLetterTemplate,
+  inspectLetterTemplate,
 } from "@/app/api/utils/societyLetterDocuments";
 import {
   letterWorkspace,
@@ -177,6 +178,28 @@ export async function POST(request) {
     }
     if (body?.action === "inspect_query")
       return json(await inspectLetterQueryFields(body, ctx));
+    if (body?.action === "inspect_template") {
+      let content = body.content;
+      if (body.templateVersion) {
+        if (content)
+          throw letterError(
+            "Choose a saved template or a new Word file, not both.",
+          );
+        const state = await readSocietyLetterState();
+        const template = /^[a-f0-9]{64}$/.test(body.templateVersion)
+          ? state.templates[body.templateVersion]
+          : null;
+        if (!template)
+          throw letterError(
+            "Saved letter template not found. Reload the template list.",
+            404,
+          );
+        content = template.content;
+      }
+      if (typeof content !== "string")
+        throw letterError("Choose a Word template first.");
+      return json(inspectLetterTemplate(content));
+    }
     if (body?.action === "preview_recipient_document") {
       const state = await readSocietyLetterState();
       const rendered = previewLetterRecipient(

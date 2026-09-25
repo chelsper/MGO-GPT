@@ -3,6 +3,8 @@ import {
   isLetterPreviewSource,
   letterDisposition,
   letterError,
+  LETTER_ADDRESS_TAGS,
+  formatLetterAddress,
 } from "@/utils/societyLetters";
 
 const hash = (value) =>
@@ -102,12 +104,34 @@ export function validateLetterRecipientChoices(
     throw letterError(
       "Choose one of the selected recipient's returned email addresses, or leave email blank.",
     );
+  const address = plainText(body.address, "Mailing address", 2000, true, true);
+  let addressParts;
+  if (body.addressParts != null) {
+    if (
+      typeof body.addressParts !== "object" ||
+      Array.isArray(body.addressParts)
+    )
+      throw letterError("Choose valid separate address fields.");
+    addressParts = Object.fromEntries(
+      LETTER_ADDRESS_TAGS.map((key) => [
+        key,
+        plainText(body.addressParts[key], `Address ${key}`, 300, true),
+      ]),
+    );
+    if (formatLetterAddress(addressParts) !== address)
+      throw letterError(
+        "The separate address fields do not match the mailing address. Review the address before saving.",
+      );
+  } else if (address === addressSource.address && addressSource.addressParts) {
+    addressParts = { ...addressSource.addressParts };
+  }
   return {
     recipientConstituentId: selected.constituentId,
     addressConstituentId: addressSource.constituentId,
     addressee: plainText(body.addressee, "Addressee", 300),
     salutation: plainText(body.salutation, "Salutation", 300),
-    address: plainText(body.address, "Mailing address", 2000, true, true),
+    address,
+    ...(addressParts ? { addressParts } : {}),
     email,
   };
 }
