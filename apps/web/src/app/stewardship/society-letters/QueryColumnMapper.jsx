@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ORGANIZATION_CONTACT_COLUMNS } from "@/utils/societyLetterContacts";
 
 const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal text-gray-900";
@@ -27,6 +28,12 @@ const constituentGroups = [
     description:
       "Map each part separately. The app assembles street line 1, street line 2, city, state and ZIP into the Mailing address merge field, omitting blank lines. No combined address column is needed.",
     keys: ["address1", "address2", "city", "state", "postalCode", "country"],
+  },
+  {
+    title: "Business and foundation contacts (optional)",
+    description:
+      "Map Constituency Code to enable contact choices for Business and Foundation records. Use Contact type with Contact first/last name when contacts are returned on separate rows, or map separate Main contact and Society letter contact name columns. Only Main contact and Society letter contact roles are offered. Names must belong to the same contact on each row. Contacts personalize the letter only; the organization keeps its address, giving qualification and appeal history.",
+    keys: Object.keys(ORGANIZATION_CONTACT_COLUMNS),
   },
   {
     title: "Email",

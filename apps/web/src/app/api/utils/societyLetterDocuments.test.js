@@ -10,6 +10,7 @@ import {
   letterArchive,
 } from "./societyLetterDocuments";
 import { LETTER_TAGS } from "@/utils/societyLetters";
+import { contactChoiceKey } from "@/utils/societyLetterContacts";
 
 const row = {
   householdId: "10",
@@ -23,6 +24,50 @@ const row = {
   letterDate: "2026-09-22",
 };
 describe("society Word letters", () => {
+  it("renders the selected organization contact's names with the organization's reviewed address", () => {
+    const contact = {
+      role: "Society letter contact",
+      firstName: "Jamie",
+      lastName: "Jones",
+    };
+    const candidate = {
+      constituentId: "10",
+      organizationContacts: {
+        constituencyCodes: ["Foundation"],
+        contacts: [contact],
+      },
+    };
+    const source = {
+      ...row,
+      sourceMode: "society_queries",
+      members: ["10"],
+      recipientConstituentId: "10",
+      recipientCandidates: [candidate],
+      organizationContactKey: contactChoiceKey(contact),
+      memberNames: [],
+      name: "Example Foundation",
+      address: "25 Organization Street",
+    };
+    const template = validateLetterTemplate({
+      ...templateFixture(),
+      content: wordFixture(
+        "{first_name} {last_name} | {address} | {household_name}",
+      ).generate({ type: "base64" }),
+    });
+    const result = renderSocietyLetter(template, source, "2026-09-25");
+    const xml = new PizZip(result.document).file("word/document.xml").asText();
+    expect(xml).toContain(
+      "Jamie Jones | 25 Organization Street | Example Foundation",
+    );
+    expect(source.members).toEqual(["10"]);
+    expect(() =>
+      renderSocietyLetter(
+        template,
+        { ...source, organizationContactKey: "invalid" },
+        "2026-09-25",
+      ),
+    ).toThrow(/Missing name value/);
+  });
   const namedRow = {
     ...row,
     members: ["10", "11"],

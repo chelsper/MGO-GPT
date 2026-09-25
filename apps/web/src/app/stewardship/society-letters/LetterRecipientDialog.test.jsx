@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import LetterRecipientDialog from "./LetterRecipientDialog";
+import { contactChoiceKey } from "@/utils/societyLetterContacts";
 
 const recipient = {
   name: "Alex & Pat Sample",
@@ -54,6 +55,101 @@ beforeEach(() => {
   });
 });
 describe("letter recipient review dialog", () => {
+  it("offers organization contacts without picking among them and preserves the organization's address and ID", () => {
+    const save = vi.fn();
+    const main = {
+      role: "Main contact",
+      firstName: "Taylor",
+      lastName: "Main",
+    };
+    const society = {
+      role: "Society letter contact",
+      firstName: "Jamie",
+      lastName: "Letters",
+    };
+    const org = structuredClone(recipient);
+    org.recipientCandidates[0].organizationContacts = {
+      constituencyCodes: ["Business"],
+      contacts: [main, society],
+    };
+    render(
+      <LetterRecipientDialog recipient={org} onSave={save} onClose={vi.fn()} />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    const chooser = screen.getByLabelText("Name this letter to");
+    expect(chooser).toHaveValue("");
+    expect(
+      within(chooser).getByRole("option", {
+        name: "Jamie Letters (Society letter contact)",
+      }),
+    ).toBeInTheDocument();
+    fireEvent.change(chooser, { target: { value: contactChoiceKey(society) } });
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Jamie Letters");
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Jamie");
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      "10 Test Street",
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    expect(save.mock.calls[0][0]).toMatchObject({
+      organizationContactKey: contactChoiceKey(society),
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+    });
+    fireEvent.change(chooser, { target: { value: contactChoiceKey(main) } });
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed/ }),
+    ).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "11" },
+    });
+    expect(
+      screen.queryByLabelText("Name this letter to"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Pat");
+  });
+  it("restores a saved contact selection and allows returning to the organization's own greeting", () => {
+    const contact = {
+      role: "Main contact",
+      firstName: "Taylor",
+      lastName: "Main",
+    };
+    const org = structuredClone(recipient);
+    org.recipientCandidates[0].organizationContacts = {
+      constituencyCodes: ["Foundation"],
+      contacts: [contact],
+    };
+    org.recipientReview.values = {
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+      organizationContactKey: contactChoiceKey(contact),
+      addressee: "Edited contact wording",
+      salutation: "Taylor",
+      address: "10 Test Street",
+      email: "",
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={org}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Name this letter to")).toHaveValue(
+      contactChoiceKey(contact),
+    );
+    expect(screen.getByLabelText("Addressee")).toHaveValue(
+      "Edited contact wording",
+    );
+    fireEvent.change(screen.getByLabelText("Name this letter to"), {
+      target: { value: "" },
+    });
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Alex Sample");
+  });
   it("edits address components together and clears them after a free-form correction", () => {
     const save = vi.fn();
     render(

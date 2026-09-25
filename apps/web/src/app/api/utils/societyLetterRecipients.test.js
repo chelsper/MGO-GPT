@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { contactChoiceKey } from "@/utils/societyLetterContacts";
 import {
   recipientReviewForRow,
   saveLetterRecipientReview,
@@ -81,6 +82,63 @@ function setup() {
 }
 
 describe("saved society letter recipients", () => {
+  it("saves a returned organization contact choice without changing the qualifying IDs or permissions", async () => {
+    const { row, state, body, signature, save } = setup();
+    const contact = {
+      role: "Main contact",
+      firstName: "Taylor",
+      lastName: "Contact",
+    };
+    row.recipientCandidates[0].organizationContacts = {
+      constituencyCodes: ["Foundation"],
+      contacts: [contact],
+    };
+    body.organizationContactKey = contactChoiceKey(contact);
+    body.reviewToken = recipientReviewForRow(state, row, signature).token;
+    await save();
+    expect(recipientReviewForRow(state, row, signature).values).toMatchObject({
+      organizationContactKey: body.organizationContactKey,
+      recipientConstituentId: "10",
+      addressConstituentId: "11",
+    });
+    expect(Object.values(state.recipient_reviews)[0].members).toEqual([
+      "10",
+      "11",
+    ]);
+    row.recipientCandidates[0].organizationContacts.contacts[0].firstName =
+      "Changed";
+    expect(recipientReviewForRow(state, row, signature).status).toBe(
+      "needs_review",
+    );
+  });
+  it.each(["other-record", "not-organization", "forged", "wrong-type"])(
+    "rejects %s contact choices before saving",
+    async (kind) => {
+      const { row, state, body, signature, save, store } = setup();
+      const contact = {
+        role: "Main contact",
+        firstName: "Taylor",
+        lastName: "Contact",
+      };
+      row.recipientCandidates[
+        kind === "other-record" ? 1 : 0
+      ].organizationContacts = {
+        constituencyCodes: [
+          kind === "not-organization" ? "Alumnus" : "Business",
+        ],
+        contacts: [contact],
+      };
+      body.organizationContactKey =
+        kind === "forged"
+          ? "not-a-choice"
+          : kind === "wrong-type"
+            ? {}
+            : contactChoiceKey(contact);
+      body.reviewToken = recipientReviewForRow(state, row, signature).token;
+      await expect(save()).rejects.toThrow(/Choose an organization contact/);
+      expect(store.save).not.toHaveBeenCalled();
+    },
+  );
   it("saves explicit address components but rejects components that disagree with the reviewed address", async () => {
     const { state, row, signature, body, save } = setup();
     body.addressParts = {

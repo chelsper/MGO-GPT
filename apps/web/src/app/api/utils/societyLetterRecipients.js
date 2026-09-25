@@ -6,6 +6,10 @@ import {
   LETTER_ADDRESS_TAGS,
   formatLetterAddress,
 } from "@/utils/societyLetters";
+import {
+  organizationLetterContacts,
+  contactChoiceKey,
+} from "@/utils/societyLetterContacts";
 
 const hash = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -96,6 +100,17 @@ export function validateLetterRecipientChoices(
       "Choose a recipient and address source from this household's returned records.",
     );
   const email = plainText(body.email, "Email", 320, true);
+  const organizationContactKey = body.organizationContactKey ?? "";
+  if (
+    typeof organizationContactKey !== "string" ||
+    (organizationContactKey &&
+      !organizationLetterContacts(selected).some(
+        (contact) => contactChoiceKey(contact) === organizationContactKey,
+      ))
+  )
+    throw letterError(
+      "Choose an organization contact from this record's returned Main contact or Society letter contact names.",
+    );
   if (
     email &&
     (!/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(email) ||
@@ -127,6 +142,7 @@ export function validateLetterRecipientChoices(
   }
   return {
     recipientConstituentId: selected.constituentId,
+    ...(organizationContactKey ? { organizationContactKey } : {}),
     addressConstituentId: addressSource.constituentId,
     addressee: plainText(body.addressee, "Addressee", 300),
     salutation: plainText(body.salutation, "Salutation", 300),

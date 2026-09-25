@@ -1,3 +1,13 @@
+import {
+  ORGANIZATION_CONTACT_COLUMNS,
+  ORGANIZATION_CONTACT_LABELS,
+  validateOrganizationContactColumns,
+  organizationContactsFromRow,
+  mergeOrganizationContacts,
+  organizationLetterContacts,
+  contactChoiceKey,
+} from "./societyLetterContacts";
+
 export const LETTER_COLUMNS = {
   householdId: "Household ID",
   memberIds: "Member IDs",
@@ -42,6 +52,7 @@ export const CONSTITUENT_LETTER_COLUMNS = {
   postalCode: "Preferred ZIP",
   country: "",
   email: "Preferred Email 1 Number",
+  ...ORGANIZATION_CONTACT_COLUMNS,
 };
 export const CONSTITUENT_LETTER_LABELS = {
   constituentId: "Constituent system record ID",
@@ -59,6 +70,7 @@ export const CONSTITUENT_LETTER_LABELS = {
   postalCode: "ZIP / postal code (optional)",
   country: "Country (optional)",
   email: "Email (optional)",
+  ...ORGANIZATION_CONTACT_LABELS,
 };
 const REQUIRED_CONSTITUENT_COLUMNS = [
   "constituentId",
@@ -309,6 +321,7 @@ export function validateLetterSettings(raw, definitions, today) {
   };
   const period = letterPeriod(settings, today);
   if (constituentSource) {
+    validateOrganizationContactColumns(columns);
     if (!keys.includes(raw.querySocietyKey))
       throw letterError(
         "Choose the society qualified by this constituent query.",
@@ -496,6 +509,15 @@ export function constituentHouseholdsFromQuery(
       );
       const candidates = recipients.map((row) => ({
         constituentId: row.constituentId,
+        ...(Object.keys(ORGANIZATION_CONTACT_COLUMNS).some(
+          (key) => settings.columns[key],
+        )
+          ? {
+              organizationContacts:
+                table.metadata?.organizationContacts?.[row.constituentId] ||
+                organizationContactsFromRow(row),
+            }
+          : {}),
         addressee: row.addressee,
         salutation: row.salutation,
         addressParts: {
@@ -631,9 +653,11 @@ export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
         const {
           email: previousEmail,
           emailCandidates: previousEmails,
+          organizationContacts: previousContacts,
           ...previousDetails
         } = previous;
-        const { email, emailCandidates, ...details } = candidate;
+        const { email, emailCandidates, organizationContacts, ...details } =
+          candidate;
         if (JSON.stringify(previousDetails) !== JSON.stringify(details))
           throw letterError(
             `Constituent ${candidate.constituentId} has conflicting recipient details across society queries. Review the output mappings before refreshing.`,
@@ -655,6 +679,14 @@ export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
           );
         group.recipients.set(candidate.constituentId, {
           ...details,
+          ...(previousContacts || organizationContacts
+            ? {
+                organizationContacts: mergeOrganizationContacts(
+                  previousContacts,
+                  organizationContacts,
+                ),
+              }
+            : {}),
           email: emails.length === 1 ? emails[0] : "",
           ...(emails.length > 1 ? { emailCandidates: emails } : {}),
         });
@@ -894,6 +926,21 @@ export function letterIssue(row, channel, template) {
 }
 
 export function letterNameMergeData(row) {
+  if (row.organizationContactKey) {
+    const candidate = row.recipientCandidates?.find(
+      (item) => item.constituentId === row.recipientConstituentId,
+    );
+    const contact = organizationLetterContacts(candidate).find(
+      (item) => contactChoiceKey(item) === row.organizationContactKey,
+    );
+    return {
+      first_name: contact?.firstName || "",
+      last_name: contact?.lastName || "",
+      first_names: contact?.firstName || "",
+      spouse_first_name: "",
+      spouse_last_name: "",
+    };
+  }
   const members = row.members || [];
   let recipient = row;
   let spouse =

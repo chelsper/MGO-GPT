@@ -5,6 +5,20 @@ import {
 } from "@/utils/societyLetters";
 
 const preferredAddressLabels = {
+  constituencyCode: ["Constituency Code"],
+  contactType: ["Contact Type"],
+  contactFirstName: ["Contact First Name"],
+  contactLastName: ["Contact Last Name"],
+  mainContactFirstName: ["Main Contact First Name"],
+  mainContactLastName: ["Main Contact Last Name"],
+  societyContactFirstName: [
+    "Society Letter Contact First Name",
+    "Society Letter First Name",
+  ],
+  societyContactLastName: [
+    "Society Letter Contact Last Name",
+    "Society Letter Last Name",
+  ],
   address1: ["Preferred Street Line 1", "Preferred Address Line 1"],
   address2: ["Preferred Street Line 2", "Preferred Address Line 2"],
   city: ["Preferred City"],

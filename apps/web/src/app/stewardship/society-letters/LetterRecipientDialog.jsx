@@ -7,6 +7,12 @@ import {
   formatLetterAddress,
 } from "@/utils/societyLetters";
 import SavedLetterPreview from "./SavedLetterPreview";
+import {
+  organizationLetterContacts,
+  isOrganizationLetterCandidate,
+  contactChoiceKey,
+  contactDisplayName,
+} from "@/utils/societyLetterContacts";
 
 const input =
   "mt-2 w-full rounded-lg border border-gray-300 bg-white p-3 font-normal";
@@ -49,6 +55,8 @@ export default function LetterRecipientDialog({
   const candidate = candidates.find(
     (item) => item.constituentId === values.recipientConstituentId,
   );
+  const contacts = organizationLetterContacts(candidate);
+  const organization = isOrganizationLetterCandidate(candidate);
   const emails = [
     ...new Set(
       [candidate?.email, ...(candidate?.emailCandidates || [])].filter(Boolean),
@@ -198,6 +206,60 @@ export default function LetterRecipientDialog({
             </p>
             {candidate && (
               <>
+                {organization && (
+                  <section
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+                    aria-label="Organization letter contact"
+                  >
+                    <label className="block text-sm font-semibold">
+                      Name this letter to
+                      <select
+                        className={input}
+                        value={values.organizationContactKey || ""}
+                        onChange={(event) => {
+                          const key = event.target.value;
+                          const contact = contacts.find(
+                            (item) => contactChoiceKey(item) === key,
+                          );
+                          setValues((current) => ({
+                            ...current,
+                            organizationContactKey: key,
+                            addressee: contact
+                              ? contactDisplayName(contact)
+                              : candidate.addressee || "",
+                            salutation: contact
+                              ? contact.firstName || contactDisplayName(contact)
+                              : candidate.salutation || "",
+                          }));
+                          setConfirmed(false);
+                        }}
+                      >
+                        <option value="">
+                          Keep the organization's saved greeting
+                        </option>
+                        {contacts.map((contact) => (
+                          <option
+                            key={contactChoiceKey(contact)}
+                            value={contactChoiceKey(contact)}
+                          >
+                            {contactDisplayName(contact)} ({contact.role})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="mt-2 text-sm text-emerald-950">
+                      {contacts.length
+                        ? "Choose a Main contact or Society letter contact for this letter. This fills the recipient first/last-name merge fields and suggests a greeting you can edit below."
+                        : "No eligible contact names were returned. Keep the organization's greeting, or map the contact columns in Source & period and refresh membership."}
+                    </p>
+                    <p className="mt-2 text-xs text-emerald-900">
+                      The organization's mailing address, qualification and
+                      appeal history stay with the organization. A contact is
+                      not added as a household member, and no contact email or
+                      address is fetched.
+                    </p>
+                  </section>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block text-sm font-semibold">
                     Addressee

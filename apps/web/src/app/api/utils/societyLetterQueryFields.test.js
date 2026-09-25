@@ -12,6 +12,30 @@ const field = (name, meaning = name, root = "296") => ({
 });
 beforeEach(() => vi.resetAllMocks());
 describe("society query field inspection", () => {
+  it("suggests explicit organization contact labels without using them as constituent names", async () => {
+    getBlackbaudSavedQueryById.mockResolvedValue({
+      select_fields: [
+        field("Constituency Code"),
+        field("Contact Type", "Contact Type", "relationships"),
+        field("Contact First Name", "First Name", "relationships"),
+        field("Contact Last Name", "Last Name", "relationships"),
+        field("Main Contact First Name", "First Name", "relationships"),
+        field("Society Letter Contact Last Name", "Last Name", "relationships"),
+      ],
+    });
+    const result = await inspectLetterQueryFields(
+      { queryId: "31043" },
+      context,
+    );
+    expect(result.suggestedColumns).toEqual({
+      constituencyCode: "Constituency Code",
+      contactType: "Contact Type",
+      contactFirstName: "Contact First Name",
+      contactLastName: "Contact Last Name",
+      mainContactFirstName: "Main Contact First Name",
+      societyContactLastName: "Society Letter Contact Last Name",
+    });
+  });
   it("reads metadata only and recognizes identity by meaning, not numeric-looking column labels", async () => {
     getBlackbaudSavedQueryById.mockResolvedValue({
       select_fields: [

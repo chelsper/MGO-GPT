@@ -11,6 +11,12 @@ import {
   CONSTITUENT_LETTER_COLUMNS,
   letterError,
 } from "@/utils/societyLetters";
+import {
+  ORGANIZATION_CONTACT_COLUMNS,
+  organizationContactsFromRow,
+  mergeOrganizationContacts,
+  validateOrganizationContactColumns,
+} from "@/utils/societyLetterContacts";
 
 export const SOCIETY_CONSTITUENT_RESULT_LIMITS = Object.freeze({
   bytes: 12 * 1024 * 1024,
@@ -23,10 +29,14 @@ const boundedError = (message) =>
   letterError(`${message} No partial membership was saved.`, 413);
 
 export function deduplicateSocietyConstituentCsv(content, settings) {
+  validateOrganizationContactColumns(settings.columns || {});
   const configured = Object.entries(CONSTITUENT_LETTER_COLUMNS)
     .map(([key]) => [key, settings.columns?.[key]])
     .filter(([, column]) => column);
   const headers = [...new Set(configured.map(([, column]) => column))];
+  const contactColumns = configured.filter(
+    ([key]) => key in ORGANIZATION_CONTACT_COLUMNS,
+  );
   const idIndex = headers.indexOf(settings.columns?.constituentId);
   const spouseIndex = headers.indexOf(settings.columns?.spouseId);
   const emailIndex = settings.columns?.email
@@ -47,6 +57,15 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
     );
 
   const records = new Map();
+  if (
+    contactColumns.some(
+      ([, column]) =>
+        configured.filter(([, value]) => value === column).length !== 1,
+    )
+  )
+    throw letterError(
+      "Map contact fields to distinct query output columns, separate from constituent IDs and other recipient details.",
+    );
   let indexes;
   let retainedBytes = 0;
   const { rowCount } = visitResultCsv(content, {
@@ -71,6 +90,14 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
         );
       const email = emailIndex < 0 ? "" : row[emailIndex];
       if (emailIndex >= 0) row[emailIndex] = "";
+      const contactRow = Object.fromEntries(
+        contactColumns.map(([key, column]) => {
+          const i = headers.indexOf(column);
+          const value = row[i];
+          row[i] = "";
+          return [key, value];
+        }),
+      );
       const previous = records.get(id);
       if (previous && previous.row.some((value, index) => value !== row[index]))
         throw letterError(
@@ -85,6 +112,18 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
         );
       const record = previous || { row, emails: new Set() };
       if (!previous) retainedBytes += Buffer.byteLength(JSON.stringify(row));
+      if (contactColumns.length) {
+        const before = record.organizationContacts
+          ? Buffer.byteLength(JSON.stringify(record.organizationContacts))
+          : 0;
+        record.organizationContacts = mergeOrganizationContacts(
+          record.organizationContacts,
+          organizationContactsFromRow(contactRow),
+        );
+        retainedBytes +=
+          Buffer.byteLength(JSON.stringify(record.organizationContacts)) -
+          before;
+      }
       if (email && !record.emails.has(email)) {
         if (
           record.emails.size >=
@@ -102,11 +141,14 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
     },
   });
   const emailCandidates = {};
+  const organizationContacts = {};
   const rows = [...records.entries()].map(([id, record]) => {
     const emails = [...record.emails].sort();
     if (emailIndex >= 0)
       record.row[emailIndex] = emails.length === 1 ? emails[0] : "";
     if (emails.length > 1) emailCandidates[id] = emails;
+    if (record.organizationContacts)
+      organizationContacts[id] = record.organizationContacts;
     return record.row;
   });
   const table = {
@@ -114,6 +156,7 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
     rows,
     metadata: {
       emailCandidates,
+      ...(contactColumns.length ? { organizationContacts } : {}),
       deduplication: {
         rawRows: rowCount,
         uniqueConstituents: rows.length,
