@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { sendInvitationEmail } from "@/app/api/utils/sendInvitationEmail";
 import {
   assertAssignableRole,
   getBootstrapAdminEmail,
@@ -15,6 +16,11 @@ import {
   normalizeWorkspaceRoles,
   serializeWorkspaceRoles,
 } from "@/utils/workspaceRoles";
+
+function invalidOrigin(request) {
+  return request.headers.get("sec-fetch-site") === "cross-site" ||
+    (request.headers.has("origin") && request.headers.get("origin") !== new URL(request.url).origin);
+}
 
 function normalizeBlackbaudFundraiserAliasIds(value, { preserveUndefined = false } = {}) {
   if (value === undefined && preserveUndefined) {
@@ -63,7 +69,7 @@ async function requireAdminSession() {
   }
 
   const user = await getOrCreateUser(session, "admin");
-  if (!canManageWorkspaceRole(user.role)) {
+  if (user.active === false || !canManageWorkspaceRole(user.role)) {
     return {
       error: Response.json(
         { error: "Forbidden — workspace administrators only" },
@@ -133,6 +139,7 @@ export async function GET() {
           inv.accepted_at,
           inv.revoked_at,
           inv.created_at,
+          inv.invitation_email,
           inviter.name AS invited_by_name,
           inviter.email AS invited_by_email
         FROM user_invitations inv
@@ -160,6 +167,7 @@ export async function GET() {
 
 export async function POST(request) {
   try {
+    if (invalidOrigin(request)) return Response.json({ error: "Invalid request origin" }, { status: 403 });
     const { user, error } = await requireAdminSession();
     if (error) return error;
 
@@ -340,10 +348,12 @@ export async function POST(request) {
       RETURNING *
     `;
 
+    const emailDelivery = await sendInvitationEmail(invitation[0].id);
     return Response.json(
       {
         mode: "invitation-created",
         invitation: invitation[0],
+        emailDelivery,
       },
       { status: 201 },
     );
@@ -358,6 +368,7 @@ export async function POST(request) {
 
 export async function PATCH(request) {
   try {
+    if (invalidOrigin(request)) return Response.json({ error: "Invalid request origin" }, { status: 403 });
     const { error } = await requireAdminSession();
     if (error) return error;
 
@@ -379,6 +390,9 @@ export async function PATCH(request) {
           revoked_at = NULL,
           updated_at = NOW()
         WHERE id = ${invitationId}
+          AND accepted_at IS NULL
+          AND revoked_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(users.email) = LOWER(user_invitations.email))
         RETURNING *
       `;
 
@@ -386,7 +400,8 @@ export async function PATCH(request) {
         return Response.json({ error: "Invitation not found" }, { status: 404 });
       }
 
-      return Response.json({ invitation: resentInvitation[0], mode: "invitation-resent" });
+      const emailDelivery = await sendInvitationEmail(invitationId, { resend: true });
+      return Response.json({ invitation: resentInvitation[0], mode: "invitation-resent", emailDelivery });
     }
 
     const userId = Number(body?.userId);

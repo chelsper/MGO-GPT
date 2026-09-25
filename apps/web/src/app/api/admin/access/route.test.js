@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getOrCreateUserMock = vi.fn();
+const sendInvitationEmailMock = vi.fn();
+vi.mock("@/app/api/utils/sendInvitationEmail", () => ({ sendInvitationEmail: sendInvitationEmailMock }));
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -68,6 +70,7 @@ describe("admin access deletion", () => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();
     getOrCreateUserMock.mockReset();
+    sendInvitationEmailMock.mockReset().mockResolvedValue({ status: "accepted", messageId: "email-123" });
 
     authMock.mockResolvedValue({ user: { email: "admin@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -76,6 +79,61 @@ describe("admin access deletion", () => {
       email: "admin@example.com",
       role: "advancement_admin",
     });
+  });
+
+  it("sends instructions after creating an invitation, without making delivery an access prerequisite", async () => {
+    const { POST } = await import("./route.js");
+    queueSqlResult([]);
+    queueSqlResult([{ id: 22, email: "invitee@ju.edu" }]);
+    sendInvitationEmailMock.mockResolvedValue({ status: "failed" });
+    const response = await POST(new Request("https://example.com/api/admin/access", {
+      method: "POST", body: JSON.stringify({ email: "invitee@ju.edu", role: "mgo" }),
+    }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ mode: "invitation-created", emailDelivery: { status: "failed" } });
+    expect(sendInvitationEmailMock).toHaveBeenCalledWith(22);
+    expect(sqlMockImpl.mock.invocationCallOrder.at(-1)).toBeLessThan(sendInvitationEmailMock.mock.invocationCallOrder[0]);
+  });
+
+  it("explicitly resends only a pending invitation", async () => {
+    const { PATCH } = await import("./route.js");
+    queueSqlResult([{ id: 22, email: "invitee@ju.edu" }]);
+    const response = await PATCH(new Request("https://example.com/api/admin/access", {
+      method: "PATCH", body: JSON.stringify({ invitationId: 22 }),
+    }));
+    expect(response.status).toBe(200);
+    expect(sendInvitationEmailMock).toHaveBeenCalledWith(22, { resend: true });
+    expect(sqlMockImpl.mock.calls[0][0].join(" ")).toContain("AND accepted_at IS NULL");
+  });
+
+  it("does not send when provision-only creates a workspace", async () => {
+    const { POST } = await import("./route.js");
+    queueSqlResult([]);
+    queueSqlResult([{ id: 22, email: "invitee@ju.edu" }]);
+    const response = await POST(new Request("https://example.com/api/admin/access", {
+      method: "POST", body: JSON.stringify({ name: "Example", email: "invitee@ju.edu", role: "mgo", provisionOnly: true }),
+    }));
+    expect(response.status).toBe(201);
+    expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["POST", "PATCH"])("rejects cross-site %s before modifying access or sending", async (method) => {
+    const route = await import("./route.js");
+    const response = await route[method](new Request("https://example.com/api/admin/access", {
+      method, headers: { origin: "https://other.example" }, body: JSON.stringify({ email: "invitee@ju.edu", invitationId: 22 }),
+    }));
+    expect(response.status).toBe(403);
+    expect(sqlMockImpl).not.toHaveBeenCalled();
+    expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { id: 1, role: "admin", active: false }, { id: 2, role: "mgo" }])("does not send without active admin access %j", async (actor) => {
+    const { POST } = await import("./route.js");
+    if (!actor) authMock.mockResolvedValue(null);
+    else getOrCreateUserMock.mockResolvedValue(actor);
+    const response = await POST(new Request("https://example.com/api/admin/access", { method: "POST", body: "{}" }));
+    expect([401,403]).toContain(response.status);
+    expect(sendInvitationEmailMock).not.toHaveBeenCalled();
   });
 
   it("refuses to delete an active app account", async () => {

@@ -396,6 +396,14 @@ export default async function ensureAppSchema() {
       ALTER TABLE user_invitations
       ADD COLUMN IF NOT EXISTS blackbaud_name TEXT
     `;
+    await sql`
+      DO $invitation_email_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 18);
+        ALTER TABLE user_invitations ADD COLUMN IF NOT EXISTS invitation_email JSONB;
+      END;
+      $invitation_email_schema$
+    `;
 
     // Auth.js owns the user/account tables. Password-reset records keep the
     // text user ID it assigns, so the reset flow can initialize independently.
