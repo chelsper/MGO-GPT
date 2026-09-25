@@ -18,6 +18,51 @@ const validDate = (value) =>
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 10) === value;
 
+// Keep transport evidence, never provider messages that may echo donor data.
+export function exclusionFailureDiagnostic(error) {
+  const httpStatus =
+    Number.isInteger(error?.httpStatus) &&
+    error.httpStatus >= 400 &&
+    error.httpStatus <= 599
+      ? error.httpStatus
+      : null;
+  const guidance = {
+    400: "NXT rejected the appeal fields. The date, comments, or another NXT validation rule needs review.",
+    401: "NXT did not authorize the appeal request. Check the Blackbaud connection and API subscription access.",
+    403: "NXT denied this appeal request. Ask an NXT administrator to check the connected user's Data Integration and appeal-write permissions.",
+    404: "NXT could not find the requested resource. Check the constituent, appeal, and API endpoint before retrying.",
+    413: "NXT rejected the request size. Review the appeal comments before retrying.",
+    415: "NXT rejected the request format. The integration needs review before retrying.",
+    422: "NXT rejected the appeal fields. Review the date, comments, and NXT validation requirements.",
+    429: "Blackbaud temporarily rate-limited the appeal request. Wait for its cooldown before continuing.",
+  };
+  return {
+    httpStatus,
+    checkedAt: new Date().toISOString(),
+    ...(typeof error?.blackbaudErrorName === "string" &&
+    /^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(error.blackbaudErrorName) &&
+    Number.isSafeInteger(error.blackbaudErrorCode)
+      ? {
+          providerCode: error.blackbaudErrorCode,
+          providerName: error.blackbaudErrorName,
+        }
+      : {}),
+    ...(Number.isFinite(error?.retryAfterMs) && error.retryAfterMs > 0
+      ? { retryAfterMs: Math.min(error.retryAfterMs, 86400000) }
+      : {}),
+    message:
+      guidance[httpStatus] ||
+      "The NXT result could not be confirmed. Verify the existing submission; do not submit it again.",
+  };
+}
+
+function rejectionMessage(member) {
+  const failure = member.lastWriteFailure;
+  return failure
+    ? `${failure.message}${failure.httpStatus ? ` (HTTP ${failure.httpStatus}.)` : ""} The household remains excluded.`
+    : "An earlier appeal request was rejected, but its error details were not recorded. A read-only check does not repeat the assignment. The household remains excluded.";
+}
+
 export function exclusionAppealWorkspace(state, definitions, today) {
   const policy = state.readiness?.exclusionPolicy;
   const current =
@@ -395,6 +440,7 @@ export async function syncExclusionAppeal(
             nxt.comments,
           );
         } catch (error) {
+          member.lastWriteFailure = exclusionFailureDiagnostic(error);
           // Only a definitive rejected POST can become retryable. Errors from
           // read-back verification, timeouts and 5xx remain uncertain.
           if (
@@ -403,9 +449,7 @@ export async function syncExclusionAppeal(
             member.status = "pending";
             member.rejectedAt = new Date().toISOString();
             await store.save(state);
-            throw letterError(
-              "NXT rejected this assignment. Check permissions, appeal settings, or rate limits before continuing. The household remains excluded.",
-            );
+            throw letterError(rejectionMessage(member));
           }
           throw error;
         }
@@ -428,10 +472,13 @@ export async function syncExclusionAppeal(
         await store.save(state);
       }
     nxt.status = nxt.members.every(finished) ? "complete" : "pending";
+    const rejected = nxt.members.find((m) => !finished(m) && m.rejectedAt);
     nxt.message =
       nxt.status === "complete"
         ? "Exclusion appeal confirmed for every household member. Existing assignments were preserved; no letter was sent."
-        : "Existing submissions checked. Continue to apply the appeal only to remaining members.";
+        : rejected
+          ? rejectionMessage(rejected)
+          : "Existing submissions checked. Continue to apply the appeal only to remaining members.";
   } catch (error) {
     nxt.status = "needs_review";
     nxt.message = error.status

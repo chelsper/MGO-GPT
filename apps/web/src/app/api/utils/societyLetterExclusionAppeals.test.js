@@ -6,6 +6,7 @@ vi.mock("./blackbaud", () => ({
 import {
   exclusionAppealClient,
   exclusionAppealWorkspace,
+  exclusionFailureDiagnostic,
   prepareExclusionAppeal,
   saveExclusionAppealPolicy,
   syncExclusionAppeal,
@@ -329,7 +330,7 @@ describe("durable exclusion write-back", () => {
       /uncertain/,
     );
   });
-  it.each([403, 429])(
+  it.each([400, 401, 403, 404, 413, 415, 422, 429])(
     "keeps a definitively rejected POST (%s) pending for explicit retry",
     async (httpStatus) => {
       const { state, item, store, client } = await setup(true);
@@ -338,11 +339,42 @@ describe("durable exclusion write-back", () => {
       );
       await syncExclusionAppeal(state, item, store, ctx, client);
       expect(item.nxt.members[0].status).toBe("pending");
-      expect(item.nxt.message).toContain("rejected");
+      expect(item.nxt.members[0].lastWriteFailure.httpStatus).toBe(httpStatus);
+      expect(item.nxt.message).toContain(`HTTP ${httpStatus}`);
+      await syncExclusionAppeal(state, item, store, ctx, client, true);
+      expect(client.create).toHaveBeenCalledTimes(1);
+      expect(item.nxt.message).toContain(`HTTP ${httpStatus}`);
       await syncExclusionAppeal(state, item, store, ctx, client);
       expect(item.nxt.status).toBe("complete");
     },
   );
+  it("keeps old rejected attempts explainable after read-only verification without a new POST", async () => {
+    const { state, item, store, client } = await setup(true);
+    item.nxt.members[0].rejectedAt = new Date().toISOString();
+    await syncExclusionAppeal(state, item, store, ctx, client, true);
+    expect(client.create).not.toHaveBeenCalled();
+    expect(item.nxt.message).toContain("error details were not recorded");
+  });
+  it("persists only safe transport diagnostics for an uncertain POST and never retries it", async () => {
+    const { state, item, store, client, saved } = await setup(true);
+    client.create.mockRejectedValue(
+      Object.assign(new Error("donor@example.org secret payload"), {
+        httpStatus: 503,
+        blackbaudErrorName: "BackendUnavailable",
+        blackbaudErrorCode: 100,
+      }),
+    );
+    await syncExclusionAppeal(state, item, store, ctx, client);
+    expect(item.nxt.members[0].status).toBe("uncertain");
+    expect(item.nxt.members[0].lastWriteFailure).toMatchObject({
+      httpStatus: 503,
+      providerName: "BackendUnavailable",
+      providerCode: 100,
+    });
+    expect(JSON.stringify(saved)).not.toContain("secret payload");
+    await syncExclusionAppeal(state, item, store, ctx, client);
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
   it("reconciles an accepted but timed-out create before continuing the other spouse", async () => {
     const { state, item, store, client, assigned } = await setup();
     client.create.mockImplementationOnce(async (id, appeal, date, comments) => {
@@ -400,6 +432,37 @@ describe("durable exclusion write-back", () => {
     await syncExclusionAppeal(state, item, store, ctx, client);
     expect(client.create).toHaveBeenCalledTimes(1);
     expect(item.nxt.status).toBe("needs_review");
+  });
+});
+
+describe("safe exclusion error diagnostics", () => {
+  it("does not retain arbitrary provider messages, names, or invalid HTTP codes", () => {
+    const result = exclusionFailureDiagnostic({
+      httpStatus: "403",
+      message: "private donor information",
+      blackbaudErrorName: "<script>private donor information</script>",
+      blackbaudErrorCode: 1,
+      retryAfterMs: Infinity,
+    });
+    expect(result.httpStatus).toBeNull();
+    expect(result.providerName).toBeUndefined();
+    expect(result.retryAfterMs).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("private donor information");
+  });
+  it("records bounded retry timing and the exact safe provider identifier", () => {
+    expect(
+      exclusionFailureDiagnostic({
+        httpStatus: 429,
+        retryAfterMs: 90000000,
+        blackbaudErrorName: "RateLimited",
+        blackbaudErrorCode: 12,
+      }),
+    ).toMatchObject({
+      httpStatus: 429,
+      retryAfterMs: 86400000,
+      providerName: "RateLimited",
+      providerCode: 12,
+    });
   });
 });
 

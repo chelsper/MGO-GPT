@@ -158,4 +158,35 @@ describe("exclusion appeal controls", () => {
       exclusionId: item.id,
     });
   });
+  it("shows diagnostic details without implying an unconfirmed appeal must be deleted", () => {
+    const item = {
+      id: "excluded-1",
+      nxt: {
+        appeal,
+        date: "2026-09-25",
+        status: "needs_review",
+        message: "NXT denied this request. (HTTP 403.)",
+        members: [
+          {
+            id: "10",
+            status: "pending",
+            lastWriteFailure: {
+              httpStatus: 403,
+              providerName: "AccessDenied",
+              providerCode: 123,
+            },
+          },
+        ],
+      },
+    };
+    render(<ExclusionSyncStatus item={item} act={vi.fn()} />);
+    fireEvent.click(screen.getByText("Last NXT request details"));
+    expect(screen.getByText(/Member 10: HTTP 403/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/If it exists in NXT, remove it there first/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continue remaining NXT updates" }),
+    ).toBeDisabled();
+  });
 });

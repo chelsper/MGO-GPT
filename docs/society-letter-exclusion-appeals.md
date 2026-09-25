@@ -100,3 +100,32 @@ September 25, 2026 local checks:
 
 Not yet deployed or verified through a live NXT write. Existing exclusions and
 production configuration remain unchanged.
+
+## Rejection Investigation - September 25, 2026
+
+The feature was subsequently deployed to JU as `d44d27d`; see
+`ju-exclusion-appeals-release-2026-09-25.md`. A staff-initiated exclusion of
+1st Coast Cargo was saved locally, but its appeal POST was definitively rejected.
+That release retained the rejection timestamp, but not its HTTP status or provider
+error identifier. Vercel request logs contain no provider error detail, so the
+specific rejection cause cannot be established from that attempt.
+
+Bounded read-only checks with the same JU connection confirmed that Fundraising
+and Data Integration both return the configured appeal with the expected ID and
+description (HTTP 200). The complete constituent appeal list contained no matching
+exclusion assignment. There was no shared quota pause. These facts do not prove
+permission to create an appeal and do not identify the original POST's error.
+No retry or NXT write was performed during this investigation.
+
+The local diagnostic correction retains safe HTTP status, a bounded retry delay,
+and an unambiguous provider error name/code on each failed write. It never stores
+raw provider messages or echoed donor/request payloads. Read-only verification
+preserves the earlier rejection guidance instead of hiding it. Unknown/5xx results
+remain uncertain and cannot be replayed; explicit rejected responses retain the
+existing staff-confirmed continuation guard. Restore help now explains that an
+appeal must be removed only if it actually exists in NXT.
+
+This correction is not yet deployed. A single guarded retry for the exact saved
+assignment has been requested from the user, but has not been authorized or run.
+Focused verification: 85 tests passed; typecheck, production build, and whitespace
+checks passed. Production records and sandbox settings were not changed.

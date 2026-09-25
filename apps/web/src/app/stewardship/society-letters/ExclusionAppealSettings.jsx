@@ -112,6 +112,9 @@ export function ExclusionSyncStatus({ item, busy, act }) {
   const count = nxt.members.filter((m) =>
     ["verified", "existing"].includes(m.status),
   ).length;
+  const failures = nxt.members.filter(
+    (m) => m.lastWriteFailure && !["verified", "existing"].includes(m.status),
+  );
   return (
     <div className="mt-3 max-w-2xl space-y-2 text-sm">
       <p className="font-semibold">
@@ -127,6 +130,27 @@ export function ExclusionSyncStatus({ item, busy, act }) {
       >
         {nxt.message}
       </p>
+      {failures.length > 0 && (
+        <details className="text-gray-600">
+          <summary className="cursor-pointer">Last NXT request details</summary>
+          {failures.map((member) => (
+            <p key={member.id} className="mt-2">
+              Member {member.id}:{" "}
+              {member.lastWriteFailure.httpStatus
+                ? `HTTP ${member.lastWriteFailure.httpStatus}`
+                : "No confirmed HTTP response"}
+              .
+              {member.lastWriteFailure.providerName && (
+                <>
+                  {" "}
+                  Provider code: {member.lastWriteFailure.providerName} (
+                  {member.lastWriteFailure.providerCode}).
+                </>
+              )}
+            </p>
+          ))}
+        </details>
+      )}
       {!complete && (
         <>
           <button
@@ -168,9 +192,9 @@ export function ExclusionSyncStatus({ item, busy, act }) {
         </>
       )}
       <p className="text-gray-500">
-        To restore, remove this exclusion appeal from both records (or the
-        single recipient) in NXT first. The app verifies removal and never
-        deletes NXT history.
+        To restore, the app first verifies that this exclusion appeal is absent
+        from every member. If it exists in NXT, remove it there first. The app
+        never deletes NXT history.
       </p>
     </div>
   );
