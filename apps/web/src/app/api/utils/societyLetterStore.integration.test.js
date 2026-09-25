@@ -49,6 +49,7 @@ function execute(statement) {
               "job",
               "payload",
               "exclusions",
+              "recipient_reviews",
             ].includes(key)
               ? value
                 ? JSON.parse(value)
@@ -84,7 +85,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   });
   beforeEach(() => {
     execute(
-      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', lease_token=NULL, lease_until=NULL WHERE id=1;",
+      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -99,6 +100,26 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("keeps recipient choices across snapshot replacement without changing delivery history", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    expect(state.recipient_reviews).toEqual({});
+    state.recipient_reviews = {
+      sample: {
+        values: { recipientConstituentId: "10", salutation: "Alex" },
+        savedBy: 1,
+      },
+    };
+    await store.save(state);
+    const reloaded = await readSocietyLetterState();
+    expect(reloaded.recipient_reviews).toEqual(state.recipient_reviews);
+    reloaded.snapshot = { rows: [] };
+    await store.save(reloaded);
+    const refreshed = await readSocietyLetterState();
+    expect(refreshed.recipient_reviews).toEqual(state.recipient_reviews);
+    expect(refreshed.history).toEqual([]);
+    await store.release();
+  });
   it("persists exclusions independently of refreshed membership and retains restoration audit", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const state = await readSocietyLetterState();

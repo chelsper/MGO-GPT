@@ -1,0 +1,142 @@
+import { createHash } from "node:crypto";
+import {
+  isLetterPreviewSource,
+  letterDisposition,
+  letterError,
+} from "@/utils/societyLetters";
+
+const hash = (value) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const membersFor = (row) => [...row.members].sort();
+const reviewKey = (row) => hash([row.period.key, membersFor(row)]);
+
+export function recipientReviewForRow(state, row, sourceSignature) {
+  if (!isLetterPreviewSource(row) || !row.recipientCandidates) return null;
+  const members = membersFor(row);
+  const token = hash([
+    sourceSignature,
+    row.period,
+    members,
+    row.societyKey,
+    [...(row.qualifiedKeys || [])].sort(),
+    [...(row.memberNames || [])].sort((a, b) =>
+      a.constituentId.localeCompare(b.constituentId),
+    ),
+    row.recipientCandidates
+      .map((candidate) => ({
+        ...candidate,
+        emailCandidates: [...(candidate.emailCandidates || [])].sort(),
+      }))
+      .sort((a, b) => a.constituentId.localeCompare(b.constituentId)),
+  ]);
+  const reviews = state.recipient_reviews || {};
+  const saved = reviews[reviewKey(row)];
+  const related =
+    saved ||
+    Object.values(reviews).find(
+      (review) =>
+        review.period.key === row.period.key &&
+        review.members.some((id) => members.includes(id)),
+    );
+  const editable =
+    state.snapshot?.signature === sourceSignature &&
+    letterDisposition(row, state.history, state.exclusions).status === "ready";
+  const current = editable && saved?.token === token;
+  return {
+    status: current ? "saved" : related ? "needs_review" : "unreviewed",
+    token,
+    editable,
+    values: current ? saved.values : null,
+    savedAt: related?.savedAt || null,
+    savedBy: related?.savedBy || null,
+  };
+}
+
+function plainText(value, label, limit, optional = false, multiline = false) {
+  if (
+    typeof value !== "string" ||
+    value.length > limit ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ||
+    (!multiline && /[\r\n\t]/.test(value)) ||
+    (!optional && !value.trim())
+  )
+    throw letterError(
+      `${label} must be ${optional ? "blank or " : ""}plain text, up to ${limit} characters.`,
+    );
+  return value.replaceAll("\r\n", "\n").trim();
+}
+
+export async function saveLetterRecipientReview(
+  state,
+  row,
+  sourceSignature,
+  body,
+  store,
+  userId,
+) {
+  const review = row && recipientReviewForRow(state, row, sourceSignature);
+  if (!review?.editable || review.token !== body.reviewToken)
+    throw letterError(
+      "The household or source details changed. Reload the holding list and review the current recipient options.",
+      409,
+    );
+  if (body.confirm !== true)
+    throw letterError(
+      "Confirm that you reviewed the letter recipient and wording.",
+    );
+  const selected = row.recipientCandidates.find(
+    (candidate) => candidate.constituentId === body.recipientConstituentId,
+  );
+  const addressSource = row.recipientCandidates.find(
+    (candidate) => candidate.constituentId === body.addressConstituentId,
+  );
+  if (
+    !selected ||
+    !addressSource ||
+    !row.members.includes(selected.constituentId) ||
+    !row.members.includes(addressSource.constituentId)
+  )
+    throw letterError(
+      "Choose a recipient and address source from this household's returned records.",
+    );
+  const email = plainText(body.email, "Email", 320, true);
+  if (
+    email &&
+    (!/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(email) ||
+      ![selected.email, ...(selected.emailCandidates || [])].includes(email))
+  )
+    throw letterError(
+      "Choose one of the selected recipient's returned email addresses, or leave email blank.",
+    );
+  const values = {
+    recipientConstituentId: selected.constituentId,
+    addressConstituentId: addressSource.constituentId,
+    addressee: plainText(body.addressee, "Addressee", 300),
+    salutation: plainText(body.salutation, "Salutation", 300),
+    address: plainText(body.address, "Mailing address", 2000, true, true),
+    email,
+  };
+  const reviews = {
+    ...(state.recipient_reviews || {}),
+    [reviewKey(row)]: {
+      period: { ...row.period },
+      members: membersFor(row),
+      token: review.token,
+      values,
+      savedBy: userId,
+      savedAt: new Date().toISOString(),
+    },
+  };
+  if (
+    Object.keys(reviews).length > 10000 ||
+    Buffer.byteLength(JSON.stringify(reviews), "utf8") > 8 * 1024 * 1024
+  )
+    throw letterError(
+      "Saved recipient choices need archiving before adding more periods.",
+    );
+  // Separate from replaceable query snapshots; this never grants delivery permission.
+  const nextState = { ...state, recipient_reviews: reviews };
+  await store.save(nextState);
+  state.recipient_reviews = reviews;
+  state.revision = nextState.revision;
+}

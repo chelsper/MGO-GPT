@@ -10,6 +10,7 @@ import {
   CONSTITUENT_LETTER_COLUMNS,
   householdsFromQuery,
   letterPeriod,
+  letterNameMergeData,
 } from "@/utils/societyLetters";
 import {
   previewLetters,
@@ -22,6 +23,7 @@ import {
   verifyLetterEmail,
   refreshLetterSource,
   updateLetterExclusion,
+  updateLetterRecipient,
 } from "./societyLetterWorkflow";
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
@@ -100,6 +102,91 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("society letter workflow", () => {
+  it("projects saved recipient choices and merge names without clearing preview delivery gates", async () => {
+    const { state, store, body } = setup();
+    state.settings.sourceMode = "constituents";
+    const row = state.snapshot.rows[0];
+    Object.assign(row, {
+      sourceMode: "constituents",
+      addressee: "",
+      salutation: "",
+      address: "",
+      email: "",
+      mailAllowed: false,
+      emailAllowed: false,
+      memberNames: [
+        { constituentId: "10", firstName: "Alex", lastName: "Sample" },
+        { constituentId: "11", firstName: "Pat", lastName: "Sample" },
+      ],
+      recipientCandidates: [
+        {
+          constituentId: "11",
+          addressee: "Pat Sample",
+          salutation: "Pat",
+          address: "10 Test Street",
+          email: "pat@example.org",
+        },
+      ],
+    });
+    state.snapshot.signature = letterSourceSignature(state, definitions);
+    const before = letterWorkspace(state, definitions, today).rows[0];
+    await updateLetterRecipient(
+      state,
+      definitions,
+      today,
+      {
+        householdId: "10",
+        confirm: true,
+        reviewToken: before.recipientReview.token,
+        recipientConstituentId: "11",
+        addressConstituentId: "11",
+        addressee: "Pat & Alex Sample",
+        salutation: "Pat and Alex",
+        address: "10 Test Street",
+        email: "",
+      },
+      store,
+      7,
+    );
+    const saved = letterWorkspace(state, definitions, today).rows[0];
+    expect(saved.recipientReview.status).toBe("saved");
+    expect(saved.addressee).toBe("Pat & Alex Sample");
+    expect(letterNameMergeData(saved)).toMatchObject({
+      first_name: "Pat",
+      spouse_first_name: "Alex",
+    });
+    expect(saved.issues.post).toMatch(/preview only/i);
+    expect(saved.issues.email).toMatch(/preview only/i);
+    expect(saved.mailAllowed).toBe(false);
+    expect(row.addressee).toBe("");
+    await expect(
+      prepareLetterBatch(
+        state,
+        definitions,
+        today,
+        { ...body, confirm: true },
+        store,
+        7,
+      ),
+    ).rejects.toThrow(/preview only/i);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(advanceQueryList).not.toHaveBeenCalled();
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+    row.recipientCandidates[0].address = "New address";
+    const changed = letterWorkspace(state, definitions, today).rows[0];
+    expect(changed.recipientReview.status).toBe("needs_review");
+    expect(changed.address).toBe("");
+    await expect(
+      updateLetterRecipient(
+        state,
+        definitions,
+        "2027-01-01",
+        { householdId: "10" },
+        store,
+        7,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+  });
   it("blocks missing name values before reserving or sending and freezes mapped names in prepared letters", async () => {
     const { state, store, body } = setup();
     const template = {

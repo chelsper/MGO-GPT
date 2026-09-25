@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   finish: vi.fn(),
   release: vi.fn(),
   exclusion: vi.fn(),
+  recipient: vi.fn(),
   inspect: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
@@ -40,6 +41,7 @@ vi.mock("@/app/api/utils/societyLetterWorkflow", () => ({
   sendLetterBatch: mocks.send,
   verifyLetterEmail: vi.fn(),
   updateLetterExclusion: mocks.exclusion,
+  updateLetterRecipient: mocks.recipient,
 }));
 vi.mock("@/app/api/utils/societyLetterQueryFields", () => ({
   inspectLetterQueryFields: mocks.inspect,
@@ -102,17 +104,41 @@ describe("stewardship API authorization and delivery boundaries", () => {
       expect(mocks.send).not.toHaveBeenCalled();
     },
   );
-  it.each(["exclude_recipient", "restore_recipient", "inspect_query"])(
-    "denies non-reviewer %s",
-    async (action) => {
-      mocks.workspace.mockResolvedValue({
-        sessionUser: { id: 1, active: true, role: "mgo" },
-      });
-      expect((await POST(request({ action, revision: 3 }))).status).toBe(403);
-      expect(mocks.exclusion).not.toHaveBeenCalled();
-      expect(mocks.inspect).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    "exclude_recipient",
+    "restore_recipient",
+    "inspect_query",
+    "save_recipient",
+  ])("denies non-reviewer %s", async (action) => {
+    mocks.workspace.mockResolvedValue({
+      sessionUser: { id: 1, active: true, role: "mgo" },
+    });
+    expect((await POST(request({ action, revision: 3 }))).status).toBe(403);
+    expect(mocks.exclusion).not.toHaveBeenCalled();
+    expect(mocks.inspect).not.toHaveBeenCalled();
+    expect(mocks.recipient).not.toHaveBeenCalled();
+  });
+  it("serializes recipient choices without preparing or sending letters", async () => {
+    const response = await POST(
+      request({ action: "save_recipient", revision: 3 }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.acquire).toHaveBeenCalledWith(1, 3);
+    expect(mocks.recipient).toHaveBeenCalledOnce();
+    expect(mocks.recipient.mock.calls[0][5]).toBe(1);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
+  it("rejects stale revisions before saving recipient choices", async () => {
+    mocks.acquire.mockRejectedValueOnce(
+      Object.assign(new Error("Changed; reload"), { status: 409 }),
+    );
+    expect(
+      (await POST(request({ action: "save_recipient", revision: 2 }))).status,
+    ).toBe(409);
+    expect(mocks.recipient).not.toHaveBeenCalled();
+  });
   it("requires authentication before any database work", async () => {
     mocks.auth.mockResolvedValue(null);
     expect((await GET(new Request(url))).status).toBe(401);

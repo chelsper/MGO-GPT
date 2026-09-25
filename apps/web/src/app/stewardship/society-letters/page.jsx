@@ -13,6 +13,7 @@ import {
 import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
 import LetterMergeFieldsEditor from "./LetterMergeFieldsEditor";
 import LetterExclusionDialog from "./LetterExclusionDialog";
+import LetterRecipientDialog from "./LetterRecipientDialog";
 import QueryColumnMapper from "./QueryColumnMapper";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
@@ -255,6 +256,7 @@ export default function SocietyLettersPage() {
   const [societyFilter, setSocietyFilter] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
   const [excluding, setExcluding] = useState(null);
+  const [reviewingRecipient, setReviewingRecipient] = useState(null);
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const inFlight = useRef(false);
@@ -810,60 +812,107 @@ export default function SocietyLettersPage() {
                             </td>
                             <td className="whitespace-pre-line p-3">
                               {row.recipientCandidates ? (
-                                <details>
-                                  <summary className="cursor-pointer font-semibold text-emerald-800">
-                                    Review address and salutation options
-                                  </summary>
-                                  <p className="mt-2 text-xs text-gray-500">
-                                    No recipient selected. A primary addressee
-                                    may address only one spouse.
+                                <>
+                                  <p className="mb-2 text-sm font-semibold text-gray-700">
+                                    {row.recipientReview?.status === "saved"
+                                      ? "Recipient choices saved"
+                                      : row.recipientReview?.status ===
+                                          "needs_review"
+                                        ? "Recipient choices need review"
+                                        : "Choose letter recipient"}
                                   </p>
-                                  {row.recipientCandidates.map((candidate) => (
-                                    <div
-                                      key={candidate.constituentId}
-                                      className="mt-3 rounded-lg border border-gray-200 p-3"
-                                    >
-                                      <p className="font-semibold">
-                                        {candidate.addressee ||
-                                          "No addressee returned"}
-                                      </p>
+                                  {row.recipientReview?.status === "saved" && (
+                                    <div className="mb-3 text-sm text-gray-600">
+                                      <p>{row.addressee}</p>
                                       <p>
-                                        Salutation:{" "}
-                                        {candidate.salutation || "Not returned"}
+                                        {row.address ||
+                                          "No mailing address selected"}
                                       </p>
-                                      <p>
-                                        {candidate.address ||
-                                          "No address returned"}
-                                      </p>
-                                      {candidate.emailCandidates?.length > 1 ? (
-                                        <div className="mt-2 text-sm">
-                                          <p className="font-semibold">
-                                            Multiple email values: choose during
-                                            recipient review
-                                          </p>
-                                          <ul className="list-inside list-disc">
-                                            {candidate.emailCandidates.map(
-                                              (email) => (
-                                                <li key={email}>{email}</li>
-                                              ),
-                                            )}
-                                          </ul>
-                                          <p className="text-xs text-gray-500">
-                                            No email was selected automatically.
-                                            Mailing details are retained
-                                            separately.
-                                          </p>
-                                        </div>
-                                      ) : (
-                                        <p>{candidate.email}</p>
-                                      )}
-                                      <p className="text-xs text-gray-500">
-                                        From constituent{" "}
-                                        {candidate.constituentId}
+                                      <p>Salutation: {row.salutation}</p>
+                                      <p className="mt-1 text-xs">
+                                        Saved for this period. Delivery checks
+                                        are still pending.
                                       </p>
                                     </div>
-                                  ))}
-                                </details>
+                                  )}
+                                  <button
+                                    className={`${button} mb-3`}
+                                    disabled={
+                                      busy ||
+                                      refreshing ||
+                                      !!sendingBatch ||
+                                      !row.recipientReview?.editable
+                                    }
+                                    aria-label={`Review letter recipient for ${row.name}`}
+                                    onClick={() => {
+                                      setError("");
+                                      setReviewingRecipient(row);
+                                    }}
+                                  >
+                                    {row.recipientReview?.status === "saved"
+                                      ? "Edit recipient choices"
+                                      : "Review letter recipient"}
+                                  </button>
+                                  <details>
+                                    <summary className="cursor-pointer font-semibold text-emerald-800">
+                                      Review address and salutation options
+                                    </summary>
+                                    <p className="mt-2 text-xs text-gray-500">
+                                      Returned query details. A primary
+                                      addressee may address only one spouse; use
+                                      recipient review to save joint wording.
+                                    </p>
+                                    {row.recipientCandidates.map(
+                                      (candidate) => (
+                                        <div
+                                          key={candidate.constituentId}
+                                          className="mt-3 rounded-lg border border-gray-200 p-3"
+                                        >
+                                          <p className="font-semibold">
+                                            {candidate.addressee ||
+                                              "No addressee returned"}
+                                          </p>
+                                          <p>
+                                            Salutation:{" "}
+                                            {candidate.salutation ||
+                                              "Not returned"}
+                                          </p>
+                                          <p>
+                                            {candidate.address ||
+                                              "No address returned"}
+                                          </p>
+                                          {candidate.emailCandidates?.length >
+                                          1 ? (
+                                            <div className="mt-2 text-sm">
+                                              <p className="font-semibold">
+                                                Multiple email values: choose
+                                                during recipient review
+                                              </p>
+                                              <ul className="list-inside list-disc">
+                                                {candidate.emailCandidates.map(
+                                                  (email) => (
+                                                    <li key={email}>{email}</li>
+                                                  ),
+                                                )}
+                                              </ul>
+                                              <p className="text-xs text-gray-500">
+                                                No email was selected
+                                                automatically. Mailing details
+                                                are retained separately.
+                                              </p>
+                                            </div>
+                                          ) : (
+                                            <p>{candidate.email}</p>
+                                          )}
+                                          <p className="text-xs text-gray-500">
+                                            From constituent{" "}
+                                            {candidate.constituentId}
+                                          </p>
+                                        </div>
+                                      ),
+                                    )}
+                                  </details>
+                                </>
                               ) : (
                                 row.issues[channel] ||
                                 (channel === "email" ? row.email : row.address)
@@ -1613,6 +1662,23 @@ export default function SocietyLettersPage() {
                   reason,
                 });
                 if (result) setExcluding(null);
+              }}
+            />
+          )}
+          {reviewingRecipient && (
+            <LetterRecipientDialog
+              recipient={reviewingRecipient}
+              busy={busy}
+              error={error}
+              onClose={() => setReviewingRecipient(null)}
+              onSave={async (values) => {
+                const result = await act({
+                  action: "save_recipient",
+                  householdId: reviewingRecipient.householdId,
+                  reviewToken: reviewingRecipient.recipientReview.token,
+                  ...values,
+                });
+                if (result) setReviewingRecipient(null);
               }}
             />
           )}

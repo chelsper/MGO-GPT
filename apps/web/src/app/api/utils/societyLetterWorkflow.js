@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { advanceQueryList } from "./constituentQueryList";
 import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
 import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
+import {
+  recipientReviewForRow,
+  saveLetterRecipientReview,
+} from "./societyLetterRecipients";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
@@ -57,6 +61,7 @@ function sourceIssue(state, definitions, today) {
 
 export function letterWorkspace(state, definitions, today) {
   const issue = sourceIssue(state, definitions, today);
+  const signature = letterSourceSignature(state, definitions);
   const period = state.settings ? letterPeriod(state.settings, today) : null;
   const currentRows =
     period && state.snapshot?.period?.key === period.key
@@ -114,20 +119,54 @@ export function letterWorkspace(state, definitions, today) {
             1,
         }
       : null,
-    rows: currentRows.map((row) => ({
-      ...row,
-      ...letterDisposition(row, state.history, state.exclusions),
-      issues: {
-        email:
-          issue ||
-          letterIssue(row, "email", activeTemplate(state, row.societyKey)),
-        post:
-          issue ||
-          letterIssue(row, "post", activeTemplate(state, row.societyKey)),
-      },
-    })),
+    rows: currentRows.map((sourceRow) => {
+      const recipientReview = recipientReviewForRow(
+        state,
+        sourceRow,
+        signature,
+      );
+      const row = { ...sourceRow, ...recipientReview?.values };
+      return {
+        ...row,
+        ...(recipientReview ? { recipientReview } : {}),
+        ...letterDisposition(row, state.history, state.exclusions),
+        issues: {
+          email:
+            issue ||
+            letterIssue(row, "email", activeTemplate(state, row.societyKey)),
+          post:
+            issue ||
+            letterIssue(row, "post", activeTemplate(state, row.societyKey)),
+        },
+      };
+    }),
     history: state.history,
   };
+}
+
+export async function updateLetterRecipient(
+  state,
+  definitions,
+  today,
+  body,
+  store,
+  userId,
+) {
+  const period = state.settings && letterPeriod(state.settings, today);
+  const row =
+    period && state.snapshot?.period?.key === period.key
+      ? state.snapshot.rows.find(
+          (item) => item.householdId === body.householdId,
+        )
+      : null;
+  await saveLetterRecipientReview(
+    state,
+    row,
+    letterSourceSignature(state, definitions),
+    body,
+    store,
+    userId,
+  );
 }
 
 export function previewLetters(state, definitions, today, body) {

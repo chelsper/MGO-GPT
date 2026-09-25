@@ -62,6 +62,83 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("society letter workspace", () => {
+  it("saves and reloads recipient choices without enabling or requesting letter preparation", async () => {
+    let values = null;
+    fetchMock.mockImplementation(async (_url, options) => {
+      const body = options?.body && JSON.parse(options.body);
+      if (body) {
+        expect(body).toMatchObject({
+          action: "save_recipient",
+          revision: 1,
+          householdId: "10",
+          reviewToken: "review-token",
+          confirm: true,
+        });
+        values = { ...body };
+      }
+      return Response.json({
+        ...base,
+        settings: { ...base.settings, sourceMode: "constituents" },
+        rows: [
+          {
+            ...household,
+            ...values,
+            members: ["10"],
+            memberNames: [
+              { constituentId: "10", name: "Alex Sample", firstName: "Alex" },
+            ],
+            issues: { post: "Preview only", email: "Preview only" },
+            recipientCandidates: [
+              {
+                constituentId: "10",
+                addressee: "Alex Sample",
+                salutation: "Alex",
+                address: "10 Test Street",
+                email: "alex@example.org",
+              },
+            ],
+            recipientReview: {
+              status: values ? "saved" : "unreviewed",
+              values,
+              editable: true,
+              token: "review-token",
+            },
+          },
+        ],
+      });
+    });
+    const first = render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Review letter recipient for Sample Household",
+      }),
+    );
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(dialog.getByRole("checkbox"));
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Save recipient choices" }),
+    );
+    await screen.findByText("Recipient choices saved");
+    expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Review selected letters" }),
+    ).toBeDisabled();
+    first.unmount();
+    render(<Page />);
+    await screen.findByText("Recipient choices saved");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Review letter recipient for Sample Household",
+      }),
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Alex");
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(1);
+  });
   it("guides a grouped source to constituent fields without changing saved settings or running a query", async () => {
     render(<Page />);
     fireEvent.click(

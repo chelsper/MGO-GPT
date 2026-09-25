@@ -23,6 +23,7 @@ import {
   sendLetterBatch,
   verifyLetterEmail,
   updateLetterExclusion,
+  updateLetterRecipient,
 } from "@/app/api/utils/societyLetterWorkflow";
 import { inspectLetterQueryFields } from "@/app/api/utils/societyLetterQueryFields";
 import { letterError } from "@/utils/societyLetters";
@@ -156,6 +157,7 @@ export async function POST(request) {
       "verify",
       "exclude_recipient",
       "restore_recipient",
+      "save_recipient",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -163,6 +165,16 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "save_recipient":
+        await updateLetterRecipient(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx.user.id,
+        );
+        break;
       case "exclude_recipient":
       case "restore_recipient":
         await updateLetterExclusion(

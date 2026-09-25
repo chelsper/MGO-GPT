@@ -115,6 +115,47 @@ were changed. If rolling back after exclusions are used, do not operate society
 letter preparation with an older release that ignores the exclusion ledger;
 backport the guard or pause this workflow instead. Retain the ledger and audit.
 
+### Saved Recipient Choices (September 24)
+
+For constituent/spouse and multiple-society sources, each holding-list row offers
+**Review letter recipient**. Choose a returned constituent by system ID, review
+or edit the letter addressee and salutation, and select either returned member's
+preferred mailing address. The composed address may be edited for this letter
+without writing back to NXT. A single individual uses the same workflow. A linked
+spouse without their own returned query record is not selectable as a recipient
+or address source. A household display name never becomes a joint greeting by
+default.
+
+Email is optional and remains blank until explicitly chosen from the selected
+recipient's returned email values. Selecting an email does not grant permission.
+Recipient/spouse name merge fields follow the selected constituent's mapped name
+parts; each society template still retains its own merge-field settings. A missing
+address may be saved for later review, but is not enough to create a postal letter.
+
+Choices are saved separately in `stewardship_letters.recipient_reviews`, using a
+hash of the exact period and sorted member system IDs. Each saved choice includes
+the reviewer and timestamp. Query refreshes replace the membership snapshot, not
+these choices. An unchanged refresh retains reviewed choices. Changed membership,
+recipient/name/contact output, source settings, or society qualification requires
+another review; stale choices are retained in storage but not applied or prefilled.
+A new period starts unreviewed. Prepared, excluded, and already-covered rows cannot
+be edited through this control; frozen delivery history is never modified.
+
+The API checks the current source signature, period, member IDs, review token,
+explicit confirmation, text limits, and the existing revision/lease lock. Opening,
+editing, or saving these choices performs no NXT requests. Saving does not change
+eligibility flags, mark anything sent, create documents, or write appeal codes.
+The new JSONB column is additive with an empty-object default and a bounded payload.
+Constituent sources remain preview-only: restriction, prior-appeal, and independent
+higher-society checks must be implemented before delivery can be enabled.
+
+Recipient-review verification: 4,000 application tests passed, with 19 opt-in tests
+skipped in the normal run; all seven stewardship persistence/locking tests passed
+separately on an isolated local PostgreSQL cluster. Type checking, production build,
+release-worktree check, and synthetic desktop/390px mobile review/save checks passed.
+No production or sandbox settings, source queries, letter history, or NXT records
+were changed during this implementation. Deployment remains a separate action.
+
 ### Saved Merge Fields
 
 In **Letter templates**, each annual society's Word template retains its own
@@ -140,7 +181,7 @@ to that household. The stable grouping key does not silently choose a recipient.
 The combined `{first_names}` field requires a mapped first name for every member.
 Reviewed, pre-grouped query sources also support optional recipient/spouse name
 columns. These remain separate from delivery restrictions and do not enable
-constituent-source sending or replace the pending recipient-review workflow.
+constituent-source sending or replace recipient review and eligibility checks.
 
 Only tags actually used by the Word letter or its email text require values.
 The worklist reports missing used name fields, and the renderer independently
