@@ -5,6 +5,7 @@ export default function RecipientReviewQueue({
   items,
   rows,
   templates,
+  channel = "post",
   busy,
   error,
   onSave,
@@ -29,6 +30,7 @@ export default function RecipientReviewQueue({
     <LetterRecipientDialog
       key={recipient.householdId}
       recipient={recipient}
+      channel={channel}
       template={templates.find(
         (template) => template.societyKey === recipient.societyKey,
       )}

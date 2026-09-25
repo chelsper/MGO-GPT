@@ -57,6 +57,184 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("letter recipient review dialog", () => {
+  it("waits for an explicit recipient choice before focusing the requested address field", () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const save = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        initialFocus="address"
+        onSave={save}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Recipient record")).toHaveFocus();
+    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+    expect(screen.getByText(/Then we'll take you/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    expect(screen.getByLabelText("Mailing address")).toHaveFocus();
+    expect(screen.getByLabelText("Email (optional)")).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    ).toBeDisabled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+  it("uses live edits for postal guidance and focuses the missing greeting part", () => {
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    expect(
+      screen.queryByRole("region", { name: "Recipient details to complete" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Mailing address"), {
+      target: { value: " " },
+    });
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review greeting" }));
+    expect(screen.getByLabelText("Salutation")).toHaveFocus();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add mailing address" }),
+    );
+    expect(screen.getByLabelText("Mailing address")).toHaveFocus();
+    expect(
+      screen.queryByRole("button", { name: "Choose email" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Mailing address"), {
+      target: { value: "12 New Street" },
+    });
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "Alex" },
+    });
+    expect(
+      screen.queryByRole("region", { name: "Recipient details to complete" }),
+    ).not.toBeInTheDocument();
+  });
+  it("only flags email for email review and retains permission and save-error notices", () => {
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        channel="email"
+        error="Workspace changed; reload saved results."
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("Mailing address"), {
+      target: { value: "" },
+    });
+    expect(
+      screen.queryByRole("button", { name: "Add mailing address" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Choose email" }));
+    expect(screen.getByLabelText("Email for this letter")).toHaveFocus();
+    fireEvent.change(screen.getByLabelText("Email for this letter"), {
+      target: { value: "alex@example.org" },
+    });
+    expect(
+      screen.queryByRole("button", { name: "Choose email" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Selecting one does not confirm email permission/),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Workspace changed; reload saved results.",
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /communication restrictions/ }),
+    ).not.toBeChecked();
+  });
+  it("opens the contact chooser without choosing or requiring a contact", () => {
+    const org = structuredClone(recipient);
+    org.recipientCandidates[0].organizationContacts = {
+      constituencyCodes: ["Business"],
+      contacts: [
+        { role: "Main contact", firstName: "Taylor", lastName: "Main" },
+      ],
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={org}
+        initialFocus="contacts"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    expect(screen.getByLabelText("Name this letter to")).toHaveFocus();
+    expect(screen.getByLabelText("Name this letter to")).toHaveValue("");
+    expect(screen.getByText(/choose a letter contact, or keep/i)).toBeVisible();
+    expect(
+      screen.getByText(/The contact supplies/).closest("details"),
+    ).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    expect(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    ).toBeEnabled();
+  });
+  it("opens a saved missing addressee directly and does not steal focus on later edits", () => {
+    const saved = structuredClone(recipient);
+    saved.recipientReview = {
+      status: "saved",
+      token: "saved-token",
+      values: {
+        recipientConstituentId: "10",
+        addressConstituentId: "10",
+        addressee: "",
+        salutation: "Alex",
+        address: "",
+        email: "",
+      },
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={saved}
+        initialFocus="greeting"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Addressee")).toHaveFocus();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add mailing address" }),
+    );
+    fireEvent.change(screen.getByLabelText("Mailing address"), {
+      target: { value: "12 Street" },
+    });
+    expect(screen.getByLabelText("Mailing address")).toHaveFocus();
+  });
+  it("does not offer edit shortcuts when the recipient is unavailable", () => {
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        unavailable
+        initialFocus="address"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "no longer available for editing",
+    );
+    expect(screen.getByLabelText("Recipient record")).toBeDisabled();
+    expect(screen.queryByText(/Then we'll take you/)).not.toBeInTheDocument();
+  });
   it("offers organization contacts without picking among them and preserves the organization's address and ID", () => {
     const save = vi.fn();
     const main = {

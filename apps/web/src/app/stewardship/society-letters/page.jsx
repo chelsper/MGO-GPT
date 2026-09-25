@@ -401,6 +401,7 @@ export default function SocietyLettersPage() {
   const [templateNotice, setTemplateNotice] = useState("");
   const [excluding, setExcluding] = useState(null);
   const [reviewingRecipient, setReviewingRecipient] = useState(null);
+  const [reviewFocus, setReviewFocus] = useState(null);
   const [reviewQueue, setReviewQueue] = useState(null);
   const [reviewFilter, setReviewFilter] = useState("all");
   const [attentionFilter, setAttentionFilter] = useState("all");
@@ -1140,10 +1141,24 @@ export default function SocietyLettersPage() {
                                     ),
                               );
                             }}
-                            onReview={() => {
+                            onReview={(field) => {
                               setError("");
+                              setReviewFocus(field);
                               setReviewingRecipient(row);
                             }}
+                            onReadiness={
+                              data.readiness
+                                ? () => {
+                                    const heading = document.getElementById(
+                                      "letter-readiness-title",
+                                    );
+                                    heading?.focus();
+                                    heading?.scrollIntoView?.({
+                                      block: "center",
+                                    });
+                                  }
+                                : undefined
+                            }
                             onExclude={() => {
                               setError("");
                               setExcluding({
@@ -2010,6 +2025,8 @@ export default function SocietyLettersPage() {
           {reviewingRecipient && (
             <LetterRecipientDialog
               recipient={reviewingRecipient}
+              initialFocus={reviewFocus}
+              channel={channel}
               template={data.templates.find(
                 (template) =>
                   template.societyKey === reviewingRecipient.societyKey,
@@ -2031,6 +2048,7 @@ export default function SocietyLettersPage() {
           {reviewQueue && (
             <RecipientReviewQueue
               items={reviewQueue}
+              channel={channel}
               rows={data.rows}
               templates={data.templates}
               busy={busy}

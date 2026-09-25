@@ -34,8 +34,12 @@ export default function LetterRecipientDialog({
   template,
   navigation,
   unavailable = false,
+  channel = "post",
+  initialFocus = null,
 }) {
   const dialog = useRef(null);
+  const fields = useRef({});
+  const [pendingFocus, setPendingFocus] = useState(initialFocus);
   const [initialValues] = useState(recipient.recipientReview?.values || blank);
   const [reviewToken] = useState(recipient.recipientReview?.token);
   const [values, setValues] = useState(
@@ -63,6 +67,34 @@ export default function LetterRecipientDialog({
   ];
   const mergeNames = letterNameMergeData({ ...recipient, ...values });
   const mergeAddress = letterAddressMergeData({ ...recipient, ...values });
+  function focusField(target) {
+    const field =
+      !candidate || target === "changed"
+        ? "recipient"
+        : target === "greeting"
+          ? !values.addressee?.trim()
+            ? "addressee"
+            : "salutation"
+          : target === "contacts" && !organization
+            ? "addressee"
+            : target;
+    const element = fields.current[field] || fields.current.recipient;
+    element?.focus();
+    element?.scrollIntoView?.({ block: "center" });
+  }
+  const missing = candidate
+    ? [
+        ...(!values.addressee?.trim() || !values.salutation?.trim()
+          ? [["greeting", "Addressee or greeting missing", "Review greeting"]]
+          : []),
+        ...(channel === "post" && !values.address?.trim()
+          ? [["address", "Mailing address missing", "Add mailing address"]]
+          : []),
+        ...(channel === "email" && !values.email?.trim()
+          ? [["email", "No email selected for this letter", "Choose email"]]
+          : []),
+      ]
+    : [];
   const labelFor = (item) => {
     const name = recipient.memberNames?.find(
       (member) => member.constituentId === item.constituentId,
@@ -101,6 +133,12 @@ export default function LetterRecipientDialog({
     element.showModal();
     return () => element.close();
   }, []);
+  useEffect(() => {
+    if (!pendingFocus || disabled) return;
+    focusField(pendingFocus);
+    // Keep the destination until the user explicitly chooses a constituent.
+    if (candidate || pendingFocus === "changed") setPendingFocus(null);
+  }, [pendingFocus, candidate, disabled]);
   useEffect(() => {
     if (!dirty) return;
     const warn = (event) => {
@@ -192,10 +230,47 @@ export default function LetterRecipientDialog({
                   query details.
                 </p>
               )}
+              {!disabled && !candidate && (
+                <p className="mt-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                  Choose a recipient record first to edit this letter's details.
+                  {pendingFocus &&
+                    " Then we'll take you to the requested field."}
+                </p>
+              )}
+              {!disabled && missing.length > 0 && (
+                <section
+                  aria-label="Recipient details to complete"
+                  className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm"
+                >
+                  <ul className="space-y-1">
+                    {missing.map(([target, message, action]) => (
+                      <li
+                        key={target}
+                        className="flex flex-wrap items-center justify-between gap-x-3 text-amber-950"
+                      >
+                        <span>{message}</span>
+                        <button
+                          type="button"
+                          onClick={() => focusField(target)}
+                          className="min-h-11 font-semibold text-emerald-800 underline underline-offset-4"
+                        >
+                          {action}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Saving choices does not clear delivery checks.
+                  </p>
+                </section>
+              )}
               <fieldset disabled={disabled} className="mt-5 space-y-4">
                 <label className="block text-sm font-semibold">
                   Recipient record
                   <select
+                    ref={(element) => {
+                      fields.current.recipient = element;
+                    }}
                     autoFocus
                     required
                     className={input}
@@ -213,12 +288,18 @@ export default function LetterRecipientDialog({
                     ))}
                   </select>
                 </label>
-                <p className="text-xs text-gray-500">
-                  This selects whose first and last names are used by recipient
-                  merge fields. Choosing another record resets the wording and
-                  address below. A spouse without a returned record cannot be
-                  selected yet.
+                <p className="text-xs text-gray-600">
+                  Changing the recipient resets the wording, address, and email
+                  selection below.
                 </p>
+                <details className="text-xs text-gray-500">
+                  <summary className="min-h-11 cursor-pointer py-3 font-semibold">
+                    How recipient names are chosen
+                  </summary>
+                  This record supplies recipient first- and last-name merge
+                  fields. A spouse without a returned record cannot be selected
+                  yet.
+                </details>
                 {candidate && (
                   <>
                     {organization && (
@@ -229,6 +310,9 @@ export default function LetterRecipientDialog({
                         <label className="block text-sm font-semibold">
                           Name this letter to
                           <select
+                            ref={(element) => {
+                              fields.current.contacts = element;
+                            }}
                             className={input}
                             value={values.organizationContactKey || ""}
                             onChange={(event) => {
@@ -265,21 +349,28 @@ export default function LetterRecipientDialog({
                         </label>
                         <p className="mt-2 text-sm text-emerald-950">
                           {contacts.length
-                            ? "Choose a Main contact or Society letter contact for this letter. This fills the recipient first/last-name merge fields and suggests a greeting you can edit below."
+                            ? "Choose a letter contact, or keep the organization's greeting. Review the suggested wording below."
                             : "No eligible contact names were returned. Keep the organization's greeting, or map the contact columns in Source & period and refresh membership."}
                         </p>
-                        <p className="mt-2 text-xs text-emerald-900">
-                          The organization's mailing address, qualification and
-                          appeal history stay with the organization. A contact
-                          is not added as a household member, and no contact
-                          email or address is fetched.
-                        </p>
+                        <details className="mt-2 text-xs text-emerald-900">
+                          <summary className="min-h-11 cursor-pointer py-3 font-semibold">
+                            How organization contacts are used
+                          </summary>
+                          The contact supplies recipient first- and last-name
+                          merge fields. The organization's mailing address,
+                          qualification and appeal history stay with the
+                          organization. A contact is not added as a household
+                          member, and no contact email or address is fetched.
+                        </details>
                       </section>
                     )}
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-semibold">
                         Addressee
                         <input
+                          ref={(element) => {
+                            fields.current.addressee = element;
+                          }}
                           required
                           maxLength={300}
                           className={input}
@@ -292,6 +383,9 @@ export default function LetterRecipientDialog({
                       <label className="block text-sm font-semibold">
                         Salutation
                         <input
+                          ref={(element) => {
+                            fields.current.salutation = element;
+                          }}
                           required
                           maxLength={300}
                           className={input}
@@ -341,6 +435,9 @@ export default function LetterRecipientDialog({
                     <label className="block text-sm font-semibold">
                       Mailing address
                       <textarea
+                        ref={(element) => {
+                          fields.current.address = element;
+                        }}
                         rows={4}
                         maxLength={2000}
                         className={input}
@@ -351,9 +448,8 @@ export default function LetterRecipientDialog({
                       />
                     </label>
                     <p className="text-xs text-gray-500">
-                      Preferred street lines, city, state, and ZIP are combined
-                      here. You can correct this letter's address or leave it
-                      blank for later; a postal letter will still need a
+                      Edits apply only to this letter, not NXT. You can leave
+                      the address blank for later; postal delivery requires a
                       verified address.
                     </p>
                     <details className="rounded-lg border border-gray-200 p-3 text-sm">
@@ -393,8 +489,13 @@ export default function LetterRecipientDialog({
                       </div>
                     </details>
                     <label className="block text-sm font-semibold">
-                      Email (optional)
+                      {channel === "email"
+                        ? "Email for this letter"
+                        : "Email (optional)"}
                       <select
+                        ref={(element) => {
+                          fields.current.email = element;
+                        }}
                         className={input}
                         value={values.email}
                         onChange={(event) =>
@@ -410,7 +511,9 @@ export default function LetterRecipientDialog({
                       </select>
                     </label>
                     <p className="text-xs text-gray-500">
-                      Only this recipient's returned addresses are available.
+                      {channel === "email" && !emails.length
+                        ? "No email was returned for this recipient. Update the source before using email delivery. "
+                        : "Only this recipient's returned addresses are available. "}
                       Selecting one does not confirm email permission.
                     </p>
                     <details className="rounded-lg border border-gray-200 p-3 text-sm">

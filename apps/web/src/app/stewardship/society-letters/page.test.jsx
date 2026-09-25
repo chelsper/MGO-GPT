@@ -92,6 +92,100 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("does not expose an edit shortcut for an unavailable recipient", async () => {
+    const row = reviewRow("10", true);
+    row.recipientReview.values.address = "";
+    row.recipientReview.editable = false;
+    fetchMock.mockResolvedValue(Response.json({ ...base, rows: [row] }));
+    render(<Page />);
+    await screen.findByText("Mailing address missing");
+    expect(
+      screen.queryByRole("button", {
+        name: "Add mailing address for Household 10",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Review letter recipient for Household 10",
+      }),
+    ).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("passes the chosen delivery method into bulk review guidance", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ ...base, rows: [reviewRow("10")] }),
+    );
+    render(<Page />);
+    fireEvent.change(await screen.findByLabelText("Delivery method"), {
+      target: { value: "email" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review recipients in bulk" }),
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Choose email" }));
+    expect(screen.getByLabelText("Email for this letter")).toHaveFocus();
+    expect(
+      screen.getByText(/No email was returned for this recipient/),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("opens the exact missing field from the workspace without saving or fetching", async () => {
+    const row = reviewRow("10", true);
+    row.recipientReview.values.address = "";
+    fetchMock.mockResolvedValue(Response.json({ ...base, rows: [row] }));
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Add mailing address for Household 10",
+      }),
+    );
+    expect(screen.getByLabelText("Mailing address")).toHaveFocus();
+    expect(screen.getByLabelText("Mailing address")).toHaveValue("");
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed/ }),
+    ).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Review letter recipient for Household 10",
+      }),
+    );
+    expect(screen.getByLabelText("Mailing address")).not.toHaveFocus();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("keeps safety reasons visible and navigates to readiness without starting a check", async () => {
+    const row = reviewRow("10", true);
+    row.readiness = {
+      post: {
+        status: "needs_review",
+        reasons: ["Mail restriction requires staff review."],
+      },
+    };
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        rows: [row],
+        readiness: {
+          issue: "Save appeal settings before checking.",
+          job: null,
+        },
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View delivery checks" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Check letter readiness" }),
+    ).toHaveFocus();
+    expect(
+      screen.getByText("Mail restriction requires staff review."),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("filters review and attention from saved data without treating reviewed recipients as deliverable", async () => {
     const changed = reviewRow("30");
     changed.recipientReview.status = "needs_review";

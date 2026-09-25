@@ -235,7 +235,11 @@ export default function LetterReadinessPanel({
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 id="letter-readiness-title" className="text-lg font-bold">
+          <h2
+            id="letter-readiness-title"
+            tabIndex={-1}
+            className="text-lg font-bold"
+          >
             Check letter readiness
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">

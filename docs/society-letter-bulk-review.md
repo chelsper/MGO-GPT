@@ -48,7 +48,38 @@ coverage includes stale-preview hiding, explicit refresh/retry, iframe isolation
 resize cleanup, unchanged review tokens, failed saves, and navigation guards.
 Synthetic browser checks covered desktop/390px mobile layouts, fixed progress
 and actions, an edited greeting, standard letter-size fitting, and in-memory
-Save & next. This step remains local until a separate deployment is requested.
+Save & next. Step 2 was deployed to JU in release `1213415`; see the separate
+JU side-by-side editor release notes.
+
+## Targeted Review Guidance (Step 3)
+
+Workspace issues now link directly to the mailing address, email, greeting,
+organization contact chooser, or changed recipient selection. If no recipient
+has been chosen, the editor first asks for that explicit choice, then focuses
+the requested field. It never selects a constituent, contact, or email on the
+reviewer's behalf. Unavailable rows do not offer edit shortcuts.
+
+Inside the editor, missing-field guidance follows the current draft and the
+selected delivery method. Postal review does not flag email as missing; email
+review does not flag the postal address. Organization contact selection remains
+optional: the organization greeting can still be reviewed and saved. Name and
+organization mapping explanations are collapsed, while reset warnings, changed
+record notices, communication restrictions, confirmation, save failures, and
+unsaved-edit protection remain visible.
+
+**View delivery checks** focuses the existing readiness section but does not
+start an NXT check. All readiness reasons remain visible in the workspace.
+No server validation, hierarchy, deduplication, appeal, or delivery gates change.
+This step is local and requires a separate deployment.
+
+Step 3 verification: 4,273 tests passed; 21 opt-in tests skipped. Typecheck,
+production build, release guard, and diff check passed. Focused coverage checks
+direct field focus, explicit selection before focus, live draft guidance,
+delivery-method scope in individual/bulk review, unavailable-recipient guards,
+and no network requests from shortcuts. Synthetic desktop and 390px mobile
+checks confirmed field focus, collapsed help, live issue removal, unsaved-edit
+protection, and readiness navigation without starting a check. Production
+verification for step 2 was read-only; no live recipient data was changed.
 
 ## Draft Preview Boundary
 

@@ -4,6 +4,13 @@ import { readinessLabels } from "./LetterReadinessPanel";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
+const issueActions = {
+  changed: "Review changed choices",
+  address: "Add mailing address",
+  email: "Choose email",
+  greeting: "Review greeting",
+  contacts: "Choose letter contact",
+};
 
 export default function LetterWorkspaceRow({
   row,
@@ -16,6 +23,7 @@ export default function LetterWorkspaceRow({
   excludeDisabled,
   onSelect,
   onReview,
+  onReadiness,
   onExclude,
   sourceIssue,
 }) {
@@ -69,7 +77,30 @@ export default function LetterWorkspaceRow({
           {issueLabels.length > 0 && (
             <ul className="mt-2 space-y-1 text-xs text-amber-900">
               {issueLabels.map(([key, label]) => (
-                <li key={key}>{label}</li>
+                <li key={key}>
+                  {issueActions[key] &&
+                  row.recipientCandidates &&
+                  !reviewDisabled ? (
+                    <button
+                      type="button"
+                      className="min-h-11 text-left font-semibold text-emerald-800 underline underline-offset-4"
+                      onClick={() => onReview(key)}
+                      aria-label={`${issueActions[key]} for ${row.name}`}
+                    >
+                      {issueActions[key]}
+                    </button>
+                  ) : key === "readiness" && onReadiness ? (
+                    <button
+                      type="button"
+                      className="min-h-11 text-left font-semibold text-emerald-800 underline underline-offset-4"
+                      onClick={onReadiness}
+                    >
+                      View delivery checks
+                    </button>
+                  ) : (
+                    label
+                  )}
+                </li>
               ))}
             </ul>
           )}
@@ -103,7 +134,7 @@ export default function LetterWorkspaceRow({
               className={button}
               disabled={reviewDisabled}
               aria-label={`Review letter recipient for ${row.name}`}
-              onClick={onReview}
+              onClick={() => onReview()}
             >
               {view.reviewed ? "Edit recipient" : "Review recipient"}
             </button>
