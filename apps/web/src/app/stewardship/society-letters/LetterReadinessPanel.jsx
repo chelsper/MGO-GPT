@@ -1,5 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import AppealPicker, {
+  AppealChoicesLoader,
+  useAppealChoices,
+} from "./AppealPicker";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 disabled:cursor-not-allowed disabled:opacity-50";
@@ -13,6 +17,7 @@ export const readinessLabels = {
 };
 
 export function ReadinessSettings({ data, busy, act }) {
+  const choices = useAppealChoices();
   const [appeals, setAppeals] = useState(() =>
     Object.fromEntries(
       Object.entries(data.readiness.policy?.appeals || {}).map(
@@ -30,6 +35,15 @@ export function ReadinessSettings({ data, busy, act }) {
   const tiers = data.definitions.filter((d) =>
     data.settings.societyKeys.includes(d.key),
   );
+  const complete = tiers.every((tier) => {
+    const value = appeals[tier.key];
+    return (
+      value?.description?.trim() &&
+      (value.identifierType === "system"
+        ? /^[1-9][0-9]{0,17}$/.test(value.id || "")
+        : value.lookupId?.trim())
+    );
+  });
   function edit(key, field, value) {
     setAppeals((current) => ({
       ...current,
@@ -44,15 +58,16 @@ export function ReadinessSettings({ data, busy, act }) {
       </summary>
       <p className="mt-2 text-sm text-gray-600">
         Use each society&apos;s dedicated {data.period.start} to{" "}
-        {data.period.end} letter-sent appeal. Enter the Appeal ID/code shown in
-        NXT and its exact description. The app finds and verifies the system
-        record ID for you. Saving settings does not assign appeals or send
-        letters.
+        {data.period.end} letter-sent appeal. Search by name or code and select
+        the result to fill its exact description. Saving settings re-verifies
+        the appeal; it does not assign appeals or send letters.
       </p>
       <form
         className="mt-4 space-y-4"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (busy || choices.loading || !confirm || !complete || !tiers.length)
+            return;
           const requested = Object.fromEntries(
             tiers.map((tier) => {
               const appeal = appeals[tier.key] || {};
@@ -78,6 +93,7 @@ export function ReadinessSettings({ data, busy, act }) {
             setConfirm(false);
         }}
       >
+        <AppealChoicesLoader choices={choices} disabled={busy} />
         {tiers.map((tier) => {
           const appeal = appeals[tier.key] || {};
           const system = appeal.identifierType === "system";
@@ -91,65 +107,94 @@ export function ReadinessSettings({ data, busy, act }) {
           return (
             <fieldset
               key={tier.key}
-              className="grid gap-4 md:grid-cols-[minmax(16rem,1fr)_2fr]"
+              disabled={busy || choices.loading}
+              className="space-y-4 rounded-xl border border-gray-200 p-4"
             >
               <legend className="mb-2 font-semibold">{tier.name}</legend>
-              <div className="min-w-0 space-y-3">
-                <label className="block text-sm font-semibold">
-                  Find appeal by
-                  <select
-                    className={input}
-                    aria-label={`${tier.name} find appeal by`}
-                    value={system ? "system" : "lookup"}
-                    onChange={(e) =>
-                      edit(tier.key, "identifierType", e.target.value)
-                    }
-                  >
-                    <option value="lookup">Appeal code (Lookup ID)</option>
-                    <option value="system">System record ID (advanced)</option>
-                  </select>
-                </label>
-                <label className="text-sm font-semibold">
-                  {system
-                    ? "Appeal system record ID"
-                    : "Appeal code (Lookup ID)"}
-                  <input
-                    className={input}
-                    aria-label={`${tier.name} ${system ? "appeal system record ID" : "appeal code"}`}
-                    value={(system ? appeal.id : appeal.lookupId) || ""}
-                    required
-                    pattern={system ? "[1-9][0-9]{0,17}" : undefined}
-                    inputMode={system ? "numeric" : "text"}
-                    title={
-                      system
-                        ? "Enter the numeric NXT system record ID, not the appeal code."
-                        : undefined
-                    }
-                    maxLength={system ? 18 : 100}
-                    onChange={(e) =>
-                      edit(tier.key, system ? "id" : "lookupId", e.target.value)
-                    }
-                  />
-                </label>
-                <p className="text-xs text-gray-600">
-                  {system
-                    ? "The numeric ID from the NXT appeal record URL, not its user-defined code."
-                    : "Use the Appeal ID shown in NXT, such as CY26PRESSOC-MGO."}
-                </p>
-              </div>
-              <label className="text-sm font-semibold">
-                Exact appeal description
-                <input
-                  className={input}
-                  aria-label={`${tier.name} appeal description`}
-                  value={appeal.description || ""}
-                  required
-                  maxLength={300}
-                  onChange={(e) =>
-                    edit(tier.key, "description", e.target.value)
-                  }
-                />
-              </label>
+              <AppealPicker
+                tier={tier}
+                period={data.period}
+                purpose="letter-sent"
+                value={appeal}
+                choices={choices}
+                disabled={busy || choices.loading}
+                onSelect={(selected) => {
+                  setAppeals((current) => ({
+                    ...current,
+                    [tier.key]: { ...selected, identifierType: "lookup" },
+                  }));
+                  setConfirm(false);
+                }}
+              />
+              <details>
+                <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold text-emerald-800">
+                  Enter or edit appeal manually
+                </summary>
+                <div className="grid gap-4 md:grid-cols-[minmax(16rem,1fr)_2fr]">
+                  <div className="min-w-0 space-y-3">
+                    <label className="block text-sm font-semibold">
+                      Find appeal by
+                      <select
+                        className={input}
+                        aria-label={`${tier.name} find appeal by`}
+                        value={system ? "system" : "lookup"}
+                        onChange={(e) =>
+                          edit(tier.key, "identifierType", e.target.value)
+                        }
+                      >
+                        <option value="lookup">Appeal code (Lookup ID)</option>
+                        <option value="system">
+                          System record ID (advanced)
+                        </option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-semibold">
+                      {system
+                        ? "Appeal system record ID"
+                        : "Appeal code (Lookup ID)"}
+                      <input
+                        className={input}
+                        aria-label={`${tier.name} ${system ? "appeal system record ID" : "appeal code"}`}
+                        value={(system ? appeal.id : appeal.lookupId) || ""}
+                        required
+                        pattern={system ? "[1-9][0-9]{0,17}" : undefined}
+                        inputMode={system ? "numeric" : "text"}
+                        title={
+                          system
+                            ? "Enter the numeric NXT system record ID, not the appeal code."
+                            : undefined
+                        }
+                        maxLength={system ? 18 : 100}
+                        onChange={(e) =>
+                          edit(
+                            tier.key,
+                            system ? "id" : "lookupId",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </label>
+                    <p className="text-xs text-gray-600">
+                      {system
+                        ? "The numeric ID from the NXT appeal record URL, not its user-defined code."
+                        : "Use the Appeal ID shown in NXT, such as CY26PRESSOC-MGO."}
+                    </p>
+                  </div>
+                  <label className="text-sm font-semibold">
+                    Exact appeal description
+                    <input
+                      className={input}
+                      aria-label={`${tier.name} appeal description`}
+                      value={appeal.description || ""}
+                      required
+                      maxLength={300}
+                      onChange={(e) =>
+                        edit(tier.key, "description", e.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+              </details>
               {unchanged && (
                 <p className="text-sm text-emerald-800 md:col-span-2">
                   Saved appeal: {saved.lookupId || "appeal"} (system record ID{" "}
@@ -162,6 +207,7 @@ export function ReadinessSettings({ data, busy, act }) {
         <label className="flex items-start gap-3 text-sm">
           <input
             type="checkbox"
+            disabled={busy || choices.loading}
             checked={confirm}
             onChange={(e) => setConfirm(e.target.checked)}
             className="mt-1 h-4 w-4"
@@ -171,7 +217,12 @@ export function ReadinessSettings({ data, busy, act }) {
           constituent communication restrictions. A readiness check is not
           approval to send.
         </label>
-        <button className={button} disabled={busy || !confirm || !tiers.length}>
+        <button
+          className={button}
+          disabled={
+            busy || choices.loading || !confirm || !complete || !tiers.length
+          }
+        >
           Verify and save appeal settings
         </button>
       </form>

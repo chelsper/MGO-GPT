@@ -70,7 +70,9 @@ unsaved-edit protection remain visible.
 **View delivery checks** focuses the existing readiness section but does not
 start an NXT check. All readiness reasons remain visible in the workspace.
 No server validation, hierarchy, deduplication, appeal, or delivery gates change.
-This step is local and requires a separate deployment.
+Step 3 was deployed to JU in release `9d8039c`; see the separate JU letter
+review guidance release notes. Step 4 appeal selection is subsequent local work
+documented in [Appeal picker](society-letter-appeal-picker.md).
 
 Step 3 verification: 4,273 tests passed; 21 opt-in tests skipped. Typecheck,
 production build, release guard, and diff check passed. Focused coverage checks

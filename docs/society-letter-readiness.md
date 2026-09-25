@@ -15,8 +15,10 @@ batches, send email, mark letters acknowledged, or assign NXT appeals.
    by readiness.
 2. Review and save the recipient and address choices for each household. Individuals
    without spouses are supported; missing choices require review without NXT calls.
-3. Under **Setup > Appeal settings > Letter appeal settings for this period**, enter each society's dedicated
-   letter-sent Appeal ID/code (Lookup ID) and exact description. The app resolves
+3. Under **Setup > Appeal settings > Letter appeal settings for this period**, load
+   appeal choices, search by name or code, and select each society's dedicated
+   letter-sent appeal. Selection fills the exact code/description but does not
+   save. Manual entry remains available under its disclosure. The app resolves
    the numeric system record ID; **System record ID (advanced)** remains available
    for explicitly numeric mappings. Existing saved numeric settings are retained.
    Numeric lookup codes are never interpreted as system IDs. Use distinct appeals
@@ -35,6 +37,11 @@ check** preserves results. A Blackbaud cooldown prevents early resume. Readiness
 does not have an overnight worker.
 
 ## Safety and limits
+
+- Appeal-picker loading is explicit and read-only. Search and selection use a
+  single bounded catalog per form; typing never calls NXT. Selection cannot
+  bypass the fresh save-time verification described below. See
+  [Appeal picker](society-letter-appeal-picker.md) for the full boundary.
 
 - Code-based setup uses one bounded appeal-catalog GET, shared across all selected
   societies for that save. Missing, ambiguous, inactive, or mismatched appeals and

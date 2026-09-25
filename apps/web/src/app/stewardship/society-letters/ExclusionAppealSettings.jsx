@@ -1,4 +1,8 @@
 import { useState } from "react";
+import AppealPicker, {
+  AppealChoicesLoader,
+  useAppealChoices,
+} from "./AppealPicker";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 disabled:opacity-50";
@@ -6,6 +10,7 @@ const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal";
 
 export default function ExclusionAppealSettings({ data, busy, act }) {
+  const choices = useAppealChoices();
   const [appeals, setAppeals] = useState(
     data.exclusionAppeals?.policy?.appeals || {},
   );
@@ -13,6 +18,19 @@ export default function ExclusionAppealSettings({ data, busy, act }) {
   const tiers = data.definitions.filter((d) =>
     data.settings?.societyKeys.includes(d.key),
   );
+  const complete = tiers.every(
+    (tier) =>
+      appeals[tier.key]?.lookupId?.trim() &&
+      appeals[tier.key]?.description?.trim(),
+  );
+  const unchanged = tiers.every((tier) => {
+    const saved = data.exclusionAppeals?.policy?.appeals?.[tier.key];
+    return (
+      saved &&
+      appeals[tier.key]?.lookupId === saved.lookupId &&
+      appeals[tier.key]?.description === saved.description
+    );
+  });
   if (
     !data.period ||
     !tiers.length ||
@@ -37,46 +55,78 @@ export default function ExclusionAppealSettings({ data, busy, act }) {
         each member, with your date and reason. This is not a letter-sent
         appeal. Existing exclusions are not backfilled.
       </p>
+      <p className="mt-2 text-sm text-gray-600">
+        Choose an appeal by name or code. Saving settings re-verifies your
+        choices; it does not assign appeals.
+      </p>
       <form
         className="mt-4 space-y-4"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (busy || choices.loading || !confirm || !complete) return;
           if (
             await act({ action: "exclusion_appeal_settings", appeals, confirm })
           )
             setConfirm(false);
         }}
       >
+        <AppealChoicesLoader choices={choices} disabled={busy} />
         {tiers.map((tier) => (
-          <fieldset key={tier.key} className="grid gap-3 sm:grid-cols-2">
+          <fieldset
+            key={tier.key}
+            disabled={busy || choices.loading}
+            className="space-y-4 rounded-xl border border-gray-200 p-4"
+          >
             <legend className="mb-2 font-semibold">{tier.name}</legend>
-            <label className="text-sm font-semibold">
-              Exclusion appeal code (Lookup ID)
-              <input
-                className={input}
-                aria-label={`${tier.name} exclusion appeal code`}
-                required
-                maxLength={100}
-                value={appeals[tier.key]?.lookupId || ""}
-                onChange={(e) => edit(tier.key, "lookupId", e.target.value)}
-              />
-            </label>
-            <label className="text-sm font-semibold">
-              Exact exclusion appeal description
-              <input
-                className={input}
-                aria-label={`${tier.name} exclusion appeal description`}
-                required
-                maxLength={300}
-                value={appeals[tier.key]?.description || ""}
-                onChange={(e) => edit(tier.key, "description", e.target.value)}
-              />
-            </label>
+            <AppealPicker
+              tier={tier}
+              period={data.period}
+              purpose="exclusion"
+              value={appeals[tier.key]}
+              choices={choices}
+              disabled={busy || choices.loading}
+              onSelect={(selected) => {
+                setAppeals((current) => ({ ...current, [tier.key]: selected }));
+                setConfirm(false);
+              }}
+            />
+            <details>
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold text-emerald-800">
+                Enter or edit exclusion appeal manually
+              </summary>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-semibold">
+                  Exclusion appeal code (Lookup ID)
+                  <input
+                    className={input}
+                    aria-label={`${tier.name} exclusion appeal code`}
+                    required
+                    maxLength={100}
+                    value={appeals[tier.key]?.lookupId || ""}
+                    onChange={(e) => edit(tier.key, "lookupId", e.target.value)}
+                  />
+                </label>
+                <label className="text-sm font-semibold">
+                  Exact exclusion appeal description
+                  <input
+                    className={input}
+                    aria-label={`${tier.name} exclusion appeal description`}
+                    required
+                    maxLength={300}
+                    value={appeals[tier.key]?.description || ""}
+                    onChange={(e) =>
+                      edit(tier.key, "description", e.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            </details>
           </fieldset>
         ))}
         <label className="flex items-start gap-3 text-sm">
           <input
             type="checkbox"
+            disabled={busy || choices.loading}
             className="mt-1"
             checked={confirm}
             onChange={(e) => setConfirm(e.target.checked)}
@@ -85,10 +135,13 @@ export default function ExclusionAppealSettings({ data, busy, act }) {
           not sent letters. I want future confirmed exclusions recorded in NXT
           for every household member.
         </label>
-        <button className={button} disabled={busy || !confirm}>
+        <button
+          className={button}
+          disabled={busy || choices.loading || !confirm || !complete}
+        >
           Verify and save exclusion appeals
         </button>
-        {data.exclusionAppeals?.current && (
+        {data.exclusionAppeals?.current && unchanged && (
           <p role="status" className="text-sm text-emerald-800">
             Exclusion appeal settings verified for this period.
           </p>

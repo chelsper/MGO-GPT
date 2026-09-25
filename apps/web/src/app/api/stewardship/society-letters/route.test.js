@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   exclusion: vi.fn(),
   recipient: vi.fn(),
   inspect: vi.fn(),
+  appealChoices: vi.fn(),
   readiness: vi.fn(),
   readinessSettings: vi.fn(),
   exclusionSettings: vi.fn(),
@@ -57,6 +58,9 @@ vi.mock("@/app/api/utils/societyLetterWorkflow", () => ({
 }));
 vi.mock("@/app/api/utils/societyLetterQueryFields", () => ({
   inspectLetterQueryFields: mocks.inspect,
+}));
+vi.mock("@/app/api/utils/societyLetterAppealChoices", () => ({
+  letterAppealChoices: mocks.appealChoices,
 }));
 vi.mock("@/app/api/utils/societyLetterReadiness", () => ({
   runLetterReadiness: mocks.readiness,
@@ -111,6 +115,70 @@ beforeEach(() => {
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it.each(["admin", "advancement_services"])(
+    "lets %s load choices without a revision, state read, or mutation lease",
+    async (role) => {
+      mocks.workspace.mockResolvedValue({
+        sessionUser: { id: 1, role, active: true },
+      });
+      mocks.appealChoices.mockResolvedValue({
+        appeals: [{ lookupId: "OOD", description: "OOD Letter" }],
+        omittedCount: 0,
+      });
+      const response = await POST(
+        request({
+          action: "inspect_appeals",
+          revision: -1,
+          url: "https://untrusted.example",
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toMatchObject({
+        appeals: [{ lookupId: "OOD", description: "OOD Letter" }],
+      });
+      expect(mocks.appealChoices).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          user: { id: 1, role, active: true },
+          origin: "https://example.org",
+        }),
+      );
+      expect(mocks.read).not.toHaveBeenCalled();
+      expect(mocks.acquire).not.toHaveBeenCalled();
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.exclusionSync).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["anonymous", "mgo", "inactive", "cross-origin", "oversize"])(
+    "blocks %s appeal lookup before NXT reads",
+    async (kind) => {
+      if (kind === "anonymous") mocks.auth.mockResolvedValue(null);
+      if (kind === "mgo")
+        mocks.workspace.mockResolvedValue({
+          sessionUser: { id: 1, role: "mgo", active: true },
+        });
+      if (kind === "inactive")
+        mocks.workspace.mockResolvedValue({
+          sessionUser: { id: 1, role: "admin", active: false },
+        });
+      const response = await POST(
+        request(
+          {
+            action: "inspect_appeals",
+            ...(kind === "oversize" ? { extra: "x".repeat(1500001) } : {}),
+          },
+          kind === "cross-origin"
+            ? { Origin: "https://untrusted.example" }
+            : {},
+        ),
+      );
+      expect(response.status).toBe(
+        kind === "anonymous" ? 401 : kind === "oversize" ? 413 : 403,
+      );
+      expect(mocks.appealChoices).not.toHaveBeenCalled();
+      expect(mocks.acquire).not.toHaveBeenCalled();
+    },
+  );
   it("renders a fictional setup sample without acquiring a write lease, refreshing queries, or sending letters", async () => {
     const version = "a".repeat(64);
     const template = { societyKey: "ood", version, sequence: 1 };

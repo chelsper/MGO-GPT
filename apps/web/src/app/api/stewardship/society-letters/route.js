@@ -30,6 +30,7 @@ import {
   previewLetterRecipient,
 } from "@/app/api/utils/societyLetterWorkflow";
 import { inspectLetterQueryFields } from "@/app/api/utils/societyLetterQueryFields";
+import { letterAppealChoices } from "@/app/api/utils/societyLetterAppealChoices";
 import {
   runLetterReadiness,
   saveReadinessPolicy,
@@ -179,6 +180,8 @@ export async function POST(request) {
     }
     if (body?.action === "inspect_query")
       return json(await inspectLetterQueryFields(body, ctx));
+    if (body?.action === "inspect_appeals")
+      return json(await letterAppealChoices(ctx));
     if (body?.action === "preview_template_sample") {
       const state = await readSocietyLetterState();
       const template = /^[a-f0-9]{64}$/.test(body.templateVersion || "")
