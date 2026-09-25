@@ -7,6 +7,10 @@ import {
   saveLetterRecipientReview,
 } from "./societyLetterRecipients";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
+import {
+  letterReadinessForRow,
+  letterReadinessWorkspace,
+} from "./societyLetterReadiness";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
 import {
@@ -97,6 +101,7 @@ export function letterWorkspace(state, definitions, today) {
       };
     }),
     sourceIssue: issue,
+    readiness: letterReadinessWorkspace(state, definitions, today),
     exclusions: (state.exclusions || []).filter(
       (item) =>
         !item.restoredAt &&
@@ -129,6 +134,26 @@ export function letterWorkspace(state, definitions, today) {
       return {
         ...row,
         ...(recipientReview ? { recipientReview } : {}),
+        ...(state.settings?.sourceMode === "society_queries"
+          ? {
+              readiness: {
+                post: letterReadinessForRow(
+                  state,
+                  definitions,
+                  today,
+                  sourceRow,
+                  "post",
+                ),
+                email: letterReadinessForRow(
+                  state,
+                  definitions,
+                  today,
+                  sourceRow,
+                  "email",
+                ),
+              },
+            }
+          : {}),
         ...letterDisposition(row, state.history, state.exclusions),
         issues: {
           email:

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   exclusion: vi.fn(),
   recipient: vi.fn(),
   inspect: vi.fn(),
+  readiness: vi.fn(),
+  readinessSettings: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
@@ -45,6 +47,10 @@ vi.mock("@/app/api/utils/societyLetterWorkflow", () => ({
 }));
 vi.mock("@/app/api/utils/societyLetterQueryFields", () => ({
   inspectLetterQueryFields: mocks.inspect,
+}));
+vi.mock("@/app/api/utils/societyLetterReadiness", () => ({
+  runLetterReadiness: mocks.readiness,
+  saveReadinessPolicy: mocks.readinessSettings,
 }));
 vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
@@ -83,6 +89,24 @@ beforeEach(() => {
   });
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it.each([
+    "check_readiness",
+    "resume_readiness",
+    "cancel_readiness",
+    "readiness_settings",
+  ])("locks %s without preparing or sending", async (action) => {
+    expect((await POST(request({ action, revision: 3 }))).status).toBe(200);
+    expect(mocks.acquire).toHaveBeenCalledWith(1, 3);
+    expect(
+      action === "readiness_settings"
+        ? mocks.readinessSettings
+        : mocks.readiness,
+    ).toHaveBeenCalledOnce();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
   it("inspects fields explicitly without acquiring a mutation lease or preparing letters", async () => {
     mocks.inspect.mockResolvedValue({ queryId: "31043", fields: ["ID"] });
     const response = await POST(
@@ -109,6 +133,10 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "restore_recipient",
     "inspect_query",
     "save_recipient",
+    "check_readiness",
+    "resume_readiness",
+    "cancel_readiness",
+    "readiness_settings",
   ])("denies non-reviewer %s", async (action) => {
     mocks.workspace.mockResolvedValue({
       sessionUser: { id: 1, active: true, role: "mgo" },

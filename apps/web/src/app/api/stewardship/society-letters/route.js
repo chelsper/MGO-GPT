@@ -26,6 +26,10 @@ import {
   updateLetterRecipient,
 } from "@/app/api/utils/societyLetterWorkflow";
 import { inspectLetterQueryFields } from "@/app/api/utils/societyLetterQueryFields";
+import {
+  runLetterReadiness,
+  saveReadinessPolicy,
+} from "@/app/api/utils/societyLetterReadiness";
 import { letterError } from "@/utils/societyLetters";
 
 export const maxDuration = 120;
@@ -158,6 +162,10 @@ export async function POST(request) {
       "exclude_recipient",
       "restore_recipient",
       "save_recipient",
+      "readiness_settings",
+      "check_readiness",
+      "resume_readiness",
+      "cancel_readiness",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -165,6 +173,28 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "readiness_settings":
+        await saveReadinessPolicy(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "check_readiness":
+      case "resume_readiness":
+      case "cancel_readiness":
+        await runLetterReadiness(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
       case "save_recipient":
         await updateLetterRecipient(
           state,

@@ -23,6 +23,7 @@ export function ensureSocietyLetterSchema() {
       ON stewardship_letter_deliveries(household_id, period_key, society_key) WHERE status <> 'cancelled'`;
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS exclusions JSONB NOT NULL DEFAULT '[]'::jsonb`;
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS recipient_reviews JSONB NOT NULL DEFAULT '{}'::jsonb`;
+    await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS readiness JSONB NOT NULL DEFAULT '{}'::jsonb`;
     await sql`INSERT INTO stewardship_letters(id) VALUES(1) ON CONFLICT DO NOTHING`;
   })().catch((error) => {
     ready = null;
@@ -33,7 +34,7 @@ export function ensureSocietyLetterSchema() {
 
 export async function readSocietyLetterState() {
   const [state] =
-    await sql`SELECT revision, settings, templates, snapshot, job, exclusions, recipient_reviews FROM stewardship_letters WHERE id = 1`;
+    await sql`SELECT revision, settings, templates, snapshot, job, exclusions, recipient_reviews, readiness FROM stewardship_letters WHERE id = 1`;
   const deliveries =
     await sql`SELECT payload, status, provider_id, updated_at, updated_by FROM stewardship_letter_deliveries ORDER BY created_at DESC, id`;
   return {
@@ -65,6 +66,7 @@ export async function acquireSocietyLetters(userId, revision) {
         templates = ${JSON.stringify(state.templates)}::jsonb, snapshot = ${JSON.stringify(state.snapshot)}::jsonb,
         job = ${JSON.stringify(state.job)}::jsonb, exclusions = ${JSON.stringify(state.exclusions || [])}::jsonb,
         recipient_reviews = ${JSON.stringify(state.recipient_reviews || {})}::jsonb,
+        readiness = ${JSON.stringify(state.readiness || {})}::jsonb,
         revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
         WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING revision`;
       if (!rows.length)

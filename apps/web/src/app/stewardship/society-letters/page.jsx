@@ -14,6 +14,7 @@ import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
 import LetterMergeFieldsEditor from "./LetterMergeFieldsEditor";
 import LetterExclusionDialog from "./LetterExclusionDialog";
 import LetterRecipientDialog from "./LetterRecipientDialog";
+import LetterReadinessPanel, { readinessLabels } from "./LetterReadinessPanel";
 import QueryColumnMapper from "./QueryColumnMapper";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
@@ -554,6 +555,20 @@ export default function SocietyLettersPage() {
           </nav>
           {tab === "ready" && (
             <>
+              <LetterReadinessPanel
+                data={data}
+                channel={channel}
+                rows={filtered}
+                busy={busy}
+                blocked={
+                  refreshing ||
+                  !!sendingBatch ||
+                  !!reviewingRecipient ||
+                  !!excluding ||
+                  !!confirmation
+                }
+                act={act}
+              />
               <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <h2 className="font-bold text-emerald-950">
                   Your letter holding list
@@ -813,6 +828,27 @@ export default function SocietyLettersPage() {
                             <td className="whitespace-pre-line p-3">
                               {row.recipientCandidates ? (
                                 <>
+                                  {row.readiness?.[channel] && (
+                                    <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
+                                      <p className="font-semibold">
+                                        {
+                                          readinessLabels[
+                                            row.readiness[channel].status
+                                          ]
+                                        }
+                                      </p>
+                                      {row.readiness[channel].reasons.map(
+                                        (reason) => (
+                                          <p
+                                            className="mt-1 text-gray-600"
+                                            key={reason}
+                                          >
+                                            {reason}
+                                          </p>
+                                        ),
+                                      )}
+                                    </div>
+                                  )}
                                   <p className="mb-2 text-sm font-semibold text-gray-700">
                                     {row.recipientReview?.status === "saved"
                                       ? "Recipient choices saved"
@@ -830,8 +866,8 @@ export default function SocietyLettersPage() {
                                       </p>
                                       <p>Salutation: {row.salutation}</p>
                                       <p className="mt-1 text-xs">
-                                        Saved for this period. Delivery checks
-                                        are still pending.
+                                        Saved for this period. No letter has
+                                        been sent.
                                       </p>
                                     </div>
                                   )}

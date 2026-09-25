@@ -50,6 +50,7 @@ function execute(statement) {
               "payload",
               "exclusions",
               "recipient_reviews",
+              "readiness",
             ].includes(key)
               ? value
                 ? JSON.parse(value)
@@ -85,7 +86,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   });
   beforeEach(() => {
     execute(
-      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
+      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -100,6 +101,26 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("persists readiness checkpoints independently without reserving letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    expect(state.readiness).toEqual({});
+    state.readiness = {
+      policy: { periodKey: "2026" },
+      job: { id: "check", cursor: 2, status: "paused" },
+      results: { sample: { status: "needs_review" } },
+    };
+    await store.save(state);
+    const reloaded = await readSocietyLetterState();
+    expect(reloaded.readiness).toEqual(state.readiness);
+    reloaded.snapshot = { rows: [] };
+    reloaded.recipient_reviews = { sample: { values: { salutation: "Alex" } } };
+    await store.save(reloaded);
+    const updated = await readSocietyLetterState();
+    expect(updated.readiness).toEqual(state.readiness);
+    expect(updated.history).toEqual([]);
+    await store.release();
+  });
   it("keeps recipient choices across snapshot replacement without changing delivery history", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const state = await readSocietyLetterState();
