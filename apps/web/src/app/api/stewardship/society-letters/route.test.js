@@ -623,6 +623,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
     const response = await GET(new Request(url));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({ reviewerId: "1", revision: 3 });
     expect(mocks.acquire).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
   });

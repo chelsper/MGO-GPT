@@ -19,6 +19,7 @@ import ExclusionAppealSettings, {
 } from "./ExclusionAppealSettings";
 import LetterRecipientDialog from "./LetterRecipientDialog";
 import RecipientReviewQueue from "./RecipientReviewQueue";
+import { reviewScope, useLetterReviewRecovery } from "./letterReviewRecovery";
 import LetterReadinessPanel, {
   ReadinessSettings,
 } from "./LetterReadinessPanel";
@@ -403,6 +404,10 @@ export default function SocietyLettersPage() {
   const [reviewingRecipient, setReviewingRecipient] = useState(null);
   const [reviewFocus, setReviewFocus] = useState(null);
   const [reviewQueue, setReviewQueue] = useState(null);
+  const [queueStart, setQueueStart] = useState(0);
+  const [reviewConflict, setReviewConflict] = useState(false);
+  const recovery = useLetterReviewRecovery(reviewScope(data));
+  const loadedScope = useRef(undefined);
   const [reviewFilter, setReviewFilter] = useState("all");
   const [attentionFilter, setAttentionFilter] = useState("all");
   const [reviewNotice, setReviewNotice] = useState("");
@@ -429,6 +434,16 @@ export default function SocietyLettersPage() {
     target?.focus();
   }, [setupNavigation]);
   function accept(payload) {
+    const nextScope = reviewScope(payload);
+    if (
+      loadedScope.current !== undefined &&
+      loadedScope.current !== nextScope
+    ) {
+      setReviewQueue(null);
+      setReviewingRecipient(null);
+      setReviewConflict(false);
+    }
+    loadedScope.current = nextScope;
     setData(payload);
     setSettings(
       payload.settings || {
@@ -487,8 +502,11 @@ export default function SocietyLettersPage() {
         return;
       }
       const payload = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
+        if (body.action === "save_recipient" && response.status === 409)
+          setReviewConflict(true);
         throw new Error(payload.error || "This operation could not finish.");
+      }
       if (payload.preview) setPreview(payload.preview);
       else {
         accept(payload);
@@ -505,6 +523,60 @@ export default function SocietyLettersPage() {
       inFlight.current = false;
       setBusy(false);
     }
+  }
+  async function reloadRecipient(householdId) {
+    if (inFlight.current) throw new Error("An operation is already running.");
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error("Saved choices unavailable.");
+      accept(payload);
+      return (
+        payload.rows.find((row) => row.householdId === householdId) || null
+      );
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+  function resolveReviewConflict() {
+    setReviewConflict(false);
+    setError("");
+  }
+  async function saveRecipient(values) {
+    const result = await act({ action: "save_recipient", ...values });
+    if (result) {
+      recovery.keepDraft(values.householdId, null);
+      resolveReviewConflict();
+    }
+    return result;
+  }
+  function resumeReview() {
+    const checkpoint = recovery.checkpoint;
+    if (!checkpoint) return;
+    const items = checkpoint.ids
+      .map((id) => data.rows.find((row) => row.householdId === id))
+      .filter(
+        (row) => row?.status === "ready" && row.recipientReview?.editable,
+      );
+    if (!items.length) {
+      recovery.clearCheckpoint();
+      setReviewNotice(
+        "The previous review no longer has editable recipients. The current holding list is unchanged.",
+      );
+      return;
+    }
+    setQueueStart(
+      Math.max(
+        0,
+        items.findIndex((row) => row.householdId === checkpoint.currentId),
+      ),
+    );
+    setChannel(checkpoint.channel);
+    resolveReviewConflict();
+    setReviewQueue(items);
   }
   useEffect(() => {
     if (!refreshing || busy) return;
@@ -979,8 +1051,28 @@ export default function SocietyLettersPage() {
                     preparation is available after setup.
                   </p>
                 )}
-                {matching.some((row) => row.recipientReview) && (
+                {(recovery.checkpoint ||
+                  matching.some((row) => row.recipientReview)) && (
                   <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    {recovery.checkpoint && (
+                      <div className="mb-4 border-b border-emerald-200 pb-4">
+                        <p className="font-semibold">Continue your review</p>
+                        <p className="mt-1 text-sm text-gray-600">
+                          Resume your last unfinished recipient, even if it is
+                          outside the current filters. The tab remembers your
+                          position for 24 hours; unsaved wording lasts only
+                          while this page stays open.
+                        </p>
+                        <button
+                          type="button"
+                          className={`${button} mt-3`}
+                          disabled={busy || refreshing || !!sendingBatch}
+                          onClick={resumeReview}
+                        >
+                          Resume review
+                        </button>
+                      </div>
+                    )}
                     <div className="flex flex-wrap items-end gap-3">
                       <button
                         type="button"
@@ -993,6 +1085,8 @@ export default function SocietyLettersPage() {
                         }
                         onClick={() => {
                           setError("");
+                          setReviewConflict(false);
+                          setQueueStart(0);
                           setReviewNotice("");
                           setReviewQueue(
                             reviewable.slice(0, LETTER_BATCH_LIMIT),
@@ -1145,6 +1239,12 @@ export default function SocietyLettersPage() {
                               setError("");
                               setReviewFocus(field);
                               setReviewingRecipient(row);
+                              setReviewConflict(false);
+                              recovery.remember({
+                                ids: [row.householdId],
+                                currentId: row.householdId,
+                                channel,
+                              });
                             }}
                             onReadiness={
                               data.readiness
@@ -2024,7 +2124,31 @@ export default function SocietyLettersPage() {
           )}
           {reviewingRecipient && (
             <LetterRecipientDialog
-              recipient={reviewingRecipient}
+              recipient={
+                data.rows.find(
+                  (row) => row.householdId === reviewingRecipient.householdId,
+                ) || reviewingRecipient
+              }
+              unavailable={
+                !data.rows.some(
+                  (row) =>
+                    row.householdId === reviewingRecipient.householdId &&
+                    row.status === "ready" &&
+                    row.recipientReview?.editable,
+                )
+              }
+              draft={recovery.drafts[reviewingRecipient.householdId]}
+              onDraftChange={(draft) =>
+                recovery.keepDraft(reviewingRecipient.householdId, draft)
+              }
+              onDiscardDraft={() =>
+                recovery.keepDraft(reviewingRecipient.householdId, null)
+              }
+              conflict={reviewConflict}
+              onReloadSaved={() =>
+                reloadRecipient(reviewingRecipient.householdId)
+              }
+              onResolveConflict={resolveReviewConflict}
               initialFocus={reviewFocus}
               channel={channel}
               template={data.templates.find(
@@ -2035,27 +2159,44 @@ export default function SocietyLettersPage() {
               error={error}
               onClose={() => setReviewingRecipient(null)}
               onSave={async (values) => {
-                const result = await act({
-                  action: "save_recipient",
+                const result = await saveRecipient({
                   householdId: reviewingRecipient.householdId,
                   reviewToken: reviewingRecipient.recipientReview.token,
                   ...values,
                 });
-                if (result) setReviewingRecipient(null);
+                if (result) {
+                  recovery.clearCheckpoint();
+                  setReviewingRecipient(null);
+                }
               }}
             />
           )}
           {reviewQueue && (
             <RecipientReviewQueue
               items={reviewQueue}
+              startIndex={queueStart}
+              drafts={recovery.drafts}
+              onDraftChange={recovery.keepDraft}
+              onDiscardDraft={(id) => recovery.keepDraft(id, null)}
+              onPosition={(currentId) =>
+                recovery.remember({
+                  ids: reviewQueue.map((row) => row.householdId),
+                  currentId,
+                  channel,
+                })
+              }
+              conflict={reviewConflict}
+              onReloadSaved={reloadRecipient}
+              onResolveConflict={resolveReviewConflict}
               channel={channel}
               rows={data.rows}
               templates={data.templates}
               busy={busy}
               error={error}
-              onNavigate={() => setError("")}
-              onSave={(values) => act({ action: "save_recipient", ...values })}
-              onClose={(saved, total) => {
+              onNavigate={resolveReviewConflict}
+              onSave={saveRecipient}
+              onClose={(saved, total, complete) => {
+                if (complete) recovery.clearCheckpoint();
                 setReviewQueue(null);
                 setError("");
                 setReviewNotice(

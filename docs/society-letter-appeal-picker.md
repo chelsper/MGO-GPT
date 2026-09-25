@@ -66,8 +66,10 @@ keyboard selection with focus restoration, and separate exclusion selection.
 No production appeal lookup, settings save, or constituent write was performed
 for step 4 validation.
 
-Step 4 is local work and requires a separate deployment. Step 3 was deployed
-to JU as `9d8039c`; sandbox was unchanged.
+Step 4 was deployed to JU on September 25 as `2dfc7eb`
+(`dpl_VLnBMnxdBKfHgZ6kN7gnM2P7MtKr`). Production SHA and assets were verified.
+It is included in the subsequent invitation-email release `d4b37cd`.
+Sandbox was unchanged.
 
 ## Remaining UX Sequence
 

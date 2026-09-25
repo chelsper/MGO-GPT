@@ -498,7 +498,7 @@ describe("letter recipient review dialog", () => {
     expect(screen.queryByText("Spouse first name")).not.toBeInTheDocument();
     expect(screen.queryByText(/For a joint letter/)).not.toBeInTheDocument();
   });
-  it("keeps the original review token if saved workspace details change during editing", () => {
+  it("blocks saving rather than rebasing the token when saved workspace details change during editing", () => {
     const save = vi.fn();
     const props = {
       recipient: {
@@ -528,9 +528,11 @@ describe("letter recipient review dialog", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Save recipient choices" }),
     );
-    expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewToken: "original" }),
-    );
+    expect(save).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Recipient record")).toHaveValue("10");
   });
   it("requires an explicit recipient, allows joint wording and separate spouse address, and never auto-selects email", () => {
     const save = vi.fn();

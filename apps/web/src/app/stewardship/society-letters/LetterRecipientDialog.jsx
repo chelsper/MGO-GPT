@@ -7,6 +7,8 @@ import {
   formatLetterAddress,
 } from "@/utils/societyLetters";
 import RecipientLetterPreview from "./RecipientLetterPreview";
+import RecipientConflictReview from "./RecipientConflictReview";
+import { reviewVersion } from "./letterReviewRecovery";
 import {
   organizationLetterContacts,
   isOrganizationLetterCandidate,
@@ -36,21 +38,98 @@ export default function LetterRecipientDialog({
   unavailable = false,
   channel = "post",
   initialFocus = null,
+  draft = null,
+  onDraftChange,
+  onDiscardDraft,
+  conflict = false,
+  onReloadSaved,
+  onResolveConflict,
 }) {
   const dialog = useRef(null);
   const fields = useRef({});
   const [pendingFocus, setPendingFocus] = useState(initialFocus);
-  const [initialValues] = useState(recipient.recipientReview?.values || blank);
-  const [reviewToken] = useState(recipient.recipientReview?.token);
-  const [values, setValues] = useState(
-    recipient.recipientReview?.values || blank,
+  const [restoredDraft] = useState(Boolean(draft));
+  const [recoveryRequired, setRecoveryRequired] = useState(
+    Boolean(draft?.requiresComparison),
   );
+  const [initialValues, setInitialValues] = useState(
+    draft?.initialValues || recipient.recipientReview?.values || blank,
+  );
+  const [reviewToken, setReviewToken] = useState(
+    draft?.reviewToken || recipient.recipientReview?.token,
+  );
+  const [baseVersion, setBaseVersion] = useState(
+    draft?.baseVersion || reviewVersion(recipient),
+  );
+  const [values, setValues] = useState(
+    draft?.values || recipient.recipientReview?.values || blank,
+  );
+  const [comparison, setComparison] = useState(null);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const draftCallback = useRef(onDraftChange);
+  draftCallback.current = onDraftChange;
   const [confirmed, setConfirmed] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const dirty = JSON.stringify(values) !== JSON.stringify(initialValues);
-  const disabled = busy || unavailable;
+  const needsComparison =
+    conflict || recoveryRequired || baseVersion !== reviewVersion(recipient);
+  const disabled = busy || unavailable || loadingSaved || needsComparison;
+  useEffect(() => {
+    draftCallback.current?.(
+      dirty || needsComparison
+        ? {
+            values,
+            initialValues,
+            reviewToken,
+            baseVersion,
+            requiresComparison: needsComparison,
+          }
+        : null,
+    );
+  }, [values, initialValues, reviewToken, baseVersion, dirty, needsComparison]);
+  async function reloadSaved() {
+    setLoadingSaved(true);
+    setRecoveryError("");
+    setConfirmed(false);
+    try {
+      const latest = await onReloadSaved();
+      setComparison({ recipient: latest });
+    } catch {
+      setRecoveryError(
+        "Saved choices could not be loaded. Your draft is still here. Try again when the connection is available.",
+      );
+    } finally {
+      setLoadingSaved(false);
+    }
+  }
+  function chooseComparison(choice) {
+    const latest = comparison?.recipient;
+    if (reviewVersion(latest) !== reviewVersion(recipient) || unavailable) {
+      setComparison(null);
+      setRecoveryError(
+        "Saved choices changed again. Load them again before choosing which version to keep.",
+      );
+      return;
+    }
+    if (!latest?.recipientReview?.editable || latest.status !== "ready") return;
+    if (
+      choice === "draft" &&
+      (!reviewToken || reviewToken !== latest.recipientReview.token)
+    )
+      return;
+    const latestValues = latest.recipientReview.values || blank;
+    if (choice === "latest") setValues(latestValues);
+    setInitialValues(latestValues);
+    setReviewToken(latest.recipientReview.token);
+    setBaseVersion(reviewVersion(latest));
+    setRecoveryRequired(false);
+    setConfirmed(false);
+    setComparison(null);
+    onResolveConflict?.();
+  }
   function leave(action) {
-    if (busy) return;
+    if (busy || loadingSaved) return;
     if (dirty) setPendingNavigation(() => action);
     else action();
   }
@@ -214,6 +293,47 @@ export default function LetterRecipientDialog({
                 and no NXT records change. Each household or individual receives
                 one letter.
               </p>
+              {restoredDraft && (
+                <p className="mt-3 text-sm text-emerald-800">
+                  Unsaved draft restored for this page visit. Review it again
+                  before saving.
+                </p>
+              )}
+              {needsComparison && onReloadSaved && (
+                <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
+                  <p className="font-semibold">
+                    Saved information changed, or another batch is running. Your
+                    draft is still here.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy || loadingSaved}
+                    onClick={reloadSaved}
+                    className="mt-3 min-h-11 rounded-lg border border-emerald-700 bg-white px-4 py-2 font-semibold"
+                  >
+                    {loadingSaved
+                      ? "Loading saved choices..."
+                      : "Load saved choices to compare"}
+                  </button>
+                  {recoveryError && (
+                    <p role="alert" className="mt-2 text-red-800">
+                      {recoveryError}
+                    </p>
+                  )}
+                </div>
+              )}
+              {comparison && (
+                <RecipientConflictReview
+                  draft={values}
+                  latest={comparison.recipient}
+                  sameSource={
+                    !!reviewToken &&
+                    reviewToken === comparison.recipient?.recipientReview?.token
+                  }
+                  onChoose={chooseComparison}
+                  busy={busy || loadingSaved}
+                />
+              )}
               {unavailable && (
                 <p
                   role="alert"
@@ -586,6 +706,8 @@ export default function LetterRecipientDialog({
                 </p>
                 <p className="mt-1 text-sm">
                   Keep editing to save them, or discard them before moving on.
+                  {onDraftChange &&
+                    " You can also keep an unsaved draft for this page visit. Leaving or reloading this page will lose draft wording."}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   <button
@@ -601,6 +723,7 @@ export default function LetterRecipientDialog({
                     type="button"
                     disabled={busy}
                     onClick={() => {
+                      onDiscardDraft?.();
                       const action = pendingNavigation;
                       setPendingNavigation(null);
                       action();
@@ -609,6 +732,20 @@ export default function LetterRecipientDialog({
                   >
                     Discard edits and continue
                   </button>
+                  {onDraftChange && (
+                    <button
+                      type="button"
+                      disabled={busy || loadingSaved}
+                      onClick={() => {
+                        const action = pendingNavigation;
+                        setPendingNavigation(null);
+                        action();
+                      }}
+                      className="min-h-11 rounded-lg border border-emerald-700 bg-white px-4 py-2 font-semibold"
+                    >
+                      Keep draft and continue
+                    </button>
+                  )}
                 </div>
               </div>
             )}

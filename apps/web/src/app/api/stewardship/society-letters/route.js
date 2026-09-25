@@ -153,7 +153,10 @@ export async function GET(request) {
         },
       });
     }
-    return json(letterWorkspace(state, ctx.definitions, ctx.today));
+    return json({
+      ...letterWorkspace(state, ctx.definitions, ctx.today),
+      reviewerId: String(ctx.user.id),
+    });
   } catch (error) {
     return failure(error);
   }
@@ -487,6 +490,7 @@ export async function POST(request) {
       }
     }
     return json({
+      reviewerId: String(ctx.user.id),
       ...letterWorkspace(
         await readSocietyLetterState(),
         ctx.definitions,

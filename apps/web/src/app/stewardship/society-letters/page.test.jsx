@@ -22,6 +22,7 @@ const household = {
   email: "sample@example.org",
 };
 const base = {
+  reviewerId: "1",
   revision: 1,
   definitions: [{ key: "presidents_society", name: "President's Society" }],
   emailEnabled: false,
@@ -42,6 +43,7 @@ const base = {
 };
 let fetchMock;
 beforeEach(() => {
+  sessionStorage.clear();
   Object.defineProperties(HTMLDialogElement.prototype, {
     showModal: {
       configurable: true,
@@ -92,6 +94,163 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("resumes an in-memory draft outside the filters without storing wording or fetching NXT", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({ ...base, rows: [reviewRow("10"), reviewRow("20")] }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review recipients in bulk" }),
+    );
+    fireEvent.change(screen.getByLabelText("Go to recipient"), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "20" },
+    });
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "Private draft greeting" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep draft and continue" }),
+    );
+    fireEvent.change(screen.getByLabelText("Find a household"), {
+      target: { value: "No matches" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Resume review" }));
+    expect(screen.getByText(/Recipient 2 of 2/)).toBeVisible();
+    expect(screen.getByLabelText("Salutation")).toHaveValue(
+      "Private draft greeting",
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    ).not.toBeChecked();
+    const checkpoint = sessionStorage.getItem(
+      "society-letter-review:v1:1:2026-01-01:2026-12-31",
+    );
+    expect(JSON.parse(checkpoint)).toEqual({
+      ids: ["10", "20"],
+      currentId: "20",
+      channel: "post",
+      at: expect.any(Number),
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("restores only position after remount, and ignores recipients no longer editable", async () => {
+    let rows = [reviewRow("10"), reviewRow("20")];
+    fetchMock.mockImplementation(async () => Response.json({ ...base, rows }));
+    const view = render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review recipients in bulk" }),
+    );
+    fireEvent.change(screen.getByLabelText("Go to recipient"), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "20" },
+    });
+    view.unmount();
+    const next = render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resume review" }),
+    );
+    expect(screen.getByText(/Recipient 2 of 2/)).toBeVisible();
+    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+    next.unmount();
+    rows = [];
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resume review" }),
+    );
+    expect(
+      screen.getByText(/previous review no longer has editable recipients/),
+    ).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(sessionStorage.length).toBe(0);
+    expect(fetchMock.mock.calls.every(([, options]) => !options?.method)).toBe(
+      true,
+    );
+  });
+  it("reloads a conflicted workspace read-only and saves only after explicit comparison using the latest revision", async () => {
+    let workspace = { ...base, rows: [reviewRow("10", true)] };
+    let reject = true;
+    const requests = [];
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        if (reject) {
+          reject = false;
+          workspace = {
+            ...workspace,
+            revision: 2,
+            rows: [reviewRow("10", true)],
+          };
+          workspace.rows[0].recipientReview.values.salutation =
+            "Another reviewer greeting";
+          workspace.rows[0].recipientReview.savedAt = "2026-09-25T15:00:00Z";
+          return Response.json({ error: "Workspace changed" }, { status: 409 });
+        }
+        workspace = { ...workspace, revision: 3 };
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Review letter recipient for Household 10",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "My draft greeting" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Load saved choices to compare" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep draft and continue" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Resume review" }));
+    expect(
+      screen.getByRole("button", { name: "Save & finish" }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load saved choices to compare" }),
+    );
+    expect(await screen.findByText("Another reviewer greeting")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep my draft for review" }),
+    );
+    expect(requests).toHaveLength(1);
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save & finish" }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.map((request) => request.action)).toEqual([
+      "save_recipient",
+      "save_recipient",
+    ]);
+    expect(requests.map((request) => request.revision)).toEqual([1, 2]);
+    expect(requests[1].salutation).toBe("My draft greeting");
+    expect(requests[1].reviewToken).toBe("token-10");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
   it("does not expose an edit shortcut for an unavailable recipient", async () => {
     const row = reviewRow("10", true);
     row.recipientReview.values.address = "";
@@ -568,6 +727,19 @@ describe("society letter workspace", () => {
     ).toBeVisible();
     expect(screen.getByLabelText("Salutation")).toHaveValue("Edited greeting");
     expect(screen.getByText(/Recipient 1 of 3/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save & next" })).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load saved choices to compare" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Keep my draft for review" }),
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    ).not.toBeChecked();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save & next" }));
     await screen.findByText(/Recipient 2 of 3/);
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
