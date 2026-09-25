@@ -54,6 +54,117 @@ beforeEach(() => {
   });
 });
 describe("letter recipient review dialog", () => {
+  it("protects unsaved choices on skip, jump, close, and Escape", () => {
+    const navigate = vi.fn(),
+      skip = vi.fn(),
+      close = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        onSave={vi.fn()}
+        onClose={close}
+        navigation={{
+          index: 0,
+          items: [
+            { householdId: "10", name: "Alex" },
+            { householdId: "20", name: "Taylor" },
+          ],
+          savedCount: 0,
+          onNavigate: navigate,
+          onSkip: skip,
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(skip).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Alex");
+    fireEvent.change(screen.getByLabelText("Go to recipient"), {
+      target: { value: "1" },
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    fireEvent(
+      screen.getByRole("dialog"),
+      new Event("cancel", { bubbles: true, cancelable: true }),
+    );
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Discard edits and continue" }),
+    );
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it("opens a draft with current unsaved wording and returns to the edits without saving", () => {
+    const save = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        onSave={save}
+        onClose={vi.fn()}
+        template={{
+          societyName: "President's Society",
+          version: "a".repeat(64),
+          filename: "saved.docx",
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "Alex and Pat" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Preview personalized letter" }),
+    );
+    expect(
+      screen.getByText(/Draft only, using your current recipient edits/),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Alex and Pat");
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(save).not.toHaveBeenCalled();
+  });
+  it("keeps the original review token if saved workspace details change during editing", () => {
+    const save = vi.fn();
+    const props = {
+      recipient: {
+        ...recipient,
+        recipientReview: { ...recipient.recipientReview, token: "original" },
+      },
+      onSave: save,
+      onClose: vi.fn(),
+    };
+    const view = render(<LetterRecipientDialog {...props} />);
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    view.rerender(
+      <LetterRecipientDialog
+        {...props}
+        recipient={{
+          ...props.recipient,
+          recipientReview: {
+            ...props.recipient.recipientReview,
+            token: "changed",
+          },
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewToken: "original" }),
+    );
+  });
   it("requires an explicit recipient, allows joint wording and separate spouse address, and never auto-selects email", () => {
     const save = vi.fn();
     render(

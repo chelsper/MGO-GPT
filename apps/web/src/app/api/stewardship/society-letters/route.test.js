@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   exclusionPlan: vi.fn(),
   exclusionSync: vi.fn(),
   exclusionRemoval: vi.fn(),
+  validateTemplate: vi.fn(),
+  recipientPreview: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
@@ -48,6 +50,7 @@ vi.mock("@/app/api/utils/societyLetterWorkflow", () => ({
   verifyLetterEmail: vi.fn(),
   updateLetterExclusion: mocks.exclusion,
   updateLetterRecipient: mocks.recipient,
+  previewLetterRecipient: mocks.recipientPreview,
 }));
 vi.mock("@/app/api/utils/societyLetterQueryFields", () => ({
   inspectLetterQueryFields: mocks.inspect,
@@ -65,6 +68,7 @@ vi.mock("@/app/api/utils/societyLetterExclusionAppeals", () => ({
 vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
   renderSocietyLetter: vi.fn(),
+  validateLetterTemplate: mocks.validateTemplate,
 }));
 import { GET, POST } from "./route";
 const url = "https://example.org/api/stewardship/society-letters";
@@ -98,8 +102,144 @@ beforeEach(() => {
     finishBatch: mocks.finish,
   });
   mocks.exclusionRemoval.mockResolvedValue(undefined);
+  mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("renders a recipient draft without a revision, mutation lease, NXT work, or delivery", async () => {
+    mocks.recipientPreview.mockReturnValueOnce({
+      document: Buffer.from("personalized draft"),
+    });
+    const body = {
+      action: "preview_recipient_document",
+      householdId: "10",
+      reviewToken: "current",
+    };
+    const response = await POST(request(body));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("personalized draft");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe(
+      "same-origin",
+    );
+    expect(mocks.recipientPreview).toHaveBeenCalledWith(
+      await mocks.read.mock.results[0].value,
+      [],
+      expect.any(String),
+      body,
+    );
+    for (const action of [
+      mocks.acquire,
+      mocks.recipient,
+      mocks.prepare,
+      mocks.send,
+      mocks.finish,
+      mocks.exclusionSync,
+      mocks.readiness,
+    ])
+      expect(action).not.toHaveBeenCalled();
+  });
+  it.each(["anonymous", "mgo", "cross-origin"])(
+    "blocks %s draft requests before reading donor data",
+    async (kind) => {
+      if (kind === "anonymous") mocks.auth.mockResolvedValueOnce(null);
+      if (kind === "mgo")
+        mocks.workspace.mockResolvedValueOnce({
+          sessionUser: { active: true, role: "mgo" },
+        });
+      const response = await POST(
+        request(
+          { action: "preview_recipient_document" },
+          kind === "cross-origin"
+            ? { Origin: "https://other.example.org" }
+            : {},
+        ),
+      );
+      expect(response.status).toBe(kind === "anonymous" ? 401 : 403);
+      expect(mocks.read).not.toHaveBeenCalled();
+      expect(mocks.recipientPreview).not.toHaveBeenCalled();
+    },
+  );
+  it("returns stale draft conflicts without changing the workspace", async () => {
+    mocks.recipientPreview.mockImplementationOnce(() => {
+      throw Object.assign(new Error("Recipient changed"), { status: 409 });
+    });
+    const response = await POST(
+      request({ action: "preview_recipient_document" }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Recipient changed" });
+    expect(mocks.acquire).not.toHaveBeenCalled();
+  });
+  it("downloads the exact saved template without taking a lease or creating any letter", async () => {
+    const version = "a".repeat(64);
+    const template = {
+      filename: "saved-letter.docx",
+      content: Buffer.from("saved Word bytes").toString("base64"),
+    };
+    mocks.read.mockResolvedValue({ templates: { [version]: template } });
+    const response = await GET(
+      new Request(`${url}?templateVersion=${version}`),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="saved-letter.docx"',
+    );
+    expect(response.headers.get("content-type")).toContain(
+      "wordprocessingml.document",
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe(
+      "same-origin",
+    );
+    expect(await response.text()).toBe("saved Word bytes");
+    expect(mocks.validateTemplate).toHaveBeenCalledWith(template);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.exclusionSync).not.toHaveBeenCalled();
+  });
+  it.each(["", "constructor", "__proto__", "unknown", "b".repeat(64)])(
+    "does not serve missing or invalid template version %s",
+    async (version) => {
+      const response = await GET(
+        new Request(`${url}?templateVersion=${version}`),
+      );
+      expect(response.status).toBe(404);
+      expect(mocks.validateTemplate).not.toHaveBeenCalled();
+      expect(mocks.acquire).not.toHaveBeenCalled();
+    },
+  );
+  it("refuses a stored template that no longer passes archive safety checks", async () => {
+    const version = "a".repeat(64);
+    mocks.read.mockResolvedValue({
+      templates: { [version]: { content: "unsafe" } },
+    });
+    mocks.validateTemplate.mockImplementationOnce(() => {
+      throw Object.assign(new Error("Unsafe template"), { status: 422 });
+    });
+    const response = await GET(
+      new Request(`${url}?templateVersion=${version}`),
+    );
+    expect(response.status).toBe(422);
+    expect(response.headers.get("content-disposition")).toBeNull();
+    expect(mocks.acquire).not.toHaveBeenCalled();
+  });
+  it.each([null, "mgo", "executive", "inactive"])(
+    "protects saved template bytes from %s access",
+    async (role) => {
+      if (!role) mocks.auth.mockResolvedValue(null);
+      else
+        mocks.workspace.mockResolvedValue({
+          sessionUser: { id: 1, role, active: role !== "inactive" },
+        });
+      const response = await GET(
+        new Request(`${url}?templateVersion=${"a".repeat(64)}`),
+      );
+      expect(response.status).toBe(role ? 403 : 401);
+      expect(mocks.read).not.toHaveBeenCalled();
+    },
+  );
   it("persists the local exclusion before starting NXT write-back", async () => {
     const plan = { appeal: { id: "773" } };
     const item = { id: "x", nxt: plan };

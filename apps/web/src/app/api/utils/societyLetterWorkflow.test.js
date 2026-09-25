@@ -5,6 +5,7 @@ import {
   wordFixture,
 } from "../../../../test/societyLetterFixture";
 import { validateLetterTemplate } from "./societyLetterDocuments";
+import PizZip from "pizzip";
 import {
   LETTER_COLUMNS,
   CONSTITUENT_LETTER_COLUMNS,
@@ -24,6 +25,7 @@ import {
   refreshLetterSource,
   updateLetterExclusion,
   updateLetterRecipient,
+  previewLetterRecipient,
 } from "./societyLetterWorkflow";
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
@@ -101,7 +103,106 @@ beforeEach(() => {
   vi.stubEnv("RESEND_FROM_EMAIL", "notifications@example.org");
 });
 afterEach(() => vi.unstubAllEnvs());
+function draftSetup() {
+  const { state, store } = setup();
+  state.settings.sourceMode = "constituents";
+  const row = state.snapshot.rows[0];
+  Object.assign(row, {
+    sourceMode: "constituents",
+    mailAllowed: false,
+    emailAllowed: false,
+    recipientCandidates: [
+      {
+        constituentId: "10",
+        addressee: "Alex Sample",
+        salutation: "Alex",
+        address: "10 Test St",
+        email: "alex@example.org",
+      },
+    ],
+  });
+  state.snapshot.signature = letterSourceSignature(state, definitions);
+  const view = letterWorkspace(state, definitions, today);
+  return {
+    state,
+    store,
+    body: {
+      householdId: "10",
+      reviewToken: view.rows[0].recipientReview.token,
+      templateVersion: view.templates.find(
+        (t) => t.societyKey === row.societyKey,
+      ).version,
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+      addressee: "Alex & Pat Sample",
+      salutation: "Alex and Pat",
+      address: "Updated draft address",
+      email: "",
+    },
+  };
+}
 describe("society letter workflow", () => {
+  it("merges unsaved recipient choices with the highest selected society template without persisting or enabling delivery", () => {
+    const { state, store, body } = draftSetup();
+    const before = structuredClone(state);
+    const result = previewLetterRecipient(state, definitions, today, {
+      ...body,
+      societyKey: "order_of_the_dolphin",
+      mailAllowed: true,
+      emailAllowed: true,
+    });
+    const xml = new PizZip(result.document).file("word/document.xml").asText();
+    expect(xml).toContain("Alex and Pat");
+    expect(result.subject).toContain("President");
+    expect(state).toEqual(before);
+    expect(store.save).not.toHaveBeenCalled();
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(advanceQueryList).not.toHaveBeenCalled();
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+    expect(() =>
+      previewLetters(state, definitions, today, {
+        channel: "post",
+        householdIds: ["10"],
+      }),
+    ).toThrow(/preview only/i);
+  });
+  it.each([
+    { householdId: "unknown" },
+    { reviewToken: "stale" },
+    { templateVersion: "old" },
+    { recipientConstituentId: "999" },
+    { addressConstituentId: "999" },
+    { email: "injected@example.org" },
+  ])("rejects unsafe draft choices %j", (override) => {
+    const { state, body } = draftSetup();
+    expect(() =>
+      previewLetterRecipient(state, definitions, today, {
+        ...body,
+        ...override,
+      }),
+    ).toThrow();
+  });
+  it("refuses drafts from old periods, stale sources, and prepared or excluded households", () => {
+    const { state, body } = draftSetup();
+    expect(() =>
+      previewLetterRecipient(state, definitions, "2027-01-01", body),
+    ).toThrow(/changed/i);
+    const snapshot = state.snapshot;
+    state.snapshot = { ...snapshot, signature: "stale" };
+    expect(() =>
+      previewLetterRecipient(state, definitions, today, body),
+    ).toThrow(/changed/i);
+    state.snapshot = snapshot;
+    state.exclusions = [{ members: ["10"], period: snapshot.period }];
+    expect(() =>
+      previewLetterRecipient(state, definitions, today, body),
+    ).toThrow(/changed/i);
+    state.exclusions = [];
+    state.history = [{ ...snapshot.rows[0], status: "prepared" }];
+    expect(() =>
+      previewLetterRecipient(state, definitions, today, body),
+    ).toThrow(/changed/i);
+  });
   it("projects saved recipient choices and merge names without clearing preview delivery gates", async () => {
     const { state, store, body } = setup();
     state.settings.sourceMode = "constituents";

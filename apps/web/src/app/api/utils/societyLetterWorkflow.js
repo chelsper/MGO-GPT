@@ -5,6 +5,7 @@ import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResu
 import {
   recipientReviewForRow,
   saveLetterRecipientReview,
+  validateLetterRecipientChoices,
 } from "./societyLetterRecipients";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
 import {
@@ -171,6 +172,35 @@ export function letterWorkspace(state, definitions, today) {
   };
 }
 
+function currentRecipientRow(state, today, householdId) {
+  const period = state.settings && letterPeriod(state.settings, today);
+  return period && state.snapshot?.period?.key === period.key
+    ? state.snapshot.rows.find((item) => item.householdId === householdId)
+    : null;
+}
+
+// Draft rendering reads saved data only and never grants delivery permission.
+export function previewLetterRecipient(state, definitions, today, body) {
+  const row = currentRecipientRow(state, today, body.householdId);
+  const values = validateLetterRecipientChoices(
+    state,
+    row,
+    letterSourceSignature(state, definitions),
+    body,
+  );
+  const template = activeTemplate(state, row.societyKey);
+  if (!template)
+    throw letterError(
+      "Save a Word template for this society before previewing its letters.",
+    );
+  if (body.templateVersion !== template.version)
+    throw letterError(
+      "The saved template changed. Reload the holding list before previewing.",
+      409,
+    );
+  return renderSocietyLetter(template, { ...row, ...values }, today);
+}
+
 export async function updateLetterRecipient(
   state,
   definitions,
@@ -179,13 +209,7 @@ export async function updateLetterRecipient(
   store,
   userId,
 ) {
-  const period = state.settings && letterPeriod(state.settings, today);
-  const row =
-    period && state.snapshot?.period?.key === period.key
-      ? state.snapshot.rows.find(
-          (item) => item.householdId === body.householdId,
-        )
-      : null;
+  const row = currentRecipientRow(state, today, body.householdId);
   await saveLetterRecipientReview(
     state,
     row,

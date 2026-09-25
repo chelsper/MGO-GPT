@@ -12,6 +12,7 @@ import {
 import {
   letterArchive,
   renderSocietyLetter,
+  validateLetterTemplate,
 } from "@/app/api/utils/societyLetterDocuments";
 import {
   letterWorkspace,
@@ -24,6 +25,7 @@ import {
   verifyLetterEmail,
   updateLetterExclusion,
   updateLetterRecipient,
+  previewLetterRecipient,
 } from "@/app/api/utils/societyLetterWorkflow";
 import { inspectLetterQueryFields } from "@/app/api/utils/societyLetterQueryFields";
 import {
@@ -86,7 +88,30 @@ export async function GET(request) {
   try {
     const ctx = await context(request);
     const state = await readSocietyLetterState();
-    const batchId = new URL(request.url).searchParams.get("download");
+    const params = new URL(request.url).searchParams;
+    if (params.has("templateVersion")) {
+      const version = params.get("templateVersion");
+      const template = /^[a-f0-9]{64}$/.test(version || "")
+        ? state.templates[version]
+        : null;
+      if (!template)
+        throw letterError(
+          "Saved letter template not found. Reload the template list.",
+          404,
+        );
+      // Revalidate archive safety before serving a stored document to the browser.
+      const validated = validateLetterTemplate(template);
+      return new Response(Buffer.from(validated.content, "base64"), {
+        headers: {
+          ...headers,
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition": `attachment; filename="${validated.filename}"`,
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
+    const batchId = params.get("download");
     if (batchId) {
       const items = state.history.filter(
         (item) =>
@@ -152,6 +177,25 @@ export async function POST(request) {
     }
     if (body?.action === "inspect_query")
       return json(await inspectLetterQueryFields(body, ctx));
+    if (body?.action === "preview_recipient_document") {
+      const state = await readSocietyLetterState();
+      const rendered = previewLetterRecipient(
+        state,
+        ctx.definitions,
+        ctx.today,
+        body,
+      );
+      return new Response(rendered.document, {
+        headers: {
+          ...headers,
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition":
+            'attachment; filename="society-letter-draft.docx"',
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
     const actions = [
       "settings",
       "template",

@@ -37,6 +37,7 @@
 		"cmdk": "^1.1.1",
 		"color2k": "^2.0.3",
 		"date-fns": "^4.1.0",
+		"docx-preview": "0.4.1",
 		"docxtemplater": "3.71.0",
 		"downshift": "^9.0.9",
 		"exceljs": "4.4.0",

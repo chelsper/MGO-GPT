@@ -12,11 +12,13 @@ import {
 } from "@/utils/societyLetters";
 import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
 import LetterMergeFieldsEditor from "./LetterMergeFieldsEditor";
+import SavedLetterPreview, { savedTemplateUrl } from "./SavedLetterPreview";
 import LetterExclusionDialog from "./LetterExclusionDialog";
 import ExclusionAppealSettings, {
   ExclusionSyncStatus,
 } from "./ExclusionAppealSettings";
 import LetterRecipientDialog from "./LetterRecipientDialog";
+import RecipientReviewQueue from "./RecipientReviewQueue";
 import LetterReadinessPanel, { readinessLabels } from "./LetterReadinessPanel";
 import QueryColumnMapper from "./QueryColumnMapper";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
@@ -93,6 +95,8 @@ function BatchConfirmation({ value, busy, onCancel, onConfirm }) {
 
 function TemplateEditor({ template, busy, save, onEdit }) {
   const [file, setFile] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const fileInput = useRef(null),
     subjectInput = useRef(null),
     messageInput = useRef(null);
@@ -155,6 +159,7 @@ function TemplateEditor({ template, busy, save, onEdit }) {
       });
       if (result) {
         setFile(null);
+        setReplacing(false);
         if (fileInput.current) fileInput.current.value = "";
       }
     } catch {
@@ -177,24 +182,77 @@ function TemplateEditor({ template, busy, save, onEdit }) {
           : "No template saved yet."}
       </p>
       {template.version && (
-        <p className="mt-2 text-sm text-gray-600">
-          Keep the saved Word file to update only its fields, date appearance,
-          or email text. Previously prepared letters keep their original
-          settings.
-        </p>
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+          <p className="text-sm font-semibold text-emerald-900">
+            Saved and reusable. No need to upload again.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={primary}
+              onClick={() => setPreviewOpen(true)}
+            >
+              Preview saved letter
+            </button>
+            <a
+              className={`${button} inline-flex items-center`}
+              href={savedTemplateUrl(template.version)}
+              download={template.filename}
+            >
+              Download Word file
+            </a>
+            <button
+              type="button"
+              className={button}
+              disabled={busy || replacing}
+              onClick={() => setReplacing(true)}
+            >
+              Replace Word file
+            </button>
+          </div>
+          <p className="mt-3 text-sm text-gray-600">
+            Keep the saved Word file to update only its fields, date appearance,
+            or email text. Previously prepared letters keep their original
+            settings.
+          </p>
+        </div>
       )}
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <label className="text-sm font-semibold">
-          Word letter template
-          <input
-            ref={fileInput}
-            aria-label={`${template.societyName} Word template`}
-            className={input}
-            type="file"
-            accept=".docx"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-          />
-        </label>
+        {(!template.version || replacing) && (
+          <div>
+            <label className="text-sm font-semibold">
+              {template.version
+                ? "Replacement Word template"
+                : "Word letter template"}
+              <input
+                ref={fileInput}
+                aria-label={`${template.societyName} Word template`}
+                className={input}
+                type="file"
+                accept=".docx"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            {template.version && (
+              <>
+                <p className="mt-2 text-sm text-gray-600">
+                  Your saved file stays in place until you save a replacement.
+                  Preview always shows the saved version.
+                </p>
+                <button
+                  type="button"
+                  className={`${button} mt-2`}
+                  onClick={() => {
+                    setFile(null);
+                    setReplacing(false);
+                  }}
+                >
+                  Keep saved Word file
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <label className="text-sm font-semibold">
           Email subject
           <input
@@ -240,6 +298,12 @@ function TemplateEditor({ template, busy, save, onEdit }) {
       <button disabled={busy} className={`${primary} mt-4`}>
         Save template and field settings
       </button>
+      {previewOpen && (
+        <SavedLetterPreview
+          template={template}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </form>
   );
 }
@@ -261,6 +325,9 @@ export default function SocietyLettersPage() {
   const [templateNotice, setTemplateNotice] = useState("");
   const [excluding, setExcluding] = useState(null);
   const [reviewingRecipient, setReviewingRecipient] = useState(null);
+  const [reviewQueue, setReviewQueue] = useState(null);
+  const [reviewScope, setReviewScope] = useState("unreviewed");
+  const [reviewNotice, setReviewNotice] = useState("");
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const inFlight = useRef(false);
@@ -381,6 +448,11 @@ export default function SocietyLettersPage() {
   );
   const canSelect = (row) =>
     !row.issues[channel] && (channel !== "email" || data.emailEnabled);
+  const reviewable = filtered.filter(
+    (row) =>
+      row.recipientReview?.editable &&
+      (reviewScope === "all" || row.recipientReview.status !== "saved"),
+  );
   const batches = Object.values(
     (data?.history || []).reduce((groups, item) => {
       (groups[item.batchId] ||= {
@@ -573,6 +645,7 @@ export default function SocietyLettersPage() {
                   refreshing ||
                   !!sendingBatch ||
                   !!reviewingRecipient ||
+                  !!reviewQueue ||
                   !!excluding ||
                   !!confirmation
                 }
@@ -691,6 +764,63 @@ export default function SocietyLettersPage() {
                     Email delivery is off for this environment until the
                     household source and templates are verified. Postal
                     preparation is available after setup.
+                  </p>
+                )}
+                {filtered.some((row) => row.recipientReview) && (
+                  <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <label className="text-sm font-semibold">
+                        Recipient review
+                        <select
+                          className={input}
+                          value={reviewScope}
+                          onChange={(event) =>
+                            setReviewScope(event.target.value)
+                          }
+                        >
+                          <option value="unreviewed">
+                            Needs recipient review
+                          </option>
+                          <option value="all">All editable recipients</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className={primary}
+                        disabled={
+                          busy ||
+                          refreshing ||
+                          !!sendingBatch ||
+                          !reviewable.length
+                        }
+                        onClick={() => {
+                          setError("");
+                          setReviewNotice("");
+                          setReviewQueue(
+                            reviewable.slice(0, LETTER_BATCH_LIMIT),
+                          );
+                        }}
+                      >
+                        Review recipients in bulk
+                      </button>
+                      <span className="pb-3 text-sm text-emerald-900">
+                        {reviewable.length} available in this view
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm text-gray-600">
+                      Review up to {LETTER_BATCH_LIMIT} recipients at a time.
+                      Preview each personalized letter, make individual edits,
+                      and save before moving to the next. Nothing is sent or
+                      marked ready for delivery.
+                    </p>
+                  </div>
+                )}
+                {reviewNotice && (
+                  <p
+                    role="status"
+                    className="my-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
+                  >
+                    {reviewNotice}
                   </p>
                 )}
                 <div className="my-4 flex flex-wrap items-center gap-3">
@@ -1279,12 +1409,14 @@ export default function SocietyLettersPage() {
                   Personalized society letters
                 </h2>
                 <p className="mt-2 text-sm text-gray-600">
-                  Upload one Word (.docx) template per society, up to 1 MB. Use
-                  the fields below in the letter or email cover message. Keep
-                  logos embedded, not linked to external files. Word formatting
-                  is retained; PDF conversion is not included. You can save each
-                  annual society's template before its query is ready. Saving a
-                  template never sends letters.
+                  Saved letters stay here for future batches. Preview or
+                  download a saved letter, or choose Replace Word file to update
+                  it. Upload one Word (.docx) template per society, up to 1 MB.
+                  Use the fields below in the letter or email cover message.
+                  Keep logos embedded, not linked to external files. Word
+                  formatting is retained; PDF conversion is not included. You
+                  can save each annual society's template before its query is
+                  ready. Saving a template never sends letters.
                 </p>
                 <p className="mt-3 text-sm font-semibold text-emerald-800">
                   Choose and save reusable merge fields in each society's
@@ -1733,6 +1865,10 @@ export default function SocietyLettersPage() {
           {reviewingRecipient && (
             <LetterRecipientDialog
               recipient={reviewingRecipient}
+              template={data.templates.find(
+                (template) =>
+                  template.societyKey === reviewingRecipient.societyKey,
+              )}
               busy={busy}
               error={error}
               onClose={() => setReviewingRecipient(null)}
@@ -1744,6 +1880,24 @@ export default function SocietyLettersPage() {
                   ...values,
                 });
                 if (result) setReviewingRecipient(null);
+              }}
+            />
+          )}
+          {reviewQueue && (
+            <RecipientReviewQueue
+              items={reviewQueue}
+              rows={data.rows}
+              templates={data.templates}
+              busy={busy}
+              error={error}
+              onNavigate={() => setError("")}
+              onSave={(values) => act({ action: "save_recipient", ...values })}
+              onClose={(saved, total) => {
+                setReviewQueue(null);
+                setError("");
+                setReviewNotice(
+                  `${saved} of ${total} recipients saved in this review session. All other recipients are unchanged. No letters were sent or marked ready for delivery.`,
+                );
               }}
             />
           )}

@@ -66,23 +66,17 @@ function plainText(value, label, limit, optional = false, multiline = false) {
   return value.replaceAll("\r\n", "\n").trim();
 }
 
-export async function saveLetterRecipientReview(
+export function validateLetterRecipientChoices(
   state,
   row,
   sourceSignature,
   body,
-  store,
-  userId,
 ) {
   const review = row && recipientReviewForRow(state, row, sourceSignature);
   if (!review?.editable || review.token !== body.reviewToken)
     throw letterError(
       "The household or source details changed. Reload the holding list and review the current recipient options.",
       409,
-    );
-  if (body.confirm !== true)
-    throw letterError(
-      "Confirm that you reviewed the letter recipient and wording.",
     );
   const selected = row.recipientCandidates.find(
     (candidate) => candidate.constituentId === body.recipientConstituentId,
@@ -108,7 +102,7 @@ export async function saveLetterRecipientReview(
     throw letterError(
       "Choose one of the selected recipient's returned email addresses, or leave email blank.",
     );
-  const values = {
+  return {
     recipientConstituentId: selected.constituentId,
     addressConstituentId: addressSource.constituentId,
     addressee: plainText(body.addressee, "Addressee", 300),
@@ -116,12 +110,32 @@ export async function saveLetterRecipientReview(
     address: plainText(body.address, "Mailing address", 2000, true, true),
     email,
   };
+}
+
+export async function saveLetterRecipientReview(
+  state,
+  row,
+  sourceSignature,
+  body,
+  store,
+  userId,
+) {
+  const values = validateLetterRecipientChoices(
+    state,
+    row,
+    sourceSignature,
+    body,
+  );
+  if (body.confirm !== true)
+    throw letterError(
+      "Confirm that you reviewed the letter recipient and wording.",
+    );
   const reviews = {
     ...(state.recipient_reviews || {}),
     [reviewKey(row)]: {
       period: { ...row.period },
       members: membersFor(row),
-      token: review.token,
+      token: body.reviewToken,
       values,
       savedBy: userId,
       savedAt: new Date().toISOString(),

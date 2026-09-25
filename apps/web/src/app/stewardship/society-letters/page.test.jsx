@@ -61,7 +61,158 @@ beforeEach(() => {
     .mockImplementation(async () => Response.json(base));
 });
 afterEach(() => vi.restoreAllMocks());
+function reviewRow(id, saved = false) {
+  const values = {
+    recipientConstituentId: id,
+    addressConstituentId: id,
+    addressee: `Recipient ${id}`,
+    salutation: `Person ${id}`,
+    address: "10 Test Street",
+    email: "",
+  };
+  return {
+    ...household,
+    householdId: id,
+    name: `Household ${id}`,
+    members: [id],
+    issues: { post: "Preview only", email: "Preview only" },
+    recipientCandidates: [{ constituentId: id, ...values }],
+    recipientReview: {
+      editable: true,
+      token: `token-${id}`,
+      status: saved ? "saved" : "unreviewed",
+      values: saved ? values : null,
+    },
+  };
+}
 describe("society letter workspace", () => {
+  it("reviews a filtered queue, saves individually with current revisions, and leaves skipped households unchanged", async () => {
+    let workspace = {
+      ...base,
+      settings: { ...base.settings, sourceMode: "constituents" },
+      rows: [
+        reviewRow("10"),
+        reviewRow("20"),
+        reviewRow("30"),
+        reviewRow("40", true),
+      ],
+    };
+    let reject = true;
+    const saves = [];
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        expect(body.action).toBe("save_recipient");
+        expect(body.revision).toBe(workspace.revision);
+        if (reject) {
+          reject = false;
+          return Response.json(
+            { error: "Workspace changed; edits were not saved." },
+            { status: 409 },
+          );
+        }
+        saves.push(body);
+        workspace = {
+          ...workspace,
+          revision: workspace.revision + 1,
+          rows: workspace.rows.map((row) =>
+            row.householdId === body.householdId
+              ? {
+                  ...row,
+                  recipientReview: {
+                    ...row.recipientReview,
+                    status: "saved",
+                    values: body,
+                  },
+                }
+              : row,
+          ),
+        };
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review recipients in bulk" }),
+    );
+    expect(screen.getByText(/Recipient 1 of 3/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "Edited greeting" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save & next" }));
+    expect(
+      await within(screen.getByRole("dialog")).findByText(
+        "Workspace changed; edits were not saved.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Edited greeting");
+    expect(screen.getByText(/Recipient 1 of 3/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Save & next" }));
+    await screen.findByText(/Recipient 2 of 3/);
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    await screen.findByText(/Recipient 3 of 3/);
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Go to recipient"), {
+      target: { value: "0" },
+    });
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Edited greeting");
+    fireEvent.change(screen.getByLabelText("Go to recipient"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save & finish" }));
+    await screen.findByText(/2 of 3 recipients saved in this review session/);
+    expect(saves.map((body) => body.householdId)).toEqual(["10", "30"]);
+    expect(saves.map((body) => body.revision)).toEqual([1, 2]);
+    expect(screen.getByLabelText("Select Household 10")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Review selected letters" }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review recipients in bulk" }),
+    );
+    expect(screen.getByText(/Recipient 1 of 1/)).toBeVisible();
+    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+  });
+  it("caps review at 50, supports already-reviewed recipients, and respects search", async () => {
+    const rows = Array.from({ length: 52 }, (_, i) =>
+      reviewRow(String(i + 100), true),
+    );
+    fetchMock.mockImplementation(async () => Response.json({ ...base, rows }));
+    render(<Page />);
+    expect(
+      await screen.findByRole("button", { name: "Review recipients in bulk" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Recipient review"), {
+      target: { value: "all" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review recipients in bulk" }),
+    );
+    expect(screen.getByText(/Recipient 1 of 50/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+    fireEvent.change(screen.getByLabelText("Find a household"), {
+      target: { value: "Household 151" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review recipients in bulk" }),
+    );
+    expect(screen.getByText(/Recipient 1 of 1/)).toBeVisible();
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Recipient 151");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("saves and reloads recipient choices without enabling or requesting letter preparation", async () => {
     let values = null;
     fetchMock.mockImplementation(async (_url, options) => {
@@ -371,6 +522,31 @@ describe("society letter workspace", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Letter templates" }),
     );
+    expect(
+      screen.getByRole("button", { name: "Preview saved letter" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Download Word file" }),
+    ).toHaveAttribute(
+      "href",
+      "/api/stewardship/society-letters?templateVersion=v1",
+    );
+    expect(
+      screen.queryByLabelText("President's Society Word template"),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Replace Word file" }));
+    const upload = screen.getByLabelText("President's Society Word template");
+    expect(upload).toBeVisible();
+    fireEvent.change(upload, {
+      target: { files: [new File(["replacement"], "replacement.docx")] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep saved Word file" }),
+    );
+    expect(
+      screen.queryByLabelText("President's Society Word template"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByLabelText("President's Society use Salutation"),
     ).toBeChecked();
