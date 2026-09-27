@@ -1,12 +1,12 @@
 # Opportunity Pipeline Report
 
-Initial read-only version deployed to JU September 27, 2026. Editing, archiving, and CSV export are now implemented locally and are not yet deployed. Signed-in production data checks remain separate from release smoke verification.
+Initial read-only version and subsequent editing, archiving, and CSV export enhancement deployed to JU September 27, 2026. Signed-in read-only release checks passed; live NXT mutation acceptance remains a separate, explicitly authorized check.
 
 ## Where To Find It
 
 Reports > Opportunity Pipeline, at `/reports/opportunity-pipeline`.
 
-The upcoming version makes the overall report visible to signed-in users by default, including MGOs. Admins and Advancement Services can adjust the audience in Report Access & Configurations. Granting access exposes the organization-wide report, not just that user's portfolio. Existing explicit audience restrictions are preserved; only the untouched original executive-only seed is migrated. Other reports' access controls are unchanged.
+The report is visible to signed-in users by default, including MGOs. Admins and Advancement Services can adjust the audience in Report Access & Configurations. Granting access exposes the organization-wide report, not just that user's portfolio. Existing explicit audience restrictions are preserved; only the untouched original executive-only seed is migrated. Other reports' access controls are unchanged.
 
 ## Scope
 
@@ -27,7 +27,7 @@ Opening the report and reloading saved data read the app database only. Changing
 - Summary totals and the stage/outcome breakdown follow the current filters. Rows are paginated in groups of 25. Expand Details for saved timestamps, NXT linkage, close information, and shared-copy counts.
 - Export CSV downloads every matching row across all pages, in the selected sort order. It includes both IDs, owners, FY basis, amounts/dates, saved-check timestamps, and pending-sync status. Formula-like donor text is neutralized for spreadsheet imports. It is a saved-data export, not a new NXT query.
 
-## Editing And Archiving (Pending Deployment)
+## Editing And Archiving
 
 - Admins can edit any verified linked opportunity and explicitly archive it. MGOs see the overall pipeline but may edit only opportunities with an actual saved copy in their own workspace, including joint copies. A user ID merely listed in joint metadata is not edit authority. Executive and Advancement Services roles alone remain read-only.
 - Expand Details > Edit opportunity. The editor loads current NXT values and checks both NXT identity and app revisions. The editable fields are title, stage/status, purpose, ask amount/date, expected date, and funded amount/date. Only changed fields are sent. Ask amount is independent of received revenue; funded fields do not create gifts.
@@ -81,11 +81,11 @@ Before release, verify the intended source scope. After deployment, check Admin 
 
 New tests include nonowner/role denial, cross-origin denial, stale NXT revisions, changed-field-only PATCH, non-retrying timeouts, read-only reconciliation, archive history retention, formula-safe full-result export, and editor confirmation. Disposable PostgreSQL tests execute the real claim/finalization SQL, verify all-or-nothing copy updates, block concurrent legacy updates, preserve ranking/notes, and roll back derived-cache failures. Synthetic desktop/mobile browser tests use fake data and stubbed provider responses only.
 
-Local verification on September 27: full regression suite passed, six disposable PostgreSQL transaction tests passed, and typecheck, production build, release guard, and diff checks passed. Desktop/mobile synthetic UI checks covered editing, CSV download, archive confirmation, read-only roles, keyboard dismissal, and narrow-screen containment. No live NXT writes or production deployment were performed for these enhancements.
+Local verification on September 27: full regression suite passed, six disposable PostgreSQL transaction tests passed, and typecheck, production build, release guard, and diff checks passed. Desktop/mobile synthetic UI checks covered editing, CSV download, archive confirmation, read-only roles, keyboard dismissal, and narrow-screen containment. No live NXT writes were performed during verification.
 
 Release recovery: the new schema is additive. If rolling back application code, retain the receipt table and pending-write trigger. Resolve any pending changes using the new verifier or a separately reviewed reconciliation; dropping locks or audit rows can permit a duplicate/contradictory write. The old application cannot finish a pending new-style receipt by itself.
 
-## JU Production Release
+## Initial JU Production Release
 
 - Application commit: `18935d2de114e5ca9a1763f18470504a35652fab`.
 - Deployment: `dpl_BC2CfZWNjWr8CDjfUYBH3nBgonnr`, READY, production.
@@ -101,3 +101,21 @@ Validation: 4,488 tests passed, 30 opt-in tests skipped; typecheck, production b
 Post-release inventory confirmed conference sandbox `dpl_2hwViLvkaPKUC45sS5hwJNgkgXXs` remained unchanged and Git-disconnected; the other linked `mgo-gpt-y1r7` copy remained on `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. All five JU cron paths and schedules were unchanged.
 
 This release adds an idempotent default report-configuration row and no donor-data migration. An application rollback can leave that unused configuration row in place; do not delete report settings, constituent data, or unrelated delivery receipts during recovery.
+
+## Editing And Export JU Release
+
+- Application commit: `d8193e18edbb5bf7773b709206af711e790ef485`.
+- Deployment: `dpl_7pBA6GBJK7ZPdcBwiNLcfbfND4PM`, READY, production.
+- Deployment URL: https://mgo-mjqwbubtu-chelspers-projects.vercel.app
+- Report URL: https://www.jumgogpt.app/reports/opportunity-pipeline
+- Previous known-good deployment: `dpl_BC2CfZWNjWr8CDjfUYBH3nBgonnr`.
+
+Deployed an explicit JU-only clean commit archive, without a Git push. The manifest contained 1,011 files / 11,015,493 bytes, only `.env.example`, and no credentials, private environment files, dependencies, or generated builds. Existing unrelated workspace edits were excluded and preserved. Build and runtime deployment variables both identify the exact application commit.
+
+Release rerun: 4,520 tests passed and 36 opt-in tests skipped; typecheck, production build, release guard, and diff checks passed. The separate six disposable PostgreSQL transaction tests had already passed. Public verification confirmed the exact commit/deployment, four page routes, 49 JavaScript/CSS assets, and a private/no-store HTTP 401 from the unauthenticated pipeline API.
+
+A fresh signed-in JU browser tab loaded saved report data and the Export CSV control. Expanding a linked opportunity showed Edit opportunity and Archive opportunity; an unlinked record showed the linking safeguard instead. A pre-release browser tab initially retained older controls, while a fresh tab loaded the new release. No live editor saves, archives, NXT refreshes, email, or letter operations were performed. Live MGO impersonation and NXT mutation/reconciliation checks were not performed; permission and mutation behavior were covered by local tests rather than production writes.
+
+Post-release inventory confirmed all five JU cron paths/schedules unchanged. Conference sandbox remained Git-disconnected on its independently updated pre-release deployment `dpl_5kYq7tMrSKFYhmmb9fxod9AYmebi`; the separate `mgo-gpt-y1r7` copy remained on `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. This release did not deploy either copy.
+
+The additive receipt schema and untouched-seed report audience migration are initialized through the application's existing schema helper. Keep the pending-write trigger and receipts intact on rollback, as described above.
