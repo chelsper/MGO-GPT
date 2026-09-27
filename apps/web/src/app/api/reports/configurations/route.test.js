@@ -88,6 +88,21 @@ describe("report configuration API", () => {
       canView: false,
     });
   });
+  it("exposes pipeline navigation with executive defaults when no saved configuration exists", async () => {
+    mocks.user.mockResolvedValue({ id: 2, role: "mgo", active: true });
+    const payload = await (await GET()).json();
+    expect(payload.configurations.find((item) => item.key === "opportunity-pipeline")).toMatchObject({
+      title: "Opportunity Pipeline", visibility: "executive", canView: false,
+      href: "/reports/opportunity-pipeline",
+    });
+  });
+  it("does not broaden pipeline access on a title-only first save", async () => {
+    mocks.sql.mockResolvedValue([]);
+    const response = await PATCH(request({ reportKey: "opportunity-pipeline", title: "Team Pipeline" }));
+    expect(response.status).toBe(200);
+    const insert = mocks.sql.mock.calls.find(([parts]) => parts.join(" ").includes("INSERT INTO report_configurations"));
+    expect(insert.slice(1, 5)).toEqual(["opportunity-pipeline", "Team Pipeline", expect.any(String), "executive"]);
+  });
   it("dispatches list creation and CAS updates separately from dashboard schemas", async () => {
     const list = { ...dashboard, report_key: "list-demo", data_configuration: { version: 1, source: "custom_field", fieldCategory: "Interests", fieldDescription: "" } };
     mocks.sql.mockResolvedValue([list]);

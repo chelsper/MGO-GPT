@@ -21,8 +21,8 @@ export {
 
 const VISIBILITY_OPTIONS = new Set(["all_users", "executive", "specific_users"]);
 
-export function normalizeReportVisibility(value) {
-  return VISIBILITY_OPTIONS.has(value) ? value : "all_users";
+export function normalizeReportVisibility(value, fallback = "all_users") {
+  return VISIBILITY_OPTIONS.has(value) ? value : fallback;
 }
 
 export function parseReportSpecificUserIds(value) {
@@ -121,9 +121,9 @@ export async function getReportAccessForUser(reportKey, user) {
     LIMIT 1
   `;
   const record = records[0];
-  const visibility = normalizeReportVisibility(record?.visibility);
-  const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
   const definition = getReportDefinition(reportKey);
+  const visibility = normalizeReportVisibility(record?.visibility, definition?.defaultVisibility || "all_users");
+  const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
   const configurationCapabilities = getReportConfigurationCapabilities(definition);
 
   return {

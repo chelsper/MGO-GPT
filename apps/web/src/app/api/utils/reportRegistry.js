@@ -1,6 +1,7 @@
 import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
 import { LIST_SCHEMA } from "@/utils/constituentLists";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
+import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -96,6 +97,22 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
     presentationNote: "",
     presentationNoteTone: "neutral",
+  }),
+  Object.freeze({
+    key: PIPELINE_REPORT_KEY,
+    reportType: REPORT_TYPES.MGO_GPT,
+    adapterKey: PIPELINE_REPORT_KEY,
+    configurationSchema: "standard-report-v1",
+    configurationSchemaVersion: 1,
+    href: "/reports/opportunity-pipeline",
+    title: "Opportunity Pipeline",
+    description: "Review saved opportunities across all workspaces by expected fiscal year, stage, and fundraiser, with closed and archived history separate.",
+    audienceMode: "organization_pipeline",
+    defaultVisibility: "executive",
+    dataConfigurationType: null,
+    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    presentationNote: "Organization-wide saved app opportunities, not all opportunities in NXT. Shared opportunities count once. No NXT requests are made when this report opens.",
+    presentationNoteTone: "info",
   }),
   Object.freeze({
     key: FUTURE_MADE_PHASE_TWO_REPORT_KEY,

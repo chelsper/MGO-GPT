@@ -2670,6 +2670,17 @@ export default async function ensureAppSchema() {
       )
       ON CONFLICT (report_key) DO NOTHING
     `;
+    await sql`
+      INSERT INTO report_configurations (report_key, title, description, visibility, specific_user_ids)
+      VALUES (
+        'opportunity-pipeline',
+        'Opportunity Pipeline',
+        'Review saved opportunities across all workspaces by expected fiscal year, stage, and fundraiser.',
+        'executive',
+        '[]'::jsonb
+      )
+      ON CONFLICT (report_key) DO NOTHING
+    `;
     // Rename the former default without changing custom titles or report access.
     await sql`
       UPDATE report_configurations
