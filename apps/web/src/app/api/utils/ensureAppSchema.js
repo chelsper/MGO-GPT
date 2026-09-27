@@ -1351,6 +1351,48 @@ export default async function ensureAppSchema() {
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS nxt_retry_after TIMESTAMPTZ
     `;
+    await sql`ALTER TABLE prospect_opportunities ADD COLUMN IF NOT EXISTS pipeline_change_id UUID`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_nxt_identity
+      ON prospect_opportunities(blackbaud_opportunity_id) WHERE blackbaud_opportunity_id IS NOT NULL`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_shared_identity
+      ON prospect_opportunities(shared_opportunity_key) WHERE shared_opportunity_key IS NOT NULL`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS opportunity_change_receipts (
+        id UUID PRIMARY KEY,
+        opportunity_id BIGINT NOT NULL,
+        nxt_id TEXT NOT NULL,
+        constituent_id TEXT NOT NULL,
+        actor_id BIGINT NOT NULL,
+        operation TEXT NOT NULL CHECK (operation IN ('edit', 'archive')),
+        state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'complete', 'rejected')),
+        patch JSONB NOT NULL,
+        before_remote JSONB NOT NULL,
+        copies JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
+      )
+    `;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS opportunity_change_pending_nxt
+      ON opportunity_change_receipts(nxt_id) WHERE state = 'pending'`;
+    // An older editor may already be in flight when a pipeline change claims
+    // the row. Block its local overwrite rather than silently lose the receipt.
+    await sql`
+      CREATE OR REPLACE FUNCTION protect_pending_pipeline_change() RETURNS trigger AS $pipeline_guard$
+      BEGIN
+        IF OLD.pipeline_change_id IS NOT NULL AND NEW.pipeline_change_id IS NOT DISTINCT FROM OLD.pipeline_change_id
+          AND (to_jsonb(NEW) - 'nxt_retry_after') IS DISTINCT FROM (to_jsonb(OLD) - 'nxt_retry_after') THEN
+          RAISE EXCEPTION 'Opportunity has a pending pipeline change; verify it before editing';
+        END IF;
+        RETURN NEW;
+      END;
+      $pipeline_guard$ LANGUAGE plpgsql
+    `;
+    await sql`DO $pipeline_trigger$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'protect_pending_pipeline_change' AND tgrelid = 'prospect_opportunities'::regclass) THEN
+        CREATE TRIGGER protect_pending_pipeline_change BEFORE UPDATE ON prospect_opportunities
+          FOR EACH ROW EXECUTE FUNCTION protect_pending_pipeline_change();
+      END IF;
+    END $pipeline_trigger$`;
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunity_gift_links (
@@ -2676,11 +2718,15 @@ export default async function ensureAppSchema() {
         'opportunity-pipeline',
         'Opportunity Pipeline',
         'Review saved opportunities across all workspaces by expected fiscal year, stage, and fundraiser.',
-        'executive',
+        'all_users',
         '[]'::jsonb
       )
       ON CONFLICT (report_key) DO NOTHING
     `;
+    // Expand only the original untouched seed, never an administrator's policy.
+    await sql`UPDATE report_configurations SET visibility = 'all_users', updated_at = NOW()
+      WHERE report_key = 'opportunity-pipeline' AND visibility = 'executive'
+        AND created_by IS NULL AND updated_by IS NULL`;
     // Rename the former default without changing custom titles or report access.
     await sql`
       UPDATE report_configurations

@@ -35,13 +35,13 @@ describe("organization opportunity pipeline API", () => {
     expect((await GET()).status).toBe(403);
     expect(mocks.sql).not.toHaveBeenCalled();
   });
-  it.each([undefined, "unexpected"])("defaults to executive access when configuration is %s", async (visibility) => {
+  it.each([undefined, "unexpected"])("allows overall MGO viewing by default when configuration is %s", async (visibility) => {
     config = visibility ? [{ visibility }] : [];
     mocks.user.mockResolvedValue({ id: 3, role: "mgo", active: true });
     const response = await GET();
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
-    expect(mocks.sql).toHaveBeenCalledTimes(1);
+    expect((await response.json()).opportunities[0].canEdit).toBe(false);
   });
   it.each(["admin", "executive"])("allows %s to read across workspaces without exposing notes", async (role) => {
     mocks.user.mockResolvedValue({ id: 1, role, active: true });

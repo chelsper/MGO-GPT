@@ -43,17 +43,18 @@ export function normalizeLinkedOpportunity(remote, saved, constituentId) {
     Boolean(remote.funded_date));
   const inactive = remote.inactive === true;
   if (remote.inactive != null && typeof remote.inactive !== "boolean") throw new Error("Invalid opportunity active flag");
-  const status = declined ? DECLINED_OPPORTUNITY_STATUS : funded ? FUNDED_OPPORTUNITY_STATUS : inactive ? "Inactive" : ACTIVE_OPPORTUNITY_STATUS;
+  const archived = inactive && saved.opportunity_status === "Archived";
+  const status = archived ? "Archived" : declined ? DECLINED_OPPORTUNITY_STATUS : funded ? FUNDED_OPPORTUNITY_STATUS : inactive ? "Inactive" : ACTIVE_OPPORTUNITY_STATUS;
   return {
     title: remote.name.trim(),
     purpose: remote.purpose === undefined ? saved.purpose ?? null : remote.purpose,
-    current_stage: inactive && !declined && !funded ? "Inactive" : stage,
+    current_stage: inactive && !archived && !declined && !funded ? "Inactive" : stage,
     estimated_amount: optionalAmount(remote, "ask_amount", saved.estimated_amount),
     ask_date: optionalDate(remote, "ask_date", saved.ask_date),
     expected_date: optionalDate(remote, "expected_date", saved.expected_date),
     opportunity_status: status,
-    closed_amount: funded ? closedAmount : declined ? 0 : null,
-    close_date: funded ? closedDate : declined ? calendarDate(saved.close_date) : null,
+    closed_amount: archived ? closedAmount : funded ? closedAmount : declined ? 0 : null,
+    close_date: archived ? closedDate : funded ? closedDate : declined ? calendarDate(saved.close_date) : null,
   };
 }
 
@@ -64,6 +65,7 @@ function comparable(row, key) {
 }
 
 export function opportunityRefreshDue(row, { force = false, now = Date.now() } = {}) {
+  if (row.pipeline_change_id) return false;
   if (Date.parse(row.nxt_retry_after || "") > now) return false;
   if (Date.parse(row.revision || row.updated_at || "") > now - LOCAL_WRITE_GRACE_MS) return false;
   return !(Date.parse(row.nxt_checked_at || "") > now - (force ? 30_000 : FRESH_MS));
@@ -111,7 +113,7 @@ export async function refreshLinkedProspectOpportunities({ userId, authUserId, o
   let paused = false;
   for (const row of rows) {
     if (!opportunityRefreshDue(row, { force })) {
-      if (Date.parse(row.nxt_retry_after || "") > Date.now() || Date.parse(row.revision) > Date.now() - LOCAL_WRITE_GRACE_MS) result.deferred++;
+      if (row.pipeline_change_id || Date.parse(row.nxt_retry_after || "") > Date.now() || Date.parse(row.revision) > Date.now() - LOCAL_WRITE_GRACE_MS) result.deferred++;
       continue;
     }
     if (paused || reads >= MAX_READS || Date.now() - start >= 16_000) { result.deferred++; continue; }
@@ -119,6 +121,7 @@ export async function refreshLinkedProspectOpportunities({ userId, authUserId, o
     const claimed = await sql`
       UPDATE prospect_opportunities SET nxt_retry_after = ${leaseUntil}::timestamptz
       WHERE id = ${row.id} AND prospect_id = ${prospectId}
+        AND pipeline_change_id IS NULL
         AND updated_at::text IS NOT DISTINCT FROM ${row.revision}
         AND nxt_checked_at::text IS NOT DISTINCT FROM ${row.checked_revision}
         AND (nxt_retry_after IS NULL OR nxt_retry_after <= NOW())
@@ -139,6 +142,7 @@ export async function refreshLinkedProspectOpportunities({ userId, authUserId, o
           opportunity_status = ${next.opportunity_status}, closed_amount = ${next.closed_amount},
           close_date = ${next.close_date}::date, nxt_checked_at = NOW(), nxt_retry_after = NULL
         WHERE id = ${row.id} AND prospect_id = ${prospectId}
+          AND pipeline_change_id IS NULL
           AND blackbaud_opportunity_id = ${row.blackbaud_opportunity_id}
           AND updated_at::text IS NOT DISTINCT FROM ${row.revision}
           AND nxt_checked_at::text IS NOT DISTINCT FROM ${row.checked_revision}

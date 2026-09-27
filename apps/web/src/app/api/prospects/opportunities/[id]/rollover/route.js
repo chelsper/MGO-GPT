@@ -37,6 +37,7 @@ export async function POST(request, { params }) {
       LIMIT 1
     `;
     if (!existing) return Response.json({ error: "Opportunity not found" }, { status: 404 });
+    if (existing.pipeline_change_id) return conflict("A pipeline change needs NXT verification. Check sync status in Opportunity Pipeline before editing again.");
     if (!existing.blackbaud_opportunity_id || !existing.blackbaud_constituent_id) return conflict("Link this opportunity to NXT before using the fiscal-year update.");
     const targetDate = fiscalYear.endsOn;
     const localDate = calendarDate(existing.expected_date);

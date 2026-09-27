@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
@@ -12,6 +12,8 @@ import {
   pipelineFiscalWindow, pipelineTotals, selectPipelineRows,
 } from "@/utils/pipelineReport";
 import styles from "./pipeline.module.css";
+import OpportunityEditor from "./OpportunityEditor";
+import { pipelineExportCsv } from "@/utils/pipelineExport";
 
 const PAGE_SIZE = 25;
 const money = (value) => value === null ? "Not recorded" : new Intl.NumberFormat("en-US", {
@@ -27,7 +29,7 @@ async function fetchPipeline({ signal }) {
   return payload;
 }
 
-export function PipelineReport({ report, reload, refreshing = false }) {
+export function PipelineReport({ report, reload, onChanged = reload, refreshing = false }) {
   const [year, setYear] = useState(String(report.currentYear || currentPipelineFiscalYear()));
   const [view, setView] = useState("active");
   const [search, setSearch] = useState("");
@@ -37,6 +39,8 @@ export function PipelineReport({ report, reload, refreshing = false }) {
   const [sort, setSort] = useState("expected");
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState(null);
+  const [editor, setEditor] = useState(null);
+  const [message, setMessage] = useState("");
   const allRows = report.opportunities;
   const rows = selectPipelineRows(allRows, { year, view, search, owner, stage, status, sort });
   const totals = pipelineTotals(rows);
@@ -55,12 +59,22 @@ export function PipelineReport({ report, reload, refreshing = false }) {
   const resetPage = () => { setPage(1); setExpanded(null); };
   const changeYear = (value) => { setYear(value); setStage("all"); resetPage(); };
   const changeView = (value) => { setView(value); setStage("all"); setStatus("all"); resetPage(); };
+  function exportRows() {
+    const url = URL.createObjectURL(new Blob([pipelineExportCsv(rows)], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url; link.download = `opportunity-pipeline-${year}-${view}.csv`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMessage(`Exported ${rows.length} matching opportunities, including all pages.`);
+  }
 
   return <>
     <SharedReportHeader activeReportKey={PIPELINE_REPORT_KEY} eyebrow="Organization-wide report"
       title={report.title || "Opportunity Pipeline"}
       description="Every saved app opportunity, across workspaces. Explore the expected fiscal year without waiting for a new NXT pull."
-      action={<button className={styles.button} onClick={reload} disabled={refreshing}><RefreshCw size={16} aria-hidden="true" />{refreshing ? "Reloading..." : "Reload saved data"}</button>} />
+      action={<div className={styles.actions}><button className={styles.button} onClick={exportRows} disabled={!rows.length}>Export CSV ({rows.length})</button><button className={styles.button} onClick={reload} disabled={refreshing}><RefreshCw size={16} aria-hidden="true" />{refreshing ? "Reloading..." : "Reload saved data"}</button></div>} />
+    {message && <p className={styles.notice} role="status">{message}</p>}
+    {editor && <OpportunityEditor row={editor.row} operation={editor.operation} onClose={() => setEditor(null)} onSaved={async result => { if (result.message) setMessage(result.message); await onChanged(); }} />}
 
     <section className={styles.period} aria-label="Fiscal year selection">
       <div><p className={styles.eyebrow}>Expected pipeline</p><h2>{view === "undated" ? "Needs a fiscal year or identity review" : fiscalWindow ? `${fiscalWindow.label} opportunity pipeline` : "All fiscal years"}</h2>
@@ -103,7 +117,7 @@ export function PipelineReport({ report, reload, refreshing = false }) {
       {visibleRows.length === 0 ? <div className={styles.empty}><h3>No opportunities in this view</h3><p>Try another fiscal year, clear a filter, or check Needs FY / review for opportunities without an expected date.</p></div> : <div className={styles.tableScroll}><table>
         <caption className={styles.srOnly}>Saved opportunities with constituent, fundraiser, stage, ask amount, and expected date</caption>
         <thead><tr><th scope="col">Constituent / opportunity</th><th scope="col">Fundraiser</th><th scope="col">{view === "active" ? "Stage" : "Outcome / stage"}</th><th scope="col">Ask amount</th><th scope="col">Expected date</th><th scope="col"><span className={styles.srOnly}>Details</span></th></tr></thead>
-        <tbody>{visibleRows.map((row) => <PipelineRow key={row.id} row={row} view={view} expanded={expanded === row.id} toggle={() => setExpanded(expanded === row.id ? null : row.id)} />)}</tbody>
+        <tbody>{visibleRows.map((row) => <PipelineRow key={row.id} row={row} view={view} expanded={expanded === row.id} toggle={() => setExpanded(expanded === row.id ? null : row.id)} edit={operation => setEditor({ row, operation })} />)}</tbody>
       </table></div>}
       {pages > 1 && <div className={styles.pagination}><button className={styles.button} disabled={currentPage <= 1} onClick={() => { setPage(currentPage - 1); setExpanded(null); }}>Previous page</button><span aria-live="polite">Page {currentPage} of {pages}</span><button className={styles.button} disabled={currentPage >= pages} onClick={() => { setPage(currentPage + 1); setExpanded(null); }}>Next page</button></div>}
     </section>
@@ -113,11 +127,11 @@ export function PipelineReport({ report, reload, refreshing = false }) {
   </>;
 }
 
-function PipelineRow({ row, view, expanded, toggle }) {
+function PipelineRow({ row, view, expanded, toggle, edit }) {
   const nxtHref = row.constituentId ? buildBlackbaudConstituentProfileUrl(row.constituentId) : "";
   return <>
     <tr>
-      <td><strong>{row.constituentName}</strong><span className={styles.secondary}>{row.title}</span></td>
+      <td><strong>{row.constituentName}</strong><span className={styles.secondary}>{row.title}</span>{row.pendingChange && <span className={styles.secondary}>Awaiting NXT verification</span>}</td>
       <td>{row.fundraisers.map((user) => user.name).join(", ") || "Unassigned"}</td>
       <td>{view !== "active" && <span className={styles.outcome}>{row.status}</span>}<span>{row.stage}</span></td>
       <td className={styles.amount}>{money(row.amount)}</td>
@@ -127,18 +141,25 @@ function PipelineRow({ row, view, expanded, toggle }) {
     {expanded && <tr><td colSpan={6} className={styles.detail}><div id={`pipeline-detail-${row.id}`}>
       {row.identityConflict && <p role="status">Linked copies have conflicting constituent or opportunity IDs. This record is held outside fiscal-year totals until those links are reviewed.</p>}
       <dl><div><dt>NXT opportunity ID</dt><dd>{row.nxtOpportunityId || "Not linked"}</dd></div><div><dt>Last saved check or edit</dt><dd>{date(row.savedAt)}</dd></div><div><dt>NXT last checked</dt><dd>{date(row.nxtCheckedAt)}</dd></div>
-        {row.status !== "Active" && <div><dt>Closed date</dt><dd>{date(row.closedDate)}</dd></div>}{row.status === "Funded" && <div><dt>Recorded funded amount</dt><dd>{money(row.fundedAmount)}</dd></div>}
+        {row.status !== "Active" && <div><dt>Closed date</dt><dd>{date(row.closedDate)}</dd></div>}{(row.status === "Funded" || row.fundedAmount !== null) && <div><dt>Recorded funded amount</dt><dd>{money(row.fundedAmount)}</dd></div>}
         <div><dt>Workspace records</dt><dd>{row.copyCount} {row.copyCount > 1 ? "copies counted once" : "record"}</dd></div></dl>
       {nxtHref && <a href={nxtHref} target="_blank" rel="noreferrer">Open constituent in NXT</a>}
+      {(row.canEdit || row.canArchive) && (row.nxtOpportunityId ? <div className={styles.actions}>
+        {row.pendingChange ? <button className={styles.button} onClick={() => edit("edit")}>Check sync status</button> : <>
+          {row.canEdit && <button className={styles.button} onClick={() => edit("edit")}>Edit opportunity</button>}
+          {row.canArchive && row.status !== "Archived" && <button className={styles.button} onClick={() => edit("archive")}>Archive opportunity</button>}
+        </>}
+      </div> : <p className={styles.source}>Not linked to NXT. Link this opportunity in Top Prospects before editing here; this report never creates duplicate opportunities.</p>)}
     </div></td></tr>}
   </>;
 }
 
 export default function OpportunityPipelinePage() {
+  const client = useQueryClient();
   const { data: user, loading: loadingUser } = useUser();
   useEffect(() => { if (!loadingUser && !user) window.location.href = "/account/signin"; }, [loadingUser, user]);
   const query = useQuery({ queryKey: [PIPELINE_REPORT_KEY, user?.id, user?.email], queryFn: fetchPipeline, enabled: Boolean(user), staleTime: 60000, refetchOnWindowFocus: false, retry: false });
   return <main className={styles.page}>
-    {loadingUser || !user || query.isPending ? <p role="status">Loading saved pipeline...</p> : query.isError ? <><SharedReportHeader activeReportKey={PIPELINE_REPORT_KEY} title="Opportunity Pipeline" /><p role="alert">{query.error.message}</p><button className={styles.button} onClick={() => query.refetch()}>Try again</button></> : <PipelineReport key={`${user.id}:${user.email}`} report={query.data} reload={() => query.refetch()} refreshing={query.isFetching} />}
+    {loadingUser || !user || query.isPending ? <p role="status">Loading saved pipeline...</p> : query.isError ? <><SharedReportHeader activeReportKey={PIPELINE_REPORT_KEY} title="Opportunity Pipeline" /><p role="alert">{query.error.message}</p><button className={styles.button} onClick={() => query.refetch()}>Try again</button></> : <PipelineReport key={`${user.id}:${user.email}`} report={query.data} reload={() => query.refetch()} onChanged={async () => { await client.invalidateQueries({ refetchType: "none" }); await query.refetch(); }} refreshing={query.isFetching} />}
   </main>;
 }

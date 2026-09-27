@@ -25,7 +25,7 @@ export async function GET() {
       SELECT po.id, po.title, po.current_stage, po.opportunity_status,
         po.estimated_amount, po.closed_amount, po.expected_date, po.close_date,
         po.blackbaud_opportunity_id, po.shared_opportunity_key, po.joint_mgo_user_ids,
-        po.updated_at, po.nxt_checked_at,
+        po.updated_at, po.nxt_checked_at, po.pipeline_change_id,
         p.user_id, p.status AS prospect_status, p.prospect_name,
         COALESCE(NULLIF(BTRIM(p.blackbaud_constituent_id), ''), c.blackbaud_constituent_id) AS blackbaud_constituent_id,
         c.name AS constituent_name
@@ -37,7 +37,7 @@ export async function GET() {
     `;
     if (rows.length > PIPELINE_ROW_LIMIT) return Response.json({ error: "This pipeline exceeds the supported report size. Ask an administrator to enable a larger paged report; no partial totals are shown." }, { status: 422, headers });
     const users = rows.length ? await sql`SELECT id, name FROM users ORDER BY id` : [];
-    return Response.json({ ...buildPipelineReport(rows, users), title: access.title || "Opportunity Pipeline" }, { headers });
+    return Response.json({ ...buildPipelineReport(rows, users, new Date(), user), title: access.title || "Opportunity Pipeline" }, { headers });
   } catch {
     console.error("Opportunity pipeline read failed");
     return Response.json({ error: "The saved pipeline could not be loaded. Please try again." }, { status: 500, headers });

@@ -66,6 +66,7 @@ export async function PUT(request, { params }) {
     if (!existing) {
       return Response.json({ error: "Linked opportunity not found" }, { status: 404 });
     }
+    if (existing.pipeline_change_id) return Response.json({ error: "A pipeline change needs NXT verification. Check sync status in Opportunity Pipeline before editing again." }, { status: 409 });
 
     const nextEstimatedAmount =
       estimatedAmount !== undefined ? estimatedAmount : existing.estimated_amount;

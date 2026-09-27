@@ -57,6 +57,11 @@ describe("NXT opportunity field normalization", () => {
   it("excludes explicitly inactive opportunities from the active pipeline", () => {
     expect(normalizeLinkedOpportunity({ ...remote, inactive: true }, saved, "123").opportunity_status).toBe("Inactive");
   });
+  it("retains explicit archives on later NXT checks, including funded history", () => {
+    expect(normalizeLinkedOpportunity({ ...remote, status: "Funded", inactive: true, funded_amount: { value: 800 } }, { ...saved, opportunity_status: "Archived" }, "123"))
+      .toMatchObject({ opportunity_status: "Archived", current_stage: "Funded", closed_amount: 800 });
+    expect(opportunityRefreshDue({ ...saved, pipeline_change_id: "pending" }, { force: true })).toBe(false);
+  });
 });
 
 describe("bounded linked opportunity refresh", () => {

@@ -2,6 +2,7 @@ import { calendarDate } from "./prospectActivity";
 import { ORGANIZATION_REPORTING_POLICY } from "./organizationRuntimePolicy";
 import { getStandingsPeriods } from "./standingsPeriods";
 import { isPlaceholderProspectName } from "./prospectDisplay";
+import { isAdminRole, isMgoRole } from "./workspaceRoles";
 
 export const PIPELINE_REPORT_KEY = "opportunity-pipeline";
 export const PIPELINE_OUTCOMES = ["Funded", "Declined", "Archived", "Withdrawn"];
@@ -41,6 +42,7 @@ export function pipelineAmount(value) {
 
 function outcome(row) {
   const labels = [row.opportunity_status, row.current_stage].map(label);
+  if (label(row.opportunity_status) === "archived") return "Archived";
   if (labels.some((value) => ["withdrawn", "closed withdrawn"].includes(value))) return "Withdrawn";
   if (labels.some((value) => ["declined", "closed declined"].includes(value))) return "Declined";
   if (labels.some((value) => ["funded", "closed gift secured"].includes(value))) return "Funded";
@@ -66,7 +68,7 @@ function jointIds(value) {
 
 // Collapse only explicit shared/NXT identities, never similar titles or names.
 // Union both keys so a local joint copy and its NXT-linked copy count together.
-export function buildPipelineReport(rows, users = [], now = new Date()) {
+export function buildPipelineReport(rows, users = [], now = new Date(), viewer = null) {
   const parents = rows.map((_, index) => index);
   const root = (index) => {
     while (parents[index] !== index) {
@@ -114,7 +116,7 @@ export function buildPipelineReport(rows, users = [], now = new Date()) {
       nxtOpportunityId: identityConflict ? null : [...nxtIds][0] || null,
       stage: text(row.current_stage) || "Stage not recorded", status,
       amount: identityConflict ? null : pipelineAmount(row.estimated_amount),
-      fundedAmount: identityConflict || status !== "Funded" ? null : pipelineAmount(row.closed_amount),
+      fundedAmount: identityConflict || !["Funded", "Archived"].includes(status) ? null : pipelineAmount(row.closed_amount),
       expectedDate, closedDate,
       fiscalYear: identityConflict ? null : pipelineFiscalYear(yearDate),
       yearBasis: expectedDate ? "expected" : yearDate ? "closed" : "undated",
@@ -123,6 +125,9 @@ export function buildPipelineReport(rows, users = [], now = new Date()) {
       savedAt: savedAt(row) ? new Date(savedAt(row)).toISOString() : null,
       nxtCheckedAt: stamp(row.nxt_checked_at) ? new Date(stamp(row.nxt_checked_at)).toISOString() : null,
       copyCount: copies.length, identityConflict,
+      canEdit: !identityConflict && (isAdminRole(viewer?.role) || (isMgoRole(viewer?.role) && copies.some((copy) => id(copy.user_id) === id(viewer?.id)))),
+      canArchive: !identityConflict && isAdminRole(viewer?.role),
+      pendingChange: copies.some((copy) => Boolean(copy.pipeline_change_id)),
     };
   });
   const currentYear = currentPipelineFiscalYear(now);

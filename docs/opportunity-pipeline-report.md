@@ -1,12 +1,12 @@
 # Opportunity Pipeline Report
 
-Implemented and deployed to JU September 27, 2026. Signed-in production data checks remain separate from release smoke verification.
+Initial read-only version deployed to JU September 27, 2026. Editing, archiving, and CSV export are now implemented locally and are not yet deployed. Signed-in production data checks remain separate from release smoke verification.
 
 ## Where To Find It
 
 Reports > Opportunity Pipeline, at `/reports/opportunity-pipeline`.
 
-Admins and Executives have access by default. Admins and Advancement Services can adjust the audience in Report Access & Configurations. Granting access exposes the organization-wide report, not just that user's portfolio. Existing access controls for other reports are unchanged.
+The upcoming version makes the overall report visible to signed-in users by default, including MGOs. Admins and Advancement Services can adjust the audience in Report Access & Configurations. Granting access exposes the organization-wide report, not just that user's portfolio. Existing explicit audience restrictions are preserved; only the untouched original executive-only seed is migrated. Other reports' access controls are unchanged.
 
 ## Scope
 
@@ -14,7 +14,7 @@ This first version reads saved `prospect_opportunities` across all app workspace
 
 The initial source assumption is all opportunities saved in the app. A separate user clarification asks whether the required scope is every opportunity in NXT. If NXT-wide completeness is required, this report is not yet a complete organization-wide NXT inventory; add a validated, resumable source before claiming that coverage.
 
-Opening the report and reloading saved data read the app database only. Changing a fiscal year, search, sort, or filter uses the loaded results without an NXT request. Existing opportunity synchronization continues independently. No opportunity, gift, appeal, or fundraiser assignment is changed by this report.
+Opening the report and reloading saved data read the app database only. Changing a fiscal year, search, sort, filter, or exporting uses the loaded results without an NXT request. Explicitly opening an editor reads NXT; saving an edit or confirmed archive can update that opportunity. No gifts, appeals, fundraiser assignments, or local notes are changed.
 
 ## Using The Report
 
@@ -25,6 +25,19 @@ Opening the report and reloading saved data read the app database only. Changing
 - Needs FY / review keeps undated and identity-conflicted records accessible outside fiscal-year totals.
 - Search by constituent name, constituent ID, opportunity title, or fundraiser. Filter by fundraiser, stage, and closed outcome. Sort by expected date, largest ask, or constituent name.
 - Summary totals and the stage/outcome breakdown follow the current filters. Rows are paginated in groups of 25. Expand Details for saved timestamps, NXT linkage, close information, and shared-copy counts.
+- Export CSV downloads every matching row across all pages, in the selected sort order. It includes both IDs, owners, FY basis, amounts/dates, saved-check timestamps, and pending-sync status. Formula-like donor text is neutralized for spreadsheet imports. It is a saved-data export, not a new NXT query.
+
+## Editing And Archiving (Pending Deployment)
+
+- Admins can edit any verified linked opportunity and explicitly archive it. MGOs see the overall pipeline but may edit only opportunities with an actual saved copy in their own workspace, including joint copies. A user ID merely listed in joint metadata is not edit authority. Executive and Advancement Services roles alone remain read-only.
+- Expand Details > Edit opportunity. The editor loads current NXT values and checks both NXT identity and app revisions. The editable fields are title, stage/status, purpose, ask amount/date, expected date, and funded amount/date. Only changed fields are sent. Ask amount is independent of received revenue; funded fields do not create gifts.
+- Archive replaces permanent deletion: after confirmation, PATCH `inactive: true` in NXT and save `Archived` on all explicit app copies. History, local notes, gift links, and prospect ranking are retained. Reactivate an archived opportunity in NXT before editing it again here.
+- Unlinked or identity-conflicted records are held for linking/review in Top Prospects. This workflow never creates a new NXT opportunity or guesses identity. Existing dates/amounts cannot be cleared through this editor until SKY null-clearing behavior has been validated; clear those fields in NXT and reopen the editor instead.
+- `opportunity_change_receipts` records actor, operation, before-values, patch, and copy revisions before a write. `pipeline_change_id` locks each participating copy. Only one unresolved change per NXT opportunity is allowed. A database trigger also blocks older in-flight local editors from overwriting locked records.
+- NXT PATCH requests have zero automatic retries. After an uncertain result or delayed NXT read-back, Check sync status reads NXT without repeating the write. Only confirmed values update all linked copies, derived prospect amounts/status, dashboard caches, and summary freshness in one database statement. Saved summary payloads and contact caches are not deleted.
+- Revisions, ownership, constituent IDs, and opportunity links are checked again during finalization. If a database failure occurs, every local update rolls back and the receipt remains pending. There is no automatic expiry or blind resend of uncertain writes. A permanent mismatch, deleted record, or changed group requires administrator reconciliation; do not clear receipt locks as a generic retry strategy.
+- NXT and the app are not a single transaction. The preflight comparison detects changes since the editor opened, but cannot lock users editing directly in NXT between the preflight and PATCH. Read-back verification detects mismatches; it is not an NXT-wide optimistic-lock guarantee.
+- The current browser's cached queries are invalidated without starting new background NXT pulls. Other already-open browser tabs must reload their saved data. This is not live cross-tab push synchronization, and older editing paths have not all been replaced by this new workflow.
 
 ## Calculation Rules
 
@@ -53,8 +66,10 @@ If linked copies disagree on NXT constituent or opportunity identity, the combin
 - `apps/web/src/app/reports/opportunity-pipeline/page.jsx`: report controls, summaries, row details, and client-side pagination/filtering.
 - `apps/web/src/app/reports/opportunity-pipeline/pipeline.module.css`: responsive styling, with horizontal scrolling confined to the table on narrow screens.
 - `apps/web/src/app/api/utils/reportRegistry.js`: navigation and configuration metadata.
-- `apps/web/src/app/api/utils/reportAccess.js` and `apps/web/src/app/api/reports/configurations/route.js`: executive fallback if this report's settings are missing or invalid, including first title-only saves.
-- `apps/web/src/app/api/utils/ensureAppSchema.js`: idempotent default report configuration seed; existing configuration is preserved.
+- `apps/web/src/app/api/utils/reportAccess.js` and `apps/web/src/app/api/reports/configurations/route.js`: configurable report audience, default overall viewing with server-side ownership enforced separately for mutations.
+- `apps/web/src/app/api/reports/opportunity-pipeline/[id]/route.js`: GET editor, PATCH save, POST read-only NXT verification; authenticated actor rather than an acting-workspace cookie controls permission.
+- `apps/web/src/app/api/utils/pipelineOpportunity{Values,Store,Change}.js`: validation, identity grouping, revision checks, durable intent, bounded provider calls, and atomic local fanout.
+- `apps/web/src/app/api/utils/ensureAppSchema.js`: additive receipt table, pending-change marker, identity indexes, pending-write trigger, and untouched-seed audience migration.
 
 The endpoint bounds source reads at 20,001 rows and refuses reports exceeding 20,000 raw workspace copies, rather than returning misleading partial totals. Larger datasets require server-side paging with complete aggregation. The payload omits notes, email, and contact information.
 
@@ -62,7 +77,13 @@ The endpoint bounds source reads at 20,001 rows and refuses reports exceeding 20
 
 Unit/API/UI tests cover July rollover and Eastern midnight, expected/close-date precedence, missing dates, all archive outcomes, custom open stages, shared identity deduplication, conflicting IDs, missing amounts, permissions, sanitized failures, bounded reads, navigation configuration, filters, details, and pagination.
 
-Before release, verify the intended source scope. After deployment, check the report as Admin/Executive and a denied MGO, compare a known shared ask across workspaces, and verify one active and one closed record against saved opportunity details. Opening or filtering this report should not increment NXT requests. No production write or opportunity synchronization is needed for those checks.
+Before release, verify the intended source scope. After deployment, check Admin and MGO overall viewing, owner-only editing, Executive read-only behavior, and explicitly restricted report audiences. Compare a known shared ask across workspaces. Opening, filtering, or exporting must not increment NXT requests. With separate approval for one specific test opportunity, verify an edit, archive, and delayed-confirmation recovery against NXT and both app copies. Do not use real donor mutations merely for smoke testing.
+
+New tests include nonowner/role denial, cross-origin denial, stale NXT revisions, changed-field-only PATCH, non-retrying timeouts, read-only reconciliation, archive history retention, formula-safe full-result export, and editor confirmation. Disposable PostgreSQL tests execute the real claim/finalization SQL, verify all-or-nothing copy updates, block concurrent legacy updates, preserve ranking/notes, and roll back derived-cache failures. Synthetic desktop/mobile browser tests use fake data and stubbed provider responses only.
+
+Local verification on September 27: full regression suite passed, six disposable PostgreSQL transaction tests passed, and typecheck, production build, release guard, and diff checks passed. Desktop/mobile synthetic UI checks covered editing, CSV download, archive confirmation, read-only roles, keyboard dismissal, and narrow-screen containment. No live NXT writes or production deployment were performed for these enhancements.
+
+Release recovery: the new schema is additive. If rolling back application code, retain the receipt table and pending-write trigger. Resolve any pending changes using the new verifier or a separately reviewed reconciliation; dropping locks or audit rows can permit a duplicate/contradictory write. The old application cannot finish a pending new-style receipt by itself.
 
 ## JU Production Release
 

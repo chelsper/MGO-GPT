@@ -371,6 +371,7 @@ async function upsertProspectOpportunity({
         constituent_id = ${constituentId || null},
         updated_at = NOW()
       WHERE id = ${existingRows[0].id}
+        AND pipeline_change_id IS NULL AND opportunity_status <> 'Archived'
     `;
     return;
   }

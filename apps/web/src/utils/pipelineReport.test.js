@@ -27,6 +27,14 @@ describe("pipeline fiscal years", () => {
 });
 
 describe("saved pipeline model", () => {
+  it("grants editing only to actual workspace owners or Admins, not claimed joint IDs", () => {
+    const rows = [row(1, { joint_mgo_user_ids: [99] })];
+    for (const [role, id, canEdit, canArchive] of [["mgo", 1, true, false], ["mgo", 99, false, false], ["executive", 1, false, false], ["admin", 99, true, true]]) {
+      expect(buildPipelineReport(rows, [], now, { role, id }).opportunities[0]).toMatchObject({ canEdit, canArchive });
+    }
+    expect(build([row(1, { opportunity_status: "Archived", current_stage: "Funded", closed_amount: 800 })]).opportunities[0])
+      .toMatchObject({ status: "Archived", fundedAmount: 800 });
+  });
   it("includes all open stages and never substitutes the legacy prospect FY", () => {
     const report = build([row(1), row(2, { current_stage: "Custom open stage" }), row(3, { expected_date: null, expected_close_fy: "FY27", close_date: "2026-09-01" })]);
     expect(report.currentYear).toBe(2027);

@@ -108,7 +108,7 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     title: "Opportunity Pipeline",
     description: "Review saved opportunities across all workspaces by expected fiscal year, stage, and fundraiser, with closed and archived history separate.",
     audienceMode: "organization_pipeline",
-    defaultVisibility: "executive",
+    defaultVisibility: "all_users",
     dataConfigurationType: null,
     configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
     presentationNote: "Organization-wide saved app opportunities, not all opportunities in NXT. Shared opportunities count once. No NXT requests are made when this report opens.",

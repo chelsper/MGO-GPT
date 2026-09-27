@@ -26,14 +26,14 @@ describe.skipIf(!enabled)("linked opportunity PostgreSQL refresh", () => {
       CREATE TABLE prospects(id bigint PRIMARY KEY, user_id bigint, status text, ask_amount numeric, closed_amount numeric, close_date date, priority_order int, updated_at timestamptz);
       CREATE TABLE prospect_opportunities(id bigint PRIMARY KEY, prospect_id bigint, blackbaud_opportunity_id text, title text, purpose text,
         current_stage text, estimated_amount numeric, ask_date date, expected_date date, opportunity_status text, closed_amount numeric, close_date date,
-        latest_notes text, updated_at timestamptz, nxt_checked_at timestamptz, nxt_retry_after timestamptz);`);
+        latest_notes text, updated_at timestamptz, nxt_checked_at timestamptz, nxt_retry_after timestamptz, pipeline_change_id uuid);`);
   });
   beforeEach(() => {
     fixture.remote.mockReset().mockResolvedValue(remote);
     execute(`TRUNCATE users, prospects, prospect_opportunities;
       INSERT INTO users(id,blackbaud_summary_cache) VALUES (44,'{"old":true}');
       INSERT INTO prospects VALUES (7,44,'Active',10000,NULL,NULL,3,'2026-09-01T00:00:00Z');
-      INSERT INTO prospect_opportunities VALUES (301,7,'900','Old title','Campaign','Cultivation',10000,'2026-08-01','2027-05-31','Active',NULL,NULL,'Keep local notes','2026-09-01T00:00:00Z',NULL,NULL);`);
+      INSERT INTO prospect_opportunities VALUES (301,7,'900','Old title','Campaign','Cultivation',10000,'2026-08-01','2027-05-31','Active',NULL,NULL,'Keep local notes','2026-09-01T00:00:00Z',NULL,NULL,NULL);`);
   });
   it("refreshes existing values and totals without changing priority, notes, or activity dates", async () => {
     expect(await refreshLinkedProspectOpportunities(context)).toMatchObject({ changed: 1, checked: 1 });
