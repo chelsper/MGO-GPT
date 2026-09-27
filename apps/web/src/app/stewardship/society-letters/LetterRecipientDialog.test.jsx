@@ -57,6 +57,216 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("letter recipient review dialog", () => {
+  it("preselects the sole returned record and address without saving, fetching, or confirming", () => {
+    const fetcher = vi.spyOn(globalThis, "fetch");
+    const save = vi.fn();
+    const close = vi.fn();
+    const trackDraft = vi.fn();
+    const single = {
+      ...recipient,
+      members: ["10"],
+      recipientCandidates: [
+        {
+          ...recipient.recipientCandidates[0],
+          addressParts: {
+            address_line_1: "10 Test Street",
+            city: "Example City",
+            state: "FL",
+            zip: "00000",
+          },
+        },
+      ],
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={single}
+        template={{ version: "v1" }}
+        onSave={save}
+        onClose={close}
+        onDraftChange={trackDraft}
+      />,
+    );
+    expect(screen.getByLabelText("Recipient record")).toHaveValue(
+      "Alex Sample (ID 10)",
+    );
+    expect(screen.getByLabelText("Recipient record")).toHaveAttribute(
+      "readonly",
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Recipient record" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Alex Sample");
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Alex");
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      "10 Test Street",
+    );
+    expect(screen.getByLabelText("City")).toHaveValue("Example City");
+    expect(screen.getByLabelText("ZIP / postal code")).toHaveValue("00000");
+    expect(screen.getByLabelText("Email (optional)")).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Preview personalized letter" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed/ }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    ).toBeDisabled();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(trackDraft).toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(close).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByText("Keep draft and continue"),
+    ).not.toBeInTheDocument();
+  });
+  it("focuses the requested field directly for a sole record and still requires review to save", () => {
+    const save = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={{
+          ...recipient,
+          recipientCandidates: recipient.recipientCandidates.slice(0, 1),
+        }}
+        initialFocus="address"
+        onSave={save}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Mailing address")).toHaveFocus();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientConstituentId: "10",
+        addressConstituentId: "10",
+        email: "",
+        confirm: true,
+      }),
+    );
+    expect(recipient.members).toEqual(["10", "11"]);
+  });
+  it("preselects a sole foundation record but leaves its multiple contacts as a choice", () => {
+    const org = {
+      ...recipient,
+      recipientCandidates: [
+        {
+          ...recipient.recipientCandidates[0],
+          addressee: "Example Foundation",
+          salutation: "Foundation team",
+          organizationContacts: {
+            constituencyCodes: ["Foundation"],
+            contacts: [
+              { role: "Main contact", firstName: "Alex", lastName: "Contact" },
+              {
+                role: "Society letter contact",
+                firstName: "Pat",
+                lastName: "Contact",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={org}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Addressee")).toHaveValue(
+      "Example Foundation",
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Foundation team");
+    expect(screen.getByLabelText("Name this letter to")).toHaveValue("");
+    expect(
+      within(screen.getByLabelText("Name this letter to")).getAllByRole(
+        "option",
+      ),
+    ).toHaveLength(3);
+    expect(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    ).toBeDisabled();
+  });
+  it("preserves saved single-recipient wording and email rather than replacing them with defaults", () => {
+    render(
+      <LetterRecipientDialog
+        recipient={{
+          ...recipient,
+          recipientCandidates: recipient.recipientCandidates.slice(0, 1),
+          recipientReview: {
+            status: "saved",
+            values: {
+              recipientConstituentId: "10",
+              addressConstituentId: "10",
+              addressee: "Custom addressee",
+              salutation: "Custom greeting",
+              address: "Custom address",
+              email: "alex2@example.org",
+            },
+          },
+        }}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Custom addressee");
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Custom greeting");
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      "Custom address",
+    );
+    expect(screen.getByLabelText("Email (optional)")).toHaveValue(
+      "alex2@example.org",
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed/ }),
+    ).not.toBeChecked();
+  });
+  it("does not overwrite an intentionally blank restored draft with the sole candidate", () => {
+    const blank = {
+      recipientConstituentId: "",
+      addressConstituentId: "",
+      addressee: "",
+      salutation: "",
+      address: "",
+      email: "",
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={{
+          ...recipient,
+          recipientCandidates: recipient.recipientCandidates.slice(0, 1),
+        }}
+        draft={{ values: blank, initialValues: blank }}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Recipient record" }),
+    ).toHaveValue("");
+    expect(screen.queryByLabelText("Addressee")).not.toBeInTheDocument();
+  });
+  it("does not invent a recipient when no candidates were returned", () => {
+    render(
+      <LetterRecipientDialog
+        recipient={{ ...recipient, recipientCandidates: [] }}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Recipient record" }),
+    ).toHaveValue("");
+    expect(screen.queryByLabelText("Addressee")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    ).toBeDisabled();
+  });
   it("waits for an explicit recipient choice before focusing the requested address field", () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     const save = vi.fn();

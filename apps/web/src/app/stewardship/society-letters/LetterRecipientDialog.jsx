@@ -27,6 +27,29 @@ const blank = {
   email: "",
 };
 
+function candidateValues(candidate) {
+  return candidate
+    ? {
+        recipientConstituentId: candidate.constituentId,
+        addressConstituentId: candidate.constituentId,
+        addressee: candidate.addressee || "",
+        salutation: candidate.salutation || "",
+        address: candidate.address || "",
+        ...(candidate.addressParts
+          ? { addressParts: candidate.addressParts }
+          : {}),
+        email: "",
+      }
+    : blank;
+}
+
+function startingValues(recipient) {
+  if (recipient.recipientReview?.values)
+    return recipient.recipientReview.values;
+  const candidates = recipient.recipientCandidates || [];
+  return candidates.length === 1 ? candidateValues(candidates[0]) : blank;
+}
+
 export default function LetterRecipientDialog({
   recipient,
   busy,
@@ -53,7 +76,7 @@ export default function LetterRecipientDialog({
     Boolean(draft?.requiresComparison),
   );
   const [initialValues, setInitialValues] = useState(
-    draft?.initialValues || recipient.recipientReview?.values || blank,
+    () => draft?.initialValues || startingValues(recipient),
   );
   const [reviewToken, setReviewToken] = useState(
     draft?.reviewToken || recipient.recipientReview?.token,
@@ -62,7 +85,7 @@ export default function LetterRecipientDialog({
     draft?.baseVersion || reviewVersion(recipient),
   );
   const [values, setValues] = useState(
-    draft?.values || recipient.recipientReview?.values || blank,
+    () => draft?.values || startingValues(recipient),
   );
   const [comparison, setComparison] = useState(null);
   const [loadingSaved, setLoadingSaved] = useState(false);
@@ -118,7 +141,7 @@ export default function LetterRecipientDialog({
       (!reviewToken || reviewToken !== latest.recipientReview.token)
     )
       return;
-    const latestValues = latest.recipientReview.values || blank;
+    const latestValues = startingValues(latest);
     if (choice === "latest") setValues(latestValues);
     setInitialValues(latestValues);
     setReviewToken(latest.recipientReview.token);
@@ -190,21 +213,7 @@ export default function LetterRecipientDialog({
   }
   function chooseRecipient(id) {
     const selected = candidates.find((item) => item.constituentId === id);
-    setValues(
-      selected
-        ? {
-            recipientConstituentId: id,
-            addressConstituentId: id,
-            addressee: selected.addressee || "",
-            salutation: selected.salutation || "",
-            address: selected.address || "",
-            ...(selected.addressParts
-              ? { addressParts: selected.addressParts }
-              : {}),
-            email: "",
-          }
-        : blank,
-    );
+    setValues(candidateValues(selected));
     setConfirmed(false);
   }
   useEffect(() => {
@@ -346,8 +355,8 @@ export default function LetterRecipientDialog({
               {recipient.recipientReview?.status === "needs_review" && (
                 <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                   Membership, source settings, or recipient details changed
-                  since the last review. Choose again from the current saved
-                  query details.
+                  since the last review. Review the current saved query details
+                  again before saving.
                 </p>
               )}
               {!disabled && !candidate && (
@@ -387,30 +396,43 @@ export default function LetterRecipientDialog({
               <fieldset disabled={disabled} className="mt-5 space-y-4">
                 <label className="block text-sm font-semibold">
                   Recipient record
-                  <select
-                    ref={(element) => {
-                      fields.current.recipient = element;
-                    }}
-                    autoFocus
-                    required
-                    className={input}
-                    value={values.recipientConstituentId}
-                    onChange={(event) => chooseRecipient(event.target.value)}
-                  >
-                    <option value="">Choose a returned constituent</option>
-                    {candidates.map((item) => (
-                      <option
-                        key={item.constituentId}
-                        value={item.constituentId}
-                      >
-                        {labelFor(item)}
-                      </option>
-                    ))}
-                  </select>
+                  {candidates.length === 1 && candidate ? (
+                    <input
+                      ref={(element) => {
+                        fields.current.recipient = element;
+                      }}
+                      autoFocus
+                      readOnly
+                      className={`${input} bg-gray-50`}
+                      value={labelFor(candidate)}
+                    />
+                  ) : (
+                    <select
+                      ref={(element) => {
+                        fields.current.recipient = element;
+                      }}
+                      autoFocus
+                      required
+                      className={input}
+                      value={values.recipientConstituentId}
+                      onChange={(event) => chooseRecipient(event.target.value)}
+                    >
+                      <option value="">Choose a returned constituent</option>
+                      {candidates.map((item) => (
+                        <option
+                          key={item.constituentId}
+                          value={item.constituentId}
+                        >
+                          {labelFor(item)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </label>
                 <p className="text-xs text-gray-600">
-                  Changing the recipient resets the wording, address, and email
-                  selection below.
+                  {candidates.length === 1 && candidate
+                    ? "Only one constituent was returned, so this record is selected. Review the letter details below."
+                    : "Changing the recipient resets the wording, address, and email selection below."}
                 </p>
                 <details className="text-xs text-gray-500">
                   <summary className="min-h-11 cursor-pointer py-3 font-semibold">

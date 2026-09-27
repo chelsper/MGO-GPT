@@ -145,9 +145,6 @@ describe("society letter workspace", () => {
     fireEvent.change(screen.getByLabelText("Go to recipient"), {
       target: { value: "1" },
     });
-    fireEvent.change(screen.getByLabelText("Recipient record"), {
-      target: { value: "20" },
-    });
     fireEvent.change(screen.getByLabelText("Salutation"), {
       target: { value: "Private draft greeting" },
     });
@@ -190,16 +187,18 @@ describe("society letter workspace", () => {
     fireEvent.change(screen.getByLabelText("Go to recipient"), {
       target: { value: "1" },
     });
-    fireEvent.change(screen.getByLabelText("Recipient record"), {
-      target: { value: "20" },
-    });
     view.unmount();
     const next = render(<Page />);
     fireEvent.click(
       await screen.findByRole("button", { name: "Resume review" }),
     );
     expect(screen.getByText(/Recipient 2 of 2/)).toBeVisible();
-    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+    expect(screen.getByLabelText("Recipient record")).toHaveValue(
+      "Recipient 20 (ID 20)",
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed/ }),
+    ).not.toBeChecked();
     next.unmount();
     rows = [];
     render(<Page />);
@@ -321,9 +320,6 @@ describe("society letter workspace", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Review recipients in bulk" }),
     );
-    fireEvent.change(screen.getByLabelText("Recipient record"), {
-      target: { value: "10" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Choose email" }));
     expect(screen.getByLabelText("Email for this letter")).toHaveFocus();
     expect(
@@ -750,9 +746,9 @@ describe("society letter workspace", () => {
       await screen.findByRole("button", { name: "Review recipients in bulk" }),
     );
     expect(screen.getByText(/Recipient 1 of 3/)).toBeVisible();
-    fireEvent.change(screen.getByLabelText("Recipient record"), {
-      target: { value: "10" },
-    });
+    expect(screen.getByLabelText("Recipient record")).toHaveValue(
+      "Recipient 10 (ID 10)",
+    );
     fireEvent.change(screen.getByLabelText("Salutation"), {
       target: { value: "Edited greeting" },
     });
@@ -785,7 +781,9 @@ describe("society letter workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     await screen.findByText(/Recipient 3 of 3/);
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
-    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+    expect(screen.getByLabelText("Recipient record")).toHaveValue(
+      "Recipient 20 (ID 20)",
+    );
     fireEvent.change(screen.getByLabelText("Go to recipient"), {
       target: { value: "0" },
     });
@@ -793,9 +791,9 @@ describe("society letter workspace", () => {
     fireEvent.change(screen.getByLabelText("Go to recipient"), {
       target: { value: "2" },
     });
-    fireEvent.change(screen.getByLabelText("Recipient record"), {
-      target: { value: "30" },
-    });
+    expect(screen.getByLabelText("Recipient record")).toHaveValue(
+      "Recipient 30 (ID 30)",
+    );
     fireEvent.click(
       screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
     );
@@ -811,7 +809,9 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: "Review recipients in bulk" }),
     );
     expect(screen.getByText(/Recipient 1 of 1/)).toBeVisible();
-    expect(screen.getByLabelText("Recipient record")).toHaveValue("");
+    expect(screen.getByLabelText("Recipient record")).toHaveValue(
+      "Recipient 20 (ID 20)",
+    );
   });
   it("caps review at 50, supports already-reviewed recipients, and respects search", async () => {
     const rows = Array.from({ length: 52 }, (_, i) =>
@@ -890,9 +890,9 @@ describe("society letter workspace", () => {
       }),
     );
     const dialog = within(screen.getByRole("dialog"));
-    fireEvent.change(dialog.getByLabelText("Recipient record"), {
-      target: { value: "10" },
-    });
+    expect(dialog.getByLabelText("Recipient record")).toHaveValue(
+      "Alex Sample (ID 10)",
+    );
     fireEvent.click(dialog.getByRole("checkbox"));
     fireEvent.click(
       dialog.getByRole("button", { name: "Save recipient choices" }),
