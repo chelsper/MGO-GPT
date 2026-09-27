@@ -101,6 +101,67 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("persists each letter appeal receipt across leases without altering its frozen letter", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const delivery = item({
+      members: ["10", "11"],
+      addressee: "Alex and Pat",
+      letterAppeals: {
+        status: "pending",
+        members: [
+          { id: "10", status: "pending" },
+          { id: "11", status: "pending" },
+        ],
+      },
+    });
+    await store.reserve([delivery]);
+    delivery.letterAppeals.members[0].status = "uncertain";
+    delivery.addressee = "MUST NOT CHANGE";
+    await store.saveLetterAppeals(delivery);
+    await store.release();
+    const saved = await readSocietyLetterState();
+    expect(saved.history[0].addressee).toBe("Alex and Pat");
+    expect(saved.history[0].letterAppeals.members[0].status).toBe("uncertain");
+    const next = await acquireSocietyLetters(1, saved.revision);
+    await expect(store.saveLetterAppeals(delivery)).rejects.toMatchObject({
+      status: 409,
+    });
+    delivery.letterAppeals.members[0].status = "verified";
+    await next.saveLetterAppeals(delivery);
+    await next.release();
+    expect(
+      (await readSocietyLetterState()).history[0].letterAppeals.members[0]
+        .status,
+    ).toBe("verified");
+  });
+  it("does not mail partial appeal updates or cancel NXT-linked letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const delivery = item({
+      letterAppeals: {
+        status: "pending",
+        members: [{ id: "10", status: "pending" }],
+      },
+    });
+    await store.reserve([delivery]);
+    await expect(
+      store.finishBatch(delivery.batchId, "mailed"),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      store.finishBatch(delivery.batchId, "cancelled"),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await readSocietyLetterState()).history[0].status).toBe("prepared");
+    delivery.letterAppeals = {
+      status: "complete",
+      members: [{ id: "10", status: "verified" }],
+    };
+    await store.saveLetterAppeals(delivery);
+    await store.finishBatch(delivery.batchId, "mailed");
+    await expect(store.saveLetterAppeals(delivery)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await readSocietyLetterState()).history[0].status).toBe("mailed");
+    await store.release();
+  });
   it("keeps an uncertain exclusion POST across lease release and later acquisition", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const state = await readSocietyLetterState();

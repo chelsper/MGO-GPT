@@ -26,7 +26,19 @@ const mocks = vi.hoisted(() => ({
   recipientPreview: vi.fn(),
   samplePreview: vi.fn(),
   definitions: vi.fn(),
+  finalPreview: vi.fn(),
+  finalize: vi.fn(),
+  letterSync: vi.fn(),
 }));
+vi.mock(
+  "@/app/api/utils/societyLetterFinalization",
+  async (importOriginal) => ({
+    ...(await importOriginal()),
+    previewFinalPostalLetter: mocks.finalPreview,
+    finalizePostalLetter: mocks.finalize,
+    syncLetterAppeals: mocks.letterSync,
+  }),
+);
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
@@ -115,6 +127,132 @@ beforeEach(() => {
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it.each([
+    "preview_final_postal",
+    "finalize_postal",
+    "verify_letter_appeals",
+    "continue_letter_appeals",
+  ])(
+    "restricts %s to authorized reviewers and current revisions",
+    async (action) => {
+      mocks.workspace.mockResolvedValue({
+        sessionUser: { id: 1, role: "mgo", active: true },
+      });
+      expect((await POST(request({ action, revision: 3 }))).status).toBe(403);
+      mocks.workspace.mockResolvedValue({
+        sessionUser: { id: 1, role: "admin", active: true },
+      });
+      expect((await POST(request({ action }))).status).toBe(400);
+      expect(
+        (
+          await POST(
+            request(
+              { action, revision: 3 },
+              { Origin: "https://other.example" },
+            ),
+          )
+        ).status,
+      ).toBe(403);
+      mocks.acquire.mockRejectedValueOnce(
+        Object.assign(new Error("Changed"), { status: 409 }),
+      );
+      expect((await POST(request({ action, revision: 3 }))).status).toBe(409);
+      expect(mocks.finalize).not.toHaveBeenCalled();
+      expect(mocks.letterSync).not.toHaveBeenCalled();
+    },
+  );
+  it("returns a final confirmation without invoking the writer", async () => {
+    mocks.finalPreview.mockReturnValue({
+      token: "final",
+      row: { members: ["10", "11"] },
+    });
+    const response = await POST(
+      request({
+        action: "preview_final_postal",
+        revision: 3,
+        householdId: "10",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      finalPreview: { token: "final" },
+    });
+    expect(mocks.finalize).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+  it("dispatches finalization and recovery separately from preview and email", async () => {
+    mocks.finalize.mockResolvedValue("new-batch");
+    const response = await POST(
+      request({
+        action: "finalize_postal",
+        revision: 3,
+        confirm: true,
+        previewToken: "final",
+        householdId: "10",
+      }),
+    );
+    expect(await response.json()).toMatchObject({ batchId: "new-batch" });
+    expect(mocks.finalize).toHaveBeenCalledTimes(1);
+    expect(mocks.send).not.toHaveBeenCalled();
+    await POST(
+      request({
+        action: "verify_letter_appeals",
+        revision: 3,
+        deliveryId: "one",
+      }),
+    );
+    expect(mocks.letterSync.mock.calls[0][3]).toMatchObject({
+      action: "verify_letter_appeals",
+      deliveryId: "one",
+    });
+    expect(mocks.finalize).toHaveBeenCalledTimes(1);
+  });
+  it("blocks downloads, mailed status, and cancellation while member updates are incomplete", async () => {
+    mocks.read.mockResolvedValue({
+      history: [
+        {
+          id: "one",
+          batchId: "batch",
+          channel: "post",
+          status: "prepared",
+          letterAppeals: {
+            status: "needs_review",
+            members: [{ id: "10", status: "uncertain" }],
+          },
+        },
+      ],
+    });
+    expect((await GET(new Request(`${url}?download=batch`))).status).toBe(409);
+    expect(
+      (await GET(new Request(`${url}?download=batch&deliveryId=one`))).status,
+    ).toBe(409);
+    expect(
+      (
+        await POST(
+          request({
+            action: "mailed",
+            batchId: "batch",
+            confirm: true,
+            revision: 3,
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await POST(
+          request({
+            action: "cancel",
+            batchId: "batch",
+            confirm: true,
+            revision: 3,
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(mocks.finish).not.toHaveBeenCalled();
+  });
   it.each(["admin", "advancement_services"])(
     "lets %s load choices without a revision, state read, or mutation lease",
     async (role) => {
@@ -623,7 +761,10 @@ describe("stewardship API authorization and delivery boundaries", () => {
     const response = await GET(new Request(url));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(await response.json()).toMatchObject({ reviewerId: "1", revision: 3 });
+    expect(await response.json()).toMatchObject({
+      reviewerId: "1",
+      revision: 3,
+    });
     expect(mocks.acquire).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
   });

@@ -77,6 +77,13 @@ function policyProblem(state, definitions, today) {
   return null;
 }
 
+export function letterReadinessIssue(state, definitions, today) {
+  return (
+    sourceProblem(state, definitions, today) ||
+    policyProblem(state, definitions, today)
+  );
+}
+
 function inputs(state, definitions, row, channel) {
   const recipient = recipientReviewForRow(
     state,

@@ -37,6 +37,12 @@ import {
 } from "@/app/api/utils/societyLetterReadiness";
 import { letterError, letterPeriod } from "@/utils/societyLetters";
 import {
+  previewFinalPostalLetter,
+  finalizePostalLetter,
+  syncLetterAppeals,
+  assertLetterAppealsComplete,
+} from "@/app/api/utils/societyLetterFinalization";
+import {
   saveExclusionAppealPolicy,
   prepareExclusionAppeal,
   syncExclusionAppeal,
@@ -128,6 +134,7 @@ export async function GET(request) {
       if (deliveryId) {
         const item = items.find((item) => item.id === deliveryId);
         if (!item) throw letterError("Prepared letter not found.", 404);
+        assertLetterAppealsComplete([item]);
         return new Response(
           renderSocietyLetter(
             state.templates[item.templateVersion],
@@ -145,6 +152,7 @@ export async function GET(request) {
           },
         );
       }
+      assertLetterAppealsComplete(items);
       return new Response(letterArchive(items, state.templates), {
         headers: {
           ...headers,
@@ -294,6 +302,11 @@ export async function POST(request) {
       "exclusion_appeal_settings",
       "sync_exclusion_appeal",
       "verify_exclusion_appeal",
+      "preview_final_postal",
+      "preview_final_postal_document",
+      "finalize_postal",
+      "verify_letter_appeals",
+      "continue_letter_appeals",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -301,6 +314,64 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "preview_final_postal":
+        return json({
+          finalPreview: previewFinalPostalLetter(
+            state,
+            ctx.definitions,
+            ctx.today,
+            body,
+          ),
+        });
+      case "preview_final_postal_document": {
+        const preview = previewFinalPostalLetter(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+        );
+        if (preview.token !== body.previewToken)
+          throw letterError(
+            "Letter details changed. Reload the final confirmation.",
+            409,
+          );
+        const rendered = renderSocietyLetter(
+          state.templates[preview.row.templateVersion],
+          preview.row,
+          ctx.today,
+        );
+        return new Response(rendered.document, {
+          headers: {
+            ...headers,
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Content-Disposition":
+              'attachment; filename="society-letter-draft.docx"',
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
+      }
+      case "finalize_postal":
+        batchId = await finalizePostalLetter(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "verify_letter_appeals":
+      case "continue_letter_appeals":
+        await syncLetterAppeals(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
       case "exclusion_appeal_settings":
         await saveExclusionAppealPolicy(
           state,
@@ -482,6 +553,15 @@ export async function POST(request) {
           items.some((item) => item.channel !== "post")
         )
           throw letterError("Only postal batches can be marked mailed.");
+        if (body.action === "mailed") assertLetterAppealsComplete(items);
+        if (
+          body.action === "cancel" &&
+          items.some((item) => item.letterAppeals)
+        )
+          throw letterError(
+            "This letter has reserved NXT appeal updates and cannot be released automatically. Verify its history first; no NXT history is deleted.",
+            409,
+          );
         await store.finishBatch(
           body.batchId,
           body.action === "mailed" ? "mailed" : "cancelled",

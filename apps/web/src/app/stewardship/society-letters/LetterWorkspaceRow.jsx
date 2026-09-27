@@ -25,6 +25,7 @@ export default function LetterWorkspaceRow({
   onReview,
   onReadiness,
   onExclude,
+  onFinalize,
   sourceIssue,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -129,6 +130,19 @@ export default function LetterWorkspaceRow({
             )}
         </td>
         <td className="p-3">
+          {onFinalize &&
+            channel === "post" &&
+            view.reviewed &&
+            readiness?.status === "ready_for_preview" && (
+              <button
+                className={`${button} mb-2 !border-emerald-700 text-emerald-800`}
+                disabled={reviewDisabled}
+                aria-label={`Create final postal letter for ${row.name}`}
+                onClick={onFinalize}
+              >
+                Create final letter
+              </button>
+            )}
           {row.recipientCandidates && (
             <button
               className={button}

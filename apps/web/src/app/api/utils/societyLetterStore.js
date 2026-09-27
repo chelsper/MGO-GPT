@@ -110,12 +110,29 @@ export async function acquireSocietyLetters(userId, revision) {
       item.status = toStatus;
       item.providerId = providerId;
     },
+    async saveLetterAppeals(item) {
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ) UPDATE stewardship_letter_deliveries
+        SET payload = jsonb_set(payload, '{letterAppeals}', ${JSON.stringify(item.letterAppeals)}::jsonb),
+          updated_by = ${userId}, updated_at = NOW()
+        WHERE id = ${item.id}::uuid AND status = 'prepared' AND payload ? 'letterAppeals'
+          AND EXISTS(SELECT 1 FROM lock) RETURNING id`;
+      if (!rows.length)
+        throw letterError(
+          "The letter update could not be saved. Reload history and verify NXT status; do not create another letter.",
+          409,
+        );
+    },
     async finishBatch(batchId, status) {
       const rows = await sql`WITH lock AS (
         UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
         WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
       ) UPDATE stewardship_letter_deliveries SET status = ${status}, updated_by = ${userId}, updated_at = NOW()
         WHERE batch_id = ${batchId}::uuid AND status IN ('prepared', 'pending_email')
+          AND (NOT (payload ? 'letterAppeals') OR
+            (${status === "mailed"} AND payload#>>'{letterAppeals,status}' = 'complete'))
           AND (${status === "cancelled"} OR payload->>'channel' = 'post') AND EXISTS(SELECT 1 FROM lock) RETURNING id`;
       if (!rows.length)
         throw letterError(

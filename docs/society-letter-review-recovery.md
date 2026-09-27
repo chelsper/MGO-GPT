@@ -56,4 +56,12 @@ mobile QA confirmed comparison, preserved wording, close/resume without
 approval, and explicit save advancing to the next recipient. The temporary
 preview server was stopped and viewport overrides reset afterward.
 
-Step 5 remains local and is not included in the step 4/invitation deployments.
+Step 5 deployed to JU production on September 25: commit
+`c770906c5216dc4d076761ce0814d56c47c723f5`, deployment
+`dpl_Gh4Syh9WtE4TqxXjMoUGtZGxnD82`. The production alias and client assets
+verified against the exact commit. No sandbox deployment was requested.
+
+Step 6 remains pending: the final batch summary with society counts, joint and
+single recipients, skipped recipients, exact appeals, and distinct Prepared,
+Mailed, and Email sent outcomes. Letter-sent appeal finalization is a separate
+follow-up and was not included in the step 5 release.

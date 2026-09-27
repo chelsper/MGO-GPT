@@ -8,6 +8,7 @@ import {
   CONSTITUENT_LETTER_COLUMNS,
   CONSTITUENT_LETTER_LABELS,
   isLetterPreviewSource,
+  CONSTITUENT_LETTER_PREVIEW_NOTICE,
   normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
 import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
@@ -25,6 +26,9 @@ import LetterReadinessPanel, {
 } from "./LetterReadinessPanel";
 import LetterWorkspaceFilters from "./LetterWorkspaceFilters";
 import LetterWorkspaceRow from "./LetterWorkspaceRow";
+import FinalPostalLetterDialog, {
+  LetterAppealStatus,
+} from "./FinalPostalLetterDialog";
 import {
   ATTENTION_FILTERS,
   letterReviewCounts,
@@ -397,6 +401,7 @@ export default function SocietyLettersPage() {
     [search, setSearch] = useState("");
   const [preview, setPreview] = useState(null),
     [confirmation, setConfirmation] = useState(null);
+  const [finalPreview, setFinalPreview] = useState(null);
   const [receiptIds, setReceiptIds] = useState({});
   const [societyFilter, setSocietyFilter] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
@@ -507,7 +512,8 @@ export default function SocietyLettersPage() {
           setReviewConflict(true);
         throw new Error(payload.error || "This operation could not finish.");
       }
-      if (payload.preview) setPreview(payload.preview);
+      if (payload.finalPreview) setFinalPreview(payload.finalPreview);
+      else if (payload.preview) setPreview(payload.preview);
       else {
         accept(payload);
         setPreview(null);
@@ -917,7 +923,12 @@ export default function SocietyLettersPage() {
               />
               {data.sourceIssue && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p>{data.sourceIssue}</p>
+                  <p>
+                    {data.settings?.sourceMode === "society_queries" &&
+                    data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
+                      ? "Review recipients, then run postal delivery checks. When checks pass, use Create final letter to preview the letter and confirm its appeal for every household member. Bulk creation and email delivery are not enabled for these query lists."
+                      : data.sourceIssue}
+                  </p>
                   {(!data.settings || !data.refreshedAt) && (
                     <button
                       className={`${button} mt-3`}
@@ -1209,6 +1220,15 @@ export default function SocietyLettersPage() {
                             channel={channel}
                             definitions={data.definitions}
                             sourceIssue={data.sourceIssue}
+                            onFinalize={
+                              data.settings?.sourceMode === "society_queries"
+                                ? () =>
+                                    act({
+                                      action: "preview_final_postal",
+                                      householdId: row.householdId,
+                                    })
+                                : undefined
+                            }
                             checked={selected.includes(row.householdId)}
                             selectionDisabled={
                               busy ||
@@ -1370,9 +1390,8 @@ export default function SocietyLettersPage() {
                     <div>
                       <h2 className="text-lg font-bold">
                         {batch.items.length}{" "}
-                        {batch.channel === "post"
-                          ? "postal letters"
-                          : "email letters"}
+                        {batch.channel === "post" ? "postal" : "email"}{" "}
+                        {batch.items.length === 1 ? "letter" : "letters"}
                       </h2>
                       <p className="mt-1 text-sm text-gray-500">
                         Prepared {new Date(batch.date).toLocaleString()}
@@ -1383,6 +1402,14 @@ export default function SocietyLettersPage() {
                         batch.items.some((i) => i.status !== "cancelled") && (
                           <button
                             className={button}
+                            disabled={
+                              busy ||
+                              batch.items.some(
+                                (i) =>
+                                  i.letterAppeals &&
+                                  i.letterAppeals.status !== "complete",
+                              )
+                            }
                             onClick={() => downloadBatch(batch.id)}
                           >
                             Download Word letters (.zip)
@@ -1392,7 +1419,14 @@ export default function SocietyLettersPage() {
                         batch.items.some((i) => i.status === "prepared") && (
                           <button
                             className={primary}
-                            disabled={busy}
+                            disabled={
+                              busy ||
+                              batch.items.some(
+                                (i) =>
+                                  i.letterAppeals &&
+                                  i.letterAppeals.status !== "complete",
+                              )
+                            }
                             onClick={() =>
                               setConfirmation({
                                 action: "mailed",
@@ -1429,28 +1463,38 @@ export default function SocietyLettersPage() {
                             : "Send queued emails"}
                         </button>
                       )}
-                      {batch.items.some((i) =>
-                        ["prepared", "pending_email"].includes(i.status),
-                      ) && (
-                        <button
-                          className={button}
-                          disabled={busy || !!sendingBatch}
-                          onClick={() =>
-                            setConfirmation({
-                              action: "cancel",
-                              batchId: batch.id,
-                              title: "Cancel the remaining unsent letters?",
-                              description:
-                                "Confirm the queued or prepared letters have not been sent or mailed. Only their reservations will be released. Submitted and uncertain emails remain protected, and history is retained.",
-                            })
-                          }
-                        >
-                          Cancel unsent letters
-                        </button>
-                      )}
+                      {!batch.items.some((i) => i.letterAppeals) &&
+                        batch.items.some((i) =>
+                          ["prepared", "pending_email"].includes(i.status),
+                        ) && (
+                          <button
+                            className={button}
+                            disabled={busy || !!sendingBatch}
+                            onClick={() =>
+                              setConfirmation({
+                                action: "cancel",
+                                batchId: batch.id,
+                                title: "Cancel the remaining unsent letters?",
+                                description:
+                                  "Confirm the queued or prepared letters have not been sent or mailed. Only their reservations will be released. Submitted and uncertain emails remain protected, and history is retained.",
+                              })
+                            }
+                          >
+                            Cancel unsent letters
+                          </button>
+                        )}
                     </div>
                   </div>
-                  <details className="mt-4">
+                  <details
+                    className="mt-4"
+                    open={
+                      batch.items.some(
+                        (i) =>
+                          i.letterAppeals &&
+                          i.letterAppeals.status !== "complete",
+                      ) || undefined
+                    }
+                  >
                     <summary className="cursor-pointer text-sm font-semibold">
                       Recipients and acknowledgment coverage
                     </summary>
@@ -1459,8 +1503,28 @@ export default function SocietyLettersPage() {
                         <li key={item.id} className="border-t pt-3 text-sm">
                           <p>
                             <strong>{item.name}</strong> / {item.societyName} /{" "}
-                            {labels[item.status]}
+                            {item.letterAppeals &&
+                            item.letterAppeals.status !== "complete"
+                              ? "Reserved: appeal updates need attention"
+                              : labels[item.status]}
                           </p>
+                          <LetterAppealStatus
+                            item={item}
+                            busy={busy}
+                            onVerify={() =>
+                              act({
+                                action: "verify_letter_appeals",
+                                deliveryId: item.id,
+                              })
+                            }
+                            onContinue={() =>
+                              act({
+                                action: "continue_letter_appeals",
+                                deliveryId: item.id,
+                                confirm: true,
+                              })
+                            }
+                          />
                           <p className="mt-1 text-gray-500">
                             {item.period.start} through {item.period.end}.{" "}
                             {item.channel === "email"
@@ -1503,6 +1567,11 @@ export default function SocietyLettersPage() {
                             item.status !== "cancelled" && (
                               <button
                                 className={`${button} mt-2`}
+                                disabled={
+                                  busy ||
+                                  (!!item.letterAppeals &&
+                                    item.letterAppeals.status !== "complete")
+                                }
                                 onClick={() => downloadBatch(batch.id, item.id)}
                               >
                                 Download this Word letter
@@ -1825,7 +1894,7 @@ export default function SocietyLettersPage() {
                         Constituents with spouse IDs (preview only)
                       </option>
                       <option value="society_queries">
-                        Separate query for each society (preview only)
+                        Separate query for each society
                       </option>
                     </select>
                   </label>
@@ -2092,6 +2161,27 @@ export default function SocietyLettersPage() {
                 </p>
               </form>
             </>
+          )}
+          {finalPreview && (
+            <FinalPostalLetterDialog
+              preview={finalPreview}
+              revision={data.revision}
+              busy={busy}
+              error={error}
+              onClose={() => setFinalPreview(null)}
+              onConfirm={async () => {
+                const result = await act({
+                  action: "finalize_postal",
+                  householdId: finalPreview.row.householdId,
+                  previewToken: finalPreview.token,
+                  confirm: true,
+                });
+                if (result) {
+                  setFinalPreview(null);
+                  setTab("history");
+                }
+              }}
+            />
           )}
           {confirmation && (
             <BatchConfirmation

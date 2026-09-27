@@ -80,13 +80,17 @@ export function exclusionAppealWorkspace(state, definitions, today) {
 
 // The Data Integration create endpoint resolves appeals by description, not ID.
 // Revalidate that the exact description is unique before any constituent write.
-export function exclusionAppealClient(ctx, fetcher = blackbaudApiFetch) {
+export function exclusionAppealClient(
+  ctx,
+  fetcher = blackbaudApiFetch,
+  recoveryArea = "Excluded",
+) {
   let calls = 0;
   const deadline = Date.now() + 75000;
   async function request(path, method = "GET", body) {
     if (++calls > 16 || Date.now() > deadline)
       throw letterError(
-        "NXT check paused. Continue from Excluded; no automatic resubmission will occur.",
+        `NXT check paused. Continue from ${recoveryArea}; no automatic resubmission will occur.`,
       );
     return fetcher(path, {
       userId: ctx.user.id,
