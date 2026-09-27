@@ -1,5 +1,8 @@
 "use client";
 
+import DashboardAssistantSettings from "@/components/DashboardAssistantSettings";
+import { normalizeDashboardAssistant } from "@/utils/dashboardAssistantSettings";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
 import SetupReturnLink from "@/components/SetupReturnLink";
@@ -127,6 +130,7 @@ function normalizeInstitutionSettingsForForm(settings) {
     shortName: settings?.shortName || "",
     applicationName: settings?.applicationName || "",
     logoDataUrl: settings?.logoDataUrl || null,
+    dashboardAssistant: normalizeDashboardAssistant(settings?.dashboardAssistant),
     advancementServicesNotificationEmail:
       settings?.advancementServicesNotificationEmail || "devdata@ju.edu",
     notificationSenderName: settings?.notificationSenderName || "JUMGOGPT",
@@ -699,6 +703,7 @@ export default function OrganizationConfigurationsPage() {
           <OrganizationConfigurationStatus policy={reportingPolicy} history={settingsHistory} />
           <fieldset disabled={institutionSettingsSaving || !institutionSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <OrganizationLogoEditor value={institutionSettings?.logoDataUrl} shortName={institutionSettings?.shortName || "JU"} disabled={institutionSettingsSaving || settingsReloadNeeded || !institutionSettings} onChange={(logoDataUrl) => updateInstitutionSettings({ logoDataUrl })} onBusyChange={setLogoPreparing} />
+          <DashboardAssistantSettings value={institutionSettings?.dashboardAssistant} disabled={institutionSettingsSaving || settingsReloadNeeded || !institutionSettings} onChange={dashboardAssistant => updateInstitutionSettings({ dashboardAssistant })} />
           <div
             id="notification-delivery"
             className="scroll-mt-24"

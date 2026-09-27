@@ -2582,6 +2582,18 @@ export default async function ensureAppSchema() {
       BEGIN
         PERFORM pg_advisory_xact_lock(734019, 3);
         ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS logo_data_url TEXT;
+        ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS dashboard_assistant JSONB;
+        CREATE TABLE IF NOT EXISTS dashboard_priority_preferences (
+          viewer_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          item_key TEXT NOT NULL,
+          item_revision TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('dismissed', 'snoozed')),
+          snooze_until DATE,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (viewer_user_id, workspace_user_id, item_key),
+          CHECK ((state = 'snoozed' AND snooze_until IS NOT NULL) OR (state = 'dismissed' AND snooze_until IS NULL))
+        );
         CREATE TABLE IF NOT EXISTS organization_settings_audits (
           id BIGSERIAL PRIMARY KEY,
           actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,

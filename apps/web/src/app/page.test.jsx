@@ -15,6 +15,7 @@ vi.mock("@/utils/useWorkspaceView", () => ({
   default: () => ({ isReviewerView: state.reviewer, isMgoView: !state.reviewer, isAdmin: state.role?.split(",").includes("admin"), effectiveRole: state.reviewer ? "reviewer" : "mgo", setViewMode: state.setViewMode }),
 }));
 vi.mock("@tanstack/react-query", () => ({
+  useMutation: () => ({}),
   useQueryClient: () => ({ setQueryData: state.setQueryData }),
   useQuery: (options) => {
     state.queries[options.queryKey[0]] = options;
@@ -49,6 +50,21 @@ beforeEach(() => {
 });
 
 describe("Home workspace switching presentation", () => {
+  it("shows the helper only in a resolved personal workspace, never the reviewer view", async () => {
+    state.role = "admin";
+    await render();
+    expect(container.querySelector('.dashboard-assistant')).toBeNull();
+    state.reviewer = false;
+    state.actingStatus = null;
+    await render();
+    expect(container.querySelector('.dashboard-assistant')).toBeNull();
+    state.actingStatus = { actingUser: state.mgoUsers[0] };
+    await render();
+    expect(state.queries["dashboard-priorities"]).toMatchObject({ queryKey: ["dashboard-priorities", "7", "9"], enabled: false });
+    state.workspaceFailed = true;
+    await render();
+    expect(container.querySelector('.dashboard-assistant')).toBeNull();
+  });
   it.each(["admin", "mgo,admin"])("keeps %s controls compact without new reads or changing query enablement", async role => {
     state.role = role;
     state.reviewer = false;
@@ -238,7 +254,8 @@ describe("Home configured terminology", () => {
       expect(container.querySelector('#home-workspace-owner')).toHaveValue("9");
     }
     expect(Object.keys(state.queries)).toEqual(originalQueries);
-    expect(originalQueries.sort()).toEqual(["acting-workspace-status", "app-shell-worklist", "workspace-mgo-users"]);
+    expect(originalQueries.sort()).toEqual(["acting-workspace-status", "app-shell-worklist", "dashboard-priorities", "workspace-mgo-users"]);
+    expect(state.queries["dashboard-priorities"].enabled).toBe(false);
     expect(state.options).toMatchObject({ queryKey: ["app-shell-worklist", 7, "mgo"], refetchInterval: false });
     expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/users/profile");
     expect(state.setViewMode).not.toHaveBeenCalled();

@@ -66,6 +66,18 @@ it("does not accept arbitrary query IDs or invalid label payloads", async () => 
   expect(sql).not.toHaveBeenCalled();
 });
 
+it("preserves helper settings for older clients and audits explicit helper changes", async () => {
+  const assistant = { enabled: false, name: "Guide", avatar: "compass" };
+  sql.mockResolvedValueOnce([{ ...defaults, dashboardAssistant: assistant, revision }]);
+  const { dashboardAssistant, ...legacy } = defaults;
+  await save({ ...legacy, applicationName: "New title" });
+  expect(sql.mock.calls[1]).toContain(JSON.stringify(assistant));
+  expect(sql.mock.calls[1]).toContain(JSON.stringify(["applicationName"]));
+  sql.mockClear();
+  await save({ ...defaults, dashboardAssistant: assistant });
+  expect(sql.mock.calls[1]).toContain(JSON.stringify(["dashboardAssistant"]));
+});
+
 it("audits logo changes and preserves logos when an older client omits the field", async () => {
   const logo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVh0AAAAASUVORK5CYII=";
   sql.mockResolvedValueOnce([{ ...defaults, logo_data_url:logo, revision }]);

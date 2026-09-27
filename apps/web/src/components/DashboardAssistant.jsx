@@ -1,0 +1,95 @@
+import { useId, useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useDashboardAssistantSettings } from "./WorkspaceTerminology";
+import DashboardAssistantAvatar from "./DashboardAssistantAvatar";
+import { formatCalendarDate } from "@/utils/prospectActivity";
+import "./DashboardAssistant.css";
+
+export default function DashboardAssistant({ viewerId, workspaceId }) {
+  const settings = useDashboardAssistantSettings();
+  // A scope change unmounts all open panels, cached notices, and in-flight UI.
+  if (!settings.enabled || !viewerId || !workspaceId) return null;
+  return <AssistantPanel key={`${viewerId}:${workspaceId}`} viewerId={String(viewerId)} workspaceId={String(workspaceId)} settings={settings} />;
+}
+
+function AssistantPanel({ viewerId, workspaceId, settings }) {
+  const [open, setOpen] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const [limit, setLimit] = useState(5);
+  const [notice, setNotice] = useState("");
+  const id = useId();
+  const heading = useRef(null);
+  const url = `/api/dashboard-priorities?workspaceId=${encodeURIComponent(workspaceId)}`;
+  const query = useQuery({
+    queryKey: ["dashboard-priorities", viewerId, workspaceId],
+    enabled: open, staleTime: 0, gcTime: 0, retry: false, refetchOnWindowFocus: false,
+    queryFn: async ({ signal }) => {
+      const result = await fetch(url, { signal, cache: "no-store" });
+      const payload = await result.json();
+      if (!result.ok) throw new Error(payload?.error || "Reminders are unavailable. Please try again.");
+      if (payload.viewerId !== viewerId || payload.workspaceUserId !== workspaceId) throw new Error("Your workspace changed. Reload your dashboard.");
+      return payload;
+    },
+  });
+  const mutation = useMutation({
+    mutationFn: async ({ item, action, days }) => {
+      const result = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: item.key, revision: item.revision, action, ...(days ? { days } : {}) }) });
+      const payload = await result.json();
+      if (!result.ok) throw new Error(payload?.error || "That choice could not be saved. Please try again.");
+    },
+    onSuccess: async (_, { action }) => {
+      setNotice(action === "restore" ? "Reminder restored." : action === "snooze" ? "Reminder snoozed. The record's date has not changed." : "Reminder dismissed for you. The record is still open.");
+      await query.refetch();
+      heading.current?.focus();
+    },
+  });
+  const choose = (item, action, days) => { setNotice(""); mutation.mutate({ item, action, days }); };
+  const busy = mutation.isPending || query.isFetching;
+  const records = query.data ? (showHidden ? query.data.hidden : query.data.items) : [];
+  const failed = query.isError || mutation.isError;
+
+  return <section className="dashboard-assistant" aria-label={`${settings.name}, dashboard helper`}>
+    <button type="button" className="dashboard-assistant-launcher" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      <DashboardAssistantAvatar avatar={settings.avatar} />
+      <span><strong>Check in with {settings.name}</strong><span>A few things worth a look, when you're ready.</span></span>
+      <span className="dashboard-assistant-toggle" aria-hidden="true">{open ? "Close" : "Take a look"}</span>
+    </button>
+    {open && <div id={id} className="dashboard-assistant-panel">
+      <header>
+        <div><h2 ref={heading} tabIndex={-1}>Let's look at what's coming up</h2>
+          <p>{query.data?.workspaceName ? `${query.data.workspaceName}'s workspace. ` : ""}Saved follow-ups and opportunity dates, not a live NXT check.</p></div>
+        <button type="button" onClick={() => { mutation.reset(); setNotice(""); query.refetch(); }} disabled={busy}>Reload reminders</button>
+      </header>
+      <p className="dashboard-assistant-note">These are date-based reminders. You decide what to change. Snooze and dismiss are private to you in this workspace; updated details can bring a reminder back.</p>
+      {query.isPending && <p role="status">Looking at your saved records...</p>}
+      {failed && <p role="alert">{query.error?.message || mutation.error?.message}</p>}
+      {notice && !failed && <p role="status" className="dashboard-assistant-notice">{notice}</p>}
+      {query.data && !query.isError && <>
+        <div className="dashboard-assistant-tabs" aria-label="Reminder view">
+          <button type="button" aria-pressed={!showHidden} onClick={() => { setShowHidden(false); setLimit(5); }}>To review ({query.data.items.length})</button>
+          <button type="button" aria-pressed={showHidden} onClick={() => { setShowHidden(true); setLimit(5); }}>Snoozed & dismissed ({query.data.hidden.length})</button>
+        </div>
+        {!records.length && <p className="dashboard-assistant-empty">{showHidden ? "No reminders tucked away." : query.data.hidden.length
+          ? "No reminders to review here. Your snoozed and dismissed items are still available."
+          : "Nothing in the saved records needs attention here right now."}</p>}
+        <ul className="dashboard-assistant-list">{records.slice(0, limit).map(item => <li key={item.key}>
+          <div className="dashboard-assistant-timing">{item.hiddenReason === "dismissed" ? "Dismissed" : item.hiddenReason === "snoozed" ? `Snoozed until ${formatCalendarDate(item.snoozeUntil)}` : item.timing}</div>
+          <h3>{item.constituentName}</h3><p className="dashboard-assistant-title">{item.title}</p><p>{item.message}</p>
+          <div className="dashboard-assistant-actions">
+            <a href={item.href} aria-label={`${item.linkLabel}: ${item.title} for ${item.constituentName}`}>{item.linkLabel}</a>
+            {showHidden ? <button type="button" disabled={busy} onClick={() => choose(item, "restore")}>Restore reminder</button> : <>
+              <details><summary>Snooze</summary><div className="dashboard-assistant-snooze">
+                <button type="button" disabled={busy} onClick={() => choose(item, "snooze", 1)}>Until tomorrow</button>
+                <button type="button" disabled={busy} onClick={() => choose(item, "snooze", 7)}>For one week</button>
+              </div></details>
+              <button type="button" disabled={busy} onClick={() => choose(item, "dismiss")}>Dismiss reminder</button>
+            </>}
+          </div>
+        </li>)}</ul>
+        {records.length > limit && <button type="button" onClick={() => setLimit(limit + 5)}>Show five more</button>}
+        {query.data.truncated && <p className="dashboard-assistant-note">This is a limited selection from a large workspace. Use Follow-ups & Discussion or the Opportunity Pipeline for the full picture.</p>}
+      </>}
+    </div>}
+  </section>;
+}

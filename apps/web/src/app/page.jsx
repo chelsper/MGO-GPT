@@ -8,6 +8,7 @@ import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import AdvancementServicesHome from "@/components/AdvancementServicesHome";
 import WorkspaceStartPaths from "@/components/WorkspaceStartPaths";
 import HomeWorkspaceControls from "@/components/HomeWorkspaceControls";
+import DashboardAssistant from "@/components/DashboardAssistant";
 import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import { getNavigationItems } from "@/utils/appNavigation";
 import {
@@ -400,6 +401,9 @@ export default function Page() {
           onViewModeChange={handleViewModeChange}
           onActingWorkspaceChange={handleActingWorkspaceChange}
         />
+        {isMgoView && profile?.id && (!canSwitchMgoWorkspace || (actingWorkspaceStatus && !workspaceFailed)) && (
+          <DashboardAssistant viewerId={profile.id} workspaceId={actingUser?.id || profile.id} />
+        )}
         {workspaceSwitchMessage ? (
           <div
             role="status"
