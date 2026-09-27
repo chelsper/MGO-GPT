@@ -1,10 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.fn(), settings: vi.fn(), read: vi.fn(), candidates: vi.fn(), save: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.fn(), settings: vi.fn(), read: vi.fn(), candidates: vi.fn(), save: vi.fn(), gifts: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: mocks.workspace }));
 vi.mock("@/app/api/utils/organizationSettings", () => ({ getOrganizationSettings: mocks.settings }));
 vi.mock("@/app/api/utils/dashboardPriorities", () => ({ readDashboardPriorities: mocks.read, readPriorityCandidates: mocks.candidates, savePriorityPreference: mocks.save }));
+vi.mock("@/app/api/utils/dashboardGiftPriorities", () => ({ loadDashboardGifts: mocks.gifts }));
 import { GET, PUT } from "./route";
 const item = { key: "follow-up:1", revision: "a".repeat(64) };
 const context = { sessionUser: { id: 7, role: "mgo", active: true }, workspaceUser: { id: 7, name: "Test", role: "mgo", active: true } };
@@ -17,21 +18,25 @@ beforeEach(() => {
   mocks.settings.mockResolvedValue({ dashboardAssistant: { enabled: true } });
   mocks.read.mockResolvedValue({ items: [item], hidden: [], asOf: "2026-09-27", truncated: false });
   mocks.candidates.mockResolvedValue({ candidates: [item] });
+  mocks.gifts.mockResolvedValue({ items: [], coverage: { status: "unavailable" }, truncated: false });
 });
 it("authenticates before schema work and never exposes data without a session", async () => {
   mocks.auth.mockResolvedValue(null);
   expect((await GET(get())).status).toBe(401);
   expect(mocks.schema).not.toHaveBeenCalled(); expect(mocks.read).not.toHaveBeenCalled();
+  expect(mocks.gifts).not.toHaveBeenCalled();
 });
 it("returns explicit no-store viewer/workspace identity and saved data", async () => {
   const response = await GET(get());
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(await response.json()).toMatchObject({ viewerId: "7", workspaceUserId: "7", workspaceName: "Test", items: [item] });
-  expect(mocks.read).toHaveBeenCalledWith(7, 7);
+  expect(mocks.read).toHaveBeenCalledWith(7, 7, expect.any(Date), undefined, expect.objectContaining({ items: [] }));
+  expect(mocks.gifts).toHaveBeenCalledWith({ workspaceId: 7, origin: "https://example.app", now: expect.any(Date) });
 });
 it.each([{}, { sessionUser: { ...context.sessionUser, active: false } }, { workspaceUser: { ...context.workspaceUser, active: false } }, { invalidActingUserId: 10 }, { sessionUser: { ...context.sessionUser, role: "advancement_services" } }])("fails closed for invalid authorization %j", async patch => {
   mocks.workspace.mockResolvedValue(Object.keys(patch).length ? { ...context, ...patch } : {});
   expect((await GET(get())).status).toBe(403); expect(mocks.read).not.toHaveBeenCalled();
+  expect(mocks.gifts).not.toHaveBeenCalled();
 });
 it("rejects stale workspace cookies/client scope and disabled helpers", async () => {
   expect((await GET(get("workspaceId=99"))).status).toBe(409);
@@ -66,4 +71,17 @@ it("does not leak database errors or claim a failed write succeeded", async () =
   const response = await PUT(put());
   expect(response.status).toBe(500); expect(JSON.stringify(await response.json())).not.toContain("secret");
   log.mockRestore();
+});
+it("revalidates a gift before changing its private preference and blocks stale/unavailable gifts", async () => {
+  const gift = { key: "gift:900", revision: "b".repeat(64) };
+  mocks.gifts.mockResolvedValue({ items: [gift], coverage: { status: "ready" } });
+  mocks.candidates.mockResolvedValue({ candidates: [gift] });
+  expect((await PUT(put({ ...gift, action: "dismiss" }))).status).toBe(200);
+  expect(mocks.candidates).toHaveBeenCalledWith(7, expect.any(Date), undefined, expect.objectContaining({ items: [gift] }));
+  mocks.candidates.mockResolvedValue({ candidates: [] }); mocks.save.mockClear();
+  expect((await PUT(put({ ...gift, action: "dismiss" }))).status).toBe(409);
+  expect(mocks.save).not.toHaveBeenCalled();
+});
+it("does not read gift sources when snoozing an ordinary follow-up", async () => {
+  await PUT(put()); expect(mocks.gifts).not.toHaveBeenCalled();
 });

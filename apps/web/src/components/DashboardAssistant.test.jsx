@@ -85,7 +85,7 @@ it("limits initial cards and lets users reveal more without additional requests"
 it("clearly labels a limited selection and a factual empty state", async () => {
   fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [], truncated: true }) });
   mount(); open();
-  expect(await screen.findByText(/Nothing in the saved records/)).toBeVisible();
+  expect(await screen.findByText(/Nothing in the available saved records/)).toBeVisible();
   expect(screen.getByText(/limited selection/)).toBeVisible();
 });
 it("settings edits are controlled and use the existing profile save rather than making requests", () => {
@@ -96,4 +96,29 @@ it("settings edits are controlled and use the existing profile save rather than 
   fireEvent.change(screen.getByLabelText("Helper avatar"), { target: { value: "compass" } });
   expect(onChange).toHaveBeenLastCalledWith({ enabled: true, name: "Nellie", avatar: "compass" });
   expect(fetch).not.toHaveBeenCalled();
+});
+it("filters gift reminders locally and shows safe review/action links without submitting anything", async () => {
+  const gift = { ...item, key: "gift:900", kind: "gift", constituentId: "100", title: "$2,500.00 gift", message: "Would a thank-you be helpful?", href: "/action-opportunity-update?mode=action&actionType=Stewardship&blackbaudConstituentId=100", linkLabel: "Log stewardship action" };
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [item, gift], giftCoverage: { status: "ready", startDate: "2026-08-29", endDate: "2026-09-27", checkedAt: "2026-09-27T06:00:00Z" } }) });
+  mount(); open(); await screen.findByText("$2,500.00 gift");
+  fireEvent.change(screen.getByLabelText("Show"), { target: { value: "gift" } });
+  expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  expect(screen.getByRole("link", { name: /Log stewardship action/ })).toHaveAttribute("href", gift.href);
+  expect(screen.getByRole("link", { name: /Review donor in NXT/ })).toHaveAttribute("href", "https://renxt.blackbaud.com/constituents/100");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByText("About gift suggestions"));
+  expect(screen.getByText(/does not tell us whether someone has already been thanked/)).toBeVisible();
+});
+it("explains unavailable gift coverage without claiming no gifts exist", async () => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [], giftCoverage: { status: "unavailable" } }) });
+  mount(); open(); await screen.findByText("About gift suggestions");
+  fireEvent.change(screen.getByLabelText("Show"), { target: { value: "gift" } });
+  expect(screen.getByText(/doesn't mean there were no gifts/)).toBeVisible();
+});
+it("dismisses gift reminders without claiming the donor was thanked", async () => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [{ ...item, kind: "gift", key: "gift:900", constituentId: "100" }] }) });
+  mount(); open(); await screen.findByText("Sample Donor");
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ saved: true }) });
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss reminder" }));
+  expect(await screen.findByRole("status")).toHaveTextContent("Nothing was sent or marked thanked");
 });

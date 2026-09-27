@@ -72,7 +72,7 @@ export function applyPriorityPreferences(items, preferences, asOf) {
   return { items: visible, hidden };
 }
 
-export async function readPriorityCandidates(workspaceId, now = new Date(), sqlClient = sql) {
+export async function readPriorityCandidates(workspaceId, now = new Date(), sqlClient = sql, giftData = null) {
   const actions = await sqlClient`
     SELECT pa.id, pa.owner_user_id, pa.title, pa.details, pa.due_date, pa.status, pa.updated_at,
       p.status AS prospect_status, p.prospect_name, c.name AS constituent_name
@@ -95,19 +95,20 @@ export async function readPriorityCandidates(workspaceId, now = new Date(), sqlC
     ORDER BY GREATEST(po.updated_at, po.nxt_checked_at) DESC, po.id DESC LIMIT ${PRIORITY_SOURCE_LIMIT + 1}
   `;
   return {
-    candidates: buildDashboardPriorities({ actions: actions.slice(0, PRIORITY_SOURCE_LIMIT), opportunities: opportunities.slice(0, PRIORITY_SOURCE_LIMIT) }, now),
-    truncated: actions.length > PRIORITY_SOURCE_LIMIT || opportunities.length > PRIORITY_SOURCE_LIMIT,
+    candidates: [...buildDashboardPriorities({ actions: actions.slice(0, PRIORITY_SOURCE_LIMIT), opportunities: opportunities.slice(0, PRIORITY_SOURCE_LIMIT) }, now), ...(giftData?.items || [])],
+    truncated: actions.length > PRIORITY_SOURCE_LIMIT || opportunities.length > PRIORITY_SOURCE_LIMIT || giftData?.truncated === true,
   };
 }
 
-export async function readDashboardPriorities(viewerId, workspaceId, now = new Date(), sqlClient = sql) {
-  const { candidates, truncated } = await readPriorityCandidates(workspaceId, now, sqlClient);
+export async function readDashboardPriorities(viewerId, workspaceId, now = new Date(), sqlClient = sql, giftData = null) {
+  const { candidates, truncated } = await readPriorityCandidates(workspaceId, now, sqlClient, giftData);
   const preferences = candidates.length ? await sqlClient`
     SELECT item_key, item_revision, state, snooze_until FROM dashboard_priority_preferences
     WHERE viewer_user_id = ${viewerId} AND workspace_user_id = ${workspaceId}
       AND item_key IN (SELECT jsonb_array_elements_text(${JSON.stringify(candidates.map(item => item.key))}::jsonb))
   ` : [];
-  return { ...applyPriorityPreferences(candidates, preferences, priorityDay(now)), asOf: priorityDay(now), truncated };
+  return { ...applyPriorityPreferences(candidates, preferences, priorityDay(now)), asOf: priorityDay(now), truncated,
+    ...(giftData ? { giftCoverage: giftData.coverage } : {}) };
 }
 
 export async function savePriorityPreference({ viewerId, workspaceId, item, action, days, now = new Date(), sqlClient = sql }) {

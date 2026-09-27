@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useDashboardAssistantSettings } from "./WorkspaceTerminology";
 import DashboardAssistantAvatar from "./DashboardAssistantAvatar";
 import { formatCalendarDate } from "@/utils/prospectActivity";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import "./DashboardAssistant.css";
 
 export default function DashboardAssistant({ viewerId, workspaceId }) {
@@ -15,6 +16,7 @@ export default function DashboardAssistant({ viewerId, workspaceId }) {
 function AssistantPanel({ viewerId, workspaceId, settings }) {
   const [open, setOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  const [kind, setKind] = useState("all");
   const [limit, setLimit] = useState(5);
   const [notice, setNotice] = useState("");
   const id = useId();
@@ -38,15 +40,18 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
       const payload = await result.json();
       if (!result.ok) throw new Error(payload?.error || "That choice could not be saved. Please try again.");
     },
-    onSuccess: async (_, { action }) => {
-      setNotice(action === "restore" ? "Reminder restored." : action === "snooze" ? "Reminder snoozed. The record's date has not changed." : "Reminder dismissed for you. The record is still open.");
+    onSuccess: async (_, { action, item }) => {
+      setNotice(action === "restore" ? "Reminder restored." : action === "snooze" ? "Reminder snoozed. The record's date has not changed." : item.kind === "gift"
+        ? "Gift reminder dismissed for you. Nothing was sent or marked thanked."
+        : "Reminder dismissed for you. The record is still open.");
       await query.refetch();
       heading.current?.focus();
     },
   });
   const choose = (item, action, days) => { setNotice(""); mutation.mutate({ item, action, days }); };
   const busy = mutation.isPending || query.isFetching;
-  const records = query.data ? (showHidden ? query.data.hidden : query.data.items) : [];
+  const allRecords = query.data ? (showHidden ? query.data.hidden : query.data.items) : [];
+  const records = allRecords.filter(item => kind === "all" || item.kind === kind);
   const failed = query.isError || mutation.isError;
 
   return <section className="dashboard-assistant" aria-label={`${settings.name}, dashboard helper`}>
@@ -58,26 +63,41 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
     {open && <div id={id} className="dashboard-assistant-panel">
       <header>
         <div><h2 ref={heading} tabIndex={-1}>Let's look at what's coming up</h2>
-          <p>{query.data?.workspaceName ? `${query.data.workspaceName}'s workspace. ` : ""}Saved follow-ups and opportunity dates, not a live NXT check.</p></div>
+          <p>{query.data?.workspaceName ? `${query.data.workspaceName}'s workspace. ` : ""}Saved follow-ups, opportunity dates, and recent gifts, not a live NXT check.</p></div>
         <button type="button" onClick={() => { mutation.reset(); setNotice(""); query.refetch(); }} disabled={busy}>Reload reminders</button>
       </header>
-      <p className="dashboard-assistant-note">These are date-based reminders. You decide what to change. Snooze and dismiss are private to you in this workspace; updated details can bring a reminder back.</p>
+      <p className="dashboard-assistant-note">You decide what to do next. Nothing is sent or changed automatically. Snooze and dismiss are private to you in this workspace; updated details can bring a reminder back.</p>
       {query.isPending && <p role="status">Looking at your saved records...</p>}
       {failed && <p role="alert">{query.error?.message || mutation.error?.message}</p>}
       {notice && !failed && <p role="status" className="dashboard-assistant-notice">{notice}</p>}
       {query.data && !query.isError && <>
+        {query.data.giftCoverage && <details className="dashboard-assistant-note dashboard-assistant-coverage">
+          <summary>About gift suggestions</summary>
+          <p>Direct monetary gifts over $1,000 from the past 30 days, one reminder per gift. Pledges, soft credits, and non-cash gifts are not included. This does not tell us whether someone has already been thanked; check their history before adding an action.</p>
+          <p>{query.data.giftCoverage.status === "unavailable"
+            ? "Recent gift data isn't available for this workspace yet. Suggestions will appear after the regular background checks have saved fresh gift and portfolio information. Opening this panel does not start a refresh."
+            : `Gift data checked ${formatCalendarDate(query.data.giftCoverage.checkedAt?.slice(0, 10))}. Available dates: ${formatCalendarDate(query.data.giftCoverage.startDate)} through ${formatCalendarDate(query.data.giftCoverage.endDate)}. Later gifts may not be included yet.`}</p>
+        </details>}
         <div className="dashboard-assistant-tabs" aria-label="Reminder view">
           <button type="button" aria-pressed={!showHidden} onClick={() => { setShowHidden(false); setLimit(5); }}>To review ({query.data.items.length})</button>
           <button type="button" aria-pressed={showHidden} onClick={() => { setShowHidden(true); setLimit(5); }}>Snoozed & dismissed ({query.data.hidden.length})</button>
         </div>
-        {!records.length && <p className="dashboard-assistant-empty">{showHidden ? "No reminders tucked away." : query.data.hidden.length
+        <label className="dashboard-assistant-filter">Show
+          <select value={kind} onChange={event => { setKind(event.target.value); setLimit(5); }}>
+            <option value="all">All reminders</option><option value="follow-up">Follow-ups</option>
+            <option value="opportunity">Opportunities</option><option value="gift">Recent gifts</option>
+          </select>
+        </label>
+        {!records.length && <p className="dashboard-assistant-empty">{kind !== "all" ? "No reminders in this view." : showHidden ? "No reminders tucked away." : query.data.hidden.length
           ? "No reminders to review here. Your snoozed and dismissed items are still available."
-          : "Nothing in the saved records needs attention here right now."}</p>}
+          : "Nothing in the available saved records needs attention here right now."}</p>}
+        {kind === "gift" && !records.length && query.data.giftCoverage?.status === "unavailable" && <p className="dashboard-assistant-note">Gift suggestions are waiting for the regular background checks. This doesn't mean there were no gifts.</p>}
         <ul className="dashboard-assistant-list">{records.slice(0, limit).map(item => <li key={item.key}>
           <div className="dashboard-assistant-timing">{item.hiddenReason === "dismissed" ? "Dismissed" : item.hiddenReason === "snoozed" ? `Snoozed until ${formatCalendarDate(item.snoozeUntil)}` : item.timing}</div>
           <h3>{item.constituentName}</h3><p className="dashboard-assistant-title">{item.title}</p><p>{item.message}</p>
           <div className="dashboard-assistant-actions">
             <a href={item.href} aria-label={`${item.linkLabel}: ${item.title} for ${item.constituentName}`}>{item.linkLabel}</a>
+            {item.kind === "gift" && <a href={buildBlackbaudConstituentProfileUrl(item.constituentId)} target="_blank" rel="noopener noreferrer">Review donor in NXT<span className="sr-only"> (opens in a new tab)</span></a>}
             {showHidden ? <button type="button" disabled={busy} onClick={() => choose(item, "restore")}>Restore reminder</button> : <>
               <details><summary>Snooze</summary><div className="dashboard-assistant-snooze">
                 <button type="button" disabled={busy} onClick={() => choose(item, "snooze", 1)}>Until tomorrow</button>
@@ -88,7 +108,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
           </div>
         </li>)}</ul>
         {records.length > limit && <button type="button" onClick={() => setLimit(limit + 5)}>Show five more</button>}
-        {query.data.truncated && <p className="dashboard-assistant-note">This is a limited selection from a large workspace. Use Follow-ups & Discussion or the Opportunity Pipeline for the full picture.</p>}
+        {query.data.truncated && <p className="dashboard-assistant-note">This is a limited selection from a large workspace. Use Follow-ups & Discussion, the Opportunity Pipeline, or your giving reports for the full picture.</p>}
       </>}
     </div>}
   </section>;

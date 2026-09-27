@@ -4,6 +4,7 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { canUseMgoWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
 import { getOrganizationSettings } from "@/app/api/utils/organizationSettings";
 import { readDashboardPriorities, readPriorityCandidates, savePriorityPreference } from "@/app/api/utils/dashboardPriorities";
+import { loadDashboardGifts } from "@/app/api/utils/dashboardGiftPriorities";
 
 const response = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
 const fail = (message, status) => Object.assign(new Error(message), { status, publicMessage: message });
@@ -28,7 +29,9 @@ function errorResponse(error) {
 export async function GET(request) {
   try {
     const { sessionUser, workspaceUser } = await contextFor(request);
-    return response({ ...await readDashboardPriorities(sessionUser.id, workspaceUser.id),
+    const now = new Date();
+    const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now });
+    return response({ ...await readDashboardPriorities(sessionUser.id, workspaceUser.id, now, undefined, gifts),
       viewerId: String(sessionUser.id), workspaceUserId: String(workspaceUser.id), workspaceName: workspaceUser.name || "Your workspace" });
   } catch (error) { return errorResponse(error); }
 }
@@ -62,7 +65,10 @@ export async function PUT(request) {
         typeof body.key !== "string" || body.key.length > 250 || !/^[a-f0-9]{64}$/.test(body.revision || "") ||
         !["snooze", "dismiss", "restore"].includes(body.action) ||
         (body.action === "snooze" && ![1, 7].includes(body.days))) throw fail("Choose a valid reminder action.", 400);
-    const { candidates } = await readPriorityCandidates(workspaceUser.id);
+    const now = new Date();
+    const gifts = body.key.startsWith("gift:")
+      ? await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now }) : null;
+    const { candidates } = await readPriorityCandidates(workspaceUser.id, now, undefined, gifts);
     const item = candidates.find(item => item.key === body.key && item.revision === body.revision);
     if (!item) throw fail("This reminder has changed. Reload reminders before continuing.", 409);
     await savePriorityPreference({ viewerId: sessionUser.id, workspaceId: workspaceUser.id, item, action: body.action, days: body.days });
