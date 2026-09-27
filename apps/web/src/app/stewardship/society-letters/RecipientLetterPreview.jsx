@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import SavedLetterPreview from "./SavedLetterPreview";
 
 export default function RecipientLetterPreview({
@@ -7,9 +7,13 @@ export default function RecipientLetterPreview({
   reviewToken,
   template,
   disabled,
-  onEscape,
 }) {
   const [draft, setDraft] = useState(null);
+  const previewButton = useRef(null);
+  function closePreview() {
+    setDraft(null);
+    previewButton.current?.focus();
+  }
   const request = {
     action: "preview_recipient_document",
     householdId: recipient.householdId,
@@ -31,6 +35,7 @@ export default function RecipientLetterPreview({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-bold">Personalized letter</h3>
         <button
+          ref={previewButton}
           type="button"
           disabled={!canPreview}
           onClick={() => setDraft({ name: recipient.name, request, signature })}
@@ -38,6 +43,15 @@ export default function RecipientLetterPreview({
         >
           {draft ? "Update letter preview" : "Preview personalized letter"}
         </button>
+        {draft && (
+          <button
+            type="button"
+            onClick={closePreview}
+            className="min-h-11 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 hover:underline"
+          >
+            Close letter preview
+          </button>
+        )}
       </div>
       <p className="mt-2 text-xs text-gray-600">
         Preview your current edits with the saved Word template. Nothing is
@@ -69,7 +83,7 @@ export default function RecipientLetterPreview({
             embedded
             template={{ ...template, version: draft.request.templateVersion }}
             draft={draft}
-            onClose={onEscape}
+            onClose={closePreview}
           />
         </div>
       )}

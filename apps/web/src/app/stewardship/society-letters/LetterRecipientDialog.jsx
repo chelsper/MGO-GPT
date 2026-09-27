@@ -705,7 +705,6 @@ export default function LetterRecipientDialog({
                 reviewToken={reviewToken}
                 template={template}
                 disabled={disabled}
-                onEscape={() => leave(onClose)}
               />
             </aside>
           </div>

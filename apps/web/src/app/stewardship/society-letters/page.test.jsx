@@ -43,6 +43,7 @@ const base = {
 };
 let fetchMock;
 beforeEach(() => {
+  window.history.replaceState({}, "", "/stewardship/society-letters");
   sessionStorage.clear();
   Object.defineProperties(HTMLDialogElement.prototype, {
     showModal: {
@@ -94,6 +95,57 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("goes back one workspace screen with filters and unsaved source settings intact", async () => {
+    render(<Page />);
+    const find = await screen.findByLabelText("Find a household");
+    fireEvent.change(find, { target: { value: "Sample" } });
+    fireEvent.click(await setupTab("Source & period"));
+    const query = screen.getByLabelText("NXT saved query ID");
+    fireEvent.change(query, { target: { value: "456" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Letter templates", exact: true }),
+    );
+    fireEvent.click(
+      screen.getByRole("link", { name: "Back to Source & period" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("NXT saved query ID"),
+      ).toHaveValue("456"),
+    );
+    fireEvent.click(
+      screen.getByRole("link", { name: "Back to Setup checklist" }),
+    );
+    await screen.findByRole("link", { name: "Back to Holding list" });
+    fireEvent.click(screen.getByRole("link", { name: "Back to Holding list" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Find a household")).toHaveValue("Sample"),
+    );
+    expect(
+      screen.getByRole("link", { name: "Back to Stewardship" }),
+    ).toHaveAttribute("href", "/stewardship");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("links society definitions back to the current source screen and protects unsaved settings", async () => {
+    render(<Page />);
+    fireEvent.click(await setupTab("Source & period"));
+    const link = screen.getByRole("link", {
+      name: "Review society definitions",
+    });
+    const url = new URL(link.href);
+    expect(url.pathname).toBe("/organization-configurations");
+    expect(url.hash).toBe("#giving-societies");
+    expect(url.searchParams.get("returnTo")).toBe(
+      "/stewardship/society-letters?view=settings",
+    );
+    fireEvent.change(screen.getByLabelText("NXT saved query ID"), {
+      target: { value: "456" },
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    expect(fireEvent.click(link)).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("shows saved batch counts in history without starting NXT or delivery requests", async () => {
     fetchMock.mockImplementation(async () =>
       Response.json({

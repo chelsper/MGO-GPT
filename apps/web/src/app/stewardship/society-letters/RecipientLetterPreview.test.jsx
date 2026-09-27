@@ -148,14 +148,32 @@ describe("inline recipient preview", () => {
       ),
     ).toEqual(["preview_recipient_document", "preview_recipient_document"]);
   });
-  it("routes Escape through the parent unsaved-edit guard", async () => {
+  it("closes only the preview on Escape and returns focus to its opener", async () => {
     render(<RecipientLetterPreview {...props} />);
     await preview();
     fireEvent.keyDown(
       screen.getByTitle("Alex Example personalized draft").contentDocument,
       { key: "Escape" },
     );
-    expect(props.onEscape).toHaveBeenCalledOnce();
+    expect(props.onEscape).not.toHaveBeenCalled();
+    expect(
+      screen.queryByTitle("Alex Example personalized draft"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Preview personalized letter" }),
+    ).toHaveFocus();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("closes the preview without exiting recipient review or requesting another document", async () => {
+    render(<RecipientLetterPreview {...props} />);
+    await preview();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close letter preview" }),
+    );
+    expect(
+      screen.queryByTitle("Alex Example personalized draft"),
+    ).not.toBeInTheDocument();
+    expect(props.onEscape).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

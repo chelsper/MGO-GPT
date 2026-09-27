@@ -10,6 +10,7 @@ vi.mock("@/utils/useUser", () => { const user = { email:'admin@example.test' }; 
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status });
 let client, respond;
 beforeEach(() => {
+  window.history.replaceState({}, "", "/organization-configurations");
   vi.mocked(prepareOrganizationLogo).mockReset();
   client = new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
   respond = () => reply({settings:{...settings, applicationName:'Updated Hub'}, revision:'version-2', reportingPolicy, change:{id:1,created_at:'2026-09-17T16:00:00Z',changed_fields:['applicationName']}});
@@ -29,6 +30,19 @@ it('returns workspace administrators to Setup Hub rather than home', async () =>
   expect(screen.getByRole('link', { name: 'Back to Setup Hub' })).toHaveAttribute('href', '/setup');
   expect(screen.queryByRole('button', { name: 'Return to home' })).not.toBeInTheDocument();
   expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true);
+});
+
+it('returns to the source settings when opened from society letters', async () => {
+  window.history.replaceState({}, "", `/organization-configurations?${new URLSearchParams({returnTo:'/stewardship/society-letters?view=settings'})}`);
+  await mount();
+  expect(screen.getByRole('link', {name:'Back to Society Letter Creation'})).toHaveAttribute('href', '/stewardship/society-letters?view=settings');
+  expect(fetch.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+});
+
+it('ignores an external return URL', async () => {
+  window.history.replaceState({}, "", '/organization-configurations?returnTo=https%3A%2F%2Fevil.example');
+  await mount();
+  expect(screen.getByRole('link', {name:'Back to Setup Hub'})).toHaveAttribute('href', '/setup');
 });
 
 it('shows active reporting rules separately and keeps protected fields disabled', async()=>{

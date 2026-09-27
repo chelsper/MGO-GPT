@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import useLetterNavigation from "./useLetterNavigation";
+import { letterViewHref } from "@/utils/societyLetterNavigation";
 import {
   LETTER_BATCH_LIMIT,
   LETTER_COLUMNS,
@@ -38,7 +41,6 @@ import {
 } from "./letterWorkspaceView";
 import QueryColumnMapper from "./QueryColumnMapper";
 import LetterSetupChecklist from "./LetterSetupChecklist";
-import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
 const endpoint = "/api/stewardship/society-letters";
 const button =
@@ -393,8 +395,9 @@ function TemplateEditor({ template, busy, save, onEdit }) {
 export default function SocietyLettersPage() {
   const [data, setData] = useState(null),
     [error, setError] = useState("");
-  const [busy, setBusy] = useState(false),
-    [tab, setTab] = useState("ready");
+  const [busy, setBusy] = useState(false);
+  const navigation = useLetterNavigation();
+  const { tab, showMappings, navigate: setTab } = navigation;
   const [settings, setSettings] = useState(defaults),
     [confirmedSource, setConfirmedSource] = useState(false);
   const [channel, setChannel] = useState("post"),
@@ -418,7 +421,6 @@ export default function SocietyLettersPage() {
   const [attentionFilter, setAttentionFilter] = useState("all");
   const [reviewNotice, setReviewNotice] = useState("");
   const [sampleViews, setSampleViews] = useState([]);
-  const [showMappings, setShowMappings] = useState(false);
   const setupContent = useRef(null);
   const [setupNavigation, setSetupNavigation] = useState(0);
   const [refreshing, setRefreshing] = useState(false),
@@ -426,19 +428,16 @@ export default function SocietyLettersPage() {
   const inFlight = useRef(false);
   const setupOpen = ["setup", "templates", "settings", "appeals"].includes(tab);
   function navigateSetup(destination) {
-    setShowMappings(destination === "fields");
-    setTab(
-      ["fields", "source"].includes(destination) ? "settings" : destination,
-    );
+    setTab(destination);
     setSetupNavigation((value) => value + 1);
   }
   useEffect(() => {
-    if (!setupNavigation) return;
+    if (!data || !setupOpen) return;
     const target = showMappings
       ? document.getElementById("letter-query-mappings")
       : setupContent.current;
     target?.focus();
-  }, [setupNavigation]);
+  }, [setupNavigation, navigation.view, Boolean(data)]);
   function accept(payload) {
     const nextScope = reviewScope(payload);
     if (
@@ -751,7 +750,14 @@ export default function SocietyLettersPage() {
   }
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 text-gray-900 sm:px-8">
-      <WorkflowReturnLink href="/stewardship" />
+      <a
+        href={navigation.backHref}
+        onClick={navigation.back}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg py-2 text-sm font-semibold text-indigo-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+      >
+        <ArrowLeft size={16} aria-hidden="true" />
+        {navigation.backLabel}
+      </a>
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
@@ -2073,7 +2079,16 @@ export default function SocietyLettersPage() {
                   </div>
                   <a
                     className="mt-3 inline-block text-sm font-semibold text-emerald-800 underline"
-                    href="/organization-configurations"
+                    href={`/organization-configurations?${new URLSearchParams({ returnTo: letterViewHref(navigation.view) })}#giving-societies`}
+                    onClick={(event) => {
+                      if (
+                        sourceDirty &&
+                        !window.confirm(
+                          "You have unsaved source settings. Leave without saving these changes?",
+                        )
+                      )
+                        event.preventDefault();
+                    }}
                   >
                     Review society definitions
                   </a>

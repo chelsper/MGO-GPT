@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
 import SetupReturnLink from "@/components/SetupReturnLink";
+import { societyLetterReturnPath } from "@/utils/societyLetterNavigation";
 import { GripVertical, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import OrganizationConfigurationStatus from "@/components/OrganizationConfigurationStatus";
@@ -175,6 +176,10 @@ function SaveFeedback({ error, statusMessage }) {
 }
 
 export default function OrganizationConfigurationsPage() {
+  const [returnTo, setReturnTo] = useState("");
+  useEffect(() => {
+    setReturnTo(societyLetterReturnPath(new URLSearchParams(window.location.search).get("returnTo")));
+  }, []);
   const queryClient = useQueryClient();
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -600,7 +605,7 @@ export default function OrganizationConfigurationsPage() {
             marginBottom: "28px",
           }}
         >
-          <SetupReturnLink canManageWorkspace={canManageWorkspaceRole(profile?.role)} className="mb-4" />
+          <SetupReturnLink canManageWorkspace={canManageWorkspaceRole(profile?.role)} className="mb-4" returnTo={returnTo} />
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: "clamp(24px, 4vw, 40px)", lineHeight: 1.1, overflowWrap: "anywhere" }}>
               Organization Configurations
