@@ -1,6 +1,6 @@
 # Opportunity Pipeline Report
 
-Implemented September 27, 2026. Deployment and signed-in production checks are separate from local verification.
+Implemented and deployed to JU September 27, 2026. Signed-in production data checks remain separate from release smoke verification.
 
 ## Where To Find It
 
@@ -63,3 +63,20 @@ The endpoint bounds source reads at 20,001 rows and refuses reports exceeding 20
 Unit/API/UI tests cover July rollover and Eastern midnight, expected/close-date precedence, missing dates, all archive outcomes, custom open stages, shared identity deduplication, conflicting IDs, missing amounts, permissions, sanitized failures, bounded reads, navigation configuration, filters, details, and pagination.
 
 Before release, verify the intended source scope. After deployment, check the report as Admin/Executive and a denied MGO, compare a known shared ask across workspaces, and verify one active and one closed record against saved opportunity details. Opening or filtering this report should not increment NXT requests. No production write or opportunity synchronization is needed for those checks.
+
+## JU Production Release
+
+- Application commit: `18935d2de114e5ca9a1763f18470504a35652fab`.
+- Deployment: `dpl_BC2CfZWNjWr8CDjfUYBH3nBgonnr`, READY, production.
+- Deployment URL: https://mgo-eiep6on4v-chelspers-projects.vercel.app
+- Report URL: https://www.jumgogpt.app/reports/opportunity-pipeline
+- JU project: `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY`.
+- Previous known-good deployment: `dpl_5cZKhpoo7AwTXuB13NMahccnoxZq`, commit `d57199d311963d7cad3dbf66f1e350041449092f`.
+
+The owner requested deployment after the saved-app-only scope was disclosed. No NXT-wide discovery was added. The clean commit archive was deployed explicitly to JU with no Git push. The dry-run manifest contained 1,000 files / 10,940,382 bytes, only `.env.example`, and no private environment files, local credentials, dependencies, or generated build output. Unrelated workspace documentation and other edits were preserved and excluded.
+
+Validation: 4,488 tests passed, 30 opt-in tests skipped; typecheck, production build, release guard, and diff checks passed. Synthetic desktop/mobile browser checks passed. Production `/api/version` returned the expected application commit and deployment ID. Four page URLs and 48 JavaScript/CSS assets returned successful responses. The unauthenticated pipeline API returned 401 with `private, no-store`. Signed-in report data and live totals were not checked; no NXT mutations, refreshes, emails, or letter operations were requested during smoke verification.
+
+Post-release inventory confirmed conference sandbox `dpl_2hwViLvkaPKUC45sS5hwJNgkgXXs` remained unchanged and Git-disconnected; the other linked `mgo-gpt-y1r7` copy remained on `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. All five JU cron paths and schedules were unchanged.
+
+This release adds an idempotent default report-configuration row and no donor-data migration. An application rollback can leave that unused configuration row in place; do not delete report settings, constituent data, or unrelated delivery receipts during recovery.
