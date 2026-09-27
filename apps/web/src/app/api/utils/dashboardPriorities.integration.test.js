@@ -6,13 +6,14 @@ import Papa from "papaparse";
 import { readDashboardPriorities, savePriorityPreference } from "./dashboardPriorities";
 import { ensureSocietyGivingSchema } from "./societyGivingSource";
 import { buildGiftPriorities, readSavedPortfolioGifts } from "./dashboardGiftPriorities";
+import { claimDocumentationCheck, finishDocumentationCheck, hasLocalDocumentation } from "./dashboardDocumentation";
 const socket = process.env.PRIORITIES_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/dashboard-priorities-pg\.[A-Za-z0-9]+$/.test(socket || "");
 const now = new Date("2026-09-27T14:00:00Z");
 function execute(statement) {
   const output = execFileSync("/opt/homebrew/opt/postgresql@18/bin/psql", ["-X", "--no-password", "-q", "--csv", "-v", "ON_ERROR_STOP=1", "-h", socket, "-p", "55447", "-d", "postgres"],
     { input: `SET search_path = dashboard_priority_fixture;\n${statement}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-  return output.trim() ? Papa.parse(output.trim(), { header: true }).data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value === "" ? null : ["gifts", "active_metadata"].includes(key) ? JSON.parse(value) : key === "truncated" ? value === "t" : value]))) : [];
+  return output.trim() ? Papa.parse(output.trim(), { header: true }).data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value === "" ? null : ["gifts", "active_metadata", "result"].includes(key) ? JSON.parse(value) : ["truncated", "present"].includes(key) ? value === "t" : value]))) : [];
 }
 const literal = value => value == null ? "NULL" : typeof value === "number" ? String(value) : `'${String(value).replaceAll("'", "''")}'`;
 const sqlClient = async (parts, ...values) => execute(parts.reduce((query, part, index) => query + part + (index < values.length ? literal(values[index]) : ""), ""));
@@ -24,7 +25,11 @@ describe.skipIf(!enabled)("dashboard priority PostgreSQL persistence", () => {
     execute(`DROP SCHEMA IF EXISTS dashboard_priority_fixture CASCADE; CREATE SCHEMA dashboard_priority_fixture; SET search_path=dashboard_priority_fixture;
       CREATE TABLE users(id bigint PRIMARY KEY, active boolean DEFAULT TRUE, blackbaud_portfolio_cache jsonb, blackbaud_portfolio_cached_at timestamptz);
       CREATE TABLE organization_settings(id int PRIMARY KEY);
-      CREATE TABLE constituents(id bigint PRIMARY KEY, name text);
+      CREATE TABLE constituents(id bigint PRIMARY KEY, name text, blackbaud_constituent_id text);
+      CREATE TABLE nxt_create_receipts(constituent_id text, kind text, state text, payload jsonb);
+      CREATE TABLE pending_action_nxt_receipts(constituent_id text, state text, request_payload jsonb);
+      CREATE TABLE prospect_updates(prospect_id bigint, action_type text);
+      CREATE TABLE submissions(constituent_id bigint, interaction_type text);
       CREATE TABLE prospects(id bigint PRIMARY KEY, user_id bigint, prospect_name text, status text, blackbaud_constituent_id text);
       CREATE TABLE pending_actions(id bigint PRIMARY KEY, owner_user_id bigint, prospect_id bigint, constituent_id bigint, title text, details text, due_date date, status text, updated_at timestamptz);
       CREATE TABLE prospect_opportunities(id bigint PRIMARY KEY, prospect_id bigint, title text, current_stage text, opportunity_status text, blackbaud_opportunity_id text, shared_opportunity_key text,
@@ -34,7 +39,8 @@ describe.skipIf(!enabled)("dashboard priority PostgreSQL persistence", () => {
     await ensureSocietyGivingSchema(sqlClient);
   });
   beforeEach(() => {
-    execute(`TRUNCATE users, organization_settings_audits, dashboard_priority_preferences, prospects, pending_actions, prospect_opportunities CASCADE;
+    execute(`TRUNCATE users, organization_settings_audits, dashboard_priority_preferences, prospects, pending_actions, prospect_opportunities,
+      constituents, nxt_create_receipts, pending_action_nxt_receipts, prospect_updates, submissions CASCADE;
       INSERT INTO users(id) VALUES (7),(8),(10),(20);
       INSERT INTO prospects VALUES (1,10,'Sample Donor','Active','100'),(2,20,'Other Workspace','Active','200');
       INSERT INTO pending_actions VALUES (1,10,1,NULL,'Call donor','Saved note','2026-09-27','Open','2026-09-20'),
@@ -139,5 +145,49 @@ describe.skipIf(!enabled)("dashboard priority PostgreSQL persistence", () => {
     console.info(`Synthetic 90,001-gift saved-source read: ${Math.round(performance.now() - start)}ms (local PostgreSQL, not a production benchmark)`);
     expect(result.items.map(item => item.key)).toEqual(["gift:900"]);
     expect(result.truncated).toBe(false);
+  });
+
+  const checkArgs = () => ({ viewerId: 7, workspaceId: 10, scopeKey: "connection", item: { key: "gift:900", revision: "a".repeat(64) }, db: sqlClient });
+  it("gates documentation reads per viewer across workspaces and keeps cached outcomes strictly scoped", async () => {
+    const args = checkArgs();
+    const first = await claimDocumentationCheck(args); expect(first.token).toBeTruthy();
+    expect(await claimDocumentationCheck(args)).toEqual({ result: { status: "waiting" } });
+    const result = { status: "incomplete", checkedAt: now.toISOString() };
+    expect(await finishDocumentationCheck({ viewerId: 7, token: first.token, result, db: sqlClient })).toBe(true);
+    expect(await claimDocumentationCheck(args)).toEqual({ result });
+    for (const patch of [{ workspaceId: 20 }, { scopeKey: "reconnected" }, { item: { ...args.item, revision: "b".repeat(64) } }, { item: { ...args.item, key: "gift:901" } }]) {
+      expect(await claimDocumentationCheck({ ...args, ...patch })).toEqual({ result: { status: "waiting" } });
+    }
+    expect((await claimDocumentationCheck({ ...args, viewerId: 8 })).token).toBeTruthy();
+  });
+  it("recovers expired leases and rejects stale completion without overwriting the new check", async () => {
+    const args = checkArgs(); const first = await claimDocumentationCheck(args);
+    execute("UPDATE dashboard_documentation_checks SET retry_after=NOW()-INTERVAL '1 second' WHERE viewer_user_id=7");
+    const next = await claimDocumentationCheck(args);
+    expect(next.token).not.toBe(first.token);
+    expect(await finishDocumentationCheck({ viewerId: 7, token: first.token, result: { status: "review" }, db: sqlClient })).toBe(false);
+    expect(await claimDocumentationCheck(args)).toEqual({ result: { status: "waiting" } });
+    expect(await finishDocumentationCheck({ viewerId: 7, token: next.token, result: { status: "found" }, db: sqlClient })).toBe(true);
+    expect((await claimDocumentationCheck(args)).result.status).toBe("found");
+  });
+  it("withholds absence prompts for existing app opportunities, solicitation records and pending NXT creates", async () => {
+    expect(await hasLocalDocumentation("100", sqlClient)).toBe(true);
+    expect(await hasLocalDocumentation("300", sqlClient)).toBe(false);
+    const cases = [
+      "INSERT INTO nxt_create_receipts VALUES ('300','action','processing','{}')",
+      "INSERT INTO nxt_create_receipts VALUES ('300','action','created','{}')",
+      "INSERT INTO nxt_create_receipts VALUES ('300','opportunity','complete','{}')",
+      `INSERT INTO nxt_create_receipts VALUES ('300','action','complete','{"type":"Solicitation"}')`,
+      "INSERT INTO pending_action_nxt_receipts VALUES ('300','review','{}')",
+      `INSERT INTO pending_action_nxt_receipts VALUES ('300','complete','{"type":"Solicitation"}')`,
+      `INSERT INTO pending_action_nxt_receipts VALUES ('300','complete','{"interactionType":"Solicitation","metadata":{"type":"Solicitation"}}')`,
+      "INSERT INTO prospects VALUES (3,10,'Synthetic','Active','300'); INSERT INTO prospect_updates VALUES (3,'Solicitation')",
+      "INSERT INTO constituents VALUES (300,'Synthetic','300'); INSERT INTO submissions VALUES (300,'Solicitation')",
+    ];
+    for (const statement of cases) {
+      execute(statement);
+      expect(await hasLocalDocumentation("300", sqlClient)).toBe(true);
+      execute("TRUNCATE nxt_create_receipts, pending_action_nxt_receipts, prospect_updates, submissions");
+    }
   });
 });

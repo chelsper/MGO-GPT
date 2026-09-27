@@ -26,7 +26,7 @@ it("does not load any data until opened and never auto-opens", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch.mock.calls[0][0]).toBe("/api/dashboard-priorities?workspaceId=10");
   expect(screen.getByRole("link", { name: /Review follow-up/ })).toHaveAttribute("href", item.href);
-  expect(screen.getByText(/not a live NXT check/)).toBeVisible();
+  expect(screen.getByText(/Documentation checks run only when you ask/)).toBeVisible();
 });
 it("honors organization branding and disabling", () => {
   const view = mount({ settings: { name: "Guide", avatar: "compass", enabled: true } });
@@ -121,4 +121,49 @@ it("dismisses gift reminders without claiming the donor was thanked", async () =
   fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ saved: true }) });
   fireEvent.click(screen.getByRole("button", { name: "Dismiss reminder" }));
   expect(await screen.findByRole("status")).toHaveTextContent("Nothing was sent or marked thanked");
+});
+
+const majorGift = { ...item, key: "gift:900", kind: "gift", giftId: "900", giftAmount: 10000, constituentId: "100", title: "$10,000 gift" };
+const checkResult = result => ({ ok: true, json: async () => ({ viewerId: "7", workspaceUserId: "10", key: majorGift.key, revision: majorGift.revision, result }) });
+async function openMajorGift() {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [majorGift] }) });
+  mount(); open(); await screen.findByText("$10,000 gift");
+}
+it("offers major-gift checks without performing provider work on open, and keeps them off smaller/hidden gifts", async () => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [majorGift, { ...majorGift, key: "gift:901", giftAmount: 9999 }], hidden: [majorGift] }) });
+  mount(); open();
+  expect(await screen.findAllByRole("button", { name: "Check documentation" })).toHaveLength(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Snoozed & dismissed (1)" }));
+  expect(screen.queryByRole("button", { name: "Check documentation" })).toBeNull();
+});
+it("runs a check only on click and offers review links only after verified coverage", async () => {
+  await openMajorGift();
+  expect(screen.queryByRole("link", { name: "Review opportunity form" })).toBeNull();
+  fetch.mockResolvedValueOnce(checkResult({ status: "review", checkedAt: "2026-09-27T20:00:00Z" }));
+  fireEvent.click(screen.getByRole("button", { name: "Check documentation" }));
+  expect(await screen.findByText(/Was this gift unsolicited/)).toBeVisible();
+  expect(fetch.mock.calls[1][1]).toMatchObject({ method: "POST" });
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ key: majorGift.key, revision: majorGift.revision });
+  const opportunity = new URL(screen.getByRole("link", { name: "Review opportunity form" }).getAttribute("href"), "https://example.app");
+  expect(Object.fromEntries(opportunity.searchParams)).toMatchObject({ blackbaudConstituentId: "100", mode: "opportunity", returnTo: "/" });
+  expect(screen.getByRole("link", { name: "Log completed solicitation" })).toHaveAttribute("href", expect.stringContaining("actionType=Solicitation"));
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+it.each(["incomplete", "unavailable", "changed", "connection", "waiting", "found"])("never suggests missing documentation after %s", async status => {
+  await openMajorGift(); fetch.mockResolvedValueOnce(checkResult({ status }));
+  fireEvent.click(screen.getByRole("button", { name: "Check documentation" }));
+  await screen.findByRole("button", { name: "Check history again" });
+  expect(screen.queryByText(/Was this gift unsolicited/)).toBeNull();
+  expect(screen.queryByRole("link", { name: "Review opportunity form" })).toBeNull();
+});
+it("rejects mismatched check responses and does not leave an older successful gap visible after a failed recheck", async () => {
+  await openMajorGift(); fetch.mockResolvedValueOnce(checkResult({ status: "review" }));
+  fireEvent.click(screen.getByRole("button", { name: "Check documentation" }));
+  await screen.findByText(/Was this gift unsolicited/);
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ viewerId: "7", workspaceUserId: "20", result: { status: "review" } }) });
+  fireEvent.click(screen.getByRole("button", { name: "Check history again" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("workspace or gift changed");
+  expect(screen.queryByText(/Was this gift unsolicited/)).toBeNull();
+  expect(screen.queryByRole("link", { name: "Review opportunity form" })).toBeNull();
 });

@@ -40,3 +40,18 @@
   .dashboard-assistant-panel { padding: 15px; }
   .dashboard-assistant-list li { padding: 15px; }
 }
+.dashboard-assistant-documentation {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #cce4dd;
+  border-radius: 0.75rem;
+  background: #f5fbf8;
+}
+.dashboard-assistant-documentation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.dashboard-assistant-documentation p { margin: 0.75rem 0; }

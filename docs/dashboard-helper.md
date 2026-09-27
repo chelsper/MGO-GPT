@@ -1,6 +1,6 @@
-# Dashboard helper: Steps 2 and 3
+# Dashboard helper: Steps 2 through 4
 
-Implemented September 27, 2026. Step 2 is deployed to JU; see `ju-dashboard-helper-release-2026-09-27.md`. Step 3 is implemented and verified locally, not yet deployed. These are separate from the deployed Step 1 donor briefings.
+Implemented September 27, 2026. Steps 2 and 3 are deployed to JU; see `ju-dashboard-helper-release-2026-09-27.md` and `ju-gift-reminders-release-2026-09-27.md`. Step 4 is implemented and verified locally, not yet deployed. These are separate from the deployed Step 1 donor briefings.
 
 ## User experience
 
@@ -86,8 +86,42 @@ Only opening/reloading Nellie reads these saved sources. No initial dashboard re
 
 4,658 tests passed; 46 opt-in tests skipped in the default suite. All 10 disposable PostgreSQL tests passed separately, including published-generation isolation, portfolio boundaries, soft-credit exclusion, conflicting identities, private dismissal persistence, and a synthetic 90,001-gift source. That synthetic saved-source read took about 218ms locally; it is not a production latency guarantee.
 
-Typecheck, production build, release guard, desktop preview, 390px mobile overflow check, local filtering, and synthetic dismiss/restore interactions passed. No Step 3 production refresh, gift write, message, or deployment was performed.
+Typecheck, production build, release guard, desktop preview, 390px mobile overflow check, local filtering, and synthetic dismiss/restore interactions passed. The subsequent JU deployment is recorded in the release note; no production refresh, gift write, or message was performed.
+
+## Step 4: Major-gift documentation review
+
+Gift reminders of **$10,000 or more** offer **Check documentation**. It is deliberately on demand: opening the dashboard, opening Nellie, changing a filter, and reloading reminders do not start NXT scans. Smaller gifts and snoozed/dismissed reminders do not show the check. No model call is used for this factual rule.
+
+The check uses the signed-in viewer's NXT connection, including when an administrator is viewing another workspace. It never borrows the organization background account's permissions. Gifts are revalidated against the current saved source and portfolio before checking; callers cannot supply an arbitrary constituent ID or amount.
+
+The UI only asks whether documentation might be useful after both returned collections pass strict coverage checks. It explicitly allows unsolicited gifts and payments on existing commitments. It does not claim that an opportunity must be created, that a past record relates to this gift, or that a donor was not solicited. It offers the existing opportunity form and completed-solicitation action form, with the donor selected. Existing permissions and explicit submission remain required. Nothing is submitted, drafted by a model, sent, or marked complete automatically.
+
+### Coverage and resource limits
+
+- First checks existing app opportunities, solicitation activity, and unresolved NXT create receipts. Existing context suppresses a gap prompt, even if an NXT list is still catching up. Local checks run again immediately before returning a new or briefly cached review prompt.
+- At most three sequential provider GET requests: first verify the gift ID, direct donor ID, amount, type, and date still match the saved revision; then the opportunity list filtered by exact constituent ID with `include_inactive=true`, then that constituent's action list. There are no date, fundraiser, action-completion, or opportunity-status filters. A changed or unavailable gift withholds the gap prompt.
+- Each GET has an eight-second transport timeout and zero transport retries. The existing subscription-wide quota gate applies. Token/connection setup has its own existing behavior.
+- Each request asks for up to 500 records. Results at that limit are conservatively considered incomplete, even if the total appears to match. No continuation links are followed and no background work is scheduled.
+- Requires an explicit nonnegative integer total equal to the returned row count, no next link, unique numeric record IDs, and exact donor identity on every row. Missing, malformed, capped, or conflicting responses are unknown, never evidence of absence.
+- Any returned opportunity, including inactive or closed history, suppresses a gap prompt. An action type containing `solicit` does too. A negative result requires every other action type to match one of the app's known interaction types; blank/custom/unrecognized types withhold the prompt.
+- The check covers only records visible to the connection for this donor. Spouse/organization relationships and gift-to-opportunity attribution are not inferred. NXT list indexing can lag; the UI shows the check time and asks the user to review recent changes before creating records.
+
+The existing caches cannot establish absence: the opportunity mirror only refreshes known linked IDs, and recent-activity caches retain only the last action. This new check does not mistake either for complete history.
+
+### Persistence and authorization
+
+`POST /api/dashboard-priorities?workspaceId=...` accepts only a current gift key and revision. It shares the route's active-account, authorized-workspace, helper-enabled, no-store, cross-origin, and bounded-body protections. Responses carry viewer/workspace/gift identity, which the UI checks before displaying them. Changing workspace or gift revision unmounts old check results; a failed recheck hides any prior positive review prompt.
+
+Additive `dashboard_documentation_checks` stores at most one compact check per viewer: workspace, connection/configuration scope, gift identity/revision, claim token, retry time, and outcome/time/counts. It stores no action notes or full provider payloads. An atomic UPSERT permits at most one new check per viewer per minute across workspaces; failures honor longer provider cooldowns (up to a day). Token-guarded completion prevents an expired worker from overwriting a newer result. A retry within the cooldown may reuse an outcome only for the exact viewer/workspace/connection/gift revision. Other requests receive a wait message. Reconnection during a check withholds the result.
+
+The table is created inside the existing advisory-locked schema block. No existing donor records or background schedules are migrated. Rollback can leave the additive table in place.
+
+### Step 4 verification
+
+4,725 tests passed with 49 opt-in tests skipped in the default suite. All 13 disposable PostgreSQL tests passed separately. Typecheck, production build, and release guard passed. Synthetic desktop and 390px mobile checks showed no horizontal overflow, no initial requests, no request from filtering, and only one explicit check request. Provider response shapes and failures were simulated; no live donor history check or NXT write was performed for this increment. A small authorized read-only production pilot remains necessary after deployment.
+
+Primary API references: [Blackbaud API list behavior and indexing](https://developer.blackbaud.com/skyapi/docs/in-depth-topics/api-lists), [Blackbaud constituent filtering and linked gifts](https://developer.blackbaud.com/skyapi/support/changelog/renxt/2017), and [Blackbaud action status fields](https://developer.blackbaud.com/skyapi/support/changelog/renxt/2018). Returned coverage is not a guarantee of unrestricted account visibility or instantaneous indexing.
 
 ## Next increments
 
-The next roadmap step is documentation-gap checks, but these must establish complete opportunity/action coverage before claiming a major gift lacks a solicitation. Then add contextual drafting and meeting preparation, followed by a small pilot and refinement. Organization-configurable thresholds, additional verified gift types, gift-linked stewardship tasks, and custom mascot artwork can follow. None should automatically send donor communications or change NXT without explicit review.
+After deploying and piloting Step 4, the next roadmap step is contextual drafting and meeting preparation, followed by a small pilot and refinement. Organization-configurable thresholds, verified custom action-type mappings, additional verified gift types, gift-linked stewardship tasks, and custom mascot artwork can follow. Automated documentation checks should wait for complete saved history sources and measured API capacity. None should automatically send donor communications or change NXT without explicit review.

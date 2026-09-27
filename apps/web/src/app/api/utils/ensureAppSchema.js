@@ -2602,6 +2602,16 @@ export default async function ensureAppSchema() {
           changed_fields JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS dashboard_documentation_checks (
+          viewer_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          scope_key TEXT NOT NULL,
+          item_key TEXT NOT NULL,
+          item_revision TEXT NOT NULL,
+          claim_token UUID NOT NULL,
+          retry_after TIMESTAMPTZ NOT NULL,
+          result JSONB
+        );
       END $organization_audit_schema$
     `;
 

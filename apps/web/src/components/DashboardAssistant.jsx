@@ -2,6 +2,7 @@ import { useId, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useDashboardAssistantSettings } from "./WorkspaceTerminology";
 import DashboardAssistantAvatar from "./DashboardAssistantAvatar";
+import GiftDocumentationCheck from "./GiftDocumentationCheck";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import "./DashboardAssistant.css";
@@ -63,7 +64,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
     {open && <div id={id} className="dashboard-assistant-panel">
       <header>
         <div><h2 ref={heading} tabIndex={-1}>Let's look at what's coming up</h2>
-          <p>{query.data?.workspaceName ? `${query.data.workspaceName}'s workspace. ` : ""}Saved follow-ups, opportunity dates, and recent gifts, not a live NXT check.</p></div>
+          <p>{query.data?.workspaceName ? `${query.data.workspaceName}'s workspace. ` : ""}Reminders use saved follow-ups, opportunity dates, and recent gifts. Documentation checks run only when you ask.</p></div>
         <button type="button" onClick={() => { mutation.reset(); setNotice(""); query.refetch(); }} disabled={busy}>Reload reminders</button>
       </header>
       <p className="dashboard-assistant-note">You decide what to do next. Nothing is sent or changed automatically. Snooze and dismiss are private to you in this workspace; updated details can bring a reminder back.</p>
@@ -95,6 +96,8 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
         <ul className="dashboard-assistant-list">{records.slice(0, limit).map(item => <li key={item.key}>
           <div className="dashboard-assistant-timing">{item.hiddenReason === "dismissed" ? "Dismissed" : item.hiddenReason === "snoozed" ? `Snoozed until ${formatCalendarDate(item.snoozeUntil)}` : item.timing}</div>
           <h3>{item.constituentName}</h3><p className="dashboard-assistant-title">{item.title}</p><p>{item.message}</p>
+          {item.kind === "gift" && item.giftAmount >= 10000 && !showHidden && <GiftDocumentationCheck
+            key={item.revision} item={item} viewerId={viewerId} workspaceId={workspaceId} />}
           <div className="dashboard-assistant-actions">
             <a href={item.href} aria-label={`${item.linkLabel}: ${item.title} for ${item.constituentName}`}>{item.linkLabel}</a>
             {item.kind === "gift" && <a href={buildBlackbaudConstituentProfileUrl(item.constituentId)} target="_blank" rel="noopener noreferrer">Review donor in NXT<span className="sr-only"> (opens in a new tab)</span></a>}

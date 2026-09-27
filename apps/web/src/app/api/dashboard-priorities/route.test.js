@@ -1,12 +1,13 @@
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.fn(), settings: vi.fn(), read: vi.fn(), candidates: vi.fn(), save: vi.fn(), gifts: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.fn(), settings: vi.fn(), read: vi.fn(), candidates: vi.fn(), save: vi.fn(), gifts: vi.fn(), check: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: mocks.workspace }));
 vi.mock("@/app/api/utils/organizationSettings", () => ({ getOrganizationSettings: mocks.settings }));
 vi.mock("@/app/api/utils/dashboardPriorities", () => ({ readDashboardPriorities: mocks.read, readPriorityCandidates: mocks.candidates, savePriorityPreference: mocks.save }));
 vi.mock("@/app/api/utils/dashboardGiftPriorities", () => ({ loadDashboardGifts: mocks.gifts }));
-import { GET, PUT } from "./route";
+vi.mock("@/app/api/utils/dashboardDocumentation", () => ({ checkGiftDocumentation: mocks.check }));
+import { GET, PUT, POST } from "./route";
 const item = { key: "follow-up:1", revision: "a".repeat(64) };
 const context = { sessionUser: { id: 7, role: "mgo", active: true }, workspaceUser: { id: 7, name: "Test", role: "mgo", active: true } };
 const get = (query = "workspaceId=7") => new Request(`https://example.app/api/dashboard-priorities?${query}`);
@@ -84,4 +85,36 @@ it("revalidates a gift before changing its private preference and blocks stale/u
 });
 it("does not read gift sources when snoozing an ordinary follow-up", async () => {
   await PUT(put()); expect(mocks.gifts).not.toHaveBeenCalled();
+});
+
+const majorGift = { key: "gift:900", revision: "b".repeat(64), giftAmount: 10000, constituentId: "100", giftId: "900", kind: "gift" };
+const post = (body = { key: majorGift.key, revision: majorGift.revision }, headers = {}, query = "workspaceId=7") =>
+  new Request(get(query), { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+it("never runs documentation checks on ordinary reminder reads or preferences", async () => {
+  await GET(get()); await PUT(put()); expect(mocks.check).not.toHaveBeenCalled();
+});
+it("allows only a verified current major gift in the authorized workspace, using server-owned donor facts", async () => {
+  mocks.gifts.mockResolvedValue({ items: [majorGift] }); mocks.check.mockResolvedValue({ status: "incomplete" });
+  const response = await POST(post());
+  expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.json()).toMatchObject({ viewerId: "7", workspaceUserId: "7", key: majorGift.key, revision: majorGift.revision, result: { status: "incomplete" } });
+  expect(mocks.check).toHaveBeenCalledWith({ viewerId: 7, workspaceId: 7, item: majorGift, origin: "https://example.app" });
+});
+it.each([{ items: [] }, { items: [{ ...majorGift, giftAmount: 9999 }] }, { items: [{ ...majorGift, revision: "a".repeat(64) }] }])("blocks unavailable, smaller, or stale gifts: %j", async ({ items }) => {
+  mocks.gifts.mockResolvedValue({ items });
+  expect((await POST(post())).status).toBe(409); expect(mocks.check).not.toHaveBeenCalled();
+});
+it.each([null, { ...majorGift, constituentId: "other" }, { key: "gift:../other", revision: majorGift.revision }, { key: majorGift.key, revision: "old" }])("rejects altered or arbitrary check payloads: %j", async body => {
+  expect((await POST(post(body))).status).toBe(400); expect(mocks.check).not.toHaveBeenCalled();
+});
+it("enforces auth, request bounds, origin, workspace and organization gates before checks", async () => {
+  expect((await POST(post(undefined, { Origin: "https://evil.example" }))).status).toBe(403);
+  expect((await POST(post(undefined, { "sec-fetch-site": "cross-site" }))).status).toBe(403);
+  expect(mocks.auth).not.toHaveBeenCalled();
+  expect((await POST(post(undefined, {}, "workspaceId=9"))).status).toBe(409);
+  expect((await POST(post({ key: "x".repeat(5000) }))).status).toBe(413);
+  mocks.settings.mockResolvedValue({ dashboardAssistant: { enabled: false } });
+  expect((await POST(post())).status).toBe(403);
+  mocks.auth.mockResolvedValue(null);
+  expect((await POST(post())).status).toBe(401); expect(mocks.check).not.toHaveBeenCalled();
 });

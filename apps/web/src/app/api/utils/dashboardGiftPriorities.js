@@ -17,6 +17,10 @@ const token = value => typeof value === "string" ? value.toLowerCase().replace(/
 const fresh = (value, now, age) => typeof value === "string" && Number.isFinite(Date.parse(value)) &&
   Date.parse(value) <= now.getTime() && now.getTime() - Date.parse(value) <= age;
 const unavailable = () => ({ items: [], truncated: false, coverage: { status: "unavailable" } });
+export function giftPriorityRevision(gift) {
+  return createHash("sha256").update(JSON.stringify([String(gift.id), String(gift.constituent_id),
+    calendarDate(gift.date), gift.amount?.value, token(gift.type)])).digest("hex");
+}
 export function giftPriorityWindow(now = new Date()) {
   const end = getStandingsPeriods(now).asOf;
   const start = new Date(`${end}T12:00:00Z`);
@@ -45,8 +49,7 @@ export function buildGiftPriorities(saved, now = new Date()) {
       date >= coverage.startDate && date <= coverage.endDate && typeof amount === "number" &&
       Number.isFinite(amount) && amount > 1000 && RECEIVED_TYPES.has(type);
     if (!valid) { conflicts.add(id); continue; }
-    const facts = [id, constituentId, date, amount, type];
-    const revision = createHash("sha256").update(JSON.stringify(facts)).digest("hex");
+    const revision = giftPriorityRevision(gift);
     if (byId.has(id) && byId.get(id).revision !== revision) conflicts.add(id);
     const name = String(row.name || "").trim().slice(0, 200) || "Portfolio constituent";
     const value = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(amount);
@@ -54,7 +57,7 @@ export function buildGiftPriorities(saved, now = new Date()) {
       blackbaudConstituentId: constituentId, returnTo: "/" });
     byId.set(id, {
       key: `gift:${id}`, revision, kind: "gift", title: `${value} gift`, constituentName: name,
-      constituentId, giftId: id, dueDate: date, timing: "A chance to say thank you",
+      constituentId, giftId: id, giftAmount: amount, dueDate: date, timing: "A chance to say thank you",
       message: `A ${value} gift was recorded on ${formatCalendarDate(date, { month: "short", day: "numeric", year: "numeric" })}. Would a thank-you or another stewardship touch be helpful?`,
       href: `/action-opportunity-update?${params}`, linkLabel: "Log stewardship action", savedAt: source.checkedAt,
     });

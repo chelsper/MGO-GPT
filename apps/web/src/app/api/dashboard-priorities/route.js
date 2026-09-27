@@ -5,6 +5,7 @@ import { canUseMgoWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
 import { getOrganizationSettings } from "@/app/api/utils/organizationSettings";
 import { readDashboardPriorities, readPriorityCandidates, savePriorityPreference } from "@/app/api/utils/dashboardPriorities";
 import { loadDashboardGifts } from "@/app/api/utils/dashboardGiftPriorities";
+import { checkGiftDocumentation } from "@/app/api/utils/dashboardDocumentation";
 
 const response = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
 const fail = (message, status) => Object.assign(new Error(message), { status, publicMessage: message });
@@ -73,5 +74,25 @@ export async function PUT(request) {
     if (!item) throw fail("This reminder has changed. Reload reminders before continuing.", 409);
     await savePriorityPreference({ viewerId: sessionUser.id, workspaceId: workspaceUser.id, item, action: body.action, days: body.days });
     return response({ saved: true });
+  } catch (error) { return errorResponse(error); }
+}
+
+export async function POST(request) {
+  try {
+    const origin = new URL(request.url).origin;
+    if ((request.headers.get("origin") && request.headers.get("origin") !== origin) ||
+        request.headers.get("sec-fetch-site") === "cross-site") throw fail("Open this check from your dashboard.", 403);
+    const { sessionUser, workspaceUser } = await contextFor(request);
+    const body = await smallBody(request);
+    if (!body || typeof body !== "object" || Array.isArray(body) ||
+        Object.keys(body).some(key => !["key", "revision"].includes(key)) ||
+        typeof body.key !== "string" || !/^gift:[1-9]\d{0,30}$/.test(body.key) ||
+        !/^[a-f0-9]{64}$/.test(body.revision || "")) throw fail("Choose a current major gift to check.", 400);
+    const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin, now: new Date() });
+    const item = gifts.items.find(item => item.key === body.key && item.revision === body.revision && item.giftAmount >= 10_000);
+    if (!item) throw fail("This gift has changed or is no longer available. Reload reminders before checking.", 409);
+    const result = await checkGiftDocumentation({ viewerId: sessionUser.id, workspaceId: workspaceUser.id, item, origin });
+    return response({ result, key: item.key, revision: item.revision,
+      viewerId: String(sessionUser.id), workspaceUserId: String(workspaceUser.id) });
   } catch (error) { return errorResponse(error); }
 }
