@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import SavedLetterPreview from "./SavedLetterPreview";
+import LetterBatchSummary from "./LetterBatchSummary";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50";
@@ -60,6 +61,11 @@ export default function FinalPostalLetterDialog({
         mailed. NXT restrictions and prior appeals are checked again before
         creation.
       </p>
+      <LetterBatchSummary
+        items={[row]}
+        selectionSummary={preview.selectionSummary}
+        preview
+      />
       <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
         <h3 className="font-semibold">
           Appeal to apply to{" "}

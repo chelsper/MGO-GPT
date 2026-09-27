@@ -309,6 +309,12 @@ describe("final postal letters and household appeal receipts", () => {
     expect(f.item().coveredKeys).toEqual(["presidents", "ood"]);
     expect(f.item().letterAppeals.status).toBe("complete");
     expect(f.item().status).toBe("prepared");
+    expect(f.item().selectionSummary).toMatchObject({
+      version: 1,
+      total: 1,
+      selected: 1,
+      notSelected: 0,
+    });
     expect(f.events.indexOf("save:uncertain,pending")).toBeLessThan(
       f.events.indexOf("post:10"),
     );
@@ -326,6 +332,24 @@ describe("final postal letters and household appeal receipts", () => {
     expect(f.client.create).toHaveBeenCalledTimes(1);
     expect(f.client.create.mock.calls[0][1].id).toBe("101");
     expect(f.item().letterAppeals.members.map((m) => m.id)).toEqual(["10"]);
+  });
+  it("freezes final-letter selection counts and ignores client-supplied summary values", async () => {
+    const f = await fixture();
+    f.state.snapshot.rows.push({
+      ...f.row,
+      householdId: "20",
+      members: ["20"],
+    });
+    const preview = f.preview();
+    expect(preview.selectionSummary).toMatchObject({
+      total: 2,
+      selected: 1,
+      notSelected: 1,
+    });
+    await f.finish({ selectionSummary: { total: 999, selected: 999 } });
+    expect(f.item().selectionSummary).toEqual(preview.selectionSummary);
+    f.state.snapshot.rows = [];
+    expect(f.item().selectionSummary.total).toBe(2);
   });
   it.each([
     "confirmation",

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { recipientReviewForRow } from "./societyLetterRecipients";
 import { renderSocietyLetter } from "./societyLetterDocuments";
@@ -149,16 +150,19 @@ export function previewFinalPostalLetter(state, definitions, today, body) {
   };
   renderSocietyLetter(template, row, today);
   const appeal = state.readiness.policy.appeals[source.societyKey];
+  const selectionSummary = letterSelectionSummary(state, [row]);
   return {
     row,
     appeal,
     hierarchy,
+    selectionSummary,
     token: hash([
       state.revision,
       row,
       appeal,
       state.readiness.policy,
       state.readiness.exclusionPolicy,
+      selectionSummary,
     ]),
   };
 }
@@ -352,6 +356,7 @@ export async function finalizePostalLetter(
     status: "prepared",
     preparedAt: new Date().toISOString(),
     preparedBy: ctx.user.id,
+    selectionSummary: preview.selectionSummary,
     letterAppeals: {
       status: "pending",
       appeal: preview.appeal,

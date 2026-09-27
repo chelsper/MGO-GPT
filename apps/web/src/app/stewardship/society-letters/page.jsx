@@ -26,6 +26,7 @@ import LetterReadinessPanel, {
 } from "./LetterReadinessPanel";
 import LetterWorkspaceFilters from "./LetterWorkspaceFilters";
 import LetterWorkspaceRow from "./LetterWorkspaceRow";
+import LetterBatchSummary from "./LetterBatchSummary";
 import FinalPostalLetterDialog, {
   LetterAppealStatus,
 } from "./FinalPostalLetterDialog";
@@ -1307,6 +1308,11 @@ export default function SocietyLettersPage() {
                     Preparing reserves these households; it does not mark them
                     sent.
                   </p>
+                  <LetterBatchSummary
+                    items={preview.rows}
+                    selectionSummary={preview.selectionSummary}
+                    preview
+                  />
                   <ul className="my-4 max-h-96 space-y-3 overflow-auto">
                     {preview.rows.map((row) => (
                       <li
@@ -1485,6 +1491,7 @@ export default function SocietyLettersPage() {
                         )}
                     </div>
                   </div>
+                  <LetterBatchSummary items={batch.items} />
                   <details
                     className="mt-4"
                     open={

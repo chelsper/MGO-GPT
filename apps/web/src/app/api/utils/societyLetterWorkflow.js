@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import { advanceQueryList } from "./constituentQueryList";
 import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
 import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
@@ -316,10 +317,12 @@ export function previewLetters(state, definitions, today, body) {
     throw letterError(
       "Different households share an email address. Review them individually instead of sending this batch.",
     );
+  const selectionSummary = letterSelectionSummary(state, rows);
   return {
     rows,
     channel: body.channel,
-    token: hash([state.revision, body.channel, rows]),
+    selectionSummary,
+    token: hash([state.revision, body.channel, rows, selectionSummary]),
   };
 }
 
@@ -682,6 +685,7 @@ export async function prepareLetterBatch(
     status: preview.channel === "post" ? "prepared" : "pending_email",
     preparedAt: new Date().toISOString(),
     preparedBy: userId,
+    selectionSummary: preview.selectionSummary,
   }));
   await store.reserve(items);
   return batchId;

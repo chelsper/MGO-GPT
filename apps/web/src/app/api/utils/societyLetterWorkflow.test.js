@@ -774,7 +774,13 @@ describe("society letter workflow", () => {
       householdId: "10",
       members: ["10", "11"],
       templateVersion: preview.rows[0].templateVersion,
+      selectionSummary: preview.selectionSummary,
       coveredKeys: ["presidents_society", "order_of_the_dolphin"],
+    });
+    expect(preview.selectionSummary).toMatchObject({
+      total: 1,
+      selected: 1,
+      notSelected: 0,
     });
   });
   it("blocks stale previews, changed periods, stale membership and repeated household IDs", async () => {
@@ -804,6 +810,32 @@ describe("society letter workflow", () => {
     expect(() => previewLetters(state, definitions, today, body)).toThrow(
       /24 hours/,
     );
+  });
+  it("freezes server-derived selection counts and rejects changed selection context", async () => {
+    const { state, store, body } = setup();
+    const source = state.snapshot.rows[0];
+    state.snapshot.rows.push({ ...source, householdId: "20", members: ["20"] });
+    const preview = previewLetters(state, definitions, today, body);
+    expect(preview.selectionSummary).toMatchObject({
+      total: 2,
+      selected: 1,
+      notSelected: 1,
+    });
+    const request = {
+      ...body,
+      confirm: true,
+      previewToken: preview.token,
+      selectionSummary: { total: 999 },
+    };
+    await prepareLetterBatch(state, definitions, today, request, store, 1);
+    expect(store.reserve.mock.calls[0][0][0].selectionSummary).toEqual(
+      preview.selectionSummary,
+    );
+    state.snapshot.rows.push({ ...source, householdId: "30", members: ["30"] });
+    await expect(
+      prepareLetterBatch(state, definitions, today, request, store, 1),
+    ).rejects.toThrow(/Review the current/);
+    expect(store.reserve).toHaveBeenCalledOnce();
   });
   it("blocks a refresh/settings change from erasing the period ledger", async () => {
     const { state, store } = setup();

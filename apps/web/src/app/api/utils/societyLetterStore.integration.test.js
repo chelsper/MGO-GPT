@@ -106,6 +106,15 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     const delivery = item({
       members: ["10", "11"],
       addressee: "Alex and Pat",
+      selectionSummary: {
+        version: 1,
+        total: 6,
+        selected: 1,
+        notSelected: 5,
+        excluded: 0,
+        covered: 0,
+        reserved: 0,
+      },
       letterAppeals: {
         status: "pending",
         members: [
@@ -117,10 +126,16 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     await store.reserve([delivery]);
     delivery.letterAppeals.members[0].status = "uncertain";
     delivery.addressee = "MUST NOT CHANGE";
+    delivery.selectionSummary.total = 999;
     await store.saveLetterAppeals(delivery);
     await store.release();
     const saved = await readSocietyLetterState();
     expect(saved.history[0].addressee).toBe("Alex and Pat");
+    expect(saved.history[0].selectionSummary).toMatchObject({
+      total: 6,
+      selected: 1,
+      notSelected: 5,
+    });
     expect(saved.history[0].letterAppeals.members[0].status).toBe("uncertain");
     const next = await acquireSocietyLetters(1, saved.revision);
     await expect(store.saveLetterAppeals(delivery)).rejects.toMatchObject({

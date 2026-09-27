@@ -94,6 +94,46 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("shows saved batch counts in history without starting NXT or delivery requests", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        history: [
+          {
+            ...household,
+            members: ["10", "11"],
+            id: "letter",
+            batchId: "batch",
+            channel: "post",
+            status: "prepared",
+            preparedAt: "2026-09-27T12:00:00Z",
+            period: base.period,
+            coveredKeys: ["presidents_society"],
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Letter history",
+        exact: true,
+      }),
+    );
+    const summary = screen.getByRole("region", { name: "Batch summary" });
+    expect(
+      within(summary).getByText("Joint recipients").nextElementSibling,
+    ).toHaveTextContent("1");
+    expect(
+      within(summary).getByText("Prepared, not mailed").nextElementSibling,
+    ).toHaveTextContent("1");
+    expect(
+      within(summary).getByText("Mailed").nextElementSibling,
+    ).toHaveTextContent("0");
+    fireEvent.click(within(summary).getByText("Selection and appeal details"));
+    expect(within(summary).getByText(/were not recorded/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("resumes an in-memory draft outside the filters without storing wording or fetching NXT", async () => {
     fetchMock.mockImplementation(async () =>
       Response.json({ ...base, rows: [reviewRow("10"), reviewRow("20")] }),

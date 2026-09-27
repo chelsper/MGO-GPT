@@ -2,16 +2,16 @@
 
 ## Scope and Release
 
-Implemented locally following Step 5; not part of Step 5's deployed commit
-`c770906c5216dc4d076761ce0814d56c47c723f5`. This first rollout finalizes one
+Deployed to JU on September 27, 2026 as commit
+`35346dcb7fe0beef0f304ba455228da639aca483`, deployment
+`dpl_8tSWew7K48hr6GUXDZYnmYMkdKiV`. This first rollout finalizes one
 postal letter at a time from the combined society-query source. It does not
 enable bulk creation, query-source email delivery, automatic sending, or
 background NXT writes. Existing legacy batch/email and exclusion workflows
 retain their separate gates.
 
-Step 6 is still pending: a final batch summary with counts by society, joint
-and single recipients, skipped recipients, exact appeals, and distinct
-Prepared, Mailed, and Email sent outcomes.
+Step 6's saved-data batch summary is implemented separately and is not included
+in that deployment. See [the summary contract](society-letter-batch-summary.md).
 
 ## Staff Workflow
 
