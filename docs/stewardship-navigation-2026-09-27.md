@@ -54,4 +54,24 @@ clean commit archives, with no Git push. The baseline for this work is sandbox
 `dpl_EyJB2zAbgkAb7uayPnUhyodwgmj7` (Git disconnected) and other linked copy
 `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. Do not use older sandbox release baselines.
 
-Navigation deployment verification is recorded below after release.
+## Navigation Production Release
+
+Deployed commit `d57199d311963d7cad3dbf66f1e350041449092f` to
+`dpl_5cZKhpoo7AwTXuB13NMahccnoxZq` (READY):
+https://mgo-hzkwgqkqb-chelspers-projects.vercel.app
+
+The clean upload contained 992 files / 10,880,793 bytes. The manifest contained
+only `.env.example`, no private environment files or generated/dependency output.
+JU's production alias verified the expected commit and public asset references.
+Read-only smoke checks passed on four page URLs (including direct letter-view
+and organization-return URLs) and 20 referenced assets. The unauthenticated
+society-letter API returned HTTP 401. Browser behavior was checked locally with
+fictional data; no authenticated live NXT mutation was used as a smoke test.
+
+The post-release inventory confirmed the sandbox and other linked copy remained
+on the baseline deployments above, sandbox Git remained disconnected, and all
+three projects' cron paths and schedules were unchanged. No Git push occurred.
+
+Previous JU deployment: `dpl_26ZMS3mhF33FiUqzMrBvHzut2wuw`, the sole-recipient
+release. This navigation-only release does not change stored data or delivery
+receipts. Preserve all existing appeal reservations/history during any recovery.
