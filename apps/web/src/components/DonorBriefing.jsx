@@ -1,4 +1,6 @@
 import { buildDonorBriefing } from "@/utils/donorBriefing";
+import { briefingDraftContext } from "@/utils/outreachDrafts";
+import OutreachDraft from "./OutreachDraft";
 import "./DonorBriefing.css";
 
 export default function DonorBriefing(props) {
@@ -12,5 +14,7 @@ export default function DonorBriefing(props) {
       </div>)}
     </dl> : <p>There isn't enough saved information for a briefing yet.</p>}
     <p className="donor-briefing__note">Saved records may not include recent changes in NXT. Only available details are shown.</p>
+    <OutreachDraft key={`${props.draftScope || ""}:${props.constituentId}`} label="Prepare for a meeting"
+      context={briefingDraftContext({ constituentId: props.constituentId, name: props.name, sections })} />
   </section>;
 }

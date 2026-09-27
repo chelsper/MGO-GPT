@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useDashboardAssistantSettings } from "./WorkspaceTerminology";
 import DashboardAssistantAvatar from "./DashboardAssistantAvatar";
 import GiftDocumentationCheck from "./GiftDocumentationCheck";
+import OutreachDraft from "./OutreachDraft";
+import { priorityDraftContext } from "@/utils/outreachDrafts";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import "./DashboardAssistant.css";
@@ -99,6 +101,8 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
           {item.kind === "gift" && item.giftAmount >= 10000 && !showHidden && <GiftDocumentationCheck
             key={item.revision} item={item} viewerId={viewerId} workspaceId={workspaceId} />}
           <div className="dashboard-assistant-actions">
+            {!showHidden && <OutreachDraft context={priorityDraftContext(item)}
+              label={item.kind === "gift" ? "Draft a thank-you" : "Prepare for a conversation"} />}
             <a href={item.href} aria-label={`${item.linkLabel}: ${item.title} for ${item.constituentName}`}>{item.linkLabel}</a>
             {item.kind === "gift" && <a href={buildBlackbaudConstituentProfileUrl(item.constituentId)} target="_blank" rel="noopener noreferrer">Review donor in NXT<span className="sr-only"> (opens in a new tab)</span></a>}
             {showHidden ? <button type="button" disabled={busy} onClick={() => choose(item, "restore")}>Restore reminder</button> : <>

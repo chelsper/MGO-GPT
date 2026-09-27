@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import DashboardAssistant from "./DashboardAssistant";
 import DashboardAssistantSettings from "./DashboardAssistantSettings";
 import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
-const item = { key: "follow-up:1", revision: "a".repeat(64), constituentName: "Sample Donor", title: "Plan the visit", message: "This follow-up is due today.", timing: "Due today", href: "/follow-ups?tab=next-steps&nextStepId=1&status=Open", linkLabel: "Review follow-up" };
+const item = { key: "follow-up:1", revision: "a".repeat(64), kind: "follow-up", dueDate: "2026-09-27", constituentName: "Sample Donor", title: "Plan the visit", message: "This follow-up is due today.", timing: "Due today", href: "/follow-ups?tab=next-steps&nextStepId=1&status=Open", linkLabel: "Review follow-up" };
 const payload = { viewerId: "7", workspaceUserId: "10", workspaceName: "Example Officer", items: [item], hidden: [], asOf: "2026-09-27" };
 let client;
 function mount({ viewerId = 7, workspaceId = 10, settings } = {}) {
@@ -14,6 +14,8 @@ function mount({ viewerId = 7, workspaceId = 10, settings } = {}) {
 }
 const open = () => fireEvent.click(screen.getByRole("button", { name: /Check in with/ }));
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = vi.fn(function () { this.setAttribute("open", ""); });
+  HTMLDialogElement.prototype.close = vi.fn(function () { this.removeAttribute("open", ""); });
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => structuredClone(payload) })));
 });
 afterEach(() => { cleanup(); client?.clear(); vi.unstubAllGlobals(); });
@@ -166,4 +168,27 @@ it("rejects mismatched check responses and does not leave an older successful ga
   expect(await screen.findByRole("alert")).toHaveTextContent("workspace or gift changed");
   expect(screen.queryByText(/Was this gift unsolicited/)).toBeNull();
   expect(screen.queryByRole("link", { name: "Review opportunity form" })).toBeNull();
+});
+
+it("prepares contextual notes without more requests and destroys drafts on a workspace change", async () => {
+  const view = mount(); open(); await screen.findByText("Sample Donor");
+  fireEvent.click(screen.getByRole("button", { name: "Prepare for a conversation" }));
+  expect(screen.getByRole("textbox").value).toContain("Plan the visit");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Private workspace notes" } });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  view.rerender(view.ui(20));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByDisplayValue("Private workspace notes")).toBeNull();
+});
+it("offers gift starters without running the major-gift documentation check", async () => {
+  await openMajorGift();
+  fireEvent.click(screen.getByRole("button", { name: "Draft a thank-you" }));
+  expect(screen.getByRole("textbox").value).toContain("Thank you for your gift of $10,000.00");
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("does not offer drafting for hidden reminders", async () => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [], hidden: [item] }) });
+  mount(); open();
+  fireEvent.click(await screen.findByRole("button", { name: "Snoozed & dismissed (1)" }));
+  expect(screen.queryByRole("button", { name: "Prepare for a conversation" })).toBeNull();
 });

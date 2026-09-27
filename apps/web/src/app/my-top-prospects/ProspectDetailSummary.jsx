@@ -25,6 +25,7 @@ export default function ProspectDetailSummary({
   localActions,
   opportunities,
   nextStep,
+  draftScope,
 }) {
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
@@ -125,7 +126,7 @@ export default function ProspectDetailSummary({
               {showBlackbaudNarrativeSummary ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
             {showBlackbaudNarrativeSummary && <div style={{ marginTop: "10px" }}>
-              <DonorBriefing constituentId={linkedBlackbaudConstituentId} name={name}
+              <DonorBriefing constituentId={linkedBlackbaudConstituentId} name={name} draftScope={draftScope}
                 summary={blackbaudSummary} recentActivity={recentActivity} localActions={localActions}
                 opportunities={opportunities} nextStep={nextStep}
                 pledgeStatus={pledgeData?.byConstituentId?.[String(linkedBlackbaudConstituentId)]}

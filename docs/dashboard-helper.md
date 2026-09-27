@@ -1,6 +1,6 @@
 # Dashboard helper: Steps 2 through 4
 
-Implemented September 27, 2026. Steps 2 and 3 are deployed to JU; see `ju-dashboard-helper-release-2026-09-27.md` and `ju-gift-reminders-release-2026-09-27.md`. Step 4 is implemented and verified locally, not yet deployed. These are separate from the deployed Step 1 donor briefings.
+Implemented September 27, 2026. Steps 2 through 4 are deployed to JU; see `ju-dashboard-helper-release-2026-09-27.md`, `ju-gift-reminders-release-2026-09-27.md`, and `ju-major-gift-checks-release-2026-09-27.md`. These are separate from the deployed Step 1 donor briefings. Step 4's live major-gift pilot remains pending eligible fresh saved gift data.
 
 ## User experience
 
@@ -124,4 +124,4 @@ Primary API references: [Blackbaud API list behavior and indexing](https://devel
 
 ## Next increments
 
-After deploying and piloting Step 4, the next roadmap step is contextual drafting and meeting preparation, followed by a small pilot and refinement. Organization-configurable thresholds, verified custom action-type mappings, additional verified gift types, gift-linked stewardship tasks, and custom mascot artwork can follow. Automated documentation checks should wait for complete saved history sources and measured API capacity. None should automatically send donor communications or change NXT without explicit review.
+Step 5, contextual drafting and meeting preparation, is implemented but not yet deployed; see `contextual-drafting.md`. It adds editable, deterministic starters using already-loaded records, not a new model or provider call. After deployment, the next step is a small pilot and refinement, including the outstanding Step 4 live check. Organization-configurable thresholds, verified custom action-type mappings, additional verified gift types, gift-linked stewardship tasks, and custom mascot artwork can follow. Automated documentation checks should wait for complete saved history sources and measured API capacity. None should automatically send donor communications or change NXT without explicit review.
