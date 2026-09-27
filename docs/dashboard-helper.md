@@ -1,4 +1,4 @@
-# Dashboard helper: Steps 2 through 4
+# Dashboard helper: Steps 2 through 5
 
 Implemented September 27, 2026. Steps 2 through 4 are deployed to JU; see `ju-dashboard-helper-release-2026-09-27.md`, `ju-gift-reminders-release-2026-09-27.md`, and `ju-major-gift-checks-release-2026-09-27.md`. These are separate from the deployed Step 1 donor briefings. Step 4's live major-gift pilot remains pending eligible fresh saved gift data.
 
@@ -124,4 +124,4 @@ Primary API references: [Blackbaud API list behavior and indexing](https://devel
 
 ## Next increments
 
-Step 5, contextual drafting and meeting preparation, is implemented but not yet deployed; see `contextual-drafting.md`. It adds editable, deterministic starters using already-loaded records, not a new model or provider call. After deployment, the next step is a small pilot and refinement, including the outstanding Step 4 live check. Organization-configurable thresholds, verified custom action-type mappings, additional verified gift types, gift-linked stewardship tasks, and custom mascot artwork can follow. Automated documentation checks should wait for complete saved history sources and measured API capacity. None should automatically send donor communications or change NXT without explicit review.
+Step 5, contextual drafting and meeting preparation, is deployed to JU; see `contextual-drafting.md` and `ju-contextual-drafting-release-2026-09-27.md`. It adds editable, deterministic starters using already-loaded records, not a new model or provider call. Organization-configurable thresholds, timing, draft tone, and reusable thank-you wording are now implemented locally, but not yet deployed; see `dashboard-helper-preferences.md`. The opportunity and donor-briefing live pilots passed; the thank-you and Step 4 documentation pilots still require eligible fresh saved gifts. Verified custom action-type mappings, additional verified gift types, gift-linked stewardship tasks, and custom mascot artwork can follow. Automated documentation checks should wait for complete saved history sources and measured API capacity. None should automatically send donor communications or change NXT without explicit review.

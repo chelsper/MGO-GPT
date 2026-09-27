@@ -4,6 +4,7 @@ import { fireEvent } from "@testing-library/dom";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AppShell from "./AppShell";
+import { normalizeDashboardAssistant } from "@/utils/dashboardAssistantSettings";
 import { useDashboardAssistantSettings, useWorkspaceLabels } from "./WorkspaceTerminology";
 
 const state = vi.hoisted(() => ({
@@ -105,7 +106,7 @@ describe("AppShell", () => {
     expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent).enabled).toBe(false);
     state.organization = { dashboardAssistant: { enabled: true, name: "Guide", avatar: "compass" } };
     await renderShell();
-    expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent)).toEqual(state.organization.dashboardAssistant);
+    expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent)).toEqual(normalizeDashboardAssistant(state.organization.dashboardAssistant));
     state.organization.dashboardAssistant.enabled = false;
     await renderShell();
     expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent).enabled).toBe(false);

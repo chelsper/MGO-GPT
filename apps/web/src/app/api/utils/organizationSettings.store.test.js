@@ -71,11 +71,27 @@ it("preserves helper settings for older clients and audits explicit helper chang
   sql.mockResolvedValueOnce([{ ...defaults, dashboardAssistant: assistant, revision }]);
   const { dashboardAssistant, ...legacy } = defaults;
   await save({ ...legacy, applicationName: "New title" });
-  expect(sql.mock.calls[1]).toContain(JSON.stringify(assistant));
+  expect(sql.mock.calls[1]).toContain(JSON.stringify({ ...defaults.dashboardAssistant, ...assistant }));
   expect(sql.mock.calls[1]).toContain(JSON.stringify(["applicationName"]));
   sql.mockClear();
   await save({ ...defaults, dashboardAssistant: assistant });
   expect(sql.mock.calls[1]).toContain(JSON.stringify(["dashboardAssistant"]));
+});
+it("preserves newer helper fields when a legacy client saves branding, and audits explicit resets", async () => {
+  const assistant = { ...defaults.dashboardAssistant, giftMinimum: 500, majorGiftMinimum: 5000, tone: "concise", thankYouMessage: "Approved words." };
+  sql.mockResolvedValueOnce([{ ...defaults, dashboardAssistant: assistant, revision }]);
+  await save({ ...defaults, dashboardAssistant: { enabled: true, name: "Guide", avatar: "compass" } });
+  expect(sql.mock.calls[1]).toContain(JSON.stringify({ ...assistant, name: "Guide", avatar: "compass" }));
+  sql.mockClear();
+  sql.mockResolvedValueOnce([{ ...defaults, dashboardAssistant: assistant, revision }]);
+  await save({ ...defaults, dashboardAssistant: { ...assistant, thankYouMessage: "" } });
+  expect(sql.mock.calls[1]).toContain(JSON.stringify({ ...assistant, thankYouMessage: "" }));
+  expect(sql.mock.calls[1]).toContain(JSON.stringify(["dashboardAssistant"]));
+});
+it("validates combined helper thresholds before saving a partial update", async () => {
+  sql.mockResolvedValueOnce([{ ...defaults, dashboardAssistant: { ...defaults.dashboardAssistant, giftMinimum: 15000, majorGiftMinimum: 20000 }, revision }]);
+  await expect(save({ ...defaults, dashboardAssistant: { enabled: true, name: "Guide", avatar: "dolphin", majorGiftMinimum: 10000 } })).rejects.toMatchObject({ status: 400 });
+  expect(sql).toHaveBeenCalledTimes(1);
 });
 
 it("audits logo changes and preserves logos when an older client omits the field", async () => {

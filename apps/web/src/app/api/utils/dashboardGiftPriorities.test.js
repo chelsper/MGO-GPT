@@ -10,6 +10,27 @@ const row = (patch = {}, recipient = {}) => ({ gift: { ...gift, ...patch }, cons
 const saved = (gifts = [row()], patch = {}) => ({ active_metadata: { version: 1, checkedAt: "2026-09-27T06:00:00Z", startDate: "2026-01-01", endDate: "2026-09-27" }, assignments_checked_at: "2026-09-27T05:00:00Z", gifts, ...patch });
 const build = (gifts, patch) => buildGiftPriorities(saved(gifts, patch), now);
 
+it("uses configured gift amount/date boundaries without weakening freshness or reviving dismissals", async () => {
+  const policy = { giftMinimum: 500, recentGiftDays: 1 };
+  expect(giftPriorityWindow(now, policy)).toEqual({ start: "2026-09-27", end: "2026-09-27" });
+  expect(giftPriorityWindow(new Date("2026-03-08T14:00:00Z"), { recentGiftDays: 7 })).toEqual({ start: "2026-03-02", end: "2026-03-08" });
+  expect(buildGiftPriorities(saved([row({ amount: { value: 500 }, date: "2026-09-27" })]), now, policy).items).toHaveLength(0);
+  expect(buildGiftPriorities(saved([row({ amount: { value: 500.01 }, date: "2026-09-27" })]), now, policy).items).toHaveLength(1);
+  expect(buildGiftPriorities(saved(), now, policy).items).toHaveLength(0);
+  expect(buildGiftPriorities(saved(), now, { giftMinimum: 2500 }).items).toHaveLength(0);
+  const wider = { giftMinimum: 500, recentGiftDays: 60 };
+  const result = buildGiftPriorities(saved(), now, wider);
+  expect(result.items[0].revision).toBe(build().items[0].revision);
+  expect(buildGiftPriorities(saved(undefined, { assignments_checked_at: "2026-01-01" }), now, wider).coverage.status).toBe("unavailable");
+  const db = vi.fn().mockResolvedValue([saved()]);
+  await readSavedPortfolioGifts({ scopeKey: "scope", workspaceId: 7, now, db, settings: policy });
+  expect(db.mock.calls[0]).toContain(500); expect(db.mock.calls[0]).toContain("2026-09-27"); expect(db.mock.calls[0]).toContain(201);
+});
+it("reports partial coverage rather than inventing history when the configured window is wider", () => {
+  const partial = saved(undefined, { active_metadata: { ...saved().active_metadata, startDate: "2026-09-01" } });
+  expect(buildGiftPriorities(partial, now, { recentGiftDays: 90 }).coverage).toMatchObject({ status: "partial", startDate: "2026-09-01" });
+});
+
 describe("gift-based dashboard suggestions", () => {
   it("uses verified direct gift facts, natural wording, and an explicit unsent action form", () => {
     const result = build();

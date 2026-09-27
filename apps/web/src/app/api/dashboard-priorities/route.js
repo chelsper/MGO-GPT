@@ -6,6 +6,7 @@ import { getOrganizationSettings } from "@/app/api/utils/organizationSettings";
 import { readDashboardPriorities, readPriorityCandidates, savePriorityPreference } from "@/app/api/utils/dashboardPriorities";
 import { loadDashboardGifts } from "@/app/api/utils/dashboardGiftPriorities";
 import { checkGiftDocumentation } from "@/app/api/utils/dashboardDocumentation";
+import { dashboardReminderPolicy, normalizeDashboardAssistant } from "@/utils/dashboardAssistantSettings";
 
 const response = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
 const fail = (message, status) => Object.assign(new Error(message), { status, publicMessage: message });
@@ -19,8 +20,9 @@ async function contextFor(request) {
       !(canUseMgoWorkspaceRole(sessionUser.role) || isAdminRole(sessionUser.role))) throw fail("This workspace is not available. Reload your dashboard.", 403);
   const requested = new URL(request.url).searchParams.get("workspaceId");
   if (requested !== String(workspaceUser.id)) throw fail("Your workspace changed. Reload your dashboard.", 409);
-  if (!(await getOrganizationSettings()).dashboardAssistant.enabled) throw fail("The dashboard helper is turned off for this organization.", 403);
-  return context;
+  const settings = normalizeDashboardAssistant((await getOrganizationSettings()).dashboardAssistant);
+  if (!settings.enabled) throw fail("The dashboard helper is turned off for this organization.", 403);
+  return { ...context, settings };
 }
 function errorResponse(error) {
   if (error.publicMessage) return response({ error: error.publicMessage }, error.status);
@@ -29,10 +31,10 @@ function errorResponse(error) {
 }
 export async function GET(request) {
   try {
-    const { sessionUser, workspaceUser } = await contextFor(request);
+    const { sessionUser, workspaceUser, settings } = await contextFor(request);
     const now = new Date();
-    const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now });
-    return response({ ...await readDashboardPriorities(sessionUser.id, workspaceUser.id, now, undefined, gifts),
+    const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now, settings });
+    return response({ ...await readDashboardPriorities(sessionUser.id, workspaceUser.id, now, undefined, gifts, settings), reminderPolicy: dashboardReminderPolicy(settings),
       viewerId: String(sessionUser.id), workspaceUserId: String(workspaceUser.id), workspaceName: workspaceUser.name || "Your workspace" });
   } catch (error) { return errorResponse(error); }
 }
@@ -59,7 +61,7 @@ export async function PUT(request) {
   try {
     const origin = request.headers.get("origin");
     if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") throw fail("Open this action from your dashboard.", 403);
-    const { sessionUser, workspaceUser } = await contextFor(request);
+    const { sessionUser, workspaceUser, settings } = await contextFor(request);
     const body = await smallBody(request);
     if (!body || typeof body !== "object" || Array.isArray(body) ||
         Object.keys(body).some(key => !["key", "revision", "action", "days"].includes(key)) ||
@@ -68,8 +70,8 @@ export async function PUT(request) {
         (body.action === "snooze" && ![1, 7].includes(body.days))) throw fail("Choose a valid reminder action.", 400);
     const now = new Date();
     const gifts = body.key.startsWith("gift:")
-      ? await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now }) : null;
-    const { candidates } = await readPriorityCandidates(workspaceUser.id, now, undefined, gifts);
+      ? await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now, settings }) : null;
+    const { candidates } = await readPriorityCandidates(workspaceUser.id, now, undefined, gifts, settings);
     const item = candidates.find(item => item.key === body.key && item.revision === body.revision);
     if (!item) throw fail("This reminder has changed. Reload reminders before continuing.", 409);
     await savePriorityPreference({ viewerId: sessionUser.id, workspaceId: workspaceUser.id, item, action: body.action, days: body.days });
@@ -82,16 +84,16 @@ export async function POST(request) {
     const origin = new URL(request.url).origin;
     if ((request.headers.get("origin") && request.headers.get("origin") !== origin) ||
         request.headers.get("sec-fetch-site") === "cross-site") throw fail("Open this check from your dashboard.", 403);
-    const { sessionUser, workspaceUser } = await contextFor(request);
+    const { sessionUser, workspaceUser, settings } = await contextFor(request);
     const body = await smallBody(request);
     if (!body || typeof body !== "object" || Array.isArray(body) ||
         Object.keys(body).some(key => !["key", "revision"].includes(key)) ||
         typeof body.key !== "string" || !/^gift:[1-9]\d{0,30}$/.test(body.key) ||
         !/^[a-f0-9]{64}$/.test(body.revision || "")) throw fail("Choose a current major gift to check.", 400);
-    const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin, now: new Date() });
-    const item = gifts.items.find(item => item.key === body.key && item.revision === body.revision && item.giftAmount >= 10_000);
+    const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin, now: new Date(), settings });
+    const item = gifts.items.find(item => item.key === body.key && item.revision === body.revision && item.giftAmount >= settings.majorGiftMinimum);
     if (!item) throw fail("This gift has changed or is no longer available. Reload reminders before checking.", 409);
-    const result = await checkGiftDocumentation({ viewerId: sessionUser.id, workspaceId: workspaceUser.id, item, origin });
+    const result = await checkGiftDocumentation({ viewerId: sessionUser.id, workspaceId: workspaceUser.id, item, origin, settings });
     return response({ result, key: item.key, revision: item.revision,
       viewerId: String(sessionUser.id), workspaceUserId: String(workspaceUser.id) });
   } catch (error) { return errorResponse(error); }

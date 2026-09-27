@@ -4,6 +4,7 @@ import { getReportRefreshUser } from "./reportRefresh";
 import { societySourceScope, SOCIETY_SOURCE_VERSION } from "./societyGivingSource";
 import { calendarDate, formatCalendarDate } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { dashboardReminderPolicy } from "@/utils/dashboardAssistantSettings";
 
 export const GIFT_PRIORITY_LIMIT = 200;
 const SOURCE_MAX_AGE = 36 * 60 * 60 * 1000;
@@ -21,16 +22,17 @@ export function giftPriorityRevision(gift) {
   return createHash("sha256").update(JSON.stringify([String(gift.id), String(gift.constituent_id),
     calendarDate(gift.date), gift.amount?.value, token(gift.type)])).digest("hex");
 }
-export function giftPriorityWindow(now = new Date()) {
+export function giftPriorityWindow(now = new Date(), settings) {
   const end = getStandingsPeriods(now).asOf;
   const start = new Date(`${end}T12:00:00Z`);
-  start.setUTCDate(start.getUTCDate() - 29);
+  start.setUTCDate(start.getUTCDate() - (dashboardReminderPolicy(settings).recentGiftDays - 1));
   return { start: start.toISOString().slice(0, 10), end };
 }
 
-export function buildGiftPriorities(saved, now = new Date()) {
+export function buildGiftPriorities(saved, now = new Date(), settings) {
+  const policy = dashboardReminderPolicy(settings);
   const source = saved?.active_metadata;
-  const window = giftPriorityWindow(now);
+  const window = giftPriorityWindow(now, policy);
   const start = calendarDate(source?.startDate), end = calendarDate(source?.endDate);
   if (source?.version !== SOCIETY_SOURCE_VERSION || !fresh(source?.checkedAt, now, SOURCE_MAX_AGE) ||
       !fresh(saved?.assignments_checked_at, now, ASSIGNMENT_MAX_AGE) || !start || !end || start > end ||
@@ -47,7 +49,7 @@ export function buildGiftPriorities(saved, now = new Date()) {
     const date = calendarDate(gift.date), amount = gift.amount?.value, type = token(gift.type);
     const valid = numericId(constituentId) && constituentId === String(row.constituent_id) && date &&
       date >= coverage.startDate && date <= coverage.endDate && typeof amount === "number" &&
-      Number.isFinite(amount) && amount > 1000 && RECEIVED_TYPES.has(type);
+      Number.isFinite(amount) && amount > policy.giftMinimum && RECEIVED_TYPES.has(type);
     if (!valid) { conflicts.add(id); continue; }
     const revision = giftPriorityRevision(gift);
     if (byId.has(id) && byId.get(id).revision !== revision) conflicts.add(id);
@@ -67,8 +69,9 @@ export function buildGiftPriorities(saved, now = new Date()) {
   return { items: items.slice(0, GIFT_PRIORITY_LIMIT), truncated: saved.truncated === true || items.length > GIFT_PRIORITY_LIMIT, coverage };
 }
 
-export async function readSavedPortfolioGifts({ scopeKey, workspaceId, now = new Date(), db = sql }) {
-  const window = giftPriorityWindow(now);
+export async function readSavedPortfolioGifts({ scopeKey, workspaceId, now = new Date(), db = sql, settings }) {
+  const policy = dashboardReminderPolicy(settings);
+  const window = giftPriorityWindow(now, policy);
   // Read the published generation and its gifts in one MVCC statement. Do not
   // read pending pages, start refreshes, or fall back to a provider request.
   const rows = await db`
@@ -91,7 +94,7 @@ export async function readSavedPortfolioGifts({ scopeKey, workspaceId, now = new
       WHERE EXISTS (SELECT 1 FROM portfolio WHERE person->>'constituentId' = gift->>'constituent_id')
         AND LEFT(gift->>'date', 10) >= ${window.start} AND LEFT(gift->>'date', 10) <= ${window.end}
         AND CASE WHEN jsonb_typeof(gift #> '{amount,value}') = 'number'
-          THEN (gift #>> '{amount,value}')::numeric > 1000 ELSE FALSE END
+          THEN (gift #>> '{amount,value}')::numeric > ${policy.giftMinimum} ELSE FALSE END
         AND regexp_replace(LOWER(gift->>'type'), '[^a-z0-9]', '', 'g')
           IN (SELECT jsonb_array_elements_text(${JSON.stringify([...RECEIVED_TYPES])}::jsonb))
       GROUP BY gift->>'id' ORDER BY latest_date DESC, id LIMIT ${GIFT_PRIORITY_LIMIT + 1}
@@ -112,12 +115,12 @@ export async function readSavedPortfolioGifts({ scopeKey, workspaceId, now = new
 }
 
 export async function loadDashboardGifts({ workspaceId, origin, now = new Date(), db = sql,
-  refreshUser = getReportRefreshUser, resolveScope = societySourceScope }) {
+  refreshUser = getReportRefreshUser, resolveScope = societySourceScope, settings }) {
   try {
     const account = await refreshUser();
     if (!account || !String(account.role || "").toLowerCase().split(",").some(role => ["admin", "advancement_services"].includes(role.trim()))) return unavailable();
     const scopeKey = await resolveScope({ authUserId: account.id, origin, db });
-    return buildGiftPriorities(await readSavedPortfolioGifts({ scopeKey, workspaceId, now, db }), now);
+    return buildGiftPriorities(await readSavedPortfolioGifts({ scopeKey, workspaceId, now, db, settings }), now, settings);
   } catch {
     // Missing schema/cache, reconnection, and read failures affect gift hints
     // only. Never disclose raw provider or database diagnostics to the helper.

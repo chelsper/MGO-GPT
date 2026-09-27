@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { validateDashboardAssistant } from "@/utils/dashboardAssistantSettings";
 import { ORGANIZATION_REPORTING_POLICY, reportingSettingsChangeError } from "@/utils/organizationRuntimePolicy";
 import {
   normalizeOrganizationSettings,
@@ -74,9 +75,14 @@ export async function saveOrganizationSettings({
   if (!expectedRevision || expectedRevision !== current.revision) {
     throw settingsError("Institution settings changed or this page is out of date. Reload the saved profile, review your changes, and save again.", 409);
   }
+  // Older open profile forms omit the new helper fields; preserve them rather
+  // than silently resetting the organization's saved policy and wording.
+  const dashboardAssistant = { ...current.settings.dashboardAssistant, ...settings.dashboardAssistant };
+  const assistantError = validateDashboardAssistant(dashboardAssistant);
+  if (assistantError) throw settingsError(assistantError, 400);
   const normalized = normalizeOrganizationSettings({ ...settings,
     logoDataUrl: Object.hasOwn(settings, "logoDataUrl") ? settings.logoDataUrl : current.settings.logoDataUrl,
-    dashboardAssistant: Object.hasOwn(settings, "dashboardAssistant") ? settings.dashboardAssistant : current.settings.dashboardAssistant,
+    dashboardAssistant,
   });
   const guardedChange = reportingSettingsChangeError(current.settings, normalized);
   if (guardedChange) throw settingsError(guardedChange, 400);

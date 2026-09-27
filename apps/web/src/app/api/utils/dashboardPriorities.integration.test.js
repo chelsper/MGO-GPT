@@ -67,6 +67,16 @@ describe.skipIf(!enabled)("dashboard priority PostgreSQL persistence", () => {
     await save(item, "restore");
     expect((await load()).hidden).toHaveLength(0);
   });
+  it("uses configured follow-up/date windows in real SQL and retains prior dismissals", async () => {
+    execute("INSERT INTO pending_actions VALUES (4,10,1,NULL,'Later follow-up',NULL,'2026-10-15','Open','2026-09-20')");
+    const item = (await load()).items[0]; await save(item, "dismiss");
+    const narrow = await readDashboardPriorities(7, 10, now, sqlClient, null, { followUpDays: 1, opportunityDays: 1 });
+    expect(narrow.hidden).toHaveLength(1);
+    expect(narrow.items.map(i => i.title)).toEqual(["Standalone follow-up"]);
+    const wider = await readDashboardPriorities(7, 10, now, sqlClient, null, { followUpDays: 30, opportunityDays: 90 });
+    expect(wider.items.map(i => i.title)).toContain("Later follow-up");
+    expect(wider.hidden).toHaveLength(1);
+  });
   it("upserts repeated choices without duplicates and expires a snooze the next Eastern day", async () => {
     const item = (await load()).items[0];
     await save(item, "dismiss"); await save(item, "snooze"); await save(item, "snooze");
@@ -101,6 +111,15 @@ describe.skipIf(!enabled)("dashboard priority PostgreSQL persistence", () => {
       INSERT INTO society_giving_source_pages VALUES ('scope','published',0,${literal(JSON.stringify(gifts))}::jsonb);`);
   }
   const loadGifts = async (workspaceId = 10, scopeKey = "scope") => buildGiftPriorities(await readSavedPortfolioGifts({ workspaceId, scopeKey, now, db: sqlClient }), now);
+
+  it("applies gift thresholds and windows before the SQL limit while preserving identity conflict checks", async () => {
+    seedGifts([gift("900", "100", 500), gift("901", "100", 500.01), gift("902", "100", 2500), { ...gift("903"), date: "2026-09-20" }, gift("904"), gift("904", "200")]);
+    const settings = { giftMinimum: 500, recentGiftDays: 3 };
+    const saved = await readSavedPortfolioGifts({ workspaceId: 10, scopeKey: "scope", now, db: sqlClient, settings });
+    expect(saved.gifts.map(row => row.gift.id)).not.toContain("900");
+    expect(saved.gifts.map(row => row.gift.id)).not.toContain("903");
+    expect(buildGiftPriorities(saved, now, settings).items.map(i => i.key)).toEqual(["gift:901", "gift:902"]);
+  });
 
   it("reads current portfolio direct donors only, not soft-credit spouses or another workspace", async () => {
     seedGifts([gift(), gift("901", "200"), { ...gift("902", "300"), soft_credits: [{ constituent_id: "100", amount: { value: 2500 } }] }]);

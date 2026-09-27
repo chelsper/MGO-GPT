@@ -20,6 +20,15 @@ it("asks for review only with complete, identity-checked history on both sources
   expect(assessDocumentation(empty(), empty(), "100")).toEqual({ status: "review", opportunityCount: 0, actionCount: 0 });
   expect(assessDocumentation(empty(), page(action()), "100")).toMatchObject({ status: "review", actionCount: 1 });
 });
+it("honors the server's configured threshold without weakening bounded checks", async () => {
+  expect(await checkGiftDocumentation({ ...deps, settings: { majorGiftMinimum: 20000 } })).toEqual({ status: "unavailable" });
+  expect(deps.claim).not.toHaveBeenCalled(); expect(deps.fetchNxt).not.toHaveBeenCalled();
+  const smallGift = { ...gift, amount: { value: 5000 } };
+  deps.item = { ...item, giftAmount: 5000, revision: giftPriorityRevision(smallGift) };
+  deps.fetchNxt.mockImplementation(async path => path.startsWith("/gift/") ? smallGift : empty());
+  expect(await checkGiftDocumentation({ ...deps, settings: { majorGiftMinimum: 5000 } })).toMatchObject({ status: "review" });
+  expect(deps.fetchNxt).toHaveBeenCalledTimes(3);
+});
 it.each([null, {}, { value: [] }, { count: "0", value: [] }, { count: -1, value: [] },
   { count: 1, value: [] }, { count: 0, value: [], next_link: "https://other.example" },
   page({ id: "20", constituent_id: "200" }), page({ id: "20" }), page({ id: "abc", constituent_id: "100" }),

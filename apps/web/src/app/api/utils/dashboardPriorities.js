@@ -3,6 +3,7 @@ import sql from "./sql";
 import { buildPipelineReport } from "@/utils/pipelineReport";
 import { calendarDate, formatCalendarDate } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { dashboardReminderPolicy } from "@/utils/dashboardAssistantSettings";
 
 export const PRIORITY_SOURCE_LIMIT = 1000;
 export const priorityDay = (now = new Date()) => getStandingsPeriods(now).asOf;
@@ -15,10 +16,11 @@ const clean = (value, fallback) => String(value || "").trim() || fallback;
 const dayLabel = value => formatCalendarDate(value, { month: "short", day: "numeric", year: "numeric" });
 const revision = facts => createHash("sha256").update(JSON.stringify(facts)).digest("hex");
 
-export function buildDashboardPriorities({ actions = [], opportunities = [] }, now = new Date()) {
+export function buildDashboardPriorities({ actions = [], opportunities = [] }, now = new Date(), settings) {
+  const policy = dashboardReminderPolicy(settings);
   const asOf = priorityDay(now);
-  const followUpEnd = addPriorityDays(asOf, 7);
-  const opportunityEnd = addPriorityDays(asOf, 30);
+  const followUpEnd = addPriorityDays(asOf, policy.followUpDays);
+  const opportunityEnd = addPriorityDays(asOf, policy.opportunityDays);
   const items = [];
   for (const row of actions) {
     const dueDate = calendarDate(row.due_date);
@@ -49,7 +51,7 @@ export function buildDashboardPriorities({ actions = [], opportunities = [] }, n
     items.push({
       key: `opportunity:${identity}`, revision: revision([identity, item.title, item.constituentName, stage, item.expectedDate, item.amount, item.status]),
       kind: "opportunity", title: item.title, constituentName: item.constituentName, dueDate: item.expectedDate,
-      timing: item.expectedDate < asOf ? "Expected date has passed" : "Expected within 30 days",
+      timing: item.expectedDate < asOf ? "Expected date has passed" : `Expected within ${policy.opportunityDays} ${policy.opportunityDays === 1 ? "day" : "days"}`,
       message: `${stage ? `The saved stage is ${stage}, and the` : "The"} expected date is ${dayLabel(item.expectedDate)}. Does the timing still look right?`,
       href: `/my-top-prospects?prospectId=${encodeURIComponent(row.prospect_id)}`,
       linkLabel: "Review opportunity", savedAt: item.savedAt,
@@ -72,7 +74,8 @@ export function applyPriorityPreferences(items, preferences, asOf) {
   return { items: visible, hidden };
 }
 
-export async function readPriorityCandidates(workspaceId, now = new Date(), sqlClient = sql, giftData = null) {
+export async function readPriorityCandidates(workspaceId, now = new Date(), sqlClient = sql, giftData = null, settings) {
+  const policy = dashboardReminderPolicy(settings);
   const actions = await sqlClient`
     SELECT pa.id, pa.owner_user_id, pa.title, pa.details, pa.due_date, pa.status, pa.updated_at,
       p.status AS prospect_status, p.prospect_name, c.name AS constituent_name
@@ -81,7 +84,7 @@ export async function readPriorityCandidates(workspaceId, now = new Date(), sqlC
     LEFT JOIN constituents c ON c.id = pa.constituent_id
     WHERE pa.owner_user_id = ${workspaceId} AND pa.status = 'Open'
       AND (pa.prospect_id IS NULL OR (p.user_id = ${workspaceId} AND p.status = 'Active'))
-      AND pa.due_date <= ${addPriorityDays(priorityDay(now), 7)}::date
+      AND pa.due_date <= ${addPriorityDays(priorityDay(now), policy.followUpDays)}::date
     ORDER BY pa.due_date ASC, pa.id ASC LIMIT ${PRIORITY_SOURCE_LIMIT + 1}
   `;
   const opportunities = await sqlClient`
@@ -95,13 +98,13 @@ export async function readPriorityCandidates(workspaceId, now = new Date(), sqlC
     ORDER BY GREATEST(po.updated_at, po.nxt_checked_at) DESC, po.id DESC LIMIT ${PRIORITY_SOURCE_LIMIT + 1}
   `;
   return {
-    candidates: [...buildDashboardPriorities({ actions: actions.slice(0, PRIORITY_SOURCE_LIMIT), opportunities: opportunities.slice(0, PRIORITY_SOURCE_LIMIT) }, now), ...(giftData?.items || [])],
+    candidates: [...buildDashboardPriorities({ actions: actions.slice(0, PRIORITY_SOURCE_LIMIT), opportunities: opportunities.slice(0, PRIORITY_SOURCE_LIMIT) }, now, policy), ...(giftData?.items || [])],
     truncated: actions.length > PRIORITY_SOURCE_LIMIT || opportunities.length > PRIORITY_SOURCE_LIMIT || giftData?.truncated === true,
   };
 }
 
-export async function readDashboardPriorities(viewerId, workspaceId, now = new Date(), sqlClient = sql, giftData = null) {
-  const { candidates, truncated } = await readPriorityCandidates(workspaceId, now, sqlClient, giftData);
+export async function readDashboardPriorities(viewerId, workspaceId, now = new Date(), sqlClient = sql, giftData = null, settings) {
+  const { candidates, truncated } = await readPriorityCandidates(workspaceId, now, sqlClient, giftData, settings);
   const preferences = candidates.length ? await sqlClient`
     SELECT item_key, item_revision, state, snooze_until FROM dashboard_priority_preferences
     WHERE viewer_user_id = ${viewerId} AND workspace_user_id = ${workspaceId}

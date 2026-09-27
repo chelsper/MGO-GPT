@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import DashboardAssistant from "./DashboardAssistant";
 import DashboardAssistantSettings from "./DashboardAssistantSettings";
 import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
+import { DEFAULT_DASHBOARD_ASSISTANT } from "@/utils/dashboardAssistantSettings";
 const item = { key: "follow-up:1", revision: "a".repeat(64), kind: "follow-up", dueDate: "2026-09-27", constituentName: "Sample Donor", title: "Plan the visit", message: "This follow-up is due today.", timing: "Due today", href: "/follow-ups?tab=next-steps&nextStepId=1&status=Open", linkLabel: "Review follow-up" };
 const payload = { viewerId: "7", workspaceUserId: "10", workspaceName: "Example Officer", items: [item], hidden: [], asOf: "2026-09-27" };
 let client;
@@ -94,10 +95,19 @@ it("settings edits are controlled and use the existing profile save rather than 
   const onChange = vi.fn();
   render(<DashboardAssistantSettings value={{ enabled: true, name: "Nellie", avatar: "dolphin" }} onChange={onChange} />);
   fireEvent.change(screen.getByLabelText("Helper name"), { target: { value: "Guide" } });
-  expect(onChange).toHaveBeenLastCalledWith({ enabled: true, name: "Guide", avatar: "dolphin" });
+  expect(onChange).toHaveBeenLastCalledWith({ ...DEFAULT_DASHBOARD_ASSISTANT, name: "Guide" });
   fireEvent.change(screen.getByLabelText("Helper avatar"), { target: { value: "compass" } });
-  expect(onChange).toHaveBeenLastCalledWith({ enabled: true, name: "Nellie", avatar: "compass" });
+  expect(onChange).toHaveBeenLastCalledWith({ ...DEFAULT_DASHBOARD_ASSISTANT, avatar: "compass" });
   expect(fetch).not.toHaveBeenCalled();
+});
+it("shows the policy used by the server, including changed thresholds, without extra requests", async () => {
+  const gift = { ...item, key: "gift:900", revision: "a".repeat(64), kind: "gift", constituentId: "100", giftId: "900", giftAmount: 5000 };
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [gift], reminderPolicy: { giftMinimum: 500, majorGiftMinimum: 5000, recentGiftDays: 7 }, giftCoverage: { status: "unavailable" } }) });
+  mount({ settings: { majorGiftMinimum: 20000 } }); open(); await screen.findByText("Sample Donor");
+  expect(screen.getByRole("button", { name: "Check documentation" })).toBeVisible();
+  fireEvent.click(screen.getByText("About gift suggestions", { selector: "summary" }));
+  expect(screen.getByText(/Direct monetary gifts over \$500 from the past 7 days/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
 it("filters gift reminders locally and shows safe review/action links without submitting anything", async () => {
   const gift = { ...item, key: "gift:900", kind: "gift", constituentId: "100", title: "$2,500.00 gift", message: "Would a thank-you be helpful?", href: "/action-opportunity-update?mode=action&actionType=Stewardship&blackbaudConstituentId=100", linkLabel: "Log stewardship action" };

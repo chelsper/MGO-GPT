@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { briefingDraftContext, buildOutreachDraft, draftFingerprint, draftModes, hasDraftPlaceholders, priorityDraftContext } from "./outreachDrafts";
 
+it.each(["warm", "professional", "concise"])("keeps personalization and facts separate from %s tone and approved wording", tone => {
+  const context = { kind: "gift", name: "Sample Donor", giftAmount: 2500, facts: [{ title: "Gift", text: "$2,500 gift", source: "Saved source" }], drafting: { tone, thankYouMessage: "We appreciate your generosity." } };
+  const text = buildOutreachDraft(context, "thank-you");
+  expect(text).toContain("$2,500.00"); expect(text).toContain("We appreciate your generosity.");
+  expect(text).toContain("[Preferred greeting]"); expect(text).toContain("[Your name]");
+  const meeting = buildOutreachDraft(context, "meeting");
+  expect(meeting).toContain("Source: Saved source");
+  expect(meeting).not.toContain("We appreciate your generosity.");
+  expect(meeting).toContain("Preparation only.");
+});
+
 const gift = { key: "gift:900", revision: "a", kind: "gift", constituentName: "Sample Foundation", giftAmount: 12500,
   title: "$12,500 gift", dueDate: "2026-09-20", savedAt: "2026-09-27T08:00:00Z" };
 describe("contextual starters", () => {

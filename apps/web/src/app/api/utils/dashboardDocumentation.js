@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dashboardReminderPolicy } from "@/utils/dashboardAssistantSettings";
 import sql from "./sql";
 import { blackbaudApiFetch } from "./blackbaud";
 import { societySourceScope } from "./societyGivingSource";
@@ -91,12 +92,12 @@ export async function finishDocumentationCheck({ viewerId, token, result, retryM
   return Boolean(saved);
 }
 
-export async function checkGiftDocumentation({ viewerId, workspaceId, item, origin, db = sql,
+export async function checkGiftDocumentation({ viewerId, workspaceId, item, origin, db = sql, settings,
   fetchNxt = blackbaudApiFetch, resolveScope = societySourceScope, localCheck = hasLocalDocumentation,
   claim = claimDocumentationCheck, finish = finishDocumentationCheck, now = () => new Date() }) {
   if (item?.kind !== "gift" || !id(item.constituentId) || !id(item.giftId) ||
       item.key !== `gift:${item.giftId}` || !/^[a-f0-9]{64}$/.test(item.revision || "") ||
-      !Number.isFinite(item.giftAmount) || item.giftAmount < 10_000) return unavailable();
+      !Number.isFinite(item.giftAmount) || item.giftAmount < dashboardReminderPolicy(settings).majorGiftMinimum) return unavailable();
   // Read only through the signed-in viewer's NXT connection, never a silently
   // elevated refresh account. Reconnection invalidates the short-lived result.
   let scopeKey;

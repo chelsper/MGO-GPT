@@ -1,7 +1,8 @@
 # Contextual Drafting and Meeting Preparation
 
-Step 5 of the combined improvement roadmap, implemented September 27, 2026.
-Not yet deployed. Steps 1 through 4 remain the current JU production release.
+Step 5 of the combined improvement roadmap, deployed to JU September 27, 2026.
+See `ju-contextual-drafting-release-2026-09-27.md` for release verification and
+the outstanding signed-in pilot. The conference sandbox was not redeployed.
 
 ## Where It Appears
 
@@ -87,8 +88,13 @@ was stopped after verification.
 
 ## Next Step
 
-After deployment, pilot with a small authorized set: one thank-you starter, one
-opportunity conversation, and one donor briefing. Review the wording with staff
-and confirm source quality before considering persistent private drafts,
-organization-approved wording, or a separately governed AI rewrite option.
-Step 4's live documentation-check pilot also still needs an eligible fresh gift.
+September 27 follow-up: live opportunity conversation and donor-briefing pilots
+passed without saving donor edits. The authorized workspace's recent-gift source
+was unavailable, so the thank-you and Step 4 documentation-check pilots still
+need an eligible fresh gift. No broad refresh was started to bypass that condition.
+
+Organization-specific tone and reusable thank-you wording are now implemented
+locally, with configuration-time sample previews and changed-wording draft guards;
+see `dashboard-helper-preferences.md`. They are not yet deployed. Confirm source
+quality and staff wording before considering persistent private drafts or a
+separately governed AI rewrite option.

@@ -7,6 +7,7 @@ import OutreachDraft from "./OutreachDraft";
 import { priorityDraftContext } from "@/utils/outreachDrafts";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import { dashboardReminderPolicy } from "@/utils/dashboardAssistantSettings";
 import "./DashboardAssistant.css";
 
 export default function DashboardAssistant({ viewerId, workspaceId }) {
@@ -56,6 +57,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
   const allRecords = query.data ? (showHidden ? query.data.hidden : query.data.items) : [];
   const records = allRecords.filter(item => kind === "all" || item.kind === kind);
   const failed = query.isError || mutation.isError;
+  const policy = dashboardReminderPolicy(query.data?.reminderPolicy || settings);
 
   return <section className="dashboard-assistant" aria-label={`${settings.name}, dashboard helper`}>
     <button type="button" className="dashboard-assistant-launcher" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
@@ -76,7 +78,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
       {query.data && !query.isError && <>
         {query.data.giftCoverage && <details className="dashboard-assistant-note dashboard-assistant-coverage">
           <summary>About gift suggestions</summary>
-          <p>Direct monetary gifts over $1,000 from the past 30 days, one reminder per gift. Pledges, soft credits, and non-cash gifts are not included. This does not tell us whether someone has already been thanked; check their history before adding an action.</p>
+          <p>Direct monetary gifts over ${policy.giftMinimum.toLocaleString("en-US")} from the past {policy.recentGiftDays} {policy.recentGiftDays === 1 ? "day" : "days"}, including today, one reminder per gift. Pledges, soft credits, and non-cash gifts are not included. This does not tell us whether someone has already been thanked; check their history before adding an action.</p>
           <p>{query.data.giftCoverage.status === "unavailable"
             ? "Recent gift data isn't available for this workspace yet. Suggestions will appear after the regular background checks have saved fresh gift and portfolio information. Opening this panel does not start a refresh."
             : `Gift data checked ${formatCalendarDate(query.data.giftCoverage.checkedAt?.slice(0, 10))}. Available dates: ${formatCalendarDate(query.data.giftCoverage.startDate)} through ${formatCalendarDate(query.data.giftCoverage.endDate)}. Later gifts may not be included yet.`}</p>
@@ -98,7 +100,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
         <ul className="dashboard-assistant-list">{records.slice(0, limit).map(item => <li key={item.key}>
           <div className="dashboard-assistant-timing">{item.hiddenReason === "dismissed" ? "Dismissed" : item.hiddenReason === "snoozed" ? `Snoozed until ${formatCalendarDate(item.snoozeUntil)}` : item.timing}</div>
           <h3>{item.constituentName}</h3><p className="dashboard-assistant-title">{item.title}</p><p>{item.message}</p>
-          {item.kind === "gift" && item.giftAmount >= 10000 && !showHidden && <GiftDocumentationCheck
+          {item.kind === "gift" && item.giftAmount >= policy.majorGiftMinimum && !showHidden && <GiftDocumentationCheck
             key={item.revision} item={item} viewerId={viewerId} workspaceId={workspaceId} />}
           <div className="dashboard-assistant-actions">
             {!showHidden && <OutreachDraft context={priorityDraftContext(item)}

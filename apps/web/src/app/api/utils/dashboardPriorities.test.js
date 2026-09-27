@@ -6,6 +6,26 @@ const action = { id: 1, owner_user_id: 10, title: "Call about the event", detail
 const opportunity = { id: 2, prospect_id: 3, user_id: 10, title: "Scholarships", prospect_name: "Sample Donor", prospect_status: "Active", current_stage: "Cultivation", opportunity_status: "Active", expected_date: "2026-10-27", estimated_amount: 25000, blackbaud_constituent_id: "100", blackbaud_opportunity_id: "200", updated_at: "2026-09-20T12:00:00Z" };
 const build = (actions = [action], opportunities = [opportunity]) => buildDashboardPriorities({ actions, opportunities }, now);
 
+it("applies configured inclusive windows, retains overdue items and existing dismissals", async () => {
+  const policy = { followUpDays: 1, opportunityDays: 1 };
+  const actions = [action, { ...action, id: 4, due_date: "2026-09-28" }, { ...action, id: 5, due_date: "2026-09-29" }, { ...action, id: 6, due_date: "2026-01-01" }];
+  const opps = [{ ...opportunity, expected_date: "2026-09-28" }, { ...opportunity, id: 3, blackbaud_opportunity_id: "201", expected_date: "2026-09-29" }];
+  const result = buildDashboardPriorities({ actions, opportunities: opps }, now, policy);
+  expect(result).toHaveLength(4);
+  expect(result.find(i => i.kind === "opportunity").timing).toBe("Expected within 1 day");
+  const baseline = build([action], [opps[0]]);
+  const preferences = baseline.map(i => ({ item_key: i.key, item_revision: i.revision, state: "dismissed" }));
+  expect(applyPriorityPreferences(result, preferences, "2026-09-27").hidden).toHaveLength(2);
+  const db = vi.fn().mockResolvedValue([]);
+  await readPriorityCandidates(10, now, db, null, policy);
+  expect(db.mock.calls[0]).toContain("2026-09-28");
+  expect(db.mock.calls[0]).toContain(1001);
+});
+it("allows a wider configured window without including closed opportunities", () => {
+  const data = { actions: [{ ...action, due_date: "2026-10-27" }], opportunities: [{ ...opportunity, expected_date: "2026-12-26" }, { ...opportunity, id: 3, blackbaud_opportunity_id: "201", opportunity_status: "Funded" }] };
+  expect(buildDashboardPriorities(data, now, { followUpDays: 30, opportunityDays: 90 })).toHaveLength(2);
+});
+
 describe("saved dashboard priorities", () => {
   it("uses natural, factual prompts and existing review links without suggesting automatic changes", () => {
     const [followUp, expected] = build();

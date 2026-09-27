@@ -1,15 +1,17 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDashboardAssistantSettings } from "./WorkspaceTerminology";
 import { buildOutreachDraft, draftFingerprint, draftLabel, draftModes, hasDraftPlaceholders } from "@/utils/outreachDrafts";
 import "./OutreachDraft.css";
 
 export default function OutreachDraft({ context, label = "Prepare a draft" }) {
+  const { tone, thankYouMessage } = useDashboardAssistantSettings();
   const [open, setOpen] = useState(false);
   const launcher = useRef(null);
   if (!context) return null;
   return <>
     <button ref={launcher} type="button" className="outreach-draft-launcher" onClick={() => setOpen(true)}>{label}</button>
-    {open && createPortal(<DraftDialog context={context} onClose={() => { setOpen(false); launcher.current?.focus(); }} />, document.body)}
+    {open && createPortal(<DraftDialog context={{ ...context, drafting: { tone, thankYouMessage } }} onClose={() => { setOpen(false); launcher.current?.focus(); }} />, document.body)}
   </>;
 }
 
@@ -97,7 +99,7 @@ function DraftDialog({ context, onClose }) {
         <button type="button" onClick={confirmDiscard}>{pendingAction.kind === "close" ? "Discard edits and close" : "Replace draft"}</button></div>
     </div>}
     {changed && <div role="alert" className="outreach-draft-warning">
-      <p>The saved details changed while this draft was open. Your edits are still here, but review a new starter before copying.</p>
+      <p>The saved details or organization wording changed while this draft was open. Your edits are still here, but review a new starter before copying.</p>
       <button type="button" disabled={locked} onClick={() => restart(draftModes(context).includes(mode) ? mode : draftModes(context)[0], context)}>Use current details</button>
     </div>}
     <div className="outreach-draft-grid">
@@ -106,6 +108,7 @@ function DraftDialog({ context, onClose }) {
         <dl>{snapshot.facts.map((fact, index) => <div key={index}><dt>{fact.title}</dt><dd><p>{fact.text}</p><small>{fact.source}</small></dd></div>)}</dl>
         <p>These records may not include recent changes. Missing information does not mean something never happened.</p>
         {snapshot.kind === "gift" && <p>Check prior acknowledgments and communication preferences before outreach. This is not a tax receipt or confirmation that a thank-you is due.</p>}
+        {mode === "thank-you" && snapshot.drafting?.thankYouMessage && <p>This starter includes your organization's saved wording. Check that it fits this recipient and gift.</p>}
       </aside>
       <section className="outreach-draft-editor" aria-label="Draft editor">
         {draftModes(snapshot).length > 1 && <div className="outreach-draft-modes" aria-label="Draft type">{draftModes(snapshot).map(value =>

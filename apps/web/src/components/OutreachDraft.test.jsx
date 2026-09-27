@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import OutreachDraft from "./OutreachDraft";
 import { priorityDraftContext } from "@/utils/outreachDrafts";
+import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
 
 const gift = { key: "gift:900", revision: "a", kind: "gift", constituentName: "Sample Donor", title: "$12,500 gift", giftAmount: 12500, dueDate: "2026-09-20", savedAt: "2026-09-27" };
 const context = priorityDraftContext(gift);
@@ -76,7 +77,7 @@ it("protects edited text when closing, changing type, or resetting; discarded ed
 it("blocks stale context without overwriting edits and requires explicit restart and review", () => {
   const view = render(<OutreachDraft context={context} />); open(); edit("Personal wording"); review();
   view.rerender(<OutreachDraft context={priorityDraftContext({ ...gift, giftAmount: 15000 })} />);
-  expect(screen.getByRole("alert")).toHaveTextContent("saved details changed");
+  expect(screen.getByRole("alert")).toHaveTextContent("saved details or organization wording changed");
   expect(screen.getByRole("textbox")).toHaveValue("Personal wording");
   expect(screen.getByRole("button", { name: "Copy thank-you draft" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Use current details" }));
@@ -125,4 +126,19 @@ it("warns before navigation with unsaved edits and removes the guard on unmount"
 it("renders no launcher without saved context", () => {
   render(<OutreachDraft context={null} />);
   expect(screen.queryByRole("button")).toBeNull();
+});
+it("uses organization wording and preserves edits when preferences change", () => {
+  const ui = wording => <WorkspaceTerminologyProvider dashboardAssistant={{ tone: "professional", thankYouMessage: wording }}><OutreachDraft context={context} /></WorkspaceTerminologyProvider>;
+  const view = render(ui("Thank you for being part of our community.")); open();
+  expect(screen.getByRole("textbox").value).toContain("Thank you for being part of our community.");
+  expect(screen.getByRole("textbox").value).toContain("With appreciation,");
+  edit("My reviewed edits"); review();
+  view.rerender(ui("We appreciate your support."));
+  expect(screen.getByRole("textbox")).toHaveValue("My reviewed edits");
+  expect(screen.getByRole("button", { name: "Copy thank-you draft" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Use current details" }));
+  fireEvent.click(screen.getByRole("button", { name: "Replace draft" }));
+  expect(screen.getByRole("textbox").value).toContain("We appreciate your support.");
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(fetch).not.toHaveBeenCalled();
 });
