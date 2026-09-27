@@ -1,8 +1,10 @@
 # Society Letter Batch Summary (Step 6)
 
-Implemented locally following the September 27 household-appeal release;
-not yet deployed. No new NXT calls, delivery permissions, background jobs, or
-schema changes. The existing one-household finalization boundary remains.
+Deployed to JU on September 27, 2026, following the household-appeal release.
+Commit: `67409a81dcfefb0329b955eca886238044f18542`.
+Deployment: `dpl_CCq1Bx4VCZg1udCf11HJmyuTiUep` (READY).
+No new NXT calls, delivery permissions, background jobs, or schema changes.
+The existing one-household finalization boundary remains.
 
 ## Staff Experience
 
@@ -62,3 +64,31 @@ release-worktree guard, and diff checks passed. Desktop and 390-pixel mobile
 checks confirmed readable collapsed/expanded summaries and an unchanged
 disabled final-creation gate until letter preview and approval. Temporary
 browser overrides, preview server, and test database were cleaned up.
+
+## Production Release
+
+Production alias https://www.jumgogpt.app verified against the exact commit
+and deployment ID. Deployment URL:
+https://mgo-2mu7259bz-chelspers-projects.vercel.app
+
+Released a clean commit archive to explicit JU project
+`prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY`, not the dirty workspace. Dry-run manifest:
+988 files, 10,854,348 bytes; only `.env.example`, no secrets, dependency trees,
+build output, Git metadata, or local Vercel credentials. No Git push occurred.
+
+Read-only production smoke checks returned HTTP 200 for the society-letter page
+and all three root JS assets. The unauthenticated society-letter API returned
+HTTP 401. These checks did not create letters, send emails, assign appeals, or
+test authenticated live NXT writes.
+
+Pre/post project inventories confirmed the sandbox stayed on
+`dpl_ENmzD3EbKu716ignscxABeyh6ZoM` with its Git connection disconnected, and the
+other linked copy stayed on `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. All recorded
+cron schedules remained unchanged. This uses the baseline at the start of
+this release, not the older sandbox deployment in the prior release note.
+
+Previous JU release: `dpl_8tSWew7K48hr6GUXDZYnmYMkdKiV` / commit
+`35346dcb7fe0beef0f304ba455228da639aca483`. It understands household appeal
+receipts but does not display these summaries. Never roll back further to
+pre-finalization code after real appeal reservations without reconciliation;
+preserve all delivery history and NXT assignments.
