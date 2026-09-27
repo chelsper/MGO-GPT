@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
+import DonorBriefing from "@/components/DonorBriefing";
 import {
   AnnualGivingSocietyBadge,
   formatBlackbaudCurrency,
@@ -19,16 +20,17 @@ export default function ProspectDetailSummary({
   pledgeData,
   showBlackbaudNarrativeSummary,
   onToggleNarrative,
+  name,
+  recentActivity,
+  localActions,
+  opportunities,
+  nextStep,
 }) {
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
     blackbaudSummary?.mapped?.lifetimeGiving || null;
   const annualGivingSocieties =
     blackbaudSummary?.mapped?.annualGivingSocieties || null;
-  const blackbaudNarrativeSummary =
-    blackbaudSummary?.mapped?.prospectSummaryNarrative || "";
-  const blackbaudProposalSummary =
-    blackbaudSummary?.mapped?.proposalSummary || [];
   return (
     <>
       {linkedBlackbaudConstituentId ? (
@@ -90,7 +92,7 @@ export default function ProspectDetailSummary({
                   padding: "4px 10px",
                 }}
               >
-                Read-only NXT data
+                Read-only saved information
               </div>
               <AnnualGivingSocietyBadge
                 annualGivingSocieties={annualGivingSocieties}
@@ -116,6 +118,20 @@ export default function ProspectDetailSummary({
             }
             incomplete={pledgeData?.incomplete}
           />
+          <div style={{ padding: "12px 14px", marginBottom: "12px", borderRadius: "12px", backgroundColor: "#DBEAFE", border: "1px solid #BFDBFE" }}>
+            <button type="button" onClick={onToggleNarrative} aria-expanded={Boolean(showBlackbaudNarrativeSummary)}
+              style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", border: "none", backgroundColor: "transparent", padding: 0, cursor: "pointer", color: "#1D4ED8", fontSize: "13px", fontWeight: "700" }}>
+              <span>Donor briefing</span>
+              {showBlackbaudNarrativeSummary ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {showBlackbaudNarrativeSummary && <div style={{ marginTop: "10px" }}>
+              <DonorBriefing constituentId={linkedBlackbaudConstituentId} name={name}
+                summary={blackbaudSummary} recentActivity={recentActivity} localActions={localActions}
+                opportunities={opportunities} nextStep={nextStep}
+                pledgeStatus={pledgeData?.byConstituentId?.[String(linkedBlackbaudConstituentId)]}
+                pledgeIncomplete={pledgeData?.incomplete} />
+            </div>}
+          </div>
           {blackbaudSummaryLoading ? (
             <div style={{ fontSize: "13px", color: "#4B5563" }}>
               Loading Blackbaud summary...
@@ -135,73 +151,6 @@ export default function ProspectDetailSummary({
             </div>
           ) : (
             <>
-              <div
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: "12px",
-                  backgroundColor: "#DBEAFE",
-                  border: "1px solid #BFDBFE",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={onToggleNarrative}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "12px",
-                    border: "none",
-                    backgroundColor: "transparent",
-                    padding: 0,
-                    cursor: "pointer",
-                    color: "#1D4ED8",
-                    fontSize: "13px",
-                    fontWeight: "700",
-                  }}
-                >
-                  <span>NXT Summary</span>
-                  {showBlackbaudNarrativeSummary ? (
-                    <ChevronUp size={16} />
-                  ) : (
-                    <ChevronDown size={16} />
-                  )}
-                </button>
-                {showBlackbaudNarrativeSummary ? (
-                  <div style={{ marginTop: "10px" }}>
-                    {blackbaudNarrativeSummary ? (
-                      <div
-                        style={{
-                          padding: "14px 16px",
-                          borderRadius: "12px",
-                          backgroundColor: "white",
-                          border: "1px solid #BFDBFE",
-                          fontSize: "14px",
-                          lineHeight: 1.7,
-                          color: "#1F2937",
-                        }}
-                      >
-                        {blackbaudNarrativeSummary}
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          padding: "12px 14px",
-                          borderRadius: "10px",
-                          backgroundColor: "white",
-                          border: "1px solid #DBEAFE",
-                          fontSize: "13px",
-                          color: "#4B5563",
-                        }}
-                      >
-                        No concise NXT summary is available for this constituent
-                        yet.
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
               <div
                 style={{
                   display: "grid",
@@ -293,27 +242,6 @@ export default function ProspectDetailSummary({
                       {formatBlackbaudCurrency(
                         blackbaudLifetimeGiving.totalGiving,
                       )}
-                    </p>
-                  </div>
-                ) : null}
-                {blackbaudProposalSummary.length ? (
-                  <div>
-                    <p
-                      style={{
-                        fontSize: "11px",
-                        fontWeight: "700",
-                        color: "#6B7280",
-                        margin: "0 0 2px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.5px",
-                      }}
-                    >
-                      Open Proposals
-                    </p>
-                    <p
-                      style={{ fontSize: "14px", color: "#111827", margin: 0 }}
-                    >
-                      {blackbaudProposalSummary.length}
                     </p>
                   </div>
                 ) : null}

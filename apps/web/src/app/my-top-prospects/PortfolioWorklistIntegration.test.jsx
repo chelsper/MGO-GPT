@@ -82,7 +82,7 @@ beforeEach(() => {
     vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        mapped: { prospectSummaryNarrative: "Saved summary narrative" },
+        mapped: { lifetimeGiving: { totalGiving: 1200 } },
       }),
     }),
   );
@@ -347,21 +347,23 @@ it("keeps loaded contacts visible while an explicit summary refresh is pending a
   fetch.mockResolvedValueOnce({
     ok: true,
     json: async () => ({
-      mapped: { constituent: { email: "loaded@example.com", phone: "904-555-0199", address: "100 Loaded Street" } },
+      mapped: { constituent: { email: "loaded@example.com", phone: "904-555-0199", address: "100 Loaded Street" }, lifetimeGiving: { totalGiving: 100 } },
       summaryRefreshedAt: "2026-09-15T12:00:00Z",
     }),
   }).mockImplementationOnce(() => refresh);
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() => expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible());
   fireEvent.click(screen.getByRole("button", { name: "Refresh this summary" }));
-  expect(screen.getByText("Loading NXT summary...")).toBeVisible();
+  expect(screen.getByText("Loading background details...")).toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $100.00.")).toBeVisible();
   expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible();
   expect(screen.getByText("100 Loaded Street")).toBeVisible();
   finishRefresh({ ok: false, json: async () => ({ error: "NXT temporarily unavailable" }) });
   await waitFor(() => expect(screen.getByText("NXT temporarily unavailable")).toBeVisible());
+  expect(screen.getByText("Recorded lifetime giving is $100.00.")).toBeVisible();
   expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible();
   expect(screen.getByText("100 Loaded Street")).toBeVisible();
   expect(screen.getByText("Saved contact details · Checked September 15, 2026")).toBeVisible();
@@ -380,7 +382,7 @@ it("does not restore old card contacts when a newer saved summary has empty fiel
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() => expect(within(screen.getAllByRole("article")[0]).getByText("No contact details available")).toBeVisible());
   expect(screen.queryByText("old@example.com · 904-555-0100")).not.toBeInTheDocument();
   expect(screen.queryByText("100 Old Street")).not.toBeInTheDocument();
@@ -404,7 +406,7 @@ it("shows saved pledge presence only inside expanded or detailed portfolio cards
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("expands the actual portfolio card without fetching; NXT Summary remains explicit", async () => {
+it("expands the actual portfolio card without fetching; briefing reads are explicit and saved-only", async () => {
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   const card = within(screen.getAllByRole("article")[0]);
@@ -423,12 +425,12 @@ it("expands the actual portfolio card without fetching; NXT Summary remains expl
   expect(card.getByRole("button", { name: "Set next step" })).toBeEnabled();
   expect(card.getByRole("link", { name: "Open NXT profile" })).toBeVisible();
   expect(fetch).not.toHaveBeenCalled();
-  fireEvent.click(card.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(card.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() =>
-    expect(card.getByText("Saved summary narrative")).toBeVisible(),
+    expect(card.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible(),
   );
   expect(fetch).toHaveBeenCalledExactlyOnceWith(
-    "/api/blackbaud/constituents/100/summary",
+    "/api/blackbaud/constituents/100/summary?saved_only=1",
   );
   fireEvent.click(
     card.getByRole("button", { name: "Hide details for Zelda Donor" }),
@@ -454,14 +456,14 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   );
   expect(screen.getByRole("button", { name: "Set next step" })).toBeEnabled();
   expect(fetch).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() =>
-    expect(screen.getByText("Saved summary narrative")).toBeVisible(),
+    expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible(),
   );
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Amy Donor" }),
   );
-  expect(screen.getByText("Saved summary narrative")).not.toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).not.toBeVisible();
   expect(screen.getByRole("link", { name: "Log action" })).toHaveAttribute(
     "href",
     expect.stringContaining("blackbaudConstituentId=101"),
@@ -469,14 +471,14 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(screen.getByText("Saved summary narrative")).toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(screen.getByText("Saved summary narrative")).toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible();
   expect(fetch).toHaveBeenCalledExactlyOnceWith(
-    "/api/blackbaud/constituents/100/summary",
+    "/api/blackbaud/constituents/100/summary?saved_only=1",
   );
   expect(state.data.prospects[0].priority_order).toBe(1);
 });
@@ -485,8 +487,8 @@ it("does not carry a loaded tier summary into another workspace", async () => {
   const { rerender } = render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
-  await screen.findByText("Saved summary narrative");
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
+  await screen.findByText("Recorded lifetime giving is $1,200.00.");
   state.profile = {
     ...state.profile,
     workspaceUser: { ...state.profile.workspaceUser, id: 45, name: "Another MGO" },
@@ -494,13 +496,13 @@ it("does not carry a loaded tier summary into another workspace", async () => {
   };
   rerender(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  expect(screen.queryByText("Saved summary narrative")).not.toBeInTheDocument();
+  expect(screen.queryByText("Recorded lifetime giving is $1,200.00.")).not.toBeInTheDocument();
   expect(fetch).toHaveBeenCalledTimes(1);
   fetch.mockResolvedValueOnce({ ok: true, json: async () => ({
-    mapped: { prospectSummaryNarrative: "Summary in the new workspace" },
+    mapped: { lifetimeGiving: { totalGiving: 1500 } },
   }) });
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
-  await screen.findByText("Summary in the new workspace");
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
+  await screen.findByText("Recorded lifetime giving is $1,500.00.");
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 

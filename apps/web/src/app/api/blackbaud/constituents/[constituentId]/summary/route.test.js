@@ -381,6 +381,56 @@ describe("Blackbaud constituent summary identity language", () => {
   });
 });
 
+describe("saved-only donor briefing reads", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({ workspaceUser: { id: 42 }, sessionUser: { id: 7 }, isActing: true });
+    getBlackbaudConfigIssues.mockReturnValue([]);
+    sql.mockResolvedValue([]);
+  });
+  async function read(query = "saved_only=1") {
+    const { GET } = await import("./route.js");
+    return GET(new Request(`https://jumgogpt.app/api/blackbaud/constituents/100/summary?${query}`), { params: { constituentId: "100" } });
+  }
+  it("returns an empty saved result on a miss without any NXT requests", async () => {
+    getBlackbaudConfigIssues.mockReturnValue(["Connection unavailable"]);
+    const response = await read();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ constituentId: "100", mapped: {}, savedOnly: true });
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some(([strings]) => /INSERT|UPDATE/.test(strings.join("")))).toBe(false);
+  });
+  it("returns the newer saved snapshot even when both sources have expired", async () => {
+    const cached = { constituentId: "100", summaryRefreshedAt: "2020-01-01", mapped: { lifetimeGiving: { totalGiving: 10 } } };
+    const snapshot = { ...cached, summaryRefreshedAt: "2020-02-01", mapped: { lifetimeGiving: { totalGiving: 20 } }, raw: { private: "not needed" } };
+    sql.mockImplementation(async strings => {
+      const query = strings.join("");
+      if (query.includes("FROM blackbaud_constituent_summary_cache")) return [{ payload: cached, updated_at: cached.summaryRefreshedAt }];
+      if (query.includes("FROM portfolio_constituent_snapshots")) return [{ summary_payload: snapshot }];
+      return [];
+    });
+    const response = await read();
+    expect(await response.json()).toEqual({ constituentId: "100", summaryRefreshedAt: "2020-02-01", mapped: snapshot.mapped, savedOnly: true });
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    const cacheRead = sql.mock.calls.find(([strings]) => strings.join("").includes("FROM blackbaud_constituent_summary_cache"));
+    expect(cacheRead.slice(1, 3)).toEqual([42, 7]);
+  });
+  it.each(["refresh=1", "giving_only=1", "raw=true", "contact_only=true", "report_profile=true"])("rejects incompatible %s without live reads", async flag => {
+    expect((await read(`saved_only=1&${flag}`)).status).toBe(400);
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
+  });
+  it("still requires authentication", async () => {
+    auth.mockResolvedValue(null);
+    expect((await read()).status).toBe(401);
+    expect(sql).not.toHaveBeenCalled();
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("portfolio badges and summary shared giving reads", () => {
   beforeEach(() => {
     vi.resetAllMocks();

@@ -5,6 +5,7 @@ import { PortfolioCard } from "@/components/PortfolioWorklist";
 import PortfolioContactDetails from "@/components/PortfolioContactDetails";
 import PortfolioActivityDetails from "@/components/PortfolioActivityDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
+import DonorBriefing from "@/components/DonorBriefing";
 import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
@@ -113,8 +114,6 @@ export default function PortfolioTier({
                 const isSummaryExpanded = Boolean(
                   expandedSummaries[person.constituentId],
                 );
-                const narrativeSummary =
-                  summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
                 const contactPerson = mergeSavedPortfolioContacts(
                   person,
                   summaryState?.contactDetails,
@@ -239,6 +238,7 @@ export default function PortfolioTier({
                 <button
                   type="button"
                   onClick={() => toggleSummary(person.constituentId)}
+                  aria-expanded={isSummaryExpanded}
                   style={{
                     width: "100%",
                     display: "flex",
@@ -254,14 +254,14 @@ export default function PortfolioTier({
                     fontWeight: "700",
                   }}
                 >
-                  <span>NXT Summary</span>
+                  <span>Donor briefing</span>
                   {isSummaryExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </button>
                 {isSummaryExpanded ? (
                   <div style={{ marginTop: "10px" }}>
                     {summaryState?.status === "loading" ? (
                       <div style={{ fontSize: "13px", color: "#4B5563" }}>
-                        Loading NXT summary...
+                        Loading background details...
                       </div>
                     ) : summaryState?.status === "error" ? (
                       <div
@@ -276,42 +276,16 @@ export default function PortfolioTier({
                       >
                         {summaryState.error || "Linked Blackbaud data could not be loaded right now."}
                       </div>
-                    ) : narrativeSummary ? (
-                      <div
-                        style={{
-                          padding: "12px 14px",
-                          borderRadius: "10px",
-                          backgroundColor: "white",
-                          border: "1px solid #BFDBFE",
-                          fontSize: "14px",
-                          lineHeight: 1.7,
-                          color: "#1F2937",
-                        }}
-                      >
-                        {narrativeSummary}
-                        {summaryState?.payload?.summaryRefreshedAt ? (
-                          <div style={{ marginTop: "8px", fontSize: "11px", color: "#64748B" }}>
-                            Intelligence snapshot: {new Date(summaryState.payload.summaryRefreshedAt).toLocaleString()}.
-                            {summaryState.payload.givingRefreshedAt
-                              ? ` Giving figures updated: ${new Date(summaryState.payload.givingRefreshedAt).toLocaleString()}.`
-                              : ""}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          padding: "10px 12px",
-                          borderRadius: "8px",
-                          backgroundColor: "white",
-                          border: "1px solid #DBEAFE",
-                          fontSize: "13px",
-                          color: "#4B5563",
-                        }}
-                      >
-                        No concise NXT summary is available for this constituent yet.
-                      </div>
-                    )}
+                    ) : null}
+                    <DonorBriefing
+                      constituentId={person.constituentId}
+                      name={person.name}
+                      summary={summaryState?.payload}
+                      activity={person.savedActivity}
+                      signal={signals.get(String(person.constituentId))}
+                      pledgeStatus={pledgeData?.byConstituentId?.[String(person.constituentId)]}
+                      pledgeIncomplete={pledgeData?.incomplete}
+                    />
                     {allowNxtSummary && summaryState?.status !== "loading" ? (
                       <button
                         type="button"

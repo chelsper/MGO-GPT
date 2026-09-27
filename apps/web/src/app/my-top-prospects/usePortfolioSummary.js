@@ -9,7 +9,7 @@ export default function usePortfolioSummary({ allowNxtSummary }) {
   const [summaryStates, setSummaryStates] = useState({});
 
   const loadSummary = async (constituentId, { refresh = false } = {}) => {
-    if (!allowNxtSummary) {
+    if (refresh && !allowNxtSummary) {
       setSummaryStates((current) => ({
         ...current,
         [constituentId]: {
@@ -29,6 +29,7 @@ export default function usePortfolioSummary({ allowNxtSummary }) {
     try {
       const params = new URLSearchParams();
       if (refresh) params.set("refresh", "1");
+      else params.set("saved_only", "1");
       const query = params.toString();
       const response = await fetch(
         `/api/blackbaud/constituents/${constituentId}/summary${query ? `?${query}` : ""}`,

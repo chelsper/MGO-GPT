@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -145,6 +146,23 @@ it("uses the unchanged opportunity editor and retains a failed draft", async () 
     estimatedAmount: 25000,
     expectedDate: "2020-06-30",
   });
+});
+
+it("updates the briefing from loaded opportunity and next-step records without extra reads", async () => {
+  renderDetail();
+  act(() => client.setQueryData(["prospect", 1], previous => ({ ...previous,
+    pendingActions: [{ id: 10, title: "Confirm the campus visit", status: "Open", due_date: "2026-10-01", is_primary: true }],
+  })));
+  expect(screen.getByRole("button", { name: "Donor briefing" })).toHaveAttribute("aria-expanded", "true");
+  await screen.findByText("Confirm the campus visit. Due Oct 1, 2026.");
+  expect(screen.getByText(/There is 1 open opportunity in the saved app records/)).toBeVisible();
+  act(() => client.setQueryData(["prospect", 1], previous => ({ ...previous,
+    opportunities: previous.opportunities.map(item => ({ ...item, current_stage: "Funded", closed_amount: 25000 })),
+    pendingActions: previous.pendingActions.map(item => ({ ...item, status: "Done" })),
+  })));
+  await waitFor(() => expect(screen.queryByText(/There is 1 open opportunity in the saved app records/)).not.toBeInTheDocument());
+  expect(screen.queryByText("Confirm the campus visit. Due Oct 1, 2026.")).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it("keeps gift unlink confirmation in the parent and targets the original link", async () => {

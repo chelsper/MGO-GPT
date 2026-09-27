@@ -60,7 +60,7 @@ function buildSummaryCacheKey({
   ].join("|");
 }
 
-async function getCachedSummary({ workspaceUserId, authUserId, cacheKey }) {
+async function getCachedSummary({ workspaceUserId, authUserId, cacheKey, allowExpired = false }) {
   if (!workspaceUserId || !authUserId || !cacheKey) return null;
 
   const rows = await sql`
@@ -74,8 +74,9 @@ async function getCachedSummary({ workspaceUserId, authUserId, cacheKey }) {
   const row = rows[0];
   const lightweight = !cacheKey.endsWith("|full");
   const ttl = lightweight ? 24 * 60 * 60 * 1000 : CONSTITUENT_SUMMARY_CACHE_TTL_MS;
-  if (!row?.payload || !isFreshSummaryCache(row.updated_at) || Date.now() - Date.parse(row.updated_at) > ttl) return null;
-  if (Date.parse(getPortfolioSummaryStaleAfter(row.payload)) <= Date.now()) return null;
+  if (!row?.payload) return null;
+  if (!allowExpired && (!isFreshSummaryCache(row.updated_at) || Date.now() - Date.parse(row.updated_at) > ttl)) return null;
+  if (!allowExpired && Date.parse(getPortfolioSummaryStaleAfter(row.payload)) <= Date.now()) return null;
   return { ...row.payload, summaryRefreshedAt: row.payload.summaryRefreshedAt || row.updated_at };
 }
 
@@ -1296,6 +1297,7 @@ async function loadOptionalSection(label, requestFactory) {
 async function handleGet(request, { params }) {
   const startedAt = Date.now();
   const requestUrl = new URL(request.url);
+  const savedOnly = requestUrl.searchParams.get("saved_only") === "1";
   const scheduledRefresh = isAuthorizedReportRefreshRequest(request);
   const session = scheduledRefresh ? null : await auth(request);
   if (!scheduledRefresh && !session?.user?.email) {
@@ -1306,7 +1308,7 @@ async function handleGet(request, { params }) {
 
   const origin = new URL(request.url).origin;
   const configIssues = getBlackbaudConfigIssues(origin);
-  if (configIssues.length > 0) {
+  if (!savedOnly && configIssues.length > 0) {
     return Response.json(
       {
         error: "Blackbaud is not configured",
@@ -1332,6 +1334,9 @@ async function handleGet(request, { params }) {
   const lookupId = requestUrl.searchParams.get("lookupId")?.trim() || "";
   const recordId = requestUrl.searchParams.get("recordId")?.trim() || "";
   const name = requestUrl.searchParams.get("name")?.trim() || "";
+  if (savedOnly && (forceRefresh || includeRaw || contactOnly || reportProfile || requestUrl.searchParams.get("giving_only") === "1")) {
+    return Response.json({ error: "A saved-only read cannot request a live refresh or another summary mode." }, { status: 400 });
+  }
 
   try {
     let workspaceUser;
@@ -1413,6 +1418,19 @@ async function handleGet(request, { params }) {
       contactOnly,
       reportProfile,
     });
+
+    // This path cannot fall through to NXT, even on a cache miss or an expired
+    // snapshot. Opening a briefing is not permission to run a provider refresh.
+    if (savedOnly) {
+      const cached = await getCachedSummary({ workspaceUserId: user.id, authUserId, cacheKey, allowExpired: true });
+      const snapshot = await getPortfolioSnapshotSummary({ workspaceUserId: user.id, constituentId });
+      const saved = [cached, snapshot].filter(payload => payload &&
+        [payload.constituentId, payload.mapped?.constituent?.id].every(id => id == null || String(id) === constituentId))
+        .sort((a, b) => (Date.parse(b.summaryRefreshedAt) || 0) - (Date.parse(a.summaryRefreshedAt) || 0))[0];
+      if (!saved) return summaryResponse({ constituentId, mapped: {}, savedOnly: true }, "saved-miss");
+      const { raw: _raw, ...payload } = await withPortfolioGivingSnapshot(user.id, constituentId, saved);
+      return summaryResponse({ ...payload, savedOnly: true }, "saved-only");
+    }
 
     if (!includeRaw && !forceRefresh) {
       const cachedSummary = await getCachedSummary({

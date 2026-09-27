@@ -65,7 +65,7 @@ import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/p
 import ProspectRaisedCard from "./ProspectRaisedCard";
 import OpportunityRollover from "./OpportunityRollover";
 import OpportunityRefresh from "./OpportunityRefresh";
-import ProspectActivityHighlights from "./ProspectActivityHighlights";
+import { SavedProspectActivityHighlights, useProspectRecentActivity } from "./ProspectActivityHighlights";
 import { formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
 
 const ASK_TYPES = [
@@ -1283,6 +1283,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
     null;
   const linkedBlackbaudConstituentProfileUrl =
     buildBlackbaudConstituentProfileUrl(linkedBlackbaudConstituentId);
+  const recentActivityState = useProspectRecentActivity(prospectId, Boolean(linkedBlackbaudConstituentId));
 
   const {
     data: blackbaudSummary,
@@ -5327,6 +5328,15 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             blackbaudSummary={blackbaudSummary}
             blackbaudSummaryLoading={blackbaudSummaryLoading}
             blackbaudSummaryError={blackbaudSummaryError}
+            name={prospect.prospect_name}
+            recentActivity={recentActivityState.data}
+            localActions={updates}
+            opportunities={opportunities}
+            nextStep={primaryPendingAction
+              ? primaryPendingAction
+              : prospect.status === "Active" && !prospect.next_action_completed_at
+                ? { title: prospect.next_action_text, due_date: prospect.next_action_due_date, status: "Open" }
+                : null}
             pledgeData={pledgeData}
             showBlackbaudNarrativeSummary={showBlackbaudNarrativeSummary}
             onToggleNarrative={() =>
@@ -5460,8 +5470,8 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
           <ProspectDetailActivity
             timelineEvents={timelineEvents}
             highlights={
-              <ProspectActivityHighlights
-                prospectId={prospectId}
+              <SavedProspectActivityHighlights
+                activityState={recentActivityState}
                 linked={Boolean(linkedBlackbaudConstituentId)}
                 updates={updates}
               />
