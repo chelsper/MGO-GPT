@@ -11,10 +11,11 @@ export default function StewardshipPage() {
         </p>
         <h1 className="mt-2 text-3xl font-bold text-gray-900">Stewardship</h1>
         <p className="mt-3 max-w-2xl text-gray-600">
-          Recognize each household at the right level, and keep acknowledgment
-          history together across giving periods.
+          Coordinate gift follow-ups, recognize each household at the right
+          level, and keep acknowledgment history together.
         </p>
       </header>
+      <div className="grid gap-5 lg:grid-cols-2">
       <a
         href="/stewardship/society-letters"
         className="block max-w-2xl rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-7 text-gray-900 no-underline hover:border-emerald-600 focus-visible:outline-2 focus-visible:outline-emerald-700"
@@ -33,6 +34,14 @@ export default function StewardshipPage() {
           Open society letters &rarr;
         </p>
       </a>
+      <a href="/stewardship/gift-follow-ups"
+        className="block max-w-2xl rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-7 text-gray-900 no-underline hover:border-emerald-600 focus-visible:outline-2 focus-visible:outline-emerald-700">
+        <p className="text-sm font-semibold text-emerald-700">Shared task progress</p>
+        <h2 className="mt-3 text-2xl font-bold">Gift Follow-ups</h2>
+        <p className="mt-3 text-gray-600">See saved gift-linked tasks across workspaces, including who is responsible and what is due. A read-only view for Admin and Advancement Services.</p>
+        <p className="mt-5 font-semibold text-emerald-800">View gift follow-ups &rarr;</p>
+      </a>
+      </div>
     </main>
   );
 }

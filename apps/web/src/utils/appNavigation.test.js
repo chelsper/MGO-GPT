@@ -14,6 +14,10 @@ describe("app navigation", () => {
     expect(getNavigationItems({ isReviewer: true }).find(item => item.href === "/stewardship").section).toBe("Stewardship");
     expect(getNavigationItems({ isReviewer: false }).some(item => item.href === "/stewardship")).toBe(false);
     expect(isNavigationItemActive("/stewardship/society-letters", "/stewardship")).toBe(true);
+    expect(isNavigationItemActive("/stewardship/gift-follow-ups", "/stewardship")).toBe(true);
+    expect(getBreadcrumbs("/stewardship/gift-follow-ups")).toEqual([
+      { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Gift Follow-ups" },
+    ]);
     expect(getBreadcrumbs("/stewardship/society-letters")).toEqual([
       { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Society Letter Creation" },
     ]);
