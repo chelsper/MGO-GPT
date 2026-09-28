@@ -3,10 +3,13 @@ import {
   letterNameMergeData,
   letterAddressMergeData,
   LETTER_ADDRESS_TAGS,
+  LETTER_NAME_TAGS,
   LETTER_FIELD_LABELS,
   formatLetterAddress,
+  suggestedLetterSalutation,
 } from "@/utils/societyLetters";
 import RecipientLetterPreview from "./RecipientLetterPreview";
+import RecipientNameFields from "./RecipientNameFields";
 import RecipientConflictReview from "./RecipientConflictReview";
 import { reviewVersion } from "./letterReviewRecovery";
 import {
@@ -27,13 +30,13 @@ const blank = {
   email: "",
 };
 
-function candidateValues(candidate) {
+function candidateValues(candidate, recipient) {
   return candidate
     ? {
         recipientConstituentId: candidate.constituentId,
         addressConstituentId: candidate.constituentId,
         addressee: candidate.addressee || "",
-        salutation: candidate.salutation || "",
+        salutation: suggestedLetterSalutation(recipient, candidate),
         address: candidate.address || "",
         ...(candidate.addressParts
           ? { addressParts: candidate.addressParts }
@@ -47,7 +50,9 @@ function startingValues(recipient) {
   if (recipient.recipientReview?.values)
     return recipient.recipientReview.values;
   const candidates = recipient.recipientCandidates || [];
-  return candidates.length === 1 ? candidateValues(candidates[0]) : blank;
+  return candidates.length === 1
+    ? candidateValues(candidates[0], recipient)
+    : blank;
 }
 
 export default function LetterRecipientDialog({
@@ -167,7 +172,14 @@ export default function LetterRecipientDialog({
       [candidate?.email, ...(candidate?.emailCandidates || [])].filter(Boolean),
     ),
   ];
-  const mergeNames = letterNameMergeData({ ...recipient, ...values });
+  const mergeNames = letterNameMergeData({
+    ...recipient,
+    ...values,
+    nameOverrides: values.nameOverrides,
+  });
+  const usedNameFields = LETTER_NAME_TAGS.filter((key) =>
+    template?.usedFields?.includes(key),
+  );
   const mergeAddress = letterAddressMergeData({ ...recipient, ...values });
   function focusField(target) {
     const field =
@@ -213,7 +225,7 @@ export default function LetterRecipientDialog({
   }
   function chooseRecipient(id) {
     const selected = candidates.find((item) => item.constituentId === id);
-    setValues(candidateValues(selected));
+    setValues(candidateValues(selected, recipient));
     setConfirmed(false);
   }
   useEffect(() => {
@@ -469,9 +481,11 @@ export default function LetterRecipientDialog({
                                   ? contactDisplayName(contact)
                                   : candidate.addressee || "",
                                 salutation: contact
-                                  ? contact.firstName ||
+                                  ? contact.preferredName ||
+                                    contact.firstName ||
                                     contactDisplayName(contact)
                                   : candidate.salutation || "",
+                                nameOverrides: {},
                               }));
                               setConfirmed(false);
                             }}
@@ -485,6 +499,10 @@ export default function LetterRecipientDialog({
                                 value={contactChoiceKey(contact)}
                               >
                                 {contactDisplayName(contact)} ({contact.role})
+                                {contact.preferredName &&
+                                contact.preferredName !== contact.firstName
+                                  ? ` - prefers ${contact.preferredName}`
+                                  : ""}
                               </option>
                             ))}
                           </select>
@@ -542,9 +560,29 @@ export default function LetterRecipientDialog({
                       {organization
                         ? "Review the organization's addressee and chosen contact greeting."
                         : "For a joint letter, review both names in the addressee and greeting."}{" "}
-                      Include only what your template expects in its salutation
-                      field.
+                      Preferred names are used when available, with first names
+                      as the fallback. You can edit the wording for this letter
+                      without changing NXT.
                     </p>
+                    {!!usedNameFields.length &&
+                      !template.usedFields.includes("salutation") && (
+                        <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950">
+                          This template uses name merge fields rather than
+                          Salutation. Edit the name fields below to change those
+                          values in the letter. To use your Salutation wording
+                          instead, map the Word greeting to Salutation in Letter
+                          templates.
+                        </p>
+                      )}
+                    <RecipientNameFields
+                      values={values}
+                      mergeNames={mergeNames}
+                      usedFields={usedNameFields}
+                      organization={organization}
+                      onChange={(overrides) =>
+                        change("nameOverrides", overrides)
+                      }
+                    />
                     <label className="block text-sm font-semibold">
                       Use mailing address from
                       <select
@@ -658,30 +696,6 @@ export default function LetterRecipientDialog({
                         : "Only this recipient's returned addresses are available. "}
                       Selecting one does not confirm email permission.
                     </p>
-                    <details className="rounded-lg border border-gray-200 p-3 text-sm">
-                      <summary className="cursor-pointer font-semibold">
-                        Name merge fields for this recipient
-                      </summary>
-                      <dl className="mt-3 grid grid-cols-2 gap-2">
-                        <dt>Recipient first name</dt>
-                        <dd>{mergeNames.first_name || "Not available"}</dd>
-                        <dt>Recipient last name</dt>
-                        <dd>{mergeNames.last_name || "Not available"}</dd>
-                        {!organization && (
-                          <>
-                            <dt>Spouse first name</dt>
-                            <dd>
-                              {mergeNames.spouse_first_name || "Not available"}
-                            </dd>
-                            <dt>Household first names</dt>
-                            <dd>{mergeNames.first_names || "Not available"}</dd>
-                          </>
-                        )}
-                      </dl>
-                      <p className="mt-2 text-gray-500">
-                        Each letter template keeps its own merge-field settings.
-                      </p>
-                    </details>
                     <label className="flex items-start gap-3 text-sm">
                       <input
                         required

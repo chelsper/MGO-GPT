@@ -5,12 +5,15 @@ import {
 } from "@/utils/societyLetters";
 
 const preferredAddressLabels = {
+  keyIndicator: ["Key Indicator"],
   constituencyCode: ["Constituency Code"],
   contactType: ["Contact Type"],
   contactFirstName: ["Contact First Name"],
   contactLastName: ["Contact Last Name"],
+  contactPreferredName: ["Contact Preferred Name"],
   mainContactFirstName: ["Main Contact First Name"],
   mainContactLastName: ["Main Contact Last Name"],
+  mainContactPreferredName: ["Main Contact Preferred Name"],
   societyContactFirstName: [
     "Society Letter Contact First Name",
     "Society Letter First Name",
@@ -18,6 +21,10 @@ const preferredAddressLabels = {
   societyContactLastName: [
     "Society Letter Contact Last Name",
     "Society Letter Last Name",
+  ],
+  societyContactPreferredName: [
+    "Society Letter Contact Preferred Name",
+    "Society Letter Preferred Name",
   ],
   address1: ["Preferred Street Line 1", "Preferred Address Line 1"],
   address2: ["Preferred Street Line 2", "Preferred Address Line 2"],
@@ -30,8 +37,10 @@ const normalizedLabel = (value) =>
   value.trim().replace(/\s+/g, " ").toLowerCase();
 const personNameFields = {
   firstName: { root: "296", meaning: "First Name" },
+  preferredName: { root: "296", meaning: "Preferred Name" },
   lastName: { root: "296", meaning: "Last Name" },
   spouseFirstName: { root: "10516", meaning: "First Name" },
+  spousePreferredName: { root: "10516", meaning: "Preferred Name" },
   spouseLastName: { root: "10516", meaning: "Last Name" },
 };
 

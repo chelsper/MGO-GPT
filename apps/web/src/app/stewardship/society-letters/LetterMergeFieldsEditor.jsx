@@ -146,10 +146,11 @@ export default function LetterMergeFieldsEditor({
             </label>
           )}
           <p className="text-sm text-gray-600">
-            For a joint greeting, map the greeting field to Individual or
-            household first names. To check actual names and addresses, save
-            these settings and open Preview personalized letter in recipient
-            review.
+            For an editable greeting, map the Word greeting field to Salutation.
+            Preferred names are suggested during review. Individual or household
+            first names also supports preferred-name fallbacks and can be edited
+            for each recipient. To check actual names and addresses, save these
+            settings and open Preview personalized letter in recipient review.
           </p>
         </div>
       )}
@@ -165,10 +166,11 @@ export default function LetterMergeFieldsEditor({
             <code>{"Dear {first_names},"}</code> (Alex, or Alex &amp; Jordan).
           </p>
           <p className="mt-2">
-            Name values come from your saved query mappings, never from
-            splitting a salutation. A name field used in Word or email must have
-            a value before the letter can be created. Spouse-only fields will
-            not work for an individual without a spouse.
+            Name values use preferred names when available, then first names,
+            unless you edit the field for a recipient. Names are never guessed
+            by splitting a salutation. A name field used in Word or email must
+            have a value before the letter can be created. Spouse-only fields
+            will not work for an individual without a spouse.
           </p>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">

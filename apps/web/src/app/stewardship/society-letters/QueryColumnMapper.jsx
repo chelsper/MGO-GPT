@@ -20,8 +20,8 @@ const constituentGroups = [
   {
     title: "Letter greeting",
     description:
-      "Use the query's addressee and salutation. These are retained for recipient review, not guessed from a household name.",
-    keys: ["addressee", "salutation"],
+      "Map the query's addressee and salutation, plus preferred names when available. Preferred names take priority in greetings; a spouse without a preferred name uses their first name. You can edit each letter during review.",
+    keys: ["addressee", "salutation", "preferredName", "spousePreferredName"],
   },
   {
     title: "Preferred mailing address",
@@ -30,9 +30,9 @@ const constituentGroups = [
     keys: ["address1", "address2", "city", "state", "postalCode", "country"],
   },
   {
-    title: "Business and foundation contacts (optional)",
+    title: "Organization contacts (optional)",
     description:
-      "Map Constituency Code to enable contact choices for Business and Foundation records. Use Contact type with Contact first/last name when contacts are returned on separate rows, or map separate Main contact and Society letter contact name columns. Only Main contact and Society letter contact roles are offered. Names must belong to the same contact on each row. Contacts personalize the letter only; the organization keeps its address, giving qualification and appeal history.",
+      "Map Key indicator to recognize Organization records. Constituency Code still supports older Business/Foundation mappings when Key indicator is blank. Use Contact type with contact name fields, or map dedicated Main contact and Society letter contact fields. Names must belong to the same contact on each row. Contacts personalize the letter only; the organization keeps its address, qualification and appeal history.",
     keys: Object.keys(ORGANIZATION_CONTACT_COLUMNS),
   },
   {

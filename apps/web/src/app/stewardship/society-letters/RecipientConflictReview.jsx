@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import {
   LETTER_ADDRESS_TAGS,
+  LETTER_NAME_TAGS,
   LETTER_FIELD_LABELS,
 } from "@/utils/societyLetters";
 
@@ -10,6 +11,7 @@ const fields = [
   ["organizationContactKey", "Organization contact"],
   ["addressee", "Addressee"],
   ["salutation", "Salutation"],
+  ["nameOverrides", "Name merge fields"],
   ["address", "Mailing address"],
   ["addressParts", "Separate address merge fields"],
   ["email", "Email"],
@@ -29,13 +31,23 @@ export default function RecipientConflictReview({
     latest?.status === "ready" && latest?.recipientReview?.editable;
   const saved = latest?.recipientReview?.values || {};
   const display = (values, key) =>
-    key === "addressParts"
-      ? LETTER_ADDRESS_TAGS.filter((tag) => values.addressParts?.[tag])
+    key === "nameOverrides"
+      ? LETTER_NAME_TAGS.filter((tag) =>
+          Object.hasOwn(values.nameOverrides || {}, tag),
+        )
           .map(
-            (tag) => `${LETTER_FIELD_LABELS[tag]}: ${values.addressParts[tag]}`,
+            (tag) =>
+              `${LETTER_FIELD_LABELS[tag]}: ${values.nameOverrides[tag] || "Blank"}`,
           )
-          .join("\n") || "Not selected"
-      : values[key] || "Not selected";
+          .join("\n") || "Query values"
+      : key === "addressParts"
+        ? LETTER_ADDRESS_TAGS.filter((tag) => values.addressParts?.[tag])
+            .map(
+              (tag) =>
+                `${LETTER_FIELD_LABELS[tag]}: ${values.addressParts[tag]}`,
+            )
+            .join("\n") || "Not selected"
+        : values[key] || "Not selected";
   const changed = fields.filter(
     ([key]) => display(draft, key) !== display(saved, key),
   );

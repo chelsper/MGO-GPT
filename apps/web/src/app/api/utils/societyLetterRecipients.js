@@ -4,6 +4,7 @@ import {
   letterDisposition,
   letterError,
   LETTER_ADDRESS_TAGS,
+  LETTER_NAME_TAGS,
   formatLetterAddress,
 } from "@/utils/societyLetters";
 import {
@@ -120,6 +121,23 @@ export function validateLetterRecipientChoices(
       "Choose one of the selected recipient's returned email addresses, or leave email blank.",
     );
   const address = plainText(body.address, "Mailing address", 2000, true, true);
+  let nameOverrides;
+  if (body.nameOverrides != null) {
+    if (
+      typeof body.nameOverrides !== "object" ||
+      Array.isArray(body.nameOverrides) ||
+      Object.keys(body.nameOverrides).some(
+        (key) => !LETTER_NAME_TAGS.includes(key),
+      )
+    )
+      throw letterError("Choose supported name merge fields for this letter.");
+    nameOverrides = Object.fromEntries(
+      Object.entries(body.nameOverrides).map(([key, value]) => [
+        key,
+        plainText(value, `Name ${key}`, 300, true),
+      ]),
+    );
+  }
   let addressParts;
   if (body.addressParts != null) {
     if (
@@ -146,6 +164,7 @@ export function validateLetterRecipientChoices(
     addressConstituentId: addressSource.constituentId,
     addressee: plainText(body.addressee, "Addressee", 300),
     salutation: plainText(body.salutation, "Salutation", 300),
+    ...(nameOverrides ? { nameOverrides } : {}),
     address,
     ...(addressParts ? { addressParts } : {}),
     email,

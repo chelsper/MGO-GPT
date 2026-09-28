@@ -76,6 +76,61 @@ const society = {
 };
 
 describe("organization contact query output", () => {
+  it("uses Key indicator without requiring Business/Foundation codes and keeps each contact paired", () => {
+    const config = settings();
+    Object.assign(config.columns, {
+      keyIndicator: "Key Indicator",
+      constituencyCode: "",
+      contactPreferredName: "Contact Preferred Name",
+    });
+    const { rows } = read(
+      [
+        {
+          ...base,
+          ...main,
+          keyIndicator: "Organization",
+          contactPreferredName: "Al",
+        },
+        { ...base, ...society, keyIndicator: "Organization" },
+      ],
+      config,
+    );
+    const contacts = organizationLetterContacts(rows[0].recipientCandidates[0]);
+    expect(contacts).toHaveLength(2);
+    expect(contacts[0]).toMatchObject({
+      firstName: "Alex",
+      preferredName: "Al",
+      lastName: "Sample",
+    });
+    expect(rows[0].members).toEqual(["10"]);
+    expect(
+      letterNameMergeData({
+        ...rows[0],
+        recipientConstituentId: "10",
+        organizationContactKey: contactChoiceKey(contacts[0]),
+      }).first_name,
+    ).toBe("Al");
+  });
+  it("does not offer contact choices for an explicitly Individual record even with a Business code", () => {
+    const config = settings();
+    config.columns.keyIndicator = "Key Indicator";
+    const { rows } = read(
+      [{ ...base, ...main, keyIndicator: "Individual" }],
+      config,
+    );
+    expect(organizationLetterContacts(rows[0].recipientCandidates[0])).toEqual(
+      [],
+    );
+    expect(() =>
+      read(
+        [
+          { ...base, ...main, keyIndicator: "Individual" },
+          { ...base, ...main, keyIndicator: "Organization" },
+        ],
+        config,
+      ),
+    ).toThrow(/conflicting Key indicator/);
+  });
   it("deduplicates by qualifying constituent ID while preserving paired contact names and all constituency codes", () => {
     const { table, rows } = read([
       { ...base, ...main },

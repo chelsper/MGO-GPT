@@ -162,4 +162,25 @@ describe("society query field inspection", () => {
     );
     expect(result.suggestedColumns).toEqual({});
   });
+  it("recognizes preferred names by main/spouse metadata and explicit organization contact labels", async () => {
+    getBlackbaudSavedQueryById.mockResolvedValue({
+      select_fields: [
+        field("Greeting name", "Preferred Name"),
+        field("Partner greeting", "Preferred Name", "10516"),
+        field("Key Indicator"),
+        field("Main Contact Preferred Name", "Preferred Name", "relationships"),
+        field("Unrelated preferred", "Preferred Name", "relationships"),
+      ],
+    });
+    const result = await inspectLetterQueryFields(
+      { queryId: "31043" },
+      context,
+    );
+    expect(result.suggestedColumns).toEqual({
+      preferredName: "Greeting name",
+      spousePreferredName: "Partner greeting",
+      keyIndicator: "Key Indicator",
+      mainContactPreferredName: "Main Contact Preferred Name",
+    });
+  });
 });

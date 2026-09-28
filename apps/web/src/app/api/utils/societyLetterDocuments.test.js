@@ -120,6 +120,32 @@ describe("society Word letters", () => {
     expect(result.text).toBe("Dear Alex, please see your letter.");
     expect(row.salutation).toBe("Alex & Pat");
   });
+  it("uses preferred names and reviewed overrides consistently in Word and email", () => {
+    const template = nameTemplate("first_names");
+    const source = {
+      ...namedRow,
+      preferredName: "Lex",
+      spousePreferredName: "Patti",
+    };
+    const suggested = renderSocietyLetter(template, source, "2026-09-28");
+    expect(suggested.text).toBe("Dear Lex & Patti, please see your letter.");
+    const edited = renderSocietyLetter(
+      template,
+      { ...source, nameOverrides: { first_names: "Lex and Patti" } },
+      "2026-09-28",
+    );
+    expect(
+      new PizZip(edited.document).file("word/document.xml").asText(),
+    ).toContain("Dear Lex and Patti,");
+    expect(edited.text).toBe("Dear Lex and Patti, please see your letter.");
+    expect(() =>
+      renderSocietyLetter(
+        template,
+        { ...source, nameOverrides: { first_names: "" } },
+        "2026-09-28",
+      ),
+    ).toThrow(/Missing name value/);
+  });
   it("renders first_names for couples and individuals without leaving dangling conjunctions", () => {
     const template = nameTemplate("first_names");
     const couple = renderSocietyLetter(template, namedRow, "2026-09-24");

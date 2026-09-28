@@ -142,6 +142,47 @@ function draftSetup() {
   };
 }
 describe("society letter workflow", () => {
+  it("keeps individual name edits through save, reload, and Word preview without NXT or delivery changes", async () => {
+    const { state, store, body } = draftSetup();
+    const template = {
+      ...validateLetterTemplate({
+        ...templateFixture(),
+        content: wordFixture("{addressee} | Dear {first_names},").generate({
+          type: "base64",
+        }),
+      }),
+      societyKey: "presidents_society",
+      sequence: 2,
+    };
+    state.templates[template.version] = template;
+    const choices = {
+      ...body,
+      confirm: true,
+      templateVersion: template.version,
+      addressee: "Alexandra and Patricia Sample",
+      nameOverrides: { first_names: "Lex and Patti" },
+    };
+    await updateLetterRecipient(state, definitions, today, choices, store, 7);
+    const saved = letterWorkspace(state, definitions, today).rows[0];
+    expect(saved.recipientReview.values.nameOverrides).toEqual({
+      first_names: "Lex and Patti",
+    });
+    const result = previewLetterRecipient(state, definitions, today, {
+      ...choices,
+      ...saved.recipientReview.values,
+      reviewToken: saved.recipientReview.token,
+    });
+    const xml = new PizZip(result.document).file("word/document.xml").asText();
+    expect(xml).toContain(
+      "Alexandra and Patricia Sample | Dear Lex and Patti,",
+    );
+    expect(state.history).toEqual([]);
+    expect(saved.members).toEqual(["10", "11"]);
+    expect(saved.mailAllowed).toBe(false);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+    expect(advanceQueryList).not.toHaveBeenCalled();
+  });
   it("reports setup from saved source and snapshot identity without treating it as delivery readiness", () => {
     const { state } = setup();
     state.settings.societyKeys = definitions

@@ -5,6 +5,7 @@ import {
   organizationContactsFromRow,
   mergeOrganizationContacts,
   organizationLetterContacts,
+  isOrganizationLetterCandidate,
   contactChoiceKey,
 } from "./societyLetterContacts";
 
@@ -24,8 +25,10 @@ export const LETTER_COLUMNS = {
 };
 export const LETTER_NAME_COLUMNS = {
   firstName: "",
+  preferredName: "",
   lastName: "",
   spouseFirstName: "",
+  spousePreferredName: "",
   spouseLastName: "",
 };
 export const GROUPED_LETTER_COLUMNS = {
@@ -35,8 +38,10 @@ export const GROUPED_LETTER_COLUMNS = {
 export const GROUPED_LETTER_LABELS = {
   ...LETTER_COLUMNS,
   firstName: "Recipient first name (optional)",
+  preferredName: "Recipient preferred name (optional)",
   lastName: "Recipient last name (optional)",
   spouseFirstName: "Spouse first name (optional)",
+  spousePreferredName: "Spouse preferred name (optional)",
   spouseLastName: "Spouse last name (optional)",
 };
 export const CONSTITUENT_LETTER_COLUMNS = {
@@ -58,8 +63,10 @@ export const CONSTITUENT_LETTER_LABELS = {
   constituentId: "Constituent system record ID",
   spouseId: "Spouse system record ID",
   firstName: "Constituent first name (optional)",
+  preferredName: "Constituent preferred name (optional)",
   lastName: "Constituent last name (optional)",
   spouseFirstName: "Spouse first name (optional)",
+  spousePreferredName: "Spouse preferred name (optional)",
   spouseLastName: "Spouse last name (optional)",
   addressee: "Addressee",
   salutation: "Salutation",
@@ -386,6 +393,7 @@ function combineMemberNames(entries) {
       previous.fromOwnRecord === entry.fromOwnRecord &&
       (previous.name !== entry.name ||
         previous.firstName !== entry.firstName ||
+        text(previous.preferredName) !== text(entry.preferredName) ||
         previous.lastName !== entry.lastName)
     )
       throw letterError(
@@ -551,6 +559,9 @@ export function constituentHouseholdsFromQuery(
             {
               constituentId: row.constituentId,
               firstName: row.firstName,
+              ...(row.preferredName
+                ? { preferredName: row.preferredName }
+                : {}),
               lastName: row.lastName,
               name: [row.firstName, row.lastName].filter(Boolean).join(" "),
               fromOwnRecord: true,
@@ -558,13 +569,19 @@ export function constituentHouseholdsFromQuery(
             {
               constituentId: row.spouseId,
               firstName: row.spouseFirstName,
+              ...(row.spousePreferredName
+                ? { preferredName: row.spousePreferredName }
+                : {}),
               lastName: row.spouseLastName,
               name: [row.spouseFirstName, row.spouseLastName]
                 .filter(Boolean)
                 .join(" "),
               fromOwnRecord: false,
             },
-          ].filter((entry) => entry.constituentId && entry.name),
+          ].filter(
+            (entry) =>
+              entry.constituentId && (entry.name || entry.preferredName),
+          ),
         ),
       );
       return {
@@ -816,8 +833,12 @@ export function householdsFromQuery(table, settings, hierarchy, period) {
       members,
       name: row.name,
       firstName: row.firstName || "",
+      ...(row.preferredName ? { preferredName: row.preferredName } : {}),
       lastName: row.lastName || "",
       spouseFirstName: members.length === 2 ? row.spouseFirstName || "" : "",
+      ...(members.length === 2 && row.spousePreferredName
+        ? { spousePreferredName: row.spousePreferredName }
+        : {}),
       spouseLastName: members.length === 2 ? row.spouseLastName || "" : "",
       addressee: row.addressee,
       salutation: row.salutation,
@@ -925,7 +946,10 @@ export function letterIssue(row, channel, template) {
   return letterNameIssue(row, template.usedFields || []);
 }
 
-export function letterNameMergeData(row) {
+const greetingName = (person) =>
+  text(person?.preferredName) || text(person?.firstName);
+
+function sourceLetterNameData(row) {
   if (row.organizationContactKey) {
     const candidate = row.recipientCandidates?.find(
       (item) => item.constituentId === row.recipientConstituentId,
@@ -934,9 +958,9 @@ export function letterNameMergeData(row) {
       (item) => contactChoiceKey(item) === row.organizationContactKey,
     );
     return {
-      first_name: contact?.firstName || "",
+      first_name: greetingName(contact),
       last_name: contact?.lastName || "",
-      first_names: contact?.firstName || "",
+      first_names: greetingName(contact),
       spouse_first_name: "",
       spouse_last_name: "",
     };
@@ -945,13 +969,17 @@ export function letterNameMergeData(row) {
   let recipient = row;
   let spouse =
     members.length === 2
-      ? { firstName: row.spouseFirstName, lastName: row.spouseLastName }
+      ? {
+          firstName: row.spouseFirstName,
+          preferredName: row.spousePreferredName,
+          lastName: row.spouseLastName,
+        }
       : {};
   let firstNames =
     members.length === 1
-      ? text(row.firstName)
-      : members.length === 2 && text(row.firstName) && text(row.spouseFirstName)
-        ? `${text(row.firstName)} & ${text(row.spouseFirstName)}`
+      ? greetingName(row)
+      : members.length === 2 && greetingName(row) && greetingName(spouse)
+        ? `${greetingName(row)} & ${greetingName(spouse)}`
         : "";
   if (isLetterPreviewSource(row) || Array.isArray(row.memberNames)) {
     // A stable household key does not select the letter's recipient.
@@ -971,20 +999,47 @@ export function letterNameMergeData(row) {
           ) || {}
         : {};
     const names = members.map((id) =>
-      text(
-        row.memberNames?.find((member) => member.constituentId === id)
-          ?.firstName,
+      greetingName(
+        row.memberNames?.find((member) => member.constituentId === id),
       ),
     );
     firstNames = names.length && names.every(Boolean) ? names.join(" & ") : "";
   }
   return {
-    first_name: text(recipient.firstName),
+    first_name: greetingName(recipient),
     last_name: text(recipient.lastName),
-    spouse_first_name: text(spouse.firstName),
+    spouse_first_name: greetingName(spouse),
     spouse_last_name: text(spouse.lastName),
     first_names: firstNames,
   };
+}
+
+export function letterNameMergeData(row) {
+  const source = sourceLetterNameData(row);
+  return Object.fromEntries(
+    LETTER_NAME_TAGS.map((key) => [
+      key,
+      Object.hasOwn(row.nameOverrides || {}, key)
+        ? text(row.nameOverrides[key])
+        : source[key],
+    ]),
+  );
+}
+
+export function suggestedLetterSalutation(row, candidate) {
+  const fallback = text(candidate?.salutation);
+  if (!candidate || isOrganizationLetterCandidate(candidate)) return fallback;
+  const members = row.members || [];
+  const names = members.map((id) =>
+    row.memberNames?.find((member) => member.constituentId === id),
+  );
+  // Never drop a spouse from the greeting when only one name is available.
+  if (
+    names.some((member) => text(member?.preferredName)) &&
+    names.every((member) => greetingName(member))
+  )
+    return names.map(greetingName).join(" & ");
+  return fallback || (members.length === 1 ? greetingName(names[0]) : "");
 }
 
 export function letterNameIssue(row, usedFields) {

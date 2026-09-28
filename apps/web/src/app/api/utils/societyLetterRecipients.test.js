@@ -82,6 +82,38 @@ function setup() {
 }
 
 describe("saved society letter recipients", () => {
+  it("persists explicit name-field edits independently of source names, permissions, and appeals", async () => {
+    const { row, body, state, signature, save } = setup();
+    const original = structuredClone(row);
+    body.nameOverrides = { first_name: " Lex ", first_names: "Lex and Pat" };
+    await save();
+    expect(
+      recipientReviewForRow(state, row, signature).values.nameOverrides,
+    ).toEqual({ first_name: "Lex", first_names: "Lex and Pat" });
+    expect(row).toEqual(original);
+    expect(state.history).toEqual([]);
+    row.memberNames[0].preferredName = "Alexi";
+    expect(recipientReviewForRow(state, row, signature).status).toBe(
+      "needs_review",
+    );
+  });
+  it.each([
+    [],
+    "names",
+    { recipientConstituentId: "99" },
+    { emailAllowed: true },
+    { first_name: {} },
+    { first_names: "A\nB" },
+    { first_name: "x".repeat(301) },
+  ])(
+    "rejects invalid name overrides without saving: %j",
+    async (nameOverrides) => {
+      const { body, save, store } = setup();
+      body.nameOverrides = nameOverrides;
+      await expect(save()).rejects.toThrow();
+      expect(store.save).not.toHaveBeenCalled();
+    },
+  );
   it("saves a returned organization contact choice without changing the qualifying IDs or permissions", async () => {
     const { row, state, body, signature, save } = setup();
     const contact = {

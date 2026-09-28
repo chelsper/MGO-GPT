@@ -57,6 +57,123 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("letter recipient review dialog", () => {
+  it("suggests preferred joint wording and makes the template's actual name fields editable without fetching", () => {
+    const fetcher = vi.spyOn(globalThis, "fetch");
+    const save = vi.fn();
+    const household = structuredClone(recipient);
+    household.memberNames[0].preferredName = "Lex";
+    household.recipientCandidates = household.recipientCandidates.slice(0, 1);
+    render(
+      <LetterRecipientDialog
+        recipient={household}
+        template={{ version: "v1", usedFields: ["first_names", "addressee"] }}
+        onSave={save}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Lex & Pat");
+    expect(
+      screen.getByText(
+        /This template uses name merge fields rather than Salutation/,
+      ),
+    ).toBeVisible();
+    const greeting = screen.getByLabelText(
+      "Edit Individual or household first names",
+    );
+    expect(greeting).toBeVisible();
+    expect(greeting).toHaveValue("Lex & Pat");
+    fireEvent.change(greeting, { target: { value: "Lex and Patricia" } });
+    fireEvent.change(screen.getByLabelText("Addressee"), {
+      target: { value: "Our friends Lex and Patricia" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addressee: "Our friends Lex and Patricia",
+        nameOverrides: { first_names: "Lex and Patricia" },
+      }),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset name fields to query values" }),
+    );
+    expect(greeting).toHaveValue("Lex & Pat");
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+  });
+  it("preserves saved custom names and salutation until a different recipient is chosen", () => {
+    const household = structuredClone(recipient);
+    household.memberNames[0].preferredName = "Lex";
+    household.nameOverrides = { first_name: "Custom saved name" };
+    household.recipientReview.values = {
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+      addressee: "Custom addressee",
+      salutation: "My custom greeting",
+      address: "10 Test Street",
+      email: "",
+      nameOverrides: household.nameOverrides,
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={household}
+        template={{ version: "v1", usedFields: ["first_name"] }}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue(
+      "My custom greeting",
+    );
+    expect(screen.getByLabelText("Edit Recipient first name")).toHaveValue(
+      "Custom saved name",
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "11" },
+    });
+    expect(screen.getByLabelText("Edit Recipient first name")).toHaveValue(
+      "Pat",
+    );
+  });
+  it("offers organization contacts using Key indicator alone and suggests the selected preferred name", () => {
+    const household = structuredClone(recipient);
+    const contact = {
+      role: "Main contact",
+      firstName: "Alexandra",
+      lastName: "Contact",
+      preferredName: "Lex",
+    };
+    household.recipientCandidates = [
+      {
+        ...household.recipientCandidates[0],
+        organizationContacts: {
+          keyIndicator: "organization",
+          contacts: [contact],
+        },
+      },
+    ];
+    const save = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={household}
+        onSave={save}
+        onClose={vi.fn()}
+      />,
+    );
+    const chooser = screen.getByRole("combobox", {
+      name: "Name this letter to",
+    });
+    expect(chooser).toHaveValue("");
+    fireEvent.change(chooser, { target: { value: contactChoiceKey(contact) } });
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Lex");
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Alexandra Contact");
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      "10 Test Street",
+    );
+    expect(save).not.toHaveBeenCalled();
+  });
   it("preselects the sole returned record and address without saving, fetching, or confirming", () => {
     const fetcher = vi.spyOn(globalThis, "fetch");
     const save = vi.fn();
@@ -814,12 +931,10 @@ describe("letter recipient review dialog", () => {
     expect(screen.getByLabelText("Email (optional)")).toHaveValue("");
     expect(screen.getByLabelText("Addressee")).toHaveValue("Pat Sample");
     fireEvent.click(screen.getByText("Name merge fields for this recipient"));
-    expect(
-      screen.getByText("Recipient first name").nextSibling,
-    ).toHaveTextContent("Pat");
-    expect(screen.getByText("Spouse first name").nextSibling).toHaveTextContent(
-      "Alex",
+    expect(screen.getByLabelText("Edit Recipient first name")).toHaveValue(
+      "Pat",
     );
+    expect(screen.getByLabelText("Edit Spouse first name")).toHaveValue("Alex");
   });
   it("does not prefill stale choices; shows inline failure and permits cancel", () => {
     const close = vi.fn();
