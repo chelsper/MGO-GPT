@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import Papa from "papaparse";
-import { createGiftFollowUp, readGiftFollowUp } from "./giftFollowUp";
+import { createGiftFollowUp, readGiftFollowUp, readGiftFollowUpStatuses } from "./giftFollowUp";
 
 const socket = process.env.GIFT_FOLLOWUP_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/gift-followup-pg\.[A-Za-z0-9]+$/.test(socket || "");
@@ -34,7 +34,7 @@ const create = (overrides = {}) => createGiftFollowUp({ context, item, draft, db
 describe.skipIf(!enabled)("gift follow-up PostgreSQL persistence", () => {
   beforeAll(async () => {
     await execute(`DROP SCHEMA IF EXISTS gift_followup_fixture CASCADE; CREATE SCHEMA gift_followup_fixture; SET search_path=gift_followup_fixture;
-      CREATE TABLE users(id bigint PRIMARY KEY, role text, active boolean DEFAULT TRUE, blackbaud_portfolio_cache jsonb, blackbaud_portfolio_cached_at timestamptz);
+      CREATE TABLE users(id bigint PRIMARY KEY, name text, role text, active boolean DEFAULT TRUE, blackbaud_portfolio_cache jsonb, blackbaud_portfolio_cached_at timestamptz);
       CREATE TABLE prospects(id bigint PRIMARY KEY, user_id bigint, title text);
       CREATE TABLE prospect_opportunities(id bigint PRIMARY KEY);
       CREATE TABLE discussion_items(id bigint PRIMARY KEY);`);
@@ -52,6 +52,7 @@ describe.skipIf(!enabled)("gift follow-up PostgreSQL persistence", () => {
       (2,'admin',NOW(),'{}'),
       (7,'mgo',NOW(),'{"leadSolicitor":[{"constituentId":"100","name":"Sample Donor"}]}'),
       (8,'mgo',NOW(),'{"supportingSolicitor":[{"constituentId":"100","name":"Sample Donor"}]}');
+      UPDATE users SET name='Example Officer' WHERE id=7;
       INSERT INTO constituents(user_id,name,normalized_name,blackbaud_constituent_id) VALUES (8,'Other workspace donor','other workspace donor','100');
       INSERT INTO prospects VALUES(1,7,'Existing prospect');
       INSERT INTO pending_actions(owner_user_id,prospect_id,title,status,is_primary) VALUES(7,1,'Existing primary','Open',TRUE);`);
@@ -107,5 +108,23 @@ describe.skipIf(!enabled)("gift follow-up PostgreSQL persistence", () => {
   });
   it("does not even start a transaction for read-only delegation", async () => {
     expect(await create({ context: { ...context, sessionUser: { ...actor, role: "executive" } } })).toBeNull();
+  });
+  it("reads current title, owner and progress after completion, reopening and rescheduling", async () => {
+    const task = await create();
+    const read = async () => (await readGiftFollowUpStatuses(7, [item], db)).get("900");
+    expect(await read()).toMatchObject({ id: task.id, ownerName: "Example Officer", status: "Open", dueDate: "2026-09-30" });
+    await execute(`UPDATE pending_actions SET status='Done',title='Personalized thank-you plan' WHERE id=${task.id}`);
+    expect(await read()).toMatchObject({ status: "Done", title: "Personalized thank-you plan" });
+    await execute(`UPDATE pending_actions SET status='Open',due_date=NULL WHERE id=${task.id}`);
+    expect(await read()).toMatchObject({ status: "Open", dueDate: null });
+    await execute(`UPDATE pending_actions SET due_date='2027-09-30' WHERE id=${task.id}`);
+    expect(await read()).toMatchObject({ status: "Open", dueDate: "2027-09-30" });
+  });
+  it("never infers progress from a matching name, other workspace or conflicting constituent identity", async () => {
+    await create();
+    expect((await readGiftFollowUpStatuses(8, [item], db)).size).toBe(0);
+    expect((await readGiftFollowUpStatuses(7, [{ ...item, constituentId: "200" }], db)).size).toBe(0);
+    expect((await readGiftFollowUpStatuses(7, [{ ...item, giftId: "901" }], db)).size).toBe(0);
+    expect((await readGiftFollowUpStatuses(7, [{ ...item, revision: "b".repeat(64), giftAmount: 3000 }], db)).get("900")).toMatchObject({ status: "Open" });
   });
 });

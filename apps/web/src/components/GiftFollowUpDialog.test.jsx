@@ -97,3 +97,22 @@ it("unmount closes the dialog and aborts a pending scoped read", async () => {
   view.unmount(); expect(signal.aborted).toBe(true);
   expect(HTMLDialogElement.prototype.close).toHaveBeenCalled();
 });
+it("patches only matching gift revisions in the current viewer/workspace cache", async () => {
+  const view = mount();
+  const reminder = { ...item, kind: "gift" };
+  const current = { viewerId: "2", workspaceUserId: "7", items: [reminder, { ...reminder, key: "gift:901" }], hidden: [{ ...reminder, revision: "b".repeat(64) }] };
+  client.setQueryData(["dashboard-priorities", "2", "7"], current);
+  const other = { ...current, workspaceUserId: "8" };
+  client.setQueryData(["dashboard-priorities", "2", "8"], other);
+  await screen.findByText("Sample Donor");
+  fetch.mockResolvedValueOnce(reply(saved));
+  fireEvent.click(screen.getByRole("button", { name: "Create follow-up" }));
+  await screen.findByRole("link", { name: "View follow-up" });
+  await waitFor(() => expect(client.getQueryData(["dashboard-priorities", "2", "7"]).items[0].followUp).toMatchObject({ id: "50", ownerId: "7" }));
+  const patched = client.getQueryData(["dashboard-priorities", "2", "7"]);
+  expect(patched.items[1]).toEqual(current.items[1]);
+  expect(patched.hidden).toEqual(current.hidden);
+  expect(client.getQueryData(["dashboard-priorities", "2", "8"])).toEqual(other);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  view.unmount();
+});

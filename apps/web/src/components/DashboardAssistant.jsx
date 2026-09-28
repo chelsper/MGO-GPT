@@ -103,10 +103,21 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
         <ul className="dashboard-assistant-list">{records.slice(0, limit).map(item => <li key={item.key}>
           <div className="dashboard-assistant-timing">{item.hiddenReason === "dismissed" ? "Dismissed" : item.hiddenReason === "snoozed" ? `Snoozed until ${formatCalendarDate(item.snoozeUntil)}` : item.timing}</div>
           <h3>{item.constituentName}</h3><p className="dashboard-assistant-title">{item.title}</p><p>{item.message}</p>
+          {item.kind === "gift" && item.followUp && <div className="dashboard-assistant-follow-up">
+            <strong>{item.followUp.status === "Done" ? "Follow-up completed" : "Follow-up planned"}</strong>
+            <p>{item.followUp.title}</p>
+            <p>{item.followUp.ownerName}{item.followUp.dueDate
+              ? ` \u00b7 ${item.followUp.status === "Done" ? "Due date was" : "Due"} ${formatCalendarDate(item.followUp.dueDate, { month: "short", day: "numeric", year: "numeric" })}`
+              : " \u00b7 No due date"}</p>
+            {item.followUp.status === "Done" && <p className="dashboard-assistant-note">This task is marked complete in the app. It doesn't confirm a thank-you was sent or an NXT action was logged.</p>}
+          </div>}
           {item.kind === "gift" && item.giftAmount >= policy.majorGiftMinimum && !showHidden && <GiftDocumentationCheck
             key={item.revision} item={item} viewerId={viewerId} workspaceId={workspaceId} />}
           <div className="dashboard-assistant-actions">
-            {item.kind === "gift" && !showHidden && query.data.canCreateFollowUp && <button type="button" disabled={busy} onClick={() => setFollowUpGift(item)}>Create a stewardship follow-up</button>}
+            {item.kind === "gift" && (item.followUp
+              ? <a href={`/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(item.followUp.id)}&status=${encodeURIComponent(item.followUp.status)}`}
+                  aria-label={`View follow-up: ${item.followUp.title} for ${item.constituentName}`}>View follow-up</a>
+              : !showHidden && query.data.canCreateFollowUp && <button type="button" disabled={busy} onClick={() => setFollowUpGift(item)}>Create a stewardship follow-up</button>)}
             {!showHidden && <OutreachDraft context={priorityDraftContext(item)}
               label={item.kind === "gift" ? "Draft a thank-you" : "Prepare for a conversation"} />}
             <a href={item.href} aria-label={`${item.linkLabel}: ${item.title} for ${item.constituentName}`}>{item.linkLabel}</a>

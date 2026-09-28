@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import DashboardAssistant from "./DashboardAssistant";
@@ -152,6 +152,74 @@ it("loads follow-up context only on request and clears its dialog on workspace c
 function replyForGift(patch = {}) {
   return { ok: true, json: async () => ({ ...payload, items: [majorGift], hidden: [majorGift], ...patch }) };
 }
+const followUp = { id: "50", ownerId: "10", ownerName: "Example Officer", title: "Arrange a thank-you call", status: "Open", dueDate: "2026-09-30" };
+it.each(["Open", "Done"])("shows saved %s follow-up progress and links to the correct worklist without extra requests", async status => {
+  fetch.mockResolvedValue(replyForGift({ items: [{ ...majorGift, followUp: { ...followUp, status } }] }));
+  mount(); open();
+  expect(await screen.findByText(status === "Done" ? "Follow-up completed" : "Follow-up planned")).toBeVisible();
+  expect(screen.getByText("Arrange a thank-you call")).toBeVisible();
+  expect(screen.getByText(/Example Officer.*Sep 30, 2026/)).toBeVisible();
+  expect(screen.getByRole("link", { name: /View follow-up:/ })).toHaveAttribute("href", `/follow-ups?tab=next-steps&nextStepId=50&status=${status}`);
+  expect(screen.queryByRole("button", { name: "Create a stewardship follow-up" })).toBeNull();
+  if (status === "Done") expect(screen.getByText(/doesn't confirm a thank-you was sent or an NXT action was logged/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Dismiss reminder" })).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("shows undated progress in hidden and read-only views without offering a write", async () => {
+  const gift = { ...majorGift, followUp: { ...followUp, dueDate: null }, hiddenReason: "dismissed" };
+  fetch.mockResolvedValue(replyForGift({ items: [], hidden: [gift], canCreateFollowUp: false }));
+  mount(); open();
+  fireEvent.click(await screen.findByRole("button", { name: "Snoozed & dismissed (1)" }));
+  expect(screen.getByText("Follow-up planned")).toBeVisible();
+  expect(screen.getByText(/Example Officer.*No due date/)).toBeVisible();
+  expect(screen.getByRole("link", { name: /View follow-up:/ })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Create a stewardship follow-up" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Restore reminder" })).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("refreshes completed, rescheduled and reopened progress on explicit reload without dismissing the gift", async () => {
+  fetch.mockResolvedValue(replyForGift({ items: [{ ...majorGift, followUp }] }));
+  mount(); open(); await screen.findByText("Follow-up planned");
+  fetch.mockResolvedValueOnce(replyForGift({ items: [{ ...majorGift, followUp: { ...followUp, status: "Done" } }] }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload reminders" }));
+  await screen.findByText("Follow-up completed");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Reload reminders" })).toBeEnabled());
+  fetch.mockResolvedValueOnce(replyForGift({ items: [{ ...majorGift, followUp: { ...followUp, dueDate: "2027-01-02" } }] }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload reminders" }));
+  await screen.findByText("Follow-up planned");
+  expect(screen.getByText(/Example Officer.*Jan 2, 2027/)).toBeVisible();
+  expect(screen.getByRole("link", { name: /View follow-up:/ })).toHaveAttribute("href", expect.stringContaining("status=Open"));
+  expect(fetch).toHaveBeenCalledTimes(3);
+});
+it.each(["create", "existing", "recovery"])("updates the gift card immediately after confirmed %s without refetching reminders", async mode => {
+  fetch.mockResolvedValue(replyForGift());
+  mount(); open(); await screen.findByText("$10,000 gift");
+  const data = { viewerId: "7", workspaceUserId: "10", key: majorGift.key, revision: majorGift.revision,
+    gift: majorGift, ownerName: "Example Officer", task: null };
+  const saved = { ...data, task: { id: 50, owner_user_id: 10, title: followUp.title, status: "Open", due_date: followUp.dueDate } };
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => mode === "existing" ? saved : data });
+  fireEvent.click(screen.getByRole("button", { name: "Create a stewardship follow-up" }));
+  const dialog = await screen.findByRole("dialog");
+  if (mode !== "existing") {
+    await within(dialog).findByRole("button", { name: "Create follow-up" });
+    if (mode === "recovery") fetch.mockRejectedValueOnce(new Error("Save response interrupted"));
+    else fetch.mockResolvedValueOnce({ ok: true, json: async () => saved });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create follow-up" }));
+    if (mode === "recovery") {
+      await within(dialog).findByRole("alert");
+      expect(screen.queryByText("Follow-up planned")).toBeNull();
+      fetch.mockResolvedValueOnce({ ok: true, json: async () => saved });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Check saved status" }));
+    }
+  }
+  await within(dialog).findByRole("link", { name: "View follow-up" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  expect(await screen.findByText("Follow-up planned")).toBeVisible();
+  expect(screen.getByRole("link", { name: /View follow-up:/ })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Create a stewardship follow-up" })).toBeNull();
+  expect(fetch.mock.calls.filter(([url]) => url.startsWith("/api/dashboard-priorities"))).toHaveLength(1);
+  expect(fetch).toHaveBeenCalledTimes(mode === "existing" ? 2 : mode === "create" ? 3 : 4);
+});
 it("does not offer gift follow-ups in read-only workspaces or for hidden reminders", async () => {
   fetch.mockResolvedValue(replyForGift({ canCreateFollowUp: false })); mount(); open(); await screen.findByText("$10,000 gift");
   expect(screen.queryByRole("button", { name: "Create a stewardship follow-up" })).toBeNull();

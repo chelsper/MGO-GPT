@@ -127,9 +127,10 @@ describe("gift-based dashboard suggestions", () => {
   it("applies the existing viewer/workspace preferences to gifts without creating tasks or sending messages", async () => {
     const giftData = build();
     const item = giftData.items[0];
-    const db = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ item_key: item.key, item_revision: item.revision, state: "dismissed" }]);
+    const db = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ item_key: item.key, item_revision: item.revision, state: "dismissed" }]).mockResolvedValue([]);
     const result = await readDashboardPriorities(7, 10, now, db, giftData);
     expect(result.hidden).toHaveLength(1); expect(result.giftCoverage).toEqual(giftData.coverage);
+    expect(result.hidden[0].followUp).toBeNull();
     expect(db.mock.calls[2]).toContain(7); expect(db.mock.calls[2]).toContain(10);
     expect(db.mock.calls.map(call => call[0].join("")).join(" ")).not.toMatch(/INSERT|UPDATE|DELETE/);
   });

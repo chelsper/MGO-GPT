@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import NextStepFields from "./NextStepFields";
 import GiftFollowUpSource from "./GiftFollowUpSource";
 import { formatNextStepDate } from "@/utils/nextStepWorklist";
+import { giftFollowUpStatus } from "@/utils/giftFollowUpStatus";
 
 const buttonClass = "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50";
 const initialDraft = { title: "Plan a stewardship follow-up", details: "", dueDate: "" };
@@ -42,6 +43,19 @@ export default function GiftFollowUpDialog({ item, viewerId, workspaceId, onClos
   const dirty = !task && JSON.stringify(draft) !== JSON.stringify(initialDraft);
   const gift = query.data?.gift;
   const snapshot = task?.source_gift_snapshot || (gift && { constituentName: gift.constituentName, amount: gift.giftAmount, date: gift.dueDate });
+  useEffect(() => {
+    const payload = result || query.data;
+    const followUp = giftFollowUpStatus(payload?.task, payload?.ownerName);
+    if (!followUp || followUp.ownerId !== String(workspaceId)) return;
+    // Patch only the confirmed gift in this viewer's current workspace. This
+    // also covers read-only recovery, without refetching any provider sources.
+    client.setQueryData(["dashboard-priorities", String(viewerId), String(workspaceId)], current => {
+      if (!current || current.viewerId !== String(viewerId) || current.workspaceUserId !== String(workspaceId)) return current;
+      const update = items => items.map(value => value.key === item.key && value.revision === item.revision
+        ? { ...value, followUp } : value);
+      return { ...current, items: update(current.items), hidden: update(current.hidden) };
+    });
+  }, [result, query.data, client, viewerId, workspaceId, item.key, item.revision]);
   useEffect(() => {
     const dialog = dialogRef.current;
     dialog.showModal();

@@ -1,6 +1,6 @@
 # Gift-linked stewardship follow-ups
 
-Implemented September 28, 2026. Not yet deployed.
+Implemented and deployed to JU September 28, 2026. See `ju-gift-followup-release-2026-09-28.md` for the release identity and production checks.
 
 ## User workflow
 
@@ -12,6 +12,20 @@ Implemented September 28, 2026. Not yet deployed.
 This creates an additional app task, never replacing the primary next step. Nothing is sent, marked thanked, or written to NXT. The gift reminder is not automatically dismissed. The saved gift context remains separate from editable notes and is available in the task's Details and completed history.
 
 One gift can create only one follow-up **per workspace**, even after completion, edits, a gift revision, or a retry. Different workspaces may each have a follow-up for a shared portfolio gift; this is not an organization-wide stewardship ledger. Staff should review donor history before contacting someone. Existing manually created tasks or NXT actions are not automatically matched by wording.
+
+## Follow-up progress on Nellie's gift cards
+
+Implemented locally September 28, 2026; this progress increment is not yet deployed.
+
+- Gift reminders show **Follow-up planned** or **Follow-up completed**, the task title, workspace owner, and due date (or **No due date**).
+- **View follow-up** replaces creation when the gift has a saved linked task. It opens the appropriate Open or Completed worklist and highlights the task. Read-only workspaces and snoozed/dismissed reminders can also view existing progress without permission to create another task.
+- Completion means the app task is marked complete. It does not confirm delivery of a thank-you or an NXT action. This increment neither reads NXT action receipts nor automatically dismisses the gift reminder.
+- One batched database lookup matches workspace, gift ID, and saved constituent ID for the already-bounded gift reminders (up to 200). It uses the existing gift-origin index and includes completed, undated, and distant tasks. It never matches by donor name, notes, or another owner's task. No schema or dependency changes are required.
+- This adds no NXT requests, AI calls, background refreshes, polling, or per-card API calls. With no gift reminders, the progress query is skipped. A failed progress read does not silently claim there is no task.
+- A confirmed creation, existing-task lookup, or read-only save recovery immediately patches the matching viewer/workspace/gift revision in the open panel. No reminder reload is required. Later edits, completion, or reopening appear on the next helper load or **Reload reminders**. This is saved progress, not a live collaboration feed.
+- Gift revisions and private snooze/dismiss preferences are unchanged by task progress. Only minimal progress fields are added to reminder responses, not task notes or the original gift snapshot.
+
+Validation for this increment: 4,861 regression tests passed (67 opt-in tests skipped), plus all 15 isolated PostgreSQL tests passed separately, including the new progress/isolation cases. Typecheck, production build, release-worktree guard, and whitespace check passed. Synthetic browser checks verified planned/completed/undated cards, an immediate post-save update, and desktop/390px layouts without horizontal overflow. No production data or NXT records were changed.
 
 ## Saved-data and permission boundaries
 

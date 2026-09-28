@@ -21,6 +21,9 @@
 .dashboard-assistant-list li { padding: 20px; border: 1px solid #dae5df; border-radius: 14px; background: #fff; min-width: 0; }
 .dashboard-assistant-list h3 { margin: 6px 0 0; font-size: 18px; color: #182e28; }
 .dashboard-assistant-list .dashboard-assistant-title { font-weight: 650; margin: 5px 0; }
+.dashboard-assistant-follow-up { margin-top: 14px; padding: 12px 14px; border-left: 3px solid #83ad9f; border-radius: 0 8px 8px 0; background: #f3f8f5; }
+.dashboard-assistant-follow-up strong { font-size: 14px; }
+.dashboard-assistant-follow-up p { margin: 4px 0 0; }
 .dashboard-assistant-timing { font-size: 12px; font-weight: 750; letter-spacing: .03em; color: #596d64; }
 .dashboard-assistant-actions { display: flex; align-items: start; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .dashboard-assistant-actions a { background: #eff8f4; }

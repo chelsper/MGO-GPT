@@ -96,4 +96,21 @@ describe("saved dashboard priorities", () => {
     expect(sql.mock.calls[1][0].join("")).toMatch(/DELETE FROM dashboard_priority_preferences/);
     expect(sql.mock.calls.flat().join(" ")).not.toMatch(/UPDATE prospects|UPDATE pending_actions|DELETE FROM prospect_opportunities/);
   });
+  it("adds saved progress without changing a gift revision, snooze, dismissal, or unrelated reminder", async () => {
+    const gift = { key: "gift:900", revision: "a".repeat(64), kind: "gift", giftId: "900", constituentId: "100" };
+    const preference = { item_key: gift.key, item_revision: gift.revision, state: "dismissed" };
+    const db = vi.fn().mockResolvedValueOnce([action]).mockResolvedValueOnce([]).mockResolvedValueOnce([preference])
+      .mockResolvedValueOnce([{ id: 50, owner_user_id: 10, owner_name: "Officer", source_gift_id: "900", title: "Call donor", status: "Done", due_date: null }]);
+    const result = await readDashboardPriorities(7, 10, now, db, { items: [gift], coverage: { status: "ready" } });
+    expect(result.items).toEqual(build([action], []));
+    expect(result.hidden).toEqual([expect.objectContaining({ ...gift, hiddenReason: "dismissed", followUp: {
+      id: "50", ownerId: "10", ownerName: "Officer", title: "Call donor", status: "Done", dueDate: null,
+    } })]);
+    expect(db).toHaveBeenCalledTimes(4);
+  });
+  it("does not misrepresent failed progress reads as permission to create a new follow-up", async () => {
+    const db = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("Database unavailable"));
+    await expect(readDashboardPriorities(7, 10, now, db, { items: [{ key: "gift:900", kind: "gift", giftId: "900", constituentId: "100" }] }))
+      .rejects.toThrow("Database unavailable");
+  });
 });

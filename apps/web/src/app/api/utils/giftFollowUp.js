@@ -1,5 +1,27 @@
 import sql from "./sql";
 import { canEditWorkspace } from "@/utils/workspaceRoles";
+import { giftFollowUpStatus } from "@/utils/giftFollowUpStatus";
+
+export async function readGiftFollowUpStatuses(workspaceId, gifts, db = sql) {
+  // The gift-reminder source is already bounded. Fetch progress in one batch,
+  // including undated, distant, and completed tasks, not just due reminders.
+  const identities = [...new Map(gifts.map(item => [String(item.giftId), {
+    gift_id: String(item.giftId), constituent_id: String(item.constituentId),
+  }])).values()];
+  if (!identities.length) return new Map();
+  const rows = await db`
+    SELECT pa.id, pa.owner_user_id, pa.title, pa.status, pa.due_date,
+      pa.source_gift_id, owner.name AS owner_name
+    FROM pending_actions pa JOIN users owner ON owner.id = pa.owner_user_id
+    JOIN jsonb_to_recordset(${JSON.stringify(identities)}::jsonb)
+      AS gift(gift_id text, constituent_id text)
+      ON gift.gift_id = pa.source_gift_id
+        AND gift.constituent_id = pa.source_gift_snapshot->>'constituentId'
+    WHERE pa.owner_user_id = ${workspaceId} AND pa.source_gift_id IS NOT NULL
+    LIMIT ${identities.length}
+  `;
+  return new Map(rows.map(task => [task.source_gift_id, giftFollowUpStatus(task, task.owner_name)]));
+}
 
 export async function readGiftFollowUp(workspaceId, giftId, db = sql) {
   const [task] = await db`

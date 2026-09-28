@@ -4,6 +4,7 @@ import { buildPipelineReport } from "@/utils/pipelineReport";
 import { calendarDate, formatCalendarDate } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import { dashboardReminderPolicy } from "@/utils/dashboardAssistantSettings";
+import { readGiftFollowUpStatuses } from "./giftFollowUp";
 
 export const PRIORITY_SOURCE_LIMIT = 1000;
 export const priorityDay = (now = new Date()) => getStandingsPeriods(now).asOf;
@@ -110,7 +111,10 @@ export async function readDashboardPriorities(viewerId, workspaceId, now = new D
     WHERE viewer_user_id = ${viewerId} AND workspace_user_id = ${workspaceId}
       AND item_key IN (SELECT jsonb_array_elements_text(${JSON.stringify(candidates.map(item => item.key))}::jsonb))
   ` : [];
-  return { ...applyPriorityPreferences(candidates, preferences, priorityDay(now)), asOf: priorityDay(now), truncated,
+  const followUps = await readGiftFollowUpStatuses(workspaceId, candidates.filter(item => item.kind === "gift"), sqlClient);
+  const withProgress = candidates.map(item => item.kind === "gift"
+    ? { ...item, followUp: followUps.get(item.giftId) || null } : item);
+  return { ...applyPriorityPreferences(withProgress, preferences, priorityDay(now)), asOf: priorityDay(now), truncated,
     ...(giftData ? { giftCoverage: giftData.coverage } : {}) };
 }
 
