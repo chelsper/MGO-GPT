@@ -13,6 +13,7 @@ const RETURN_PAGES = {
   "/prospect-exports": "Top Prospect Exports",
   "/setup": "Setup Hub",
   "/stewardship": "Stewardship",
+  "/stewardship/requests": "Assistance Requests",
   "/stewardship/gift-follow-ups": "Gift Follow-ups",
   "/stewardship/society-letters": "Society Letter Creation",
 };

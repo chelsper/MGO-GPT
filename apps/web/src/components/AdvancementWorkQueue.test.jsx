@@ -24,7 +24,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request ${url}`);
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 
 const ready = async () => waitFor(() => expect(screen.getByRole("button", { name: "Refresh queues" })).toBeEnabled());
 const rowButton = (name) => screen.getByRole("button", { name: new RegExp(name) });
@@ -170,5 +170,48 @@ describe("queue source validation", () => {
   it("rejects non-array responses rather than showing an empty queue", async () => {
     fetch.mockResolvedValue(json({ runs: [] }));
     await expect(loadQueueSource("data", "/api/data-requests")).rejects.toThrow("unexpected response");
+  });
+});
+
+describe("one linked stewardship workflow", () => {
+  const request = (status = "Open") => ({ id: 22, constituent_name: "Sample Foundation", request_type: "Stewardship: Personal gift",
+    source_pending_action_id: 17, owner_user_name: "Portfolio Officer", requester_name: "Portfolio Officer", request_note: "A small thank-you gift, please.",
+    status, request_version: 1, request_viewer_id: "2", needed_by: "2026-10-10", source_gift_snapshot: { constituentId: "100", constituentName: "Sample Foundation", amount: 5000, date: "2026-09-16" } });
+  it("links from the general queue to Stewardship without offering a second management form", async () => {
+    data.push(request()); render(<AdvancementWorkQueue />); await ready();
+    fireEvent.click(rowButton("Sample Foundation"));
+    expect(screen.getByRole("link", { name: "Manage in Stewardship" })).toHaveAttribute("href", "/stewardship/requests?requestId=22");
+    expect(screen.queryByRole("button", { name: "Complete request" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Reviewer notes/ })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
+  });
+  it("loads only stewardship requests and saves staff progress on the same versioned record", async () => {
+    data.push(request());
+    render(<AdvancementWorkQueue initialCategory="stewardship" stewardshipOnly />); await ready();
+    expect(screen.getByRole("heading", { name: "Assistance Requests" })).toBeInTheDocument();
+    expect(screen.queryByText("Example Donor")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe("/api/data-requests?view=reviewer&category=stewardship");
+    expect(screen.getAllByRole("link", { name: "Back to Stewardship" }).every(link => link.getAttribute("href") === "/stewardship")).toBe(true);
+    fireEvent.click(rowButton("Sample Foundation"));
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
+    await screen.findByText(/Add a progress note/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByRole("textbox", { name: /Reviewer notes/ }), { target: { value: "Choosing a gift for the officer to review." } });
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
+    await screen.findByText(/Sample Foundation: In Progress/);
+    const write = fetch.mock.calls.find(([, options]) => options.method);
+    expect(write[0]).toBe("/api/stewardship/assistance");
+    expect(JSON.parse(write[1].body)).toEqual({ id: "22", viewerKey: "2", version: 1, status: "In Progress", note: "Choosing a gift for the officer to review." });
+    expect(fetch.mock.calls.some(([url]) => url.includes("pending-actions") || url.includes("blackbaud"))).toBe(false);
+  });
+  it("opens a completed deep-linked request in History", async () => {
+    data.push({ ...request("Completed"), reviewer_notes: "Gift arranged." });
+    window.history.replaceState({}, "", "/stewardship/requests?requestId=22");
+    render(<AdvancementWorkQueue initialCategory="stewardship" stewardshipOnly />); await ready();
+    await waitFor(() => expect(rowButton("^History")).toHaveAttribute("aria-pressed", "true"));
+    expect(rowButton("Sample Foundation")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("textbox", { name: /Reviewer notes/ })).toHaveValue("Gift arranged.");
+    expect(screen.getByRole("button", { name: "Reopen request" })).toBeInTheDocument();
   });
 });

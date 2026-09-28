@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import stewardshipAssistanceSchema from "./stewardshipAssistanceSchema";
 
 let schemaReadyPromise;
 
@@ -1219,6 +1220,8 @@ export default async function ensureAppSchema() {
       ON pending_actions (owner_user_id, source_gift_id)
       WHERE source_gift_id IS NOT NULL
     `;
+
+    await stewardshipAssistanceSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (

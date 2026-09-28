@@ -5,6 +5,7 @@ import useUser from "@/utils/useUser";
 import { ArrowLeft, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { canReviewSubmission, getSubmissionActivityNotice, getSubmissionDisplayStatus, getSubmissionReviewFilter, isSubmissionHistoryOnly } from "@/utils/submissionReview";
+import { isStewardshipRequest } from "@/utils/stewardshipAssistance";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -15,6 +16,7 @@ const REVIEW_STATUSES = [
 
 const DATA_UPDATES_TAB = "dataUpdates";
 const RESEARCH_TAB = "research";
+const STEWARDSHIP_TAB = "stewardship";
 const LIST_REQUESTS_TAB = "listRequests";
 const NXT_EXCEPTIONS_TAB = "nxtExceptions";
 const ACTIVITY_LOG_TAB = "activityLog";
@@ -513,12 +515,12 @@ export default function SubmissionTracker({ detailedReview = false }) {
   }, [isReviewer]);
 
   const dataUpdateRequests = useMemo(
-    () => dataRequests.filter((request) => !isResearchDataRequest(request)),
+    () => dataRequests.filter((request) => !isResearchDataRequest(request) && !isStewardshipRequest(request)),
     [dataRequests],
   );
 
   const researchRequests = useMemo(
-    () => dataRequests.filter(isResearchDataRequest),
+    () => dataRequests.filter((request) => isResearchDataRequest(request) && !isStewardshipRequest(request)),
     [dataRequests],
   );
 
@@ -533,9 +535,10 @@ export default function SubmissionTracker({ detailedReview = false }) {
   }, [isReviewer, researchRequests]);
 
   const activeDataRequests = useMemo(() => {
+    if (activeTab === STEWARDSHIP_TAB) return dataRequests.filter(isStewardshipRequest);
     if (activeTab === RESEARCH_TAB) return researchRequests;
     return dataUpdateRequests;
-  }, [activeTab, dataUpdateRequests, researchRequests]);
+  }, [activeTab, dataUpdateRequests, researchRequests, dataRequests]);
 
   const activeDataRequestCounts = useMemo(() => {
     if (activeTab === RESEARCH_TAB) return researchRequestCounts;
@@ -677,9 +680,9 @@ export default function SubmissionTracker({ detailedReview = false }) {
   const visibleDataRequests = useMemo(() => {
     let next = [...activeDataRequests];
 
-    if (isReviewer && dataRequestFilter === "Aging 5+ days") {
+    if (isReviewer && activeTab !== STEWARDSHIP_TAB && dataRequestFilter === "Aging 5+ days") {
       next = next.filter(isAgingDataRequest);
-    } else if (isReviewer && dataRequestFilter !== "All") {
+    } else if (isReviewer && activeTab !== STEWARDSHIP_TAB && dataRequestFilter !== "All") {
       next = next.filter((request) => (request.status || "Open") === dataRequestFilter);
     }
 
@@ -689,7 +692,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
       if (dataRequestFilter === "Aging 5+ days") return aDate - bDate;
       return bDate - aDate;
     });
-  }, [activeDataRequests, dataRequestFilter, isReviewer]);
+  }, [activeDataRequests, activeTab, dataRequestFilter, isReviewer]);
 
   const visibleSubmissionGroups = useMemo(() => {
     let next =
@@ -844,6 +847,12 @@ export default function SubmissionTracker({ detailedReview = false }) {
       ];
     }
 
+    if (activeTab === STEWARDSHIP_TAB) return [
+      { label: "Open requests", value: activeDataRequests.filter(request => request.status === "Open").length, detail: "Waiting for the Stewardship team" },
+      { label: "In progress", value: activeDataRequests.filter(request => request.status === "In Progress").length, detail: "Being worked by the Stewardship team" },
+      { label: "All requests", value: activeDataRequests.length, detail: "Includes completed and declined requests" },
+    ];
+
     if ([DATA_UPDATES_TAB, RESEARCH_TAB].includes(activeTab) && isReviewer) {
       const isResearchQueue = activeTab === RESEARCH_TAB;
       return [
@@ -977,6 +986,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
     ];
   }, [
     activeTab,
+    activeDataRequests,
     activeDataRequestCounts,
     agingDataUpdateRequests.length,
     agingResearchRequests.length,
@@ -1535,6 +1545,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                         (researchRequestCounts.Open || 0) +
                         (researchRequestCounts["In Progress"] || 0),
                     },
+                    { id: STEWARDSHIP_TAB, label: "Stewardship", count: dataRequests.filter(isStewardshipRequest).length },
                     {
                       id: LIST_REQUESTS_TAB,
                       label: "List Requests",
@@ -1553,6 +1564,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                   ]
                 : [
                     { id: ACTIVITY_LOG_TAB, label: "Submissions", count: submissions.length },
+                    { id: STEWARDSHIP_TAB, label: "Stewardship", count: dataRequests.filter(isStewardshipRequest).length },
                     { id: LIST_REQUESTS_TAB, label: "List Requests", count: listRequests.length },
                   ]
             ).map((tab) => {
@@ -2026,14 +2038,14 @@ export default function SubmissionTracker({ detailedReview = false }) {
                 ))}
               </div>
             </div>
-          ) : [DATA_UPDATES_TAB, RESEARCH_TAB].includes(activeTab) ? (
+          ) : [DATA_UPDATES_TAB, RESEARCH_TAB, STEWARDSHIP_TAB].includes(activeTab) ? (
             dataRequestsLoading ? (
               <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
-                Loading {activeTab === RESEARCH_TAB ? "research requests" : "data updates"}...
+                Loading {activeTab === STEWARDSHIP_TAB ? "stewardship requests" : activeTab === RESEARCH_TAB ? "research requests" : "data updates"}...
               </div>
             ) : visibleDataRequests.length === 0 ? (
               <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
-                No {activeTab === RESEARCH_TAB ? "research requests" : "data updates"} match the current filter.
+                {activeTab === STEWARDSHIP_TAB ? "No stewardship requests yet. Request assistance from a gift follow-up in Next Steps; the team's updates will appear here." : `No ${activeTab === RESEARCH_TAB ? "research requests" : "data updates"} match the current filter.`}
               </div>
             ) : (
               <div style={{ display: "grid", gap: "12px" }}>
@@ -2163,7 +2175,9 @@ export default function SubmissionTracker({ detailedReview = false }) {
                         ) : null}
                       </div>
 
-                      <div>
+                      {request.source_pending_action_id ? <div><p>This request is linked to the original stewardship follow-up. Completing a request does not confirm delivery.</p>
+                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-emerald-800 underline" href={isReviewer ? `/stewardship/requests?requestId=${encodeURIComponent(request.id)}` : `/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(request.source_pending_action_id)}&status=${request.source_pending_action_status === "Done" ? "Done" : "Open"}`}>{isReviewer ? "Manage in Stewardship" : "View linked follow-up"}</a>
+                      </div> : <div>
                         <label
                           style={{
                             display: "block",
@@ -2275,7 +2289,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                             Mark complete
                           </button>
                         ) : null}
-                      </div>
+                      </div>}
                     </article>
                   );
                 })}

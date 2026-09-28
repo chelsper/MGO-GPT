@@ -49,12 +49,12 @@ export async function PATCH(request, { params }) {
           ELSE reviewed_at
         END,
         updated_at = NOW()
-      WHERE id = ${requestId}
+      WHERE id = ${requestId} AND source_pending_action_id IS NULL
       RETURNING *
     `;
 
     if (updated.length === 0) {
-      return Response.json({ error: "Data request not found" }, { status: 404 });
+      return Response.json({ error: "Request unavailable here. For stewardship assistance, open Stewardship > Assistance Requests." }, { status: 404 });
     }
 
     return Response.json(updated[0]);

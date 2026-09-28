@@ -73,6 +73,7 @@ export async function GET(request) {
     }
 
     const { sessionUser, workspaceUser } = await getWorkspaceUser(session, request);
+    if (!sessionUser?.id || sessionUser.active === false || workspaceUser?.active === false) return Response.json({ error: "Account unavailable" }, { status: 403 });
     const user = new URL(request.url).searchParams.get("view") === "reviewer" && isReviewerRole(sessionUser?.role)
       ? sessionUser : workspaceUser;
     if (!user) {
@@ -81,6 +82,7 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "";
+    const stewardshipOnly = searchParams.get("category") === "stewardship";
     const isReviewer = isReviewerRole(user.role);
 
     const rows = isReviewer
@@ -91,12 +93,15 @@ export async function GET(request) {
             requester.email AS requester_email,
             owner_user.name AS owner_user_name,
             owner_user.email AS owner_user_email,
-            reviewer.name AS reviewed_by_name
+            reviewer.name AS reviewed_by_name,
+            pa.status AS source_pending_action_status
           FROM data_change_requests dcr
           LEFT JOIN users requester ON requester.id = dcr.requester_user_id
           LEFT JOIN users owner_user ON owner_user.id = dcr.owner_user_id
           LEFT JOIN users reviewer ON reviewer.id = dcr.reviewed_by
+          LEFT JOIN pending_actions pa ON pa.id = dcr.source_pending_action_id AND pa.owner_user_id = dcr.owner_user_id
           WHERE (${status || null}::TEXT IS NULL OR dcr.status = ${status || null})
+            AND (NOT ${stewardshipOnly} OR dcr.source_pending_action_id IS NOT NULL)
           ORDER BY
             CASE dcr.status
               WHEN 'Open' THEN 0
@@ -113,17 +118,21 @@ export async function GET(request) {
             requester.email AS requester_email,
             owner_user.name AS owner_user_name,
             owner_user.email AS owner_user_email,
-            reviewer.name AS reviewed_by_name
+            reviewer.name AS reviewed_by_name,
+            pa.status AS source_pending_action_status
           FROM data_change_requests dcr
           LEFT JOIN users requester ON requester.id = dcr.requester_user_id
           LEFT JOIN users owner_user ON owner_user.id = dcr.owner_user_id
           LEFT JOIN users reviewer ON reviewer.id = dcr.reviewed_by
+          LEFT JOIN pending_actions pa ON pa.id = dcr.source_pending_action_id AND pa.owner_user_id = dcr.owner_user_id
           WHERE (dcr.requester_user_id = ${user.id} OR dcr.owner_user_id = ${user.id})
             AND (${status || null}::TEXT IS NULL OR dcr.status = ${status || null})
+            AND (NOT ${stewardshipOnly} OR dcr.source_pending_action_id IS NOT NULL)
           ORDER BY dcr.updated_at DESC
         `;
 
-    return Response.json(rows, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json(rows.map(row => row.source_pending_action_id
+      ? { ...row, request_viewer_id: String(sessionUser.id) } : row), { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Error fetching data requests:", error);
     return Response.json(
@@ -148,6 +157,10 @@ export async function POST(request) {
     }
 
     const body = await request.json();
+    if (body?.source_pending_action_id != null || body?.sourcePendingActionId != null ||
+        /^stewardship/i.test(String(body?.requestType || "")) || body?.sourceContext === "stewardship") {
+      return Response.json({ error: "Request stewardship assistance from the gift follow-up so its donor and request stay linked." }, { status: 400 });
+    }
     const prospect = await resolveProspectContext({
       userId: user.id,
       prospectId: body?.prospectId || null,

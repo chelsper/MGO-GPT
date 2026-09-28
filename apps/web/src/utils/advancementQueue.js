@@ -1,7 +1,8 @@
 import { canReviewSubmission, getSubmissionDisplayStatus, getSubmissionQueueGroup, hasSubmissionSyncFailure, isSubmissionHistoryOnly, isSubmissionSynced } from "./submissionReview";
+import { isStewardshipRequest } from "./stewardshipAssistance";
 
 export const QUEUE_CATEGORIES = [
-  ["all", "All requests"], ["data", "Data updates"], ["research", "Research"],
+  ["all", "All requests"], ["data", "Data updates"], ["research", "Research"], ["stewardship", "Stewardship"],
   ["lists", "List requests"], ["reviews", "Submission reviews"],
   ["exceptions", "NXT exceptions"],
 ];
@@ -40,7 +41,7 @@ export function formatQueueDate(value) {
 
 export function buildQueueItems(sources) {
   return Object.entries(sources).filter(([source]) => ["data", "lists", "submissions"].includes(source)).flatMap(([source, rows]) => rows.map((record) => {
-    const category = source === "data" ? (/research/i.test(record.request_type || "") ? "research" : "data")
+    const category = source === "data" ? (isStewardshipRequest(record) ? "stewardship" : /research/i.test(record.request_type || "") ? "research" : "data")
       : source === "submissions" ? (getSubmissionDisplayStatus(record) === "NXT follow-up required" ? "exceptions" : "reviews") : source;
     const constituent = clean(record.constituent_name || record.donor_name);
     const type = source === "lists" ? "List request"
@@ -54,7 +55,7 @@ export function buildQueueItems(sources) {
       group: getQueueGroup(source, record),
       requester: clean(record.requester_name || record.requester_user_name || record.requester_email || record.officer_name || record.createdByName || record.createdByEmail) || "Unknown requester",
       created: record.date_submitted || record.created_at || record.createdAt,
-      due: record.date_needed || null,
+      due: record.needed_by || record.date_needed || null,
       priority: [1, 2, 3].includes(Number(record.queue_priority)) ? Number(record.queue_priority) : 2,
     };
   }));
@@ -95,6 +96,13 @@ export function buildQueueMutation(item, { status, reviewerNotes, queuePriority 
   if (item.source === "submissions" && isSubmissionHistoryOnly(item.record)) throw new Error("This activity is in History and does not require review.");
   if (status && !getQueueActions(item).some(([value]) => value === status)) throw new Error("This action is not available for this request.");
   const notes = clean(reviewerNotes ?? item.record.reviewer_notes);
+  if (item.category === "stewardship") {
+    if (!notes || notes.length > 2000) throw new Error("Add a progress note (up to 2,000 characters). It will be visible to the requesting fundraiser.");
+    return { url: "/api/stewardship/assistance", method: "POST", body: {
+      id: String(item.record.id), viewerKey: item.record.request_viewer_id, version: item.record.request_version,
+      status: status || item.record.status, note: notes,
+    } };
+  }
   if (status === "Needs Clarification" && !notes) throw new Error("Write your clarification question in Reviewer notes first.");
   const body = { reviewerNotes: notes };
   if (status) body.status = status;

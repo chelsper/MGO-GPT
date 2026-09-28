@@ -16,6 +16,13 @@ export default function StewardshipPage() {
         </p>
       </header>
       <div className="grid gap-5 lg:grid-cols-2">
+      <a href="/stewardship/requests"
+        className="block max-w-2xl rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-7 text-gray-900 no-underline hover:border-emerald-600 focus-visible:outline-2 focus-visible:outline-emerald-700">
+        <p className="text-sm font-semibold text-emerald-700">Requests from fundraisers</p>
+        <h2 className="mt-3 text-2xl font-bold">Assistance Requests</h2>
+        <p className="mt-3 text-gray-600">Help fundraisers with letters, personal gifts, and recognition. Manage each request here and share progress with its original follow-up.</p>
+        <p className="mt-5 font-semibold text-emerald-800">Open stewardship requests &rarr;</p>
+      </a>
       <a
         href="/stewardship/society-letters"
         className="block max-w-2xl rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-7 text-gray-900 no-underline hover:border-emerald-600 focus-visible:outline-2 focus-visible:outline-emerald-700"

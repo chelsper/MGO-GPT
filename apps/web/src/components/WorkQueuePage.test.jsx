@@ -34,4 +34,20 @@ describe("queue role routing", () => {
     expect(await screen.findByText("Original submission tracker")).toBeInTheDocument();
     expect(screen.getByText("Return to compact Work Queue")).toBeInTheDocument();
   });
+
+  it("keeps staff management in Stewardship even while an admin views an MGO workspace", async () => {
+    state.reviewer = false;
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ user: { role: "admin", active: true } }) })));
+    render(<WorkQueuePage stewardshipOnly />);
+    expect(await screen.findByText("Shared reviewer queue: stewardship")).toBeInTheDocument();
+  });
+
+  it.each([{ role: "mgo" }, { role: "executive" }, { role: "admin", active: false }])("does not give staff controls to %j", async user => {
+    state.reviewer = true;
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ user }) })));
+    render(<WorkQueuePage stewardshipOnly />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("managed by Admin and Advancement Services");
+    expect(screen.queryByText(/Shared reviewer queue/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Return to your follow-ups" })).toHaveAttribute("href", "/follow-ups?tab=next-steps");
+  });
 });

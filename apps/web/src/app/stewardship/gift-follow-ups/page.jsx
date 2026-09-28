@@ -164,6 +164,7 @@ export default function GiftFollowUpsPage() {
       <h1 className="mt-3 text-3xl font-bold text-gray-900">Gift Follow-ups</h1>
       <p className="mt-3 max-w-3xl text-gray-600">See who is following up on a gift, what they have planned, and when it is due.</p>
       <p className="mt-2 max-w-3xl text-sm text-gray-600">These are the same tasks in each owner's Next Steps. Completing a task does not confirm that a letter was sent or a donor was thanked.</p>
+      <a href="/stewardship/requests" className="mt-4 inline-flex min-h-11 items-center font-semibold text-emerald-800 underline">Manage assistance requests</a>
     </header>
     {loading ? <p role="status">Checking access...</p> : !user ? <p><a href="/account/signin" className="font-semibold text-emerald-800 underline">Sign in to view gift follow-ups</a></p> : <GiftFollowUpQueue key={viewerKey} viewerKey={viewerKey} />}
   </main>;
