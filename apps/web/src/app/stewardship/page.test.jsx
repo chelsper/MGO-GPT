@@ -33,7 +33,7 @@ it("shows four one-click shortcuts with one read and no new review steps", async
   ).toHaveTextContent("Resume draft");
   expect(screen.getByRole("link", { name: /Ready to mail/ })).toHaveAttribute(
     "href",
-    "/stewardship/society-letters?view=history",
+    "/stewardship/society-letters?view=history&history=ready_to_mail",
   );
   expect(
     screen.getByRole("link", { name: /Assistance Requests/ }),
@@ -85,7 +85,10 @@ it("distinguishes no saved membership from a genuinely empty list", async () => 
   ).toHaveTextContent("Not available");
   expect(
     screen.getByRole("link", { name: /Batches in progress/ }),
-  ).toHaveAttribute("href", "/stewardship/society-letters?view=history");
+  ).toHaveAttribute(
+    "href",
+    "/stewardship/society-letters?view=history&history=in_progress",
+  );
   fetch.mockResolvedValueOnce(Response.json({ ...base, holding: 0 }));
   fireEvent.click(screen.getByRole("button", { name: "Reload counts" }));
   await screen.findByText("0");

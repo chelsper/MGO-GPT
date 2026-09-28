@@ -1,3 +1,5 @@
+import { letterHistoryFilter } from "./societyLetterHistory";
+
 export const SOCIETY_LETTERS_PATH = "/stewardship/society-letters";
 
 export const LETTER_VIEWS = {
@@ -15,11 +17,12 @@ export function letterView(value) {
   return Object.hasOwn(LETTER_VIEWS, value) ? value : "ready";
 }
 
-export function letterViewHref(view) {
+export function letterViewHref(view, historyFilter = "all") {
   const key = letterView(view);
+  const filter = letterHistoryFilter(historyFilter);
   return key === "ready"
     ? SOCIETY_LETTERS_PATH
-    : `${SOCIETY_LETTERS_PATH}?view=${key}`;
+    : `${SOCIETY_LETTERS_PATH}?view=${key}${key === "history" && filter !== "all" ? `&history=${filter}` : ""}`;
 }
 
 // This return link accepts workspace views only, not arbitrary destinations.
@@ -33,7 +36,10 @@ export function societyLetterReturnPath(value) {
       url.pathname !== SOCIETY_LETTERS_PATH
     )
       return "";
-    return letterViewHref(url.searchParams.get("view"));
+    return letterViewHref(
+      url.searchParams.get("view"),
+      url.searchParams.get("history"),
+    );
   } catch {
     return "";
   }

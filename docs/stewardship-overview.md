@@ -39,4 +39,4 @@ or the existing send/approval protections.
   and a check that reading counts leaves saved letter state unchanged.
 - Fictional-data browser check at desktop and 390px mobile widths passed with no
   horizontal overflow. No production requests or NXT writes were made.
-- This overview has not yet been deployed.
+- Deployed to JU September 28; see `ju-stewardship-overview-release-2026-09-28.md`.

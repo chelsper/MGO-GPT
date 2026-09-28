@@ -106,3 +106,47 @@ it("allows only canonical society-workspace return links", () => {
     societyLetterReturnPath(`${letterViewHref("ready")}?view=unknown`),
   ).toBe(letterViewHref("ready"));
 });
+
+it("opens a filtered history link and retains its filter through tabs and browser Back", async () => {
+  window.history.replaceState(
+    {},
+    "",
+    letterViewHref("history", "ready_to_mail"),
+  );
+  const { result } = renderHook(useLetterNavigation);
+  expect(result.current.historyFilter).toBe("ready_to_mail");
+  const entries = window.history.length;
+  act(() => result.current.setHistoryFilter("in_progress"));
+  expect(window.history.length).toBe(entries);
+  expect(window.location.search).toBe("?view=history&history=in_progress");
+  act(() => result.current.navigate("setup"));
+  expect(result.current.backHref).toBe(
+    letterViewHref("history", "in_progress"),
+  );
+  await act(async () => window.history.back());
+  await waitFor(() => expect(result.current.tab).toBe("history"));
+  expect(result.current.historyFilter).toBe("in_progress");
+  act(() => result.current.navigate("ready"));
+  act(() => result.current.navigate("history"));
+  expect(result.current.historyFilter).toBe("in_progress");
+});
+
+it("ignores unsafe filters and strips search terms from canonical return links", () => {
+  window.history.replaceState(
+    {},
+    "",
+    `${letterViewHref("history")}&history=unknown`,
+  );
+  const { result } = renderHook(useLetterNavigation);
+  expect(result.current.historyFilter).toBe("all");
+  act(() => result.current.setHistoryFilter("private-name"));
+  expect(window.location.search).toBe("?view=history");
+  expect(
+    societyLetterReturnPath(
+      `${letterViewHref("history", "ready_to_mail")}&search=private-name`,
+    ),
+  ).toBe(letterViewHref("history", "ready_to_mail"));
+  expect(letterViewHref("templates", "in_progress")).toBe(
+    letterViewHref("templates"),
+  );
+});

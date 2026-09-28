@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { letterHistoryFilter } from "@/utils/societyLetterHistory";
 import {
   LETTER_VIEWS,
   letterView,
@@ -16,11 +17,20 @@ function readEntry() {
     saved?.view === view && Array.isArray(saved.trail)
       ? saved.trail.filter((key) => Object.hasOwn(LETTER_VIEWS, key)).slice(-50)
       : [];
-  return { view, trail };
+  const historyFilter = letterHistoryFilter(
+    view === "history"
+      ? new URLSearchParams(window.location.search).get("history")
+      : saved?.historyFilter,
+  );
+  return { view, trail, historyFilter };
 }
 
 export default function useLetterNavigation() {
-  const [entry, setEntry] = useState({ view: "ready", trail: [] });
+  const [entry, setEntry] = useState({
+    view: "ready",
+    trail: [],
+    historyFilter: "all",
+  });
   const current = useRef(entry);
   function accept(next) {
     current.current = next;
@@ -28,7 +38,7 @@ export default function useLetterNavigation() {
   }
   useEffect(() => {
     const initial = readEntry();
-    // Record only view names. Recipient data and edits never enter browser history.
+    // Record only view/filter keys. Recipient data and edits never enter history.
     window.history.replaceState(
       { ...window.history.state, [stateKey]: initial },
       "",
@@ -48,12 +58,13 @@ export default function useLetterNavigation() {
     if (view === previous.view) return;
     const next = {
       view,
+      historyFilter: previous.historyFilter,
       trail: replace ? [] : [...previous.trail, previous.view].slice(-50),
     };
     window.history[replace ? "replaceState" : "pushState"](
       { ...window.history.state, [stateKey]: next },
       "",
-      letterViewHref(view),
+      letterViewHref(view, next.historyFilter),
     );
     accept(next);
   }
@@ -69,8 +80,23 @@ export default function useLetterNavigation() {
     view: entry.view,
     tab: entry.view === "fields" ? "settings" : entry.view,
     showMappings: entry.view === "fields",
+    historyFilter: entry.historyFilter,
+    setHistoryFilter(value) {
+      const next = {
+        ...current.current,
+        historyFilter: letterHistoryFilter(value),
+      };
+      window.history.replaceState(
+        { ...window.history.state, [stateKey]: next },
+        "",
+        letterViewHref(next.view, next.historyFilter),
+      );
+      accept(next);
+    },
     navigate,
-    backHref: previous ? letterViewHref(previous) : "/stewardship",
+    backHref: previous
+      ? letterViewHref(previous, entry.historyFilter)
+      : "/stewardship",
     backLabel: `Back to ${previous ? LETTER_VIEWS[previous] : "Stewardship"}`,
     back(event) {
       if (

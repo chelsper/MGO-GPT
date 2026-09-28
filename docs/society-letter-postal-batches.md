@@ -2,7 +2,8 @@
 
 ## Release Status
 
-Implemented locally September 28, 2026. Not deployed by this task. Automatic
+Deployed to JU September 28, 2026; see
+`ju-stewardship-overview-release-2026-09-28.md`. Automatic
 PDF conversion is disabled unless a private deployment-owned converter has been
 provisioned and explicitly enabled. No production letters or appeals were
 created while developing this workflow.

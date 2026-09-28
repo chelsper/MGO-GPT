@@ -278,6 +278,78 @@ describe("society letter workspace", () => {
     expect(within(summary).getByText(/were not recorded/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+  it("filters saved history from an overview link and searches without requests or partial batches", async () => {
+    const item = (id, status, batchId = id, extras = {}) => ({
+      ...household,
+      id,
+      householdId: id,
+      name: `Recipient ${id}`,
+      members: [id],
+      batchId,
+      channel: "post",
+      status,
+      preparedAt: "2026-09-28T12:00:00Z",
+      period: base.period,
+      coveredKeys: ["presidents_society"],
+      ...extras,
+    });
+    const payload = {
+      ...base,
+      history: [
+        item("11", "prepared", "mixed"),
+        item("12", "prepared", "mixed", {
+          letterAppeals: {
+            status: "pending",
+            appeal: { id: "100", description: "Example letter appeal" },
+            members: [{ id: "12", status: "pending" }],
+          },
+        }),
+        item("21", "mailed"),
+        item("31", "pending_email", "31", { channel: "email" }),
+        item("41", "cancelled"),
+      ],
+    };
+    fetchMock.mockImplementation(async () => Response.json(payload));
+    window.history.replaceState(
+      {},
+      "",
+      "/stewardship/society-letters?view=history&history=ready_to_mail",
+    );
+    render(<Page />);
+    expect(
+      await screen.findByRole("button", { name: "Ready to mail (1)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByText("Recipient 12")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Mark batch mailed" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Find in letter history"), {
+      target: { value: "11" },
+    });
+    expect(screen.getByText("Recipient 12")).toBeVisible();
+    expect(
+      screen.getByText(/Batch actions still apply to the full batch/),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Find in letter history"), {
+      target: { value: "not found" },
+    });
+    expect(screen.getByText(/No saved batches match this view/)).toBeVisible();
+    expect(window.location.href).not.toContain("not");
+    fireEvent.click(screen.getByRole("button", { name: "Show all batches" }));
+    expect(screen.getAllByRole("article")).toHaveLength(4);
+    expect(screen.getByLabelText("Find in letter history")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "In progress (2)" }));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(window.location.search).toBe("?view=history&history=in_progress");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mailed / emailed (1)" }),
+    );
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByText("Recipient 21")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(localStorage.length).toBe(0);
+  });
   it("resumes an in-memory draft outside the filters without storing wording or fetching NXT", async () => {
     fetchMock.mockImplementation(async () =>
       Response.json({ ...base, rows: [reviewRow("10"), reviewRow("20")] }),

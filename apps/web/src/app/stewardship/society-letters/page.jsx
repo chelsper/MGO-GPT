@@ -42,6 +42,11 @@ import {
 import QueryColumnMapper from "./QueryColumnMapper";
 import LetterSetupChecklist from "./LetterSetupChecklist";
 import PostalBatchApproval, { PostalBatchRunner } from "./PostalBatchApproval";
+import LetterHistoryFilters from "./LetterHistoryFilters";
+import {
+  matchesLetterHistory,
+  searchLetterHistory,
+} from "@/utils/societyLetterHistory";
 
 const endpoint = "/api/stewardship/society-letters";
 const button =
@@ -408,6 +413,7 @@ export default function SocietyLettersPage() {
     [confirmation, setConfirmation] = useState(null);
   const [finalPreview, setFinalPreview] = useState(null);
   const [postalFormat, setPostalFormat] = useState("docx");
+  const [historySearch, setHistorySearch] = useState("");
   const latestData = useRef(null);
   const [receiptIds, setReceiptIds] = useState({});
   const [societyFilter, setSocietyFilter] = useState("");
@@ -433,6 +439,11 @@ export default function SocietyLettersPage() {
   function navigateSetup(destination) {
     setTab(destination);
     setSetupNavigation((value) => value + 1);
+  }
+  function showNewBatch() {
+    navigation.setHistoryFilter("all");
+    setHistorySearch("");
+    setTab("history");
   }
   useEffect(() => {
     if (!data || !setupOpen) return;
@@ -693,6 +704,11 @@ export default function SocietyLettersPage() {
       }).items.push(item);
       return groups;
     }, {}),
+  );
+  const visibleBatches = batches.filter(
+    (batch) =>
+      matchesLetterHistory(batch, navigation.historyFilter) &&
+      searchLetterHistory(batch, historySearch),
   );
   const tabs = [
     ["ready", "Letter workspace"],
@@ -1293,7 +1309,7 @@ export default function SocietyLettersPage() {
                     revision={data.revision}
                     busy={busy || refreshing || !!sendingBatch}
                     act={act}
-                    onApproved={() => setTab("history")}
+                    onApproved={showNewBatch}
                   />
                 )}
                 <p className="mb-4 text-sm text-gray-500">
@@ -1496,7 +1512,7 @@ export default function SocietyLettersPage() {
                         previewToken: preview.token,
                         confirm: true,
                       });
-                      if (result) setTab("history");
+                      if (result) showNewBatch();
                     }}
                   >
                     Confirm recipients and prepare batch
@@ -1507,6 +1523,14 @@ export default function SocietyLettersPage() {
           )}
           {tab === "history" && (
             <section className="space-y-4">
+              <LetterHistoryFilters
+                batches={batches}
+                filter={navigation.historyFilter}
+                onFilter={navigation.setHistoryFilter}
+                search={historySearch}
+                onSearch={setHistorySearch}
+                visibleCount={visibleBatches.length}
+              />
               <p className="text-sm text-gray-600">
                 Prepared is not sent. Mark postal batches mailed only after
                 dispatch. An uncertain email stays protected against duplicate
@@ -1515,7 +1539,13 @@ export default function SocietyLettersPage() {
               {!batches.length && (
                 <div className={card}>No letter batches yet.</div>
               )}
-              {batches.map((batch) => (
+              {!!batches.length && !visibleBatches.length && (
+                <div className={card}>
+                  No saved batches match this view. Change the status or clear
+                  your search.
+                </div>
+              )}
+              {visibleBatches.map((batch) => (
                 <article className={card} key={batch.id}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1633,11 +1663,13 @@ export default function SocietyLettersPage() {
                   <details
                     className="mt-4"
                     open={
+                      !!historySearch.trim() ||
                       batch.items.some(
                         (i) =>
                           i.letterAppeals &&
                           i.letterAppeals.status !== "complete",
-                      ) || undefined
+                      ) ||
+                      undefined
                     }
                   >
                     <summary className="cursor-pointer text-sm font-semibold">
@@ -2343,7 +2375,7 @@ export default function SocietyLettersPage() {
                 });
                 if (result) {
                   setFinalPreview(null);
-                  setTab("history");
+                  showNewBatch();
                 }
               }}
             />

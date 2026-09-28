@@ -1,4 +1,8 @@
 import { letterDisposition, letterPeriod } from "@/utils/societyLetters";
+import {
+  isLetterInProgress,
+  isLetterReadyToMail,
+} from "@/utils/societyLetterHistory";
 
 export function stewardshipOverview(saved, now = new Date()) {
   const timeZone = saved.time_zone || "America/New_York";
@@ -25,21 +29,8 @@ export function stewardshipOverview(saved, now = new Date()) {
   const batches = new Set();
   let readyToMail = 0;
   for (const item of history) {
-    if (
-      !["prepared", "pending_email", "sending", "needs_review"].includes(
-        item.status,
-      )
-    )
-      continue;
-    const receipts = item.letterAppeals;
-    const confirmed =
-      !receipts ||
-      (receipts.status === "complete" &&
-        receipts.members?.length > 0 &&
-        receipts.members.every((member) => member.status === "verified"));
-    if (item.status === "prepared" && item.channel === "post" && confirmed)
-      readyToMail++;
-    else batches.add(item.batchId);
+    if (isLetterReadyToMail(item)) readyToMail++;
+    else if (isLetterInProgress(item)) batches.add(item.batchId);
   }
   return {
     holding,

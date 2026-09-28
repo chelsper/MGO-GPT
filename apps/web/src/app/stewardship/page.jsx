@@ -77,7 +77,9 @@ export function StewardshipOverview({ viewerKey }) {
       count: data?.inProgress,
       unit: "drafts or unfinished batches",
       description: "Continue saved approvals or check an interrupted batch.",
-      href: data?.hasDraft ? letters : `${letters}?view=history`,
+      href: data?.hasDraft
+        ? letters
+        : `${letters}?view=history&history=in_progress`,
       action: data?.hasDraft ? "Resume draft" : "View batches",
     },
     {
@@ -87,8 +89,8 @@ export function StewardshipOverview({ viewerKey }) {
       unit: "letters prepared, not mailed",
       description:
         "Download finished letters. Record mailing only after dispatch.",
-      href: `${letters}?view=history`,
-      action: "Open letter history",
+      href: `${letters}?view=history&history=ready_to_mail`,
+      action: "View ready letters",
     },
     {
       title: "Assistance Requests",
