@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { lazy, Suspense, useId, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useDashboardAssistantSettings } from "./WorkspaceTerminology";
 import DashboardAssistantAvatar from "./DashboardAssistantAvatar";
@@ -9,6 +9,8 @@ import { formatCalendarDate } from "@/utils/prospectActivity";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { dashboardReminderPolicy } from "@/utils/dashboardAssistantSettings";
 import "./DashboardAssistant.css";
+
+const GiftFollowUpDialog = lazy(() => import("./GiftFollowUpDialog"));
 
 export default function DashboardAssistant({ viewerId, workspaceId }) {
   const settings = useDashboardAssistantSettings();
@@ -23,6 +25,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
   const [kind, setKind] = useState("all");
   const [limit, setLimit] = useState(5);
   const [notice, setNotice] = useState("");
+  const [followUpGift, setFollowUpGift] = useState(null);
   const id = useId();
   const heading = useRef(null);
   const url = `/api/dashboard-priorities?workspaceId=${encodeURIComponent(workspaceId)}`;
@@ -103,6 +106,7 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
           {item.kind === "gift" && item.giftAmount >= policy.majorGiftMinimum && !showHidden && <GiftDocumentationCheck
             key={item.revision} item={item} viewerId={viewerId} workspaceId={workspaceId} />}
           <div className="dashboard-assistant-actions">
+            {item.kind === "gift" && !showHidden && query.data.canCreateFollowUp && <button type="button" disabled={busy} onClick={() => setFollowUpGift(item)}>Create a stewardship follow-up</button>}
             {!showHidden && <OutreachDraft context={priorityDraftContext(item)}
               label={item.kind === "gift" ? "Draft a thank-you" : "Prepare for a conversation"} />}
             <a href={item.href} aria-label={`${item.linkLabel}: ${item.title} for ${item.constituentName}`}>{item.linkLabel}</a>
@@ -120,5 +124,9 @@ function AssistantPanel({ viewerId, workspaceId, settings }) {
         {query.data.truncated && <p className="dashboard-assistant-note">This is a limited selection from a large workspace. Use Follow-ups & Discussion, the Opportunity Pipeline, or your giving reports for the full picture.</p>}
       </>}
     </div>}
+    {followUpGift && <Suspense fallback={<p role="status">Opening follow-up...</p>}>
+      <GiftFollowUpDialog key={`${followUpGift.key}:${followUpGift.revision}`} item={followUpGift} viewerId={viewerId} workspaceId={workspaceId}
+        onClose={() => setFollowUpGift(null)} />
+    </Suspense>}
   </section>;
 }

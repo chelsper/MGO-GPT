@@ -49,6 +49,7 @@ it("keeps delegated preferences private to the viewer, including a read-only exe
   mocks.workspace.mockResolvedValue({ ...context, sessionUser: { ...context.sessionUser, role: "executive" }, workspaceUser: { ...context.workspaceUser, id: 10 }, isActing: true });
   expect((await PUT(put(undefined, {}, "workspaceId=10"))).status).toBe(200);
   expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ viewerId: 7, workspaceId: 10, item, action: "dismiss" }));
+  expect(await (await GET(get("workspaceId=10"))).json()).toMatchObject({ canCreateFollowUp: false });
 });
 it.each([{ Origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }])("rejects cross-site writes before reading data", async headers => {
   expect((await PUT(put(undefined, headers))).status).toBe(403);

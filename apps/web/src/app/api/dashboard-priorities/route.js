@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
-import { canUseMgoWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
+import { canEditWorkspace, canUseMgoWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
 import { getOrganizationSettings } from "@/app/api/utils/organizationSettings";
 import { readDashboardPriorities, readPriorityCandidates, savePriorityPreference } from "@/app/api/utils/dashboardPriorities";
 import { loadDashboardGifts } from "@/app/api/utils/dashboardGiftPriorities";
@@ -31,10 +31,12 @@ function errorResponse(error) {
 }
 export async function GET(request) {
   try {
-    const { sessionUser, workspaceUser, settings } = await contextFor(request);
+    const context = await contextFor(request);
+    const { sessionUser, workspaceUser, settings } = context;
     const now = new Date();
     const gifts = await loadDashboardGifts({ workspaceId: workspaceUser.id, origin: new URL(request.url).origin, now, settings });
     return response({ ...await readDashboardPriorities(sessionUser.id, workspaceUser.id, now, undefined, gifts, settings), reminderPolicy: dashboardReminderPolicy(settings),
+      canCreateFollowUp: canEditWorkspace(context),
       viewerId: String(sessionUser.id), workspaceUserId: String(workspaceUser.id), workspaceName: workspaceUser.name || "Your workspace" });
   } catch (error) { return errorResponse(error); }
 }

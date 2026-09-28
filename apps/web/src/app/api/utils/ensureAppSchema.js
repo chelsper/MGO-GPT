@@ -1209,6 +1209,16 @@ export default async function ensureAppSchema() {
       ON pending_actions (source_discussion_id, owner_user_id, source_topic_key)
       WHERE source_discussion_id IS NOT NULL
     `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS source_gift_id TEXT,
+      ADD COLUMN IF NOT EXISTS source_gift_snapshot JSONB
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_actions_gift_origin
+      ON pending_actions (owner_user_id, source_gift_id)
+      WHERE source_gift_id IS NOT NULL
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (

@@ -6,7 +6,7 @@ import DashboardAssistantSettings from "./DashboardAssistantSettings";
 import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
 import { DEFAULT_DASHBOARD_ASSISTANT } from "@/utils/dashboardAssistantSettings";
 const item = { key: "follow-up:1", revision: "a".repeat(64), kind: "follow-up", dueDate: "2026-09-27", constituentName: "Sample Donor", title: "Plan the visit", message: "This follow-up is due today.", timing: "Due today", href: "/follow-ups?tab=next-steps&nextStepId=1&status=Open", linkLabel: "Review follow-up" };
-const payload = { viewerId: "7", workspaceUserId: "10", workspaceName: "Example Officer", items: [item], hidden: [], asOf: "2026-09-27" };
+const payload = { viewerId: "7", workspaceUserId: "10", workspaceName: "Example Officer", canCreateFollowUp: true, items: [item], hidden: [], asOf: "2026-09-27" };
 let client;
 function mount({ viewerId = 7, workspaceId = 10, settings } = {}) {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -136,6 +136,31 @@ it("dismisses gift reminders without claiming the donor was thanked", async () =
 });
 
 const majorGift = { ...item, key: "gift:900", kind: "gift", giftId: "900", giftAmount: 10000, constituentId: "100", title: "$10,000 gift" };
+it("loads follow-up context only on request and clears its dialog on workspace change", async () => {
+  fetch.mockResolvedValue(replyForGift());
+  const view = mount(); open(); await screen.findByText("$10,000 gift");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ viewerId: "7", workspaceUserId: "10", key: majorGift.key, revision: majorGift.revision,
+    gift: majorGift, ownerName: "Example Officer", task: null }) });
+  fireEvent.click(screen.getByRole("button", { name: "Create a stewardship follow-up" }));
+  expect(await screen.findByRole("dialog", { name: "Stewardship follow-up" })).toBeVisible();
+  await screen.findByLabelText("What should happen next?");
+  expect(fetch).toHaveBeenCalledTimes(2);
+  view.rerender(view.ui(20));
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+function replyForGift(patch = {}) {
+  return { ok: true, json: async () => ({ ...payload, items: [majorGift], hidden: [majorGift], ...patch }) };
+}
+it("does not offer gift follow-ups in read-only workspaces or for hidden reminders", async () => {
+  fetch.mockResolvedValue(replyForGift({ canCreateFollowUp: false })); mount(); open(); await screen.findByText("$10,000 gift");
+  expect(screen.queryByRole("button", { name: "Create a stewardship follow-up" })).toBeNull();
+  fetch.mockResolvedValueOnce(replyForGift());
+  fireEvent.click(screen.getByRole("button", { name: "Reload reminders" }));
+  await screen.findByRole("button", { name: "Create a stewardship follow-up" });
+  fireEvent.click(screen.getByRole("button", { name: "Snoozed & dismissed (1)" }));
+  expect(screen.queryByRole("button", { name: "Create a stewardship follow-up" })).toBeNull();
+});
 const checkResult = result => ({ ok: true, json: async () => ({ viewerId: "7", workspaceUserId: "10", key: majorGift.key, revision: majorGift.revision, result }) });
 async function openMajorGift() {
   fetch.mockResolvedValue({ ok: true, json: async () => ({ ...payload, items: [majorGift] }) });

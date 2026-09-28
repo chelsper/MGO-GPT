@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import NextStepFields, { nextStepDateChoices } from "./NextStepFields";
+import GiftFollowUpSource from "./GiftFollowUpSource";
 import WorkflowNotice, { actionNoticeKind } from "./WorkflowNotice";
 import { buildNextStepGroups, formatNextStepCompletion, formatNextStepDate, nextStepDay, nextStepName, pageNextStepGroups } from "@/utils/nextStepWorklist";
 
@@ -206,6 +207,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
               <div className="space-y-3 pb-1">
                 {workspace?.canEdit && status === "Open" && !isEditing && <button type="button" className={buttonClass} onClick={() => edit(item)} disabled={save.isPending}>Edit next step</button>}
                 {item.details ? <p className="whitespace-pre-wrap break-words">{item.details}</p> : <p>No additional notes.</p>}
+                {item.source_gift_id && <div><p className="mb-2 font-semibold">Gift that prompted this follow-up</p><GiftFollowUpSource snapshot={item.source_gift_snapshot} /></div>}
                 {item.opportunity_title && <p>Opportunity: <strong>{item.opportunity_title}</strong></p>}
                 {item.prospect_id && <a className="block font-semibold text-indigo-700 underline" href={`/my-top-prospects?prospectId=${encodeURIComponent(item.prospect_id)}&panel=next-step`}>Open prospect workspace</a>}
                 {item.discussion_item_id && <p><a className="font-semibold text-indigo-700 underline" href={`/team-discussion?discussionId=${encodeURIComponent(item.discussion_item_id)}&status=${encodeURIComponent(item.discussion_status || "Open")}`}>Open linked discussion</a> ({item.discussion_status === "Resolved" ? "Resolved" : "Open"}). Discussion and task completion are separate.</p>}

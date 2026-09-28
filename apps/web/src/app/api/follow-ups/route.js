@@ -27,6 +27,7 @@ export async function GET(request) {
     const items = await sql`
       SELECT pa.id, pa.title, pa.details, pa.due_date, pa.status, pa.category,
         pa.is_primary, pa.completed_at, pa.updated_at::text AS updated_at, pa.source_topic_key,
+        pa.source_gift_id, pa.source_gift_snapshot,
         p.id AS prospect_id, p.prospect_name,
         c.id AS constituent_id, c.name AS constituent_name,
         c.blackbaud_constituent_id,

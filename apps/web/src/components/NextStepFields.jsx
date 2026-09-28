@@ -26,7 +26,7 @@ const labelStyle = { display: "grid", gap: "7px", fontSize: "14px", fontWeight: 
 
 export default function NextStepFields({
   title, details, dueDate, onTitleChange, onDetailsChange, onDueDateChange,
-  ownerName, disabled = false, autoFocus = false,
+  ownerName, disabled = false, autoFocus = false, titleMaxLength, detailsMaxLength,
 }) {
   const id = useId();
   const [notesOpen, setNotesOpen] = useState(Boolean(details));
@@ -38,7 +38,7 @@ export default function NextStepFields({
       </p>
       <label style={labelStyle}>
         What should happen next?
-        <input value={title} onChange={e => onTitleChange(e.target.value)} required
+        <input value={title} onChange={e => onTitleChange(e.target.value)} required maxLength={titleMaxLength}
           placeholder="For example: Call to schedule a campus visit" autoFocus={autoFocus} style={inputStyle} />
       </label>
       <div style={{ display: "grid", gap: "8px" }}>
@@ -71,7 +71,7 @@ export default function NextStepFields({
         <div id={`${id}-notes`} hidden={!notesOpen}>
           <label style={labelStyle}>
             Notes (optional)
-            <textarea value={details} onChange={e => onDetailsChange(e.target.value)} rows={3}
+            <textarea value={details} onChange={e => onDetailsChange(e.target.value)} rows={3} maxLength={detailsMaxLength}
               placeholder="Context or preparation for this next step" style={{ ...inputStyle, resize: "vertical" }} />
           </label>
         </div>
