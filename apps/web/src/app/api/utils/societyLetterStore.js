@@ -24,6 +24,19 @@ export function ensureSocietyLetterSchema() {
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS exclusions JSONB NOT NULL DEFAULT '[]'::jsonb`;
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS recipient_reviews JSONB NOT NULL DEFAULT '{}'::jsonb`;
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS readiness JSONB NOT NULL DEFAULT '{}'::jsonb`;
+    await sql`CREATE TABLE IF NOT EXISTS stewardship_letter_postal_batches (
+      id UUID PRIMARY KEY, status TEXT NOT NULL, payload JSONB NOT NULL,
+      created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS stewardship_letter_one_postal_draft
+      ON stewardship_letter_postal_batches ((true)) WHERE status = 'draft'`;
+    await sql`CREATE TABLE IF NOT EXISTS stewardship_letter_postal_documents (
+      id UUID PRIMARY KEY, batch_id UUID NOT NULL REFERENCES stewardship_letter_postal_batches(id),
+      household_id TEXT NOT NULL, sha256 TEXT NOT NULL, content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
     await sql`INSERT INTO stewardship_letters(id) VALUES(1) ON CONFLICT DO NOTHING`;
   })().catch((error) => {
     ready = null;
@@ -37,8 +50,11 @@ export async function readSocietyLetterState() {
     await sql`SELECT revision, settings, templates, snapshot, job, exclusions, recipient_reviews, readiness FROM stewardship_letters WHERE id = 1`;
   const deliveries =
     await sql`SELECT payload, status, provider_id, updated_at, updated_by FROM stewardship_letter_deliveries ORDER BY created_at DESC, id`;
+  const drafts =
+    await sql`SELECT payload FROM stewardship_letter_postal_batches WHERE status = 'draft' ORDER BY created_at`;
   return {
     ...state,
+    postalDraft: drafts[0]?.payload || null,
     history: deliveries.map((row) => ({
       ...row.payload,
       status: row.status,
@@ -47,6 +63,12 @@ export async function readSocietyLetterState() {
       updatedBy: row.updated_by,
     })),
   };
+}
+
+export async function readPostalDocument(id) {
+  const [row] =
+    await sql`SELECT content, sha256 FROM stewardship_letter_postal_documents WHERE id = ${id}::uuid`;
+  return row || null;
 }
 
 export async function acquireSocietyLetters(userId, revision) {
@@ -60,6 +82,54 @@ export async function acquireSocietyLetters(userId, revision) {
       409,
     );
   return {
+    async createPostalDraft(draft) {
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ) INSERT INTO stewardship_letter_postal_batches(id, status, payload, created_by, updated_by)
+        SELECT ${draft.id}::uuid, 'draft', ${JSON.stringify(draft)}::jsonb, ${userId}, ${userId} FROM lock RETURNING id`;
+      if (!rows.length)
+        throw letterError(
+          "The draft was not saved. Reload the workspace.",
+          409,
+        );
+    },
+    async savePostalDraft(draft, document = null) {
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ), changed AS (
+        UPDATE stewardship_letter_postal_batches SET payload = ${JSON.stringify(draft)}::jsonb,
+          status = ${draft.status}, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = ${draft.id}::uuid AND status = 'draft' AND EXISTS(SELECT 1 FROM lock) RETURNING id
+      ), document AS (
+        INSERT INTO stewardship_letter_postal_documents(id, batch_id, household_id, sha256, content)
+        SELECT ${document?.id || null}::uuid, id, ${document?.householdId || null},
+          ${document?.sha256 || null}, ${document?.content || null} FROM changed WHERE ${!!document}
+        RETURNING id
+      ) SELECT id FROM changed`;
+      if (!rows.length)
+        throw letterError("The draft changed. Reload before continuing.", 409);
+    },
+    async approvePostalDraft(draft, items) {
+      // Freeze the whole approval and reserve every letter in one transaction.
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ), approved AS (
+        UPDATE stewardship_letter_postal_batches SET status = 'approved', payload = ${JSON.stringify(draft)}::jsonb,
+          updated_by = ${userId}, updated_at = NOW()
+        WHERE id = ${draft.id}::uuid AND status = 'draft' AND EXISTS(SELECT 1 FROM lock) RETURNING id
+      ) INSERT INTO stewardship_letter_deliveries(id, batch_id, household_id, period_key, society_key, status, payload, created_by, updated_by)
+        SELECT (item->>'id')::uuid, (item->>'batchId')::uuid, item->>'householdId', item#>>'{period,key}',
+          item->>'societyKey', item->>'status', item, ${userId}, ${userId}
+        FROM jsonb_array_elements(${JSON.stringify(items)}::jsonb) item CROSS JOIN approved RETURNING id`;
+      if (rows.length !== items.length)
+        throw letterError(
+          "The batch could not be approved. Reload saved history before trying again.",
+          409,
+        );
+    },
     async save(state) {
       const rows =
         await sql`UPDATE stewardship_letters SET settings = ${JSON.stringify(state.settings)}::jsonb,

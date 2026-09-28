@@ -41,6 +41,7 @@ import {
 } from "./letterWorkspaceView";
 import QueryColumnMapper from "./QueryColumnMapper";
 import LetterSetupChecklist from "./LetterSetupChecklist";
+import PostalBatchApproval, { PostalBatchRunner } from "./PostalBatchApproval";
 
 const endpoint = "/api/stewardship/society-letters";
 const button =
@@ -406,6 +407,8 @@ export default function SocietyLettersPage() {
   const [preview, setPreview] = useState(null),
     [confirmation, setConfirmation] = useState(null);
   const [finalPreview, setFinalPreview] = useState(null);
+  const [postalFormat, setPostalFormat] = useState("docx");
+  const latestData = useRef(null);
   const [receiptIds, setReceiptIds] = useState({});
   const [societyFilter, setSocietyFilter] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
@@ -439,6 +442,7 @@ export default function SocietyLettersPage() {
     target?.focus();
   }, [setupNavigation, navigation.view, Boolean(data)]);
   function accept(payload) {
+    latestData.current = payload;
     const nextScope = reviewScope(payload);
     if (
       loadedScope.current !== undefined &&
@@ -468,7 +472,7 @@ export default function SocietyLettersPage() {
       setError(err.message || "Could not load stewardship.");
     }
   }
-  async function downloadBatch(batchId, deliveryId) {
+  async function downloadBatch(batchId, deliveryId, format = "docx") {
     setError("");
     try {
       const params = new URLSearchParams({ download: batchId });
@@ -479,7 +483,7 @@ export default function SocietyLettersPage() {
       if (!response.ok) throw new Error((await response.json()).error);
       saveBlob(
         await response.blob(),
-        deliveryId ? "society-letter.docx" : "society-letters.zip",
+        deliveryId ? `society-letter.${format}` : "society-letters.zip",
       );
     } catch (err) {
       setError(
@@ -500,7 +504,10 @@ export default function SocietyLettersPage() {
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, revision: data.revision }),
+        body: JSON.stringify({
+          ...body,
+          revision: latestData.current?.revision ?? data.revision,
+        }),
       });
       if (download && response.ok) {
         saveBlob(await response.blob(), "society-letter-preview.docx");
@@ -618,6 +625,8 @@ export default function SocietyLettersPage() {
     JSON.stringify(settings) !== JSON.stringify(data.settings),
   );
   const householdPreview = isLetterPreviewSource(data?.settings);
+  const queryPostal = data?.settings?.sourceMode === "society_queries";
+  const selectionLimit = queryPostal ? 10 : LETTER_BATCH_LIMIT;
   const matching = ready.filter(
     (row) =>
       (!societyFilter || row.societyKey === societyFilter) &&
@@ -662,7 +671,13 @@ export default function SocietyLettersPage() {
     setPreview(null);
   }
   const canSelect = (row) =>
-    !row.issues[channel] && (channel !== "email" || data.emailEnabled);
+    householdPreview
+      ? queryPostal &&
+        channel === "post" &&
+        row.recipientReview?.status === "saved" &&
+        row.readiness?.post?.status === "ready_for_preview"
+      : !row.issues[channel] && (channel !== "email" || data.emailEnabled);
+  const selectable = filtered.filter(canSelect);
   const reviewable = filtered.filter(
     (row) =>
       row.recipientReview?.editable &&
@@ -933,7 +948,7 @@ export default function SocietyLettersPage() {
                   <p>
                     {data.settings?.sourceMode === "society_queries" &&
                     data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
-                      ? "Review recipients, then run postal delivery checks. When checks pass, use Create final letter to preview the letter and confirm its appeal for every household member. Bulk creation and email delivery are not enabled for these query lists."
+                      ? "Review recipients and run postal delivery checks. Then select ready households to approve a small batch of saved documents and apply appeals to every household member. Email delivery is not enabled for these query lists."
                       : data.sourceIssue}
                   </p>
                   {(!data.settings || !data.refreshedAt) && (
@@ -1137,47 +1152,150 @@ export default function SocietyLettersPage() {
                     {reviewNotice}
                   </p>
                 )}
-                <div className="my-4 flex flex-wrap items-center gap-3">
-                  <button
-                    className={button}
-                    disabled={busy}
-                    onClick={() => {
-                      setSelected(
-                        filtered
-                          .filter(canSelect)
-                          .slice(0, LETTER_BATCH_LIMIT)
-                          .map((r) => r.householdId),
-                      );
-                      setPreview(null);
-                    }}
+                {queryPostal && (
+                  <section
+                    aria-label="From review to final letters"
+                    className="my-5 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4"
                   >
-                    Select eligible households (up to {LETTER_BATCH_LIMIT})
-                  </button>
-                  <button
-                    className={button}
-                    disabled={!selected.length || busy}
-                    onClick={() => {
-                      setSelected([]);
-                      setPreview(null);
-                    }}
-                  >
-                    Clear selection
-                  </button>
-                  <span className="text-sm">{selected.length} selected</span>
-                  <button
-                    className={primary}
-                    disabled={busy || !selected.length}
-                    onClick={() =>
-                      act({
-                        action: "preview",
-                        channel,
-                        householdIds: selected,
-                      })
-                    }
-                  >
-                    Review selected letters
-                  </button>
-                </div>
+                    <h3 className="font-bold">
+                      Review → Approve → Create letters
+                    </h3>
+                    <ol className="mt-2 list-inside list-decimal space-y-2 text-sm">
+                      <li>
+                        Save recipient names and addresses, then run Check
+                        readiness above.
+                      </li>
+                      <li>
+                        Select up to 10 ready households. Prepare and approve
+                        each saved document.
+                      </li>
+                      <li>
+                        Approve the batch, then continue its appeal updates in
+                        Letter history. Download after every member is
+                        confirmed.
+                      </li>
+                    </ol>
+                    <p className="mt-3 text-sm">
+                      {selectable.length} ready for selection in this view.{" "}
+                      {filtered.length - selectable.length} need recipient
+                      review or current postal checks.
+                    </p>
+                    {!selectable.length && (
+                      <p role="status" className="mt-2 text-sm font-semibold">
+                        No households are ready to create letters yet. Refresh
+                        membership if it is out of date, save recipient choices,
+                        and run Check readiness. Bulk recipient review remains
+                        available above.
+                      </p>
+                    )}
+                    <label className="mt-3 block text-sm font-semibold">
+                      Final letter format
+                      <select
+                        className={input}
+                        value={postalFormat}
+                        disabled={busy || !!data.postalDraft}
+                        onChange={(e) => setPostalFormat(e.target.value)}
+                      >
+                        <option value="docx">Word (.docx)</option>
+                        <option value="pdf" disabled={!data.postalPdf?.enabled}>
+                          PDF
+                          {data.postalPdf?.enabled
+                            ? ""
+                            : " (private converter not configured)"}
+                        </option>
+                      </select>
+                    </label>
+                    {!data.postalPdf?.enabled && (
+                      <p className="mt-2 text-sm text-gray-600">
+                        Automatic PDFs require private conversion setup. Word
+                        letters can be approved now and exported to PDF in Word.
+                        Donor documents are not sent to a public conversion
+                        service.
+                      </p>
+                    )}
+                  </section>
+                )}
+                {householdPreview && !queryPostal && (
+                  <p className="my-4 text-sm">
+                    These query results support recipient review only. Configure
+                    one query per society in Setup to enable postal approval and
+                    appeal updates.
+                  </p>
+                )}
+                {(!householdPreview || queryPostal) && (
+                  <div className="my-4 flex flex-wrap items-center gap-3">
+                    <button
+                      className={button}
+                      disabled={
+                        busy ||
+                        !selectable.length ||
+                        (queryPostal && !!data.postalDraft)
+                      }
+                      onClick={() => {
+                        setSelected(
+                          selectable
+                            .slice(0, selectionLimit)
+                            .map((r) => r.householdId),
+                        );
+                        setPreview(null);
+                      }}
+                    >
+                      {queryPostal
+                        ? "Select ready households"
+                        : "Select eligible households"}{" "}
+                      (up to {selectionLimit})
+                    </button>
+                    <button
+                      className={button}
+                      disabled={!selected.length || busy}
+                      onClick={() => {
+                        setSelected([]);
+                        setPreview(null);
+                      }}
+                    >
+                      Clear selection
+                    </button>
+                    <span className="text-sm">{selected.length} selected</span>
+                    <button
+                      className={primary}
+                      disabled={
+                        busy ||
+                        !selected.length ||
+                        (queryPostal && !!data.postalDraft)
+                      }
+                      onClick={() =>
+                        act({
+                          action: queryPostal
+                            ? "start_postal_draft"
+                            : "preview",
+                          ...(queryPostal ? { format: postalFormat } : {}),
+                          channel,
+                          householdIds: selected,
+                        })
+                      }
+                    >
+                      {queryPostal
+                        ? "Start document approval"
+                        : "Review selected letters"}
+                    </button>
+                  </div>
+                )}
+                {!householdPreview && !selectable.length && (
+                  <p role="status" className="mb-3 text-sm">
+                    No eligible households in this view. Review the delivery
+                    readiness messages below before selecting a batch.
+                  </p>
+                )}
+                {data.postalDraft && (
+                  <PostalBatchApproval
+                    key={data.postalDraft.id}
+                    draft={data.postalDraft}
+                    revision={data.revision}
+                    busy={busy || refreshing || !!sendingBatch}
+                    act={act}
+                    onApproved={() => setTab("history")}
+                  />
+                )}
                 <p className="mb-4 text-sm text-gray-500">
                   Small batches protect against timeouts. Sending a higher
                   letter covers the lower tiers; those lower letters are not
@@ -1241,7 +1359,8 @@ export default function SocietyLettersPage() {
                               busy ||
                               !canSelect(row) ||
                               (!selected.includes(row.householdId) &&
-                                selected.length >= LETTER_BATCH_LIMIT)
+                                selected.length >= selectionLimit) ||
+                              (queryPostal && !!data.postalDraft)
                             }
                             reviewDisabled={
                               busy ||
@@ -1424,7 +1543,13 @@ export default function SocietyLettersPage() {
                             }
                             onClick={() => downloadBatch(batch.id)}
                           >
-                            Download Word letters (.zip)
+                            Download{" "}
+                            {batch.items.every(
+                              (i) => i.postalDocument?.format === "pdf",
+                            )
+                              ? "PDF"
+                              : "Word"}{" "}
+                            letters (.zip)
                           </button>
                         )}
                       {batch.channel === "post" &&
@@ -1497,6 +1622,13 @@ export default function SocietyLettersPage() {
                         )}
                     </div>
                   </div>
+                  {batch.items.every((i) => i.postalApproval) && (
+                    <PostalBatchRunner
+                      batch={batch}
+                      busy={busy || refreshing || !!sendingBatch}
+                      act={act}
+                    />
+                  )}
                   <LetterBatchSummary items={batch.items} />
                   <details
                     className="mt-4"
@@ -1585,9 +1717,19 @@ export default function SocietyLettersPage() {
                                   (!!item.letterAppeals &&
                                     item.letterAppeals.status !== "complete")
                                 }
-                                onClick={() => downloadBatch(batch.id, item.id)}
+                                onClick={() =>
+                                  downloadBatch(
+                                    batch.id,
+                                    item.id,
+                                    item.postalDocument?.format || "docx",
+                                  )
+                                }
                               >
-                                Download this Word letter
+                                Download this{" "}
+                                {item.postalDocument?.format === "pdf"
+                                  ? "PDF"
+                                  : "Word"}{" "}
+                                letter
                               </button>
                             )}
                           {item.channel === "email" &&
@@ -1653,9 +1795,10 @@ export default function SocietyLettersPage() {
                   it. Upload one Word (.docx) template per society, up to 1 MB.
                   Use the fields below in the letter or email cover message.
                   Keep logos embedded, not linked to external files. Word
-                  formatting is retained; PDF conversion is not included. You
-                  can save each annual society's template before its query is
-                  ready. Saving a template never sends letters.
+                  formatting is retained. Automatic PDF letters require the
+                  private PDF converter to be configured. You can save each
+                  annual society's template before its query is ready. Saving a
+                  template never sends letters.
                 </p>
                 <p className="mt-3 text-sm font-semibold text-emerald-800">
                   Choose and save reusable merge fields in each society's

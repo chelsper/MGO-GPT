@@ -349,10 +349,31 @@ export async function finalizePostalLetter(
       "The final letter details changed. Review the latest confirmation before continuing.",
       409,
     );
+  const item = reservePostalLetter(preview, state, today, ctx);
+  await freshCheck(state, item, definitions, today, reader, client);
+  // A durable reservation and per-member intent must precede every NXT POST.
+  await store.reserve([item]);
+  try {
+    await applyMembers(item, store, client);
+    receiptStatus(item);
+  } catch (error) {
+    receiptStatus(item, error);
+  }
+  await store.saveLetterAppeals(item);
+  return item.batchId;
+}
+
+export function reservePostalLetter(
+  preview,
+  state,
+  today,
+  ctx,
+  batchId = randomUUID(),
+) {
   const item = structuredClone({
     ...preview.row,
     id: randomUUID(),
-    batchId: randomUUID(),
+    batchId,
     status: "prepared",
     preparedAt: new Date().toISOString(),
     preparedBy: ctx.user.id,
@@ -370,17 +391,7 @@ export async function finalizePostalLetter(
     },
   });
   item.letterAppeals.comments = `Society letter created in JUMGOGPT. Period ${item.period.start} to ${item.period.end}. Letter ${item.id}. Postal dispatch recorded separately.`;
-  await freshCheck(state, item, definitions, today, reader, client);
-  // A durable reservation and per-member intent must precede every NXT POST.
-  await store.reserve([item]);
-  try {
-    await applyMembers(item, store, client);
-    receiptStatus(item);
-  } catch (error) {
-    receiptStatus(item, error);
-  }
-  await store.saveLetterAppeals(item);
-  return item.batchId;
+  return item;
 }
 
 export async function syncLetterAppeals(

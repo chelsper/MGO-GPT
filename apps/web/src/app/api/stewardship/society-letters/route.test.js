@@ -29,6 +29,25 @@ const mocks = vi.hoisted(() => ({
   finalPreview: vi.fn(),
   finalize: vi.fn(),
   letterSync: vi.fn(),
+  postalStart: vi.fn(),
+  postalPrepare: vi.fn(),
+  postalPreview: vi.fn(),
+  postalReview: vi.fn(),
+  postalApprove: vi.fn(),
+  postalDiscard: vi.fn(),
+  postalContinue: vi.fn(),
+  postalDocument: vi.fn(),
+}));
+vi.mock("@/app/api/utils/societyLetterPostalBatches", () => ({
+  startPostalDraft: mocks.postalStart,
+  preparePostalDocument: mocks.postalPrepare,
+  draftPostalDocument: mocks.postalPreview,
+  reviewPostalDocument: mocks.postalReview,
+  approvePostalDraft: mocks.postalApprove,
+  discardPostalDraft: mocks.postalDiscard,
+  continuePostalBatch: mocks.postalContinue,
+  savedPostalDocument: mocks.postalDocument,
+  postalBatchDownload: vi.fn(),
 }));
 vi.mock(
   "@/app/api/utils/societyLetterFinalization",
@@ -132,6 +151,13 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "finalize_postal",
     "verify_letter_appeals",
     "continue_letter_appeals",
+    "start_postal_draft",
+    "prepare_postal_document",
+    "preview_postal_document",
+    "review_postal_document",
+    "approve_postal_draft",
+    "discard_postal_draft",
+    "continue_postal_batch",
   ])(
     "restricts %s to authorized reviewers and current revisions",
     async (action) => {
@@ -159,8 +185,50 @@ describe("stewardship API authorization and delivery boundaries", () => {
       expect((await POST(request({ action, revision: 3 }))).status).toBe(409);
       expect(mocks.finalize).not.toHaveBeenCalled();
       expect(mocks.letterSync).not.toHaveBeenCalled();
+      expect(mocks.postalContinue).not.toHaveBeenCalled();
+      expect(mocks.postalApprove).not.toHaveBeenCalled();
     },
   );
+  it("keeps draft preparation, preview, approval, and NXT continuation separate", async () => {
+    const steps = [
+      ["start_postal_draft", mocks.postalStart],
+      ["prepare_postal_document", mocks.postalPrepare],
+      ["review_postal_document", mocks.postalReview],
+      ["approve_postal_draft", mocks.postalApprove],
+      ["discard_postal_draft", mocks.postalDiscard],
+    ];
+    for (const [action, mock] of steps) {
+      expect((await POST(request({ action, revision: 3 }))).status).toBe(200);
+      expect(mock).toHaveBeenCalledOnce();
+      expect(mocks.postalContinue).not.toHaveBeenCalled();
+      expect(mocks.letterSync).not.toHaveBeenCalled();
+      expect(mocks.send).not.toHaveBeenCalled();
+    }
+    mocks.postalPreview.mockResolvedValue({
+      bytes: Buffer.from("%PDF-test"),
+      mime: "application/pdf",
+      filename: "society-letter.pdf",
+    });
+    const preview = await POST(
+      request({ action: "preview_postal_document", revision: 3 }),
+    );
+    expect(preview.headers.get("content-type")).toBe("application/pdf");
+    expect(preview.headers.get("cache-control")).toContain("no-store");
+    expect(await preview.text()).toBe("%PDF-test");
+    expect(mocks.postalContinue).not.toHaveBeenCalled();
+    expect(
+      (
+        await POST(
+          request({
+            action: "continue_postal_batch",
+            revision: 3,
+            confirm: true,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect(mocks.postalContinue).toHaveBeenCalledOnce();
+  });
   it("returns a final confirmation without invoking the writer", async () => {
     mocks.finalPreview.mockReturnValue({
       token: "final",
@@ -252,6 +320,48 @@ describe("stewardship API authorization and delivery boundaries", () => {
       ).status,
     ).toBe(409);
     expect(mocks.finish).not.toHaveBeenCalled();
+  });
+  it("downloads the exact approved PDF only after every household receipt is verified", async () => {
+    const item = {
+      id: "one",
+      batchId: "batch",
+      channel: "post",
+      status: "prepared",
+      postalDocument: { id: "document" },
+      letterAppeals: {
+        status: "pending",
+        members: [
+          { id: "10", status: "verified" },
+          { id: "11", status: "pending" },
+        ],
+      },
+    };
+    mocks.read.mockResolvedValue({
+      revision: 3,
+      templates: {},
+      history: [item],
+    });
+    expect(
+      (await GET(new Request(`${url}?download=batch&deliveryId=one`))).status,
+    ).toBe(409);
+    expect(mocks.postalDocument).not.toHaveBeenCalled();
+    item.letterAppeals.status = "complete";
+    item.letterAppeals.members[1].status = "verified";
+    mocks.postalDocument.mockResolvedValue({
+      bytes: Buffer.from("frozen PDF"),
+      mime: "application/pdf",
+      filename: "society-letter.pdf",
+    });
+    const response = await GET(
+      new Request(`${url}?download=batch&deliveryId=one`),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(await response.text()).toBe("frozen PDF");
+    expect(mocks.postalDocument).toHaveBeenCalledExactlyOnceWith(
+      item.postalDocument,
+    );
+    expect(mocks.letterSync).not.toHaveBeenCalled();
   });
   it.each(["admin", "advancement_services"])(
     "lets %s load choices without a revision, state read, or mutation lease",

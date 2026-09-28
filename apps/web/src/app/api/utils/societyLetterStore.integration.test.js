@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import Papa from "papaparse";
+import { readStewardshipOverview } from "./stewardshipOverview";
+import { letterPeriod } from "@/utils/societyLetters";
 
 const database = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({
@@ -12,6 +14,7 @@ import {
   acquireSocietyLetters,
   ensureSocietyLetterSchema,
   readSocietyLetterState,
+  readPostalDocument,
 } from "./societyLetterStore";
 
 const socket = process.env.STEWARDSHIP_TEST_PG_SOCKET;
@@ -51,6 +54,9 @@ function execute(statement) {
               "exclusions",
               "recipient_reviews",
               "readiness",
+              "period",
+              "rows",
+              "history",
             ].includes(key)
               ? value
                 ? JSON.parse(value)
@@ -83,10 +89,13 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       "CREATE TABLE IF NOT EXISTS users(id BIGINT PRIMARY KEY); INSERT INTO users(id) VALUES(1) ON CONFLICT DO NOTHING;",
     );
     await ensureSocietyLetterSchema();
+    execute(
+      "CREATE TABLE IF NOT EXISTS organization_settings(id INTEGER PRIMARY KEY, time_zone TEXT); INSERT INTO organization_settings VALUES (1, 'America/New_York') ON CONFLICT DO NOTHING; CREATE TABLE IF NOT EXISTS data_change_requests(id BIGINT PRIMARY KEY, source_pending_action_id BIGINT, status TEXT, needed_by DATE);",
+    );
   });
   beforeEach(() => {
     execute(
-      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
+      "TRUNCATE data_change_requests, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -101,6 +110,123 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("reads the overview with real JSONB projections without changing saved work", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    state.settings = { periodBasis: "calendar_year" };
+    const day = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+    }).format(new Date());
+    const period = letterPeriod(state.settings, day);
+    const row = (id) => ({
+      householdId: id,
+      members: [id],
+      period,
+      rank: 1,
+      societyKey: "ood",
+    });
+    state.snapshot = {
+      period,
+      generatedAt: new Date().toISOString(),
+      rows: [row("10"), row("20"), row("30")],
+    };
+    state.exclusions = [row("20")];
+    await store.save(state);
+    await store.reserve([
+      item({
+        ...row("30"),
+        channel: "post",
+        coveredKeys: ["ood"],
+        letterAppeals: {
+          status: "complete",
+          members: [{ id: "30", status: "verified" }],
+        },
+      }),
+    ]);
+    await store.createPostalDraft({
+      id: randomUUID(),
+      status: "draft",
+      entries: [],
+    });
+    execute(
+      "INSERT INTO data_change_requests VALUES (1, 100, 'Open', '2000-01-01'), (2, 101, 'In Progress', '2100-01-01'), (3, 102, 'Completed', '2000-01-01'), (4, NULL, 'Open', '2000-01-01');",
+    );
+    const before = await readSocietyLetterState();
+    const db = (parts, ...values) => database.query(parts, values);
+    expect(await readStewardshipOverview(db)).toMatchObject({
+      holding: 1,
+      readyToMail: 1,
+      inProgress: 1,
+      hasDraft: true,
+      requests: { open: 1, inProgress: 1, overdue: 1 },
+    });
+    expect(await readSocietyLetterState()).toEqual(before);
+    await store.release();
+  });
+  it("saves immutable documents and atomically reserves an approved multi-household batch", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const draft = { id: randomUUID(), status: "draft", entries: [] };
+    await store.createPostalDraft(draft);
+    const document = {
+      id: randomUUID(),
+      householdId: "10",
+      sha256: "hash",
+      content: "ZmljdGlvbmFs",
+    };
+    draft.entries = [{ householdId: "10", document: { id: document.id } }];
+    await store.savePostalDraft(draft, document);
+    expect(await readPostalDocument(document.id)).toEqual({
+      sha256: "hash",
+      content: document.content,
+    });
+    await expect(
+      store.savePostalDraft(draft, { ...document, content: "changed" }),
+    ).rejects.toThrow();
+    expect((await readPostalDocument(document.id)).content).toBe(
+      document.content,
+    );
+    const revision = (await readSocietyLetterState()).revision;
+    await store.release();
+    const next = await acquireSocietyLetters(1, revision);
+    await expect(store.savePostalDraft(draft)).rejects.toMatchObject({
+      status: 409,
+    });
+    draft.status = "approved";
+    const deliveries = [
+      item({ batchId: draft.id, postalDocument: draft.entries[0].document }),
+      item({ batchId: draft.id, householdId: "20" }),
+    ];
+    await next.approvePostalDraft(draft, deliveries);
+    const saved = await readSocietyLetterState();
+    expect(saved.postalDraft).toBeNull();
+    expect(saved.history).toHaveLength(2);
+    expect(
+      saved.history.find((i) => i.householdId === "10").postalDocument,
+    ).toEqual(draft.entries[0].document);
+    await next.release();
+  });
+  it("rolls back the whole approval on a duplicate reservation and preserves its draft", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const draft = { id: randomUUID(), status: "draft", entries: [] };
+    await store.createPostalDraft(draft);
+    const existing = item();
+    await store.reserve([existing]);
+    const revision = (await readSocietyLetterState()).revision;
+    await expect(
+      store.approvePostalDraft({ ...draft, status: "approved" }, [
+        item({ batchId: draft.id, householdId: "20" }),
+        item({ batchId: draft.id }),
+      ]),
+    ).rejects.toThrow();
+    const state = await readSocietyLetterState();
+    expect(state.postalDraft).toEqual(draft);
+    expect(state.revision).toBe(revision);
+    expect(state.history.map((i) => i.id)).toEqual([existing.id]);
+    await expect(
+      store.createPostalDraft({ ...draft, id: randomUUID() }),
+    ).rejects.toThrow();
+    await store.release();
+  });
   it("persists each letter appeal receipt across leases without altering its frozen letter", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const delivery = item({

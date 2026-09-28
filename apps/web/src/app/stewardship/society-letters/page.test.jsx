@@ -95,6 +95,100 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("explains an empty ready selection instead of allowing a no-op click", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10")],
+      }),
+    );
+    render(<Page />);
+    expect(
+      await screen.findByRole("button", {
+        name: "Select ready households (up to 10)",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/No households are ready to create letters yet/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("option", { name: /PDF.*private converter/ }),
+    ).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("selects only ten checked and reviewed households and starts a draft, not delivery", async () => {
+    const rows = Array.from({ length: 12 }, (_, index) => ({
+      ...reviewRow(String(10 + index), true),
+      readiness: { post: { status: "ready_for_preview" } },
+    }));
+    const payload = {
+      ...base,
+      settings: societyQuerySettings(),
+      rows: [reviewRow("99"), ...rows],
+    };
+    fetchMock.mockImplementation(async () => Response.json(payload));
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Select ready households (up to 10)",
+      }),
+    );
+    expect(screen.getByText("10 selected")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start document approval" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      action: "start_postal_draft",
+      householdIds: rows.slice(0, 10).map((r) => r.householdId),
+      channel: "post",
+      format: "docx",
+      revision: 1,
+    });
+  });
+  it("uses the latest saved revision for each sequential document request", async () => {
+    const payload = {
+      ...base,
+      settings: societyQuerySettings(),
+      postalDraft: {
+        id: "draft",
+        format: "docx",
+        status: "draft",
+        entries: ["10", "20"].map((id) => ({
+          householdId: id,
+          row: { name: `Example ${id}`, members: [id] },
+          appeal: { id: "100", description: "Example appeal" },
+        })),
+      },
+    };
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        expect(body.action).toBe("prepare_postal_document");
+        expect(body.revision).toBe(payload.revision);
+        payload.postalDraft.entries.find(
+          (e) => e.householdId === body.householdId,
+        ).document = { sha256: body.householdId };
+        payload.revision++;
+      }
+      return Response.json(payload);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Prepare documents",
+        exact: true,
+      }),
+    );
+    await screen.findByText(/2 of 2 documents prepared; 0 approved/);
+    expect(
+      fetchMock.mock.calls
+        .filter(([, options]) => options?.method === "POST")
+        .map(([, options]) => JSON.parse(options.body).revision),
+    ).toEqual([1, 2]);
+  });
   it("goes back one workspace screen with filters and unsaved source settings intact", async () => {
     render(<Page />);
     const find = await screen.findByLabelText("Find a household");
@@ -109,9 +203,7 @@ describe("society letter workspace", () => {
       screen.getByRole("link", { name: "Back to Source & period" }),
     );
     await waitFor(() =>
-      expect(
-        screen.getByLabelText("NXT saved query ID"),
-      ).toHaveValue("456"),
+      expect(screen.getByLabelText("NXT saved query ID")).toHaveValue("456"),
     );
     fireEvent.click(
       screen.getByRole("link", { name: "Back to Setup checklist" }),
@@ -855,8 +947,8 @@ describe("society letter workspace", () => {
     expect(saves.map((body) => body.revision)).toEqual([1, 2]);
     expect(screen.getByLabelText("Select Household 10")).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Review selected letters" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Review selected letters" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "Review recipients in bulk" }),
     );
@@ -952,8 +1044,8 @@ describe("society letter workspace", () => {
     await screen.findByText("Recipient choices saved");
     expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Review selected letters" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Review selected letters" }),
+    ).not.toBeInTheDocument();
     first.unmount();
     render(<Page />);
     await screen.findByText("Recipient choices saved");

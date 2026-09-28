@@ -48,6 +48,18 @@ import {
   syncExclusionAppeal,
   verifyExclusionRemoval,
 } from "@/app/api/utils/societyLetterExclusionAppeals";
+import { postalPdfCapability } from "@/app/api/utils/societyLetterPdf";
+import {
+  startPostalDraft,
+  preparePostalDocument,
+  draftPostalDocument,
+  reviewPostalDocument,
+  approvePostalDraft,
+  discardPostalDraft,
+  continuePostalBatch,
+  savedPostalDocument,
+  postalBatchDownload,
+} from "@/app/api/utils/societyLetterPostalBatches";
 
 export const maxDuration = 120;
 const headers = {
@@ -135,6 +147,16 @@ export async function GET(request) {
         const item = items.find((item) => item.id === deliveryId);
         if (!item) throw letterError("Prepared letter not found.", 404);
         assertLetterAppealsComplete([item]);
+        if (item.postalDocument) {
+          const document = await savedPostalDocument(item.postalDocument);
+          return new Response(document.bytes, {
+            headers: {
+              ...headers,
+              "Content-Type": document.mime,
+              "Content-Disposition": `attachment; filename="${document.filename}"`,
+            },
+          });
+        }
         return new Response(
           renderSocietyLetter(
             state.templates[item.templateVersion],
@@ -153,16 +175,22 @@ export async function GET(request) {
         );
       }
       assertLetterAppealsComplete(items);
-      return new Response(letterArchive(items, state.templates), {
-        headers: {
-          ...headers,
-          "Content-Type": "application/zip",
-          "Content-Disposition": 'attachment; filename="society-letters.zip"',
+      return new Response(
+        items.every((item) => item.postalDocument)
+          ? await postalBatchDownload(items)
+          : letterArchive(items, state.templates),
+        {
+          headers: {
+            ...headers,
+            "Content-Type": "application/zip",
+            "Content-Disposition": 'attachment; filename="society-letters.zip"',
+          },
         },
-      });
+      );
     }
     return json({
       ...letterWorkspace(state, ctx.definitions, ctx.today),
+      postalPdf: postalPdfCapability(),
       reviewerId: String(ctx.user.id),
     });
   } catch (error) {
@@ -307,6 +335,13 @@ export async function POST(request) {
       "finalize_postal",
       "verify_letter_appeals",
       "continue_letter_appeals",
+      "start_postal_draft",
+      "prepare_postal_document",
+      "preview_postal_document",
+      "review_postal_document",
+      "approve_postal_draft",
+      "discard_postal_draft",
+      "continue_postal_batch",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -314,6 +349,74 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "start_postal_draft":
+        await startPostalDraft(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "prepare_postal_document":
+        await preparePostalDocument(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+        );
+        break;
+      case "preview_postal_document": {
+        const document = await draftPostalDocument(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+        );
+        return new Response(document.bytes, {
+          headers: {
+            ...headers,
+            "Content-Type": document.mime,
+            "Content-Disposition": `attachment; filename="${document.filename}"`,
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
+      }
+      case "review_postal_document":
+        await reviewPostalDocument(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "approve_postal_draft":
+        batchId = await approvePostalDraft(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "discard_postal_draft":
+        await discardPostalDraft(state, body, store);
+        break;
+      case "continue_postal_batch":
+        await continuePostalBatch(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
       case "preview_final_postal":
         return json({
           finalPreview: previewFinalPostalLetter(
@@ -363,6 +466,11 @@ export async function POST(request) {
         break;
       case "verify_letter_appeals":
       case "continue_letter_appeals":
+        if (body.action === "continue_letter_appeals") {
+          const item = state.history.find((i) => i.id === body.deliveryId);
+          if (item?.postalDocument)
+            await savedPostalDocument(item.postalDocument);
+        }
         await syncLetterAppeals(
           state,
           ctx.definitions,
@@ -571,6 +679,7 @@ export async function POST(request) {
     }
     return json({
       reviewerId: String(ctx.user.id),
+      postalPdf: postalPdfCapability(),
       ...letterWorkspace(
         await readSocietyLetterState(),
         ctx.definitions,

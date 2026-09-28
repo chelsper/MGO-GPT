@@ -1,5 +1,9 @@
 # Final Postal Letters and Household Appeals
 
+For the locally implemented small-batch approval and optional private PDF
+extension, see [Saved Postal Batch Approval](society-letter-postal-batches.md).
+The deployment notes below describe the earlier single-letter release.
+
 ## Scope and Release
 
 Deployed to JU on September 27, 2026 as commit

@@ -133,9 +133,11 @@ it("aborts a pending read on unmount and does not load for signed-out users", as
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
-it("links both stewardship tools from the landing page without loading donor data", () => {
+it("links both stewardship tools from the landing page with only a count request", async () => {
+  fetch.mockResolvedValueOnce(Response.json({ viewerKey: "auth-2", holding: 0, inProgress: 0, readyToMail: 0, requests: { open: 0, inProgress: 0, overdue: 0 } }));
   render(<StewardshipPage />);
   expect(screen.getByRole("link", { name: /Gift Follow-ups/ })).toHaveAttribute("href", "/stewardship/gift-follow-ups");
   expect(screen.getByRole("link", { name: /Society Letter Creation/ })).toHaveAttribute("href", "/stewardship/society-letters");
-  expect(fetch).not.toHaveBeenCalled();
+  await screen.findByText("households in the holding list");
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/stewardship/overview", expect.objectContaining({ cache: "no-store" }));
 });
