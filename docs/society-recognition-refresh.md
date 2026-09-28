@@ -33,6 +33,12 @@ Order of the Dolphin, whose configured maximum is $9,999.99.
   callback configuration and subscription. Token renewal preserves the reconnect
   time; a fresh OAuth connection changes it. JU and sandbox must still use separate
   databases and OAuth credentials, as required by the deployment isolation policy.
+- The September 27 cache-identity fix uses the server-configured `AUTH_URL` origin
+  when no explicit callback overrides it, so cron deployment hosts and browser
+  aliases resolve the same saved source. This affects cache identity, not OAuth
+  requests. Vercel previews cannot use this source; production without a stable
+  configured origin or explicit callback fails closed. See
+  `dashboard-gift-source-recovery.md` for the diagnosis and pending rollout.
 - Every page must validate, counts must reconcile when supplied, and gift IDs must
   be unique across pages before the active generation changes. Off-host pagination,
   repeated pages, unknown funds and malformed amounts/credits prevent publication.

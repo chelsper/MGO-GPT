@@ -43,9 +43,24 @@ export async function ensureSocietyGivingSchema(db = sql) {
 }
 
 export async function societySourceScope({ authUserId, origin, db = sql }) {
+  // Cron requests use a deployment hostname, unlike browser requests. Bind the
+  // cache to the configured application origin, not that changing hostname.
+  // This changes cache identity only, never the OAuth/token request settings.
+  if (process.env.VERCEL_ENV === "preview") throw new Error("Society source unavailable in preview");
+  let sourceOrigin = origin;
+  if (process.env.AUTH_URL) {
+    const url = new URL(process.env.AUTH_URL);
+    const local = process.env.VERCEL_ENV !== "production" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if ((url.protocol !== "https:" && !(local && url.protocol === "http:")) || url.username || url.password || url.search || url.hash) {
+      throw new Error("Invalid society source application origin");
+    }
+    sourceOrigin = url.origin;
+  } else if (process.env.VERCEL_ENV === "production" && !process.env.BLACKBAUD_REDIRECT_URI) {
+    throw new Error("Society source requires a stable application origin");
+  }
   const rows = await db`SELECT id, connected_at FROM blackbaud_connections WHERE user_id = ${authUserId}`;
   if (!rows[0]) throw new Error("No connected society refresh account");
-  const config = getBlackbaudConfig(origin);
+  const config = getBlackbaudConfig(sourceOrigin);
   return hash([SOCIETY_SOURCE_VERSION, authUserId, rows[0].id, rows[0].connected_at,
     config.clientId, config.redirectUri, hash(config.subscriptionKey)]);
 }

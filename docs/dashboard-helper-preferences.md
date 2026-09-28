@@ -1,7 +1,9 @@
 # Organization Helper Preferences
 
-Implemented September 27, 2026. Not yet deployed. This follows the Step 5
-contextual-drafting release and does not alter JU or sandbox settings by itself.
+Implemented and deployed to JU September 27, 2026. This follows the Step 5
+contextual-drafting release and does not alter saved settings by itself. See
+`ju-helper-preferences-release-2026-09-27.md` for release verification; the sandbox
+was not deployed.
 
 ## Configuration
 
@@ -80,8 +82,8 @@ pending eligible fresh saved gift data. Synthetic tests do not replace that pilo
 
 ## Release And Next Check
 
-Deploy to the explicit JU project using the established clean-archive process;
-do not Git-push or deploy the sandbox as a side effect. Verify release identity
-and the new settings UI without changing saved production defaults. Then review
-one eligible gift when its existing background source is fresh. Do not lower
-freshness requirements or trigger a broad refresh solely to manufacture a pilot.
+JU release identity and the signed-in settings UI were verified without changing
+saved defaults. The next check is to diagnose the unavailable recent-gift source
+read-only, then review one eligible gift once the existing background source is
+fresh. Do not lower freshness requirements or trigger a broad refresh solely to
+manufacture a pilot.

@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+const provider = vi.hoisted(() => ({ config: vi.fn() }));
 vi.mock("./sql", () => ({ default: vi.fn() }));
-vi.mock("./blackbaud", () => ({ blackbaudApiFetch: vi.fn(), getBlackbaudConfig: () => ({ clientId: "test", redirectUri: "https://test/callback", subscriptionKey: "key" }) }));
+vi.mock("./blackbaud", () => ({ blackbaudApiFetch: vi.fn(), getBlackbaudConfig: (...args) => provider.config(...args) }));
 import { giftBelongsTo, readSocietySourcePage, replaceAnnualSocieties, validateSocietyNextLink, loadSocietyAnnualGifts, societySourceScope } from "./societyGivingSource";
 import { calculateAnnualGivingSocieties, fetchAnnualGivingSocieties } from "./annualGivingSocieties";
 import { getDefaultGivingSocietyConfigurations } from "./givingSocietyDefinitions";
@@ -12,6 +13,65 @@ const raw = { id: "100", constituent_id: "200", type: "Donation", date: "2026-09
   gift_splits: [{ fund_id: "500" }], notes: "must not be stored", receipt: "private" };
 const normalize = (overrides = {}, funds = { "500": "Scholarship Fund" }) => readSocietySourcePage({ value: [{ ...raw, ...overrides }] }, "gifts", funds).gifts[0];
 const calculate = (gifts, constituentId = "401") => calculateAnnualGivingSocieties({ gifts, constituentId, now });
+const config = origin => ({ clientId: "test", redirectUri: process.env.BLACKBAUD_REDIRECT_URI || `${origin || "https://test"}/api/blackbaud/callback`, subscriptionKey: "key" });
+provider.config.mockImplementation(config);
+afterEach(() => { vi.unstubAllEnvs(); provider.config.mockReset().mockImplementation(config); });
+
+describe("stable society source identity", () => {
+  const db = async () => [{ id: "1", connected_at: "2026-01-01" }];
+  const scope = origin => societySourceScope({ authUserId: "1", origin, db });
+  it("shares the published source across production cron, deployment changes and browser aliases", async () => {
+    vi.stubEnv("AUTH_URL", "https://example.app/"); vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("BLACKBAUD_REDIRECT_URI", "");
+    const keys = [];
+    for (const origin of ["https://old-project.vercel.app", "https://new-project.vercel.app", "https://example.app", "https://www.example.app"]) keys.push(await scope(origin));
+    expect(new Set(keys).size).toBe(1);
+    expect(provider.config.mock.calls.every(([origin]) => origin === "https://example.app")).toBe(true);
+  });
+  it("keeps different app, credential, connection and reconnect identities separate", async () => {
+    vi.stubEnv("AUTH_URL", "https://example.app"); vi.stubEnv("BLACKBAUD_REDIRECT_URI", "");
+    const original = await scope("https://deployment.vercel.app");
+    vi.stubEnv("AUTH_URL", "https://sandbox.example.app");
+    expect(await scope("https://deployment.vercel.app")).not.toBe(original);
+    vi.stubEnv("AUTH_URL", "https://example.app");
+    for (const patch of [{ clientId: "different-app" }, { subscriptionKey: "different-subscription" }, { redirectUri: "https://other.app/callback" }]) {
+      provider.config.mockReturnValueOnce({ ...config("https://example.app"), ...patch });
+      expect(await scope("https://deployment.vercel.app")).not.toBe(original);
+    }
+    expect(await societySourceScope({ authUserId: "2", origin: "https://example.app", db })).not.toBe(original);
+    for (const row of [{ id: "2", connected_at: "2026-01-01" }, { id: "1", connected_at: "2026-02-01" }]) {
+      expect(await societySourceScope({ authUserId: "1", origin: "https://example.app", db: async () => [row] })).not.toBe(original);
+    }
+  });
+  it("preserves an explicitly configured callback and never changes OAuth settings", async () => {
+    vi.stubEnv("AUTH_URL", ""); vi.stubEnv("BLACKBAUD_REDIRECT_URI", "https://oauth.example.app/callback");
+    vi.stubEnv("VERCEL_ENV", "production");
+    const before = await scope("https://old.vercel.app");
+    vi.stubEnv("AUTH_URL", "https://example.app");
+    expect(await scope("https://www.example.app")).toBe(before);
+    expect(process.env.BLACKBAUD_REDIRECT_URI).toBe("https://oauth.example.app/callback");
+  });
+  it.each(["invalid", "https://user:password@example.app", "https://example.app?tenant=other", "https://example.app/#other", "http://example.app"])("fails closed for invalid configured origin %s", async authUrl => {
+    vi.stubEnv("AUTH_URL", authUrl); vi.stubEnv("VERCEL_ENV", "production");
+    await expect(scope("https://example.app")).rejects.toThrow();
+    expect(provider.config).not.toHaveBeenCalled();
+  });
+  it("never silently uses a changing deployment host in an unconfigured production", async () => {
+    vi.stubEnv("AUTH_URL", ""); vi.stubEnv("BLACKBAUD_REDIRECT_URI", ""); vi.stubEnv("VERCEL_ENV", "production");
+    await expect(scope("https://new.vercel.app")).rejects.toThrow(/stable application origin/);
+  });
+  it("does not read the production source from a Vercel preview", async () => {
+    vi.stubEnv("AUTH_URL", "https://example.app"); vi.stubEnv("VERCEL_ENV", "preview");
+    const read = vi.fn();
+    await expect(societySourceScope({ authUserId: "1", origin: "https://preview.vercel.app", db: read })).rejects.toThrow(/preview/);
+    expect(read).not.toHaveBeenCalled();
+  });
+  it("supports a configured local development origin", async () => {
+    vi.stubEnv("AUTH_URL", "http://localhost:4000"); vi.stubEnv("VERCEL_ENV", "development");
+    await scope("http://localhost:4000");
+    expect(provider.config).toHaveBeenCalledWith("http://localhost:4000");
+  });
+});
 
 describe("complete recognition-aware society data", () => {
   it("qualifies both credited individuals, independently of the direct donor", () => {
