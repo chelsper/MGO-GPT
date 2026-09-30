@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import sql from "@/app/api/utils/sql";
+import { hasBlackbaudReadBudget, reserveBlackbaudRead } from "./blackbaudReadBudget";
 
 const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization";
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
@@ -565,13 +566,15 @@ export async function blackbaudApiFetch(
     headers["Content-Type"] = "application/json";
   }
 
-  const requestTimeoutMs = Math.max(1000, Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS);
+  const budgeted = hasBlackbaudReadBudget();
+  const requestTimeoutMs = Math.min(budgeted ? 8000 : Infinity, Math.max(1000, Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS));
   // A create may have committed even when its response was lost. Never replay
   // POSTs, including when a caller explicitly requests transport retries.
-  const requestMaxRetries = String(method).toUpperCase() === "POST"
+  const requestMaxRetries = budgeted || String(method).toUpperCase() === "POST"
     ? 0 : Math.max(0, Number(maxRetries) || 0);
 
   for (let attempt = 0; attempt <= requestMaxRetries; attempt += 1) {
+    await reserveBlackbaudRead(method);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
     const requestStartedAt = Date.now();

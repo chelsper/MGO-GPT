@@ -36,12 +36,17 @@ portfolio report now has its own complete saved-report path; see
   renewed by reading the summary or updating giving. Contact-only/report-profile
   caches retain their previous 24-hour lifetime.
 - Opening an existing summary continues to serve the last good snapshot.
-- An active portfolio page continues its job batch by batch. The independent
+- By default, an active portfolio page continues its job batch by batch. The independent
   overnight worker checks every 10 minutes from 1:00 AM through 6:59 AM Eastern
   and processes one batch per invocation. This is still at most 360 constituents
   per overnight window across all workspaces when no browser is assisting;
   backlogs/throttling can delay completion beyond one night. Cron frequency,
   batch size and concurrency were not increased.
+- An optional [server-managed continuation](portfolio-maintenance-continuation.md)
+  lets the scheduler resume unfinished nightly jobs in bounded daytime batches,
+  without an open page. It is off by default and requires explicit production
+  activation. When enabled, browsers only read saved status for nightly jobs;
+  daytime work has a separate shared API-call cap and single-record batch size.
 - Stale-only jobs set `refresh=1&reuse_giving=1`: rebuild the summary but reuse
   still-current giving reads. Individual manual refresh and full rebuild omit
   `reuse_giving` and fetch fresh giving data.

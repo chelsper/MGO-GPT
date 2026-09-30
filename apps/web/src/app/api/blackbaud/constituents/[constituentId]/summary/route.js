@@ -6,6 +6,9 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
+import { maintenanceContinuationEnabled, maintenanceOrigin } from "@/app/api/utils/portfolioMaintenanceContinuation";
+import { reserveMaintenanceCall } from "@/app/api/utils/portfolioMaintenanceStore";
+import { withBlackbaudReadBudget } from "@/app/api/utils/blackbaudReadBudget";
 import {
   blackbaudApiFetch,
   getBlackbaudConfigIssues,
@@ -1765,6 +1768,23 @@ async function handleGet(request, { params }) {
 }
 
 export async function GET(request, context) {
+  const token = request.headers.get("x-mgogpt-portfolio-continuation");
+  if (token) {
+    if (!isAuthorizedReportRefreshRequest(request) || !maintenanceContinuationEnabled() ||
+        new URL(request.url).origin !== maintenanceOrigin() || !/^[a-f0-9-]{36}$/.test(token)) {
+      return Response.json({ error: "Invalid background maintenance request" }, { status: 403 });
+    }
+    const workspaceUserId = new URL(request.url).searchParams.get("workspaceUserId");
+    if (!/^[1-9]\d*$/.test(workspaceUserId || "")) return Response.json({ error: "Invalid workspace" }, { status: 400 });
+    return withBlackbaudReadBudget(() => reserveMaintenanceCall({
+      origin: maintenanceOrigin(), token, workspaceUserId,
+      constituentId: String(context.params?.constituentId || ""),
+    }), () => getWithMetrics(request, context));
+  }
+  return getWithMetrics(request, context);
+}
+
+async function getWithMetrics(request, context) {
   return withBlackbaudRequestMetrics(async (metrics) => {
     const response = await handleGet(request, context);
     response.headers.set("X-MGOGPT-NXT-API-Calls", String(metrics.callCount));

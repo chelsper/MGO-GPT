@@ -5981,7 +5981,9 @@ export default function MyTopProspectsPage() {
       !isExecutiveReadOnly,
     staleTime: 0,
     refetchInterval: (query) =>
-      query.state.data?.job?.status === "paused"
+      query.state.data?.serverManaged && query.state.data?.job?.mode === "nightly" && ["queued", "processing", "paused"].includes(query.state.data?.job?.status)
+        ? 60000
+        : query.state.data?.job?.status === "paused"
         ? 10000
         : ["queued", "processing"].includes(query.state.data?.job?.status) ? 3000 : false,
     refetchOnWindowFocus: false,
@@ -6015,6 +6017,7 @@ export default function MyTopProspectsPage() {
   const portfolioRefreshJob = portfolioRefreshState?.job || null;
   usePortfolioRefreshRunner({
     job: portfolioRefreshJob,
+    serverManaged: portfolioRefreshState?.serverManaged === true,
     enabled: activeWorkspaceTab === "portfolio" && !!user && !isExecutiveReadOnly,
     isPending: portfolioRefreshMutation.isPending,
     error: portfolioRefreshMutation.error,

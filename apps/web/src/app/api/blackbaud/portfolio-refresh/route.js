@@ -12,6 +12,8 @@ import {
 import sql from "@/app/api/utils/sql";
 import { isAdminRole } from "@/utils/workspaceRoles";
 import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE } from "@/app/api/utils/portfolioMaintenancePolicy";
+import { maintenanceContinuationEnabled, maintenanceOrigin, isPortfolioOvernight, MAINTENANCE_DAYTIME_ITEMS, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
+import { claimMaintenanceGate, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
 
 const DEFAULT_CONCURRENCY = 2;
 const PROCESSING_LEASE_MINUTES = 5;
@@ -263,8 +265,13 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
     headers: scheduled ? {
       authorization: request.headers.get("authorization") || "",
       "x-mgogpt-report-refresh": "scheduled",
+      ...(request.headers.get("x-mgogpt-portfolio-continuation") ? {
+        "x-mgogpt-portfolio-continuation": request.headers.get("x-mgogpt-portfolio-continuation"),
+      } : {}),
     } : { cookie: request.headers.get("cookie") || "" },
     cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(MAINTENANCE_REQUEST_MS - 10000),
   });
   const payload = await response.json().catch(() => null);
   const info = {
@@ -554,7 +561,7 @@ export async function GET(request) {
     context.workspaceUser.id,
     job?.failed_count,
   );
-  return Response.json({ job: serializeJob(job, failedItems), inventory });
+  return Response.json({ job: serializeJob(job, failedItems), inventory, serverManaged: maintenanceContinuationEnabled() });
 }
 
 export async function POST(request) {
@@ -697,72 +704,94 @@ export async function POST(request) {
   if (job.status === "paused" && Date.parse(job.paused_until || "") > Date.now()) {
     return Response.json({ job: serializeJob(job), paused: true });
   }
-  const recovered = await requeueFixedPortfolioFailures(job.id);
-  if (recovered.length) job = await refreshJobProgress(job.id);
-  if (["completed", "completed_with_failures"].includes(job.status) && action === "process") {
-    const failedItems = isAdminRole(context.sessionUser?.role)
-      ? await getFailedItems(job.id)
-      : [];
-    return Response.json({ job: serializeJob(job, failedItems) });
+  const serverManaged = job.mode === "nightly" && maintenanceContinuationEnabled();
+  // Old browser tabs must not race a scheduled worker or bypass its daytime cap.
+  if (serverManaged && !context.scheduledRefresh) {
+    return Response.json({ job: serializeJob(job), serverManaged: true });
   }
+  const daytime = serverManaged && !isPortfolioOvernight();
+  if (body.backgroundContinuation && (!daytime || new URL(request.url).origin !== maintenanceOrigin())) {
+    return Response.json({ error: "Background continuation is not available here." }, { status: 409 });
+  }
+  let gate = null;
+  if (daytime) {
+    if (new URL(request.url).origin !== maintenanceOrigin()) return Response.json({ error: "Invalid maintenance origin" }, { status: 409 });
+    gate = await claimMaintenanceGate(maintenanceOrigin(), job.id);
+    if (!gate) return Response.json({ job: serializeJob(job), deferred: true, reason: "busy_cooldown_or_daily_limit" });
+    const headers = new Headers(request.headers);
+    headers.set("x-mgogpt-portfolio-continuation", gate.token);
+    request = new Request(request.url, { headers });
+  }
+  try {
+    const recovered = await requeueFixedPortfolioFailures(job.id);
+    if (recovered.length) job = await refreshJobProgress(job.id);
+    if (["completed", "completed_with_failures"].includes(job.status) && action === "process") {
+      const failedItems = isAdminRole(context.sessionUser?.role)
+        ? await getFailedItems(job.id)
+        : [];
+      return Response.json({ job: serializeJob(job, failedItems) });
+    }
 
-  await sql`
-    UPDATE portfolio_refresh_items
-    SET status = 'pending', updated_at = NOW()
-    WHERE job_id = ${job.id}
-      AND status = 'processing'
-      AND updated_at < NOW() - (${PROCESSING_LEASE_MINUTES} * INTERVAL '1 minute')
-  `;
-  const claimed = await sql`
-    WITH next_items AS (
-      SELECT id
-      FROM portfolio_refresh_items
-      WHERE job_id = ${job.id} AND status = 'pending'
-      ORDER BY position ASC
-      LIMIT ${numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE portfolio_refresh_items AS item
-    SET status = 'processing', started_at = NOW(), updated_at = NOW()
-    FROM next_items
-    WHERE item.id = next_items.id
-    RETURNING item.*
-  `;
-  await sql`
-    UPDATE portfolio_refresh_jobs
-    SET status = 'processing', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-    WHERE id = ${job.id} AND cancel_requested = FALSE
-  `;
+    await sql`
+      UPDATE portfolio_refresh_items
+      SET status = 'pending', updated_at = NOW()
+      WHERE job_id = ${job.id}
+        AND status = 'processing'
+        AND updated_at < NOW() - (${PROCESSING_LEASE_MINUTES} * INTERVAL '1 minute')
+    `;
+    const claimed = await sql`
+      WITH next_items AS (
+        SELECT id
+        FROM portfolio_refresh_items
+        WHERE job_id = ${job.id} AND status = 'pending'
+        ORDER BY position ASC
+        LIMIT ${gate ? MAINTENANCE_DAYTIME_ITEMS : numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE portfolio_refresh_items AS item
+      SET status = 'processing', started_at = NOW(), updated_at = NOW()
+      FROM next_items
+      WHERE item.id = next_items.id
+      RETURNING item.*
+    `;
+    await sql`
+      UPDATE portfolio_refresh_jobs
+      SET status = 'processing', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+      WHERE id = ${job.id} AND cancel_requested = FALSE
+    `;
 
-  const batchResult = await runPortfolioRefreshBatch({
-    items: claimed,
-    concurrency: numeric(job.concurrency, DEFAULT_CONCURRENCY),
-    processItem: (item) =>
-      processItem({
-        request,
-        item,
-        job,
-        workspaceUserId,
-        authUserId: context.authUserId,
-      }),
-    releaseItem: async (item) => {
+    const batchResult = await runPortfolioRefreshBatch({
+      items: claimed,
+      concurrency: gate ? 1 : numeric(job.concurrency, DEFAULT_CONCURRENCY),
+      processItem: (item) =>
+        processItem({
+          request,
+          item,
+          job,
+          workspaceUserId,
+          authUserId: context.authUserId,
+        }),
+      releaseItem: async (item) => {
         await sql`
           UPDATE portfolio_refresh_items
           SET status = 'pending', updated_at = NOW()
           WHERE id = ${item.id} AND status = 'processing'
         `;
-    },
-  });
-  if (batchResult.paused) {
-    await sql`
-      UPDATE portfolio_refresh_items
-      SET status = 'pending', updated_at = NOW()
-      WHERE job_id = ${job.id} AND status = 'processing'
-    `;
+      },
+    });
+    if (batchResult.paused) {
+      await sql`
+        UPDATE portfolio_refresh_items
+        SET status = 'pending', updated_at = NOW()
+        WHERE job_id = ${job.id} AND status = 'processing'
+      `;
+    }
+    const refreshed = await refreshJobProgress(job.id);
+    const failedItems = isAdminRole(context.sessionUser?.role)
+      ? await getFailedItems(job.id)
+      : [];
+    return Response.json({ job: serializeJob(refreshed, failedItems) });
+  } finally {
+    if (gate) await releaseMaintenanceGate(gate).catch(() => {});
   }
-  const refreshed = await refreshJobProgress(job.id);
-  const failedItems = isAdminRole(context.sessionUser?.role)
-    ? await getFailedItems(job.id)
-    : [];
-  return Response.json({ job: serializeJob(refreshed, failedItems) });
 }

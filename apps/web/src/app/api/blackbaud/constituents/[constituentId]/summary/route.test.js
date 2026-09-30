@@ -5,6 +5,11 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { blackbaudApiFetch, getBlackbaudConfigIssues, listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 import { loadSocietyAnnualGifts } from "@/app/api/utils/societyGivingSource";
+import { reserveMaintenanceCall } from "@/app/api/utils/portfolioMaintenanceStore";
+import { reserveBlackbaudRead } from "@/app/api/utils/blackbaudReadBudget";
+vi.mock("@/app/api/utils/portfolioMaintenanceStore", () => ({
+  reserveMaintenanceCall: vi.fn(),
+}));
 vi.mock("@/app/api/utils/societyGivingSource", async (importOriginal) => ({
   ...await importOriginal(), loadSocietyAnnualGifts: vi.fn(),
 }));
@@ -47,6 +52,76 @@ const baseArgs = {
   primaryBusinessRelationship: null,
   lifetimeGiving: null,
 };
+
+describe("scheduled summary continuation authorization", () => {
+  const token = "b45c91db-c757-4f88-9258-5fa5d23f411d";
+  const origin = "https://www.jumgogpt.app";
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", origin);
+    vi.stubEnv("CRON_SECRET", "test-maintenance-secret");
+    vi.stubEnv("REPORT_REFRESH_USER_ID", "99");
+    getBlackbaudConfigIssues.mockReturnValue([]);
+    sql.mockImplementation(async strings => {
+      const statement = strings.join(" ");
+      if (statement.includes("INNER JOIN blackbaud_connections")) return [{ id: 99, role: "admin" }];
+      if (statement.includes("SELECT * FROM users")) return [{ id: 42, active: true }];
+      return [];
+    });
+    reserveMaintenanceCall.mockResolvedValue(false);
+    blackbaudApiFetch.mockImplementation(async () => {
+      await reserveBlackbaudRead("GET");
+      throw new Error("Provider reads must be blocked by the exhausted budget");
+    });
+  });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  async function read({ authorized = true, host = origin, workspace = "42", lease = token } = {}) {
+    const { GET } = await import("./route.js");
+    return GET(new Request(`${host}/api/blackbaud/constituents/123/summary?workspaceUserId=${workspace}&giving_only=1&refresh=1`, {
+      headers: {
+        "x-mgogpt-portfolio-continuation": lease,
+        "x-mgogpt-report-refresh": "scheduled",
+        authorization: authorized ? "Bearer test-maintenance-secret" : "Bearer incorrect",
+      },
+    }), { params: { constituentId: "123" } });
+  }
+
+  it.each([
+    { authorized: false },
+    { host: "https://sandbox.example.com" },
+    { lease: "not-a-lease" },
+  ])("rejects untrusted continuation requests before data access: %j", async options => {
+    expect((await read(options)).status).toBe(403);
+    expect(sql).not.toHaveBeenCalled();
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    expect(reserveMaintenanceCall).not.toHaveBeenCalled();
+  });
+
+  it("rejects continuation in preview deployments", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect((await read()).status).toBe(403);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit valid workspace", async () => {
+    expect((await read({ workspace: "0" })).status).toBe(400);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("enforces the lease budget inside the summary and retains good snapshots", async () => {
+    const response = await read();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ providerStatus: 429, quotaPaused: true, retryAfterMs: 600000 });
+    expect(reserveMaintenanceCall).toHaveBeenCalledExactlyOnceWith({
+      origin, token, workspaceUserId: "42", constituentId: "123",
+    });
+    expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
+  });
+});
 
 function entry(label, dates = {}) {
   return {

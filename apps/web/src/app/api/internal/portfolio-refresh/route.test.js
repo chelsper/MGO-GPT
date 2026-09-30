@@ -34,6 +34,40 @@ describe("scheduled portfolio refresh worker", () => {
     else process.env.CRON_SECRET = originalSecret;
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it("continues one existing nightly job in daytime with no page visit or new manifest", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T16:00:00Z"));
+    sqlMock.mockResolvedValueOnce([{ id: 44, workspace_user_id: 7, status: "queued" }]);
+    fetch.mockResolvedValueOnce(Response.json({ job: { jobId: "44", status: "queued" } }));
+    const { GET } = await import("./route.js");
+    expect((await GET(request(""))).status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ action: "process", jobId: 44, backgroundContinuation: true });
+    const query = sqlMock.mock.calls[0][0].join(" ");
+    expect(query).toContain("j.mode = 'nightly'");
+    expect(query).toContain("u.active = TRUE");
+    expect(query).toContain("j.paused_until <= NOW()");
+    expect(query).toContain("NOT j.cancel_requested");
+    expect(query).toContain("NOT EXISTS");
+    expect(query).not.toContain("blackbaud_portfolio_cache");
+  });
+
+  it("does not start a daytime job when no unfinished nightly work is ready", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T16:00:00Z"));
+    const { GET } = await import("./route.js");
+    expect(await (await GET(request(""))).json()).toMatchObject({ status: "complete" });
+    expect(sqlMock).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("rejects requests without the cron secret", async () => {

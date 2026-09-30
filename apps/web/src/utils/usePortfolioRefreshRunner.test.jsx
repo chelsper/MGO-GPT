@@ -8,6 +8,17 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("portfolio automatic cooldown recovery", () => {
+  it("leaves server-managed nightly jobs running independently without browser POSTs", () => {
+    const onProcess = vi.fn();
+    const { rerender } = renderHook(({ mode }) => usePortfolioRefreshRunner({
+      job: { jobId: "36", status: "queued", mode }, enabled: true, serverManaged: true, onProcess,
+    }), { initialProps: { mode: "nightly" } });
+    act(() => vi.advanceTimersByTime(3600000));
+    expect(onProcess).not.toHaveBeenCalled();
+    rerender({ mode: "stale" });
+    act(() => vi.advanceTimersByTime(3000));
+    expect(onProcess).toHaveBeenCalledOnce();
+  });
   it("waits through the entire cooldown, then continues the existing job once", () => {
     const onProcess = vi.fn();
     renderHook(() => usePortfolioRefreshRunner({ job: pausedJob(), enabled: true, onProcess }));
