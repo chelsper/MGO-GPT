@@ -33,3 +33,11 @@ it("rejects a response from a changed signed-in user", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(/sign-in changed/);
   expect(screen.queryByRole("button", { name: "Load query" })).not.toBeInTheDocument();
 });
+it("keeps held date issues visible after the valid records are committed", async () => {
+  fetch.mockResolvedValue(response({ version: 5, config: { queryId: "31053" }, job: { stage: "committed", inserted: 2, skipped: 0,
+    heldCount: 1, held: [{ row: 82, name: "Sample recipient", category: "Blanket", actionId: "10", fieldId: "20", reason: "Missing date", dateValue: "" }] } }));
+  render(<GiftHistoryImport sessionKey="session" />);
+  await screen.findByText("History imported");
+  expect(screen.getByText("1 query rows held for date review")).toBeInTheDocument();
+  expect(screen.getByRole("table", { name: "Gift rows held for date review" })).toHaveTextContent("Missing date");
+});

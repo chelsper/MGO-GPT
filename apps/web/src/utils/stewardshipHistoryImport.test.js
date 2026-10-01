@@ -18,8 +18,29 @@ it("never treats an uncompleted action, empty marker, unmapped category or unacc
   expect(result.rows).toEqual([]);
   expect(result.totals).toMatchObject({ notCompleted: 1, notMapped: 1, valueNotMatched: 2 });
 });
-it.each([[0,"ABC"],[2,"0"],[3,""],[7,"2/30/2026"],[7,"2026-12-01"],[1,""]])("fails closed on invalid field %s", (index,value) => {
+it.each([[0,"ABC"],[2,"0"],[3,""],[1,""]])("fails closed on invalid identity field %s", (index,value) => {
   expect(() => prepare([row.map((cell,i) => i===index ? value : cell)])).toThrow();
+});
+it.each([["", "Missing date"], ["2/30/2026", "Invalid date"], ["2026-12-01", "Future date"]])("holds %s dates without blocking distinct valid records", (value, reason) => {
+  const invalid = [...row]; invalid[2] = "11"; invalid[7] = value;
+  const result = prepare([row, invalid]);
+  expect(result.rows).toHaveLength(1);
+  expect(result.totals.needsReview).toBe(1);
+  expect(result.held[0]).toMatchObject({ row: 2, actionId: "11", reason });
+});
+it("never silently picks a dated row when the same source also has an invalid date", () => {
+  const invalid = [...row]; invalid[7] = "";
+  expect(() => prepare([row, invalid])).toThrow(/conflicts/);
+  expect(() => prepare([invalid, row])).toThrow(/conflicts/);
+});
+it("uses an explicitly mapped fallback only for a blank primary date and records its source", () => {
+  const values = [...row]; values[7] = ""; values[8] = "2026-09-21";
+  const result = prepare([values]);
+  expect(result.rows[0]).toMatchObject({ date: "2026-09-21", dateBasis: "fallbackDate" });
+  values[7] = "bad date";
+  expect(prepare([values]).held[0].reason).toBe("Invalid date");
+  values[7] = "2026-09-20";
+  expect(prepare([values]).rows[0]).toMatchObject({ date: "2026-09-20", dateBasis: "date" });
 });
 it("requires reviewed distinct returned fields and valid item mappings", () => {
   expect(historyMapping({ ...mapping, confirmed: false })).toBeNull();

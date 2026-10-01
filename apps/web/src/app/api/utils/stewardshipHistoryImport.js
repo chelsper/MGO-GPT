@@ -109,7 +109,7 @@ export async function commitHistoryImport(actor, state, db = sql) {
     db`SELECT id FROM users WHERE id=${actor.id} FOR UPDATE`,
     db`WITH candidates AS MATERIALIZED (
       SELECT * FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb)
-      AS x(key text,"itemId" text,"constituentId" text,name text,date text,item jsonb,"actionId" text,"fieldId" text,category text,value text)
+      AS x(key text,"itemId" text,"constituentId" text,name text,date text,"dateBasis" text,item jsonb,"actionId" text,"fieldId" text,category text,value text)
     ), eligible AS MATERIALIZED (
       SELECT s.* FROM stewardship_gift_import_state s JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
       WHERE s.id=1 AND s.lease=${state.lease}::uuid AND s.lease_until>NOW() AND s.job->>'stage'='preview'
@@ -125,7 +125,7 @@ export async function commitHistoryImport(actor, state, db = sql) {
       SELECT x."itemId"::bigint,x.item,x."constituentId",x.name,'Not assigned (NXT history)',x.date::date,'Imported historical NXT gift record.',
         gen_random_uuid(),${actor.id},${actor.name},'nxt_history',x.key,
         jsonb_build_object('actionId',x."actionId",'fieldId',x."fieldId",'category',x.category,'value',x.value,
-          'queryId',e.config->>'queryId','importId',e.job->>'id','dateBasis',e.config->'mapping'->'columns'->>'date')
+          'queryId',e.config->>'queryId','importId',e.job->>'id','dateBasis',x."dateBasis")
       FROM candidates x CROSS JOIN eligible e
       WHERE NOT EXISTS (SELECT 1 FROM stewardship_gift_receipts d WHERE d.source_key=x.key OR
         (d.source_kind='app' AND d.voided_at IS NULL AND d.item_id=x."itemId"::bigint AND d.constituent_id=x."constituentId" AND d.received_on=x.date::date))
@@ -133,7 +133,8 @@ export async function commitHistoryImport(actor, state, db = sql) {
     ), updated AS (
       UPDATE stewardship_gift_import_state s SET version=s.version+1,lease=NULL,lease_until=NULL,
         job=jsonb_build_object('stage','committed','id',s.job->>'id','actorId',s.job->>'actorId',
-          'inserted',(SELECT COUNT(*) FROM inserted),'skipped',(SELECT COUNT(*) FROM candidates)-(SELECT COUNT(*) FROM inserted),'finishedAt',NOW())
+          'inserted',(SELECT COUNT(*) FROM inserted),'skipped',(SELECT COUNT(*) FROM candidates)-(SELECT COUNT(*) FROM inserted),
+          'heldCount',s.job->'preview'->'totals'->'needsReview','held',s.job->'preview'->'held','finishedAt',NOW())
       FROM eligible e WHERE s.id=e.id RETURNING s.*
     ), audited AS (
       INSERT INTO stewardship_gift_import_events(actor_id,actor_name,operation,snapshot)

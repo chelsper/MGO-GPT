@@ -71,6 +71,8 @@ export function GiftHistoryImport({ sessionKey }) {
   const rows = job?.preview?.rows || [];
   const newCount = rows.filter(row => row.status === "new").length;
   const conflicts = rows.filter(row => row.status === "conflict").length;
+  const heldCount = job?.preview?.totals?.needsReview || job?.heldCount || 0;
+  const heldRows = job?.preview?.held || job?.held || [];
   const previewMapping = () => ({ columns, completedValue, confirmed: reviewed,
     rules: categories.filter(category => ownRule(rules, category).itemId).map(category => ({ category, ...ownRule(rules, category) })) });
   function editColumns(key, value) {
@@ -115,7 +117,8 @@ export function GiftHistoryImport({ sessionKey }) {
       {table && <section className="space-y-5 rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-lg font-bold">2. Match fields and gift items</h2><p className="text-sm text-gray-600">{table.rows.length.toLocaleString()} query rows loaded. These settings are saved when you create the preview.</p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(HISTORY_COLUMNS).map(([key, label]) => <label key={key} className="grid min-w-0 gap-2 text-sm font-semibold">{label}
-          <select className={input} value={columns[key] || ""} disabled={!canContinue} onChange={event => editColumns(key, event.target.value)}><option value="">{key === "constituentId" ? "Verify recipient from its NXT action" : key === "value" ? "Use reviewed field presence instead" : "Choose a returned field"}</option>{table.headers.map(header => <option key={header}>{header}</option>)}</select></label>)}</div>
+          <select className={input} value={columns[key] || ""} disabled={!canContinue} onChange={event => editColumns(key, event.target.value)}><option value="">{key === "fallbackDate" ? "No fallback; hold undated rows" : key === "constituentId" ? "Verify recipient from its NXT action" : key === "value" ? "Use reviewed field presence instead" : "Choose a returned field"}</option>{table.headers.map(header => <option key={header}>{header}</option>)}</select></label>)}</div>
+        <p className="text-sm text-gray-600">Use recorded receipt or completion dates, not Date Added. An optional fallback is used only when the first field is blank. Missing, invalid, or future dates are held for review.</p>
         {!columns.value && <p className="text-sm text-amber-900">Only use field presence when this category's existence means an item was received. If values such as No, False, or Planned are possible, return and map the value field instead.</p>}
         <label className="grid max-w-sm gap-2 text-sm font-semibold">Value that means action completed<select className={input} value={completedValue} disabled={!canContinue} onChange={event => { setCompletedValue(event.target.value); setReviewed(false); setApproved(false); }}>
           <option value="">Choose a returned Yes / True / 1 value</option>{[...new Set(table.rows.map(row => row[table.headers.indexOf(columns.completed)]?.trim()).filter(isCompletedHistoryValue))].map(value => <option key={value}>{value}</option>)}</select></label>
@@ -145,6 +148,12 @@ export function GiftHistoryImport({ sessionKey }) {
         <h2 className="font-bold">Verify gift recipients</h2>
         <p>{rows.filter(row => row.constituentId).length} of {rows.length} gift records verified. Each check reads only selected gift actions, in small batches. Progress is saved; NXT is unchanged.</p>
         <button className={button} disabled={!canContinue || now < Date.parse(job.nextCheckAt || "")} onClick={() => act("resolve")}>Continue recipient checks</button>
+      </section>}
+      {!!heldCount && <section className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+        <h2 className="font-bold">{heldCount} query rows held for date review</h2>
+        <p className="text-sm">These rows will not be imported. Choose a supported recorded date field or correct the source later. No receipt date is guessed. Showing up to 100 held rows.</p>
+        <div className="overflow-x-auto"><table className="w-full text-left text-sm"><caption className="sr-only">Gift rows held for date review</caption><thead><tr>{["Query row", "Recipient", "Gift", "Action / field", "Date issue"].map(label => <th className="p-2" key={label}>{label}</th>)}</tr></thead>
+          <tbody>{heldRows.map(row => <tr key={row.row} className="border-t"><td className="p-2">{row.row}</td><td className="p-2">{row.name}</td><td className="p-2">{row.category}</td><td className="p-2">{row.actionId} / {row.fieldId}</td><td className="p-2">{row.reason}{row.dateValue ? `: ${row.dateValue}` : ""}</td></tr>)}</tbody></table></div>
       </section>}
       {job?.stage === "preview" && <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-lg font-bold">3. Review and import</h2>

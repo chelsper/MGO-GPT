@@ -226,7 +226,12 @@ Duplicate protection uses Action System Record ID plus Action Custom Field
 Import ID, not donor name or constituent ID alone. Corrections preserve that key
 so a repeat query cannot resurrect a voided receipt. Possible app-recorded matches
 with the same item, recipient, and date are skipped for review. Invalid IDs/dates
-or conflicting source identities fail closed. Blank/future dates are not guessed.
+or conflicting source identities fail closed. Blank/invalid/future dates are held
+out with row-level review details, without blocking distinct valid records.
+An explicitly selected recorded-date fallback applies only when the primary date
+is blank; invalid values are never silently replaced. The actual date field used
+is retained in each receipt's NXT source details. Held rows remain visible after
+the valid portion is imported. Dates are never inferred from Date Added.
 
 The import is bound to its initiating staff account and NXT connection. It has
 version/lease guards, active-role checks inside database writes, and atomic

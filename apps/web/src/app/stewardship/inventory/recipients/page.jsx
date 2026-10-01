@@ -301,6 +301,11 @@ export function ReceivedItems({
                     <p className="mt-1 break-words text-base text-emerald-900">
                       {item.item_snapshot.name}
                     </p>
+                    {item.source_kind === "nxt_history" && item.source_snapshot && <details className="mt-2 text-xs text-gray-500">
+                      <summary className="cursor-pointer">NXT source details</summary>
+                      <p className="mt-1 break-words">Action {item.source_snapshot.actionId} · Custom field {item.source_snapshot.fieldId} · Query {item.source_snapshot.queryId}</p>
+                      <p className="mt-1">Date from: {item.source_snapshot.dateBasis || "Saved query mapping"}</p>
+                    </details>}
                   </div>
                   <span
                     className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${item.voided_at ? "bg-gray-100 text-gray-600" : "bg-emerald-50 text-emerald-800"}`}
