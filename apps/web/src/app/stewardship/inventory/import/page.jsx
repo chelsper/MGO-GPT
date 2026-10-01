@@ -82,7 +82,7 @@ export function GiftHistoryImport({ sessionKey }) {
   function editRule(category, patch) {
     setRules(previous => ({ ...previous, [category]: { ...ownRule(previous, category), ...patch } })); setReviewed(false); setApproved(false);
   }
-  const dirty = job?.stage === "preview" && JSON.stringify(historyMapping(previewMapping())) !== JSON.stringify(job.preview.mapping);
+  const dirty = job?.stage === "preview" && JSON.stringify(historyMapping(previewMapping())) !== JSON.stringify(historyMapping(job.preview.mapping));
   return <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-8">
     <WorkflowReturnLink href="/stewardship/inventory/recipients" />
     <header className="flex flex-wrap items-start justify-between gap-4">

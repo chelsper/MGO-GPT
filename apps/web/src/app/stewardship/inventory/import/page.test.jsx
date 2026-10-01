@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 vi.mock("@/components/WorkflowReturnLink", () => ({ default: ({ href }) => <a href={href}>Back to received items</a> }));
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: { id: "session" } }) }));
 import { GiftHistoryImport } from "./page";
+import { HISTORY_COLUMNS } from "@/utils/stewardshipHistoryImport";
 const response = state => ({ ok: true, json: async () => ({ state, viewerKey: "2", sessionKey: "session", items: [{ id: "1", name: "Blanket" }] }) });
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ version: 1, config: {}, job: null }))); });
 it("loads saved state without running a query and requires source confirmation", async () => {
@@ -40,4 +41,27 @@ it("keeps held date issues visible after the valid records are committed", async
   await screen.findByText("History imported");
   expect(screen.getByText("1 query rows held for date review")).toBeInTheDocument();
   expect(screen.getByRole("table", { name: "Gift rows held for date review" })).toHaveTextContent("Missing date");
+});
+it("accepts unchanged saved mappings regardless of JSON key order while blocking real edits", async () => {
+  const columns = Object.fromEntries(Object.keys(HISTORY_COLUMNS).map(key => [key, ["constituentId", "value", "fallbackDate"].includes(key) ? "" : key]));
+  const mapping = { confirmed: true, completedValue: "Yes", rules: [{ anyValue: true, value: "", itemId: "1", category: "Blanket" }],
+    columns: Object.fromEntries(Object.entries(columns).reverse()) };
+  fetch.mockResolvedValue(response({ version: 6, config: { queryId: "31053", mapping }, job: { stage: "preview", canContinue: true,
+    table: { headers: ["name", "actionId", "fieldId", "category", "completed", "date", "otherDate"], rows: [["Sample recipient", "10", "20", "Blanket", "Yes", "2026-01-01", "2026-01-02"]] },
+    preview: { mapping, totals: { repeated: 0, notCompleted: 0, notMapped: 0, valueNotMatched: 0 },
+      rows: [{ key: "10:20", constituentId: "100", name: "Sample recipient", item: { name: "Blanket" }, date: "2026-01-01", actionId: "10", fieldId: "20", status: "new" }] } } }));
+  render(<GiftHistoryImport sessionKey="session" />);
+  const reviewed = await screen.findByLabelText(/I verified these IDs/);
+  const approval = screen.getByLabelText(/Import the new records shown/);
+  expect(approval).toBeDisabled();
+  fireEvent.click(reviewed);
+  expect(approval).toBeEnabled();
+  expect(screen.queryByText(/Mappings changed/)).not.toBeInTheDocument();
+  fireEvent.click(approval);
+  expect(screen.getByRole("button", { name: "Import 1 new records" })).toBeEnabled();
+  fireEvent.change(screen.getByLabelText("Date received (custom-field or action date)"), { target: { value: "otherDate" } });
+  fireEvent.click(reviewed);
+  expect(approval).toBeDisabled();
+  expect(screen.getByText(/Mappings changed/)).toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
