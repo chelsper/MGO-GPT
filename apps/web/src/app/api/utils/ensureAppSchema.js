@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import stewardshipAssistanceSchema from "./stewardshipAssistanceSchema";
+import stewardshipInventorySchema from "./stewardshipInventorySchema";
 import prospectLifecycleSchema from "./prospectLifecycleSchema";
 
 let schemaReadyPromise;
@@ -1223,6 +1224,7 @@ export default async function ensureAppSchema() {
     `;
 
     await stewardshipAssistanceSchema(sql);
+    await stewardshipInventorySchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (

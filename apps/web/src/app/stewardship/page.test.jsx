@@ -38,6 +38,10 @@ it("shows four one-click shortcuts with one read and no new review steps", async
   expect(
     screen.getByRole("link", { name: /Assistance Requests/ }),
   ).toHaveAttribute("href", "/stewardship/requests");
+  expect(screen.getByRole("link", { name: "Gift Inventory" })).toHaveAttribute(
+    "href",
+    "/stewardship/inventory",
+  );
   expect(screen.getByText(/3 new, 1 in progress; 1 overdue/)).toBeVisible();
   expect(fetch).toHaveBeenCalledExactlyOnceWith(
     "/api/stewardship/overview",
