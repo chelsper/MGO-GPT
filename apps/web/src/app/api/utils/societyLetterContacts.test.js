@@ -168,7 +168,9 @@ describe("organization contact query output", () => {
     });
     expect(rows[0].members).toEqual(["10"]);
     const candidate = rows[0].recipientCandidates[0];
-    expect(candidate.address).toBe("123 Example Street\nJacksonville FL 32211");
+    expect(candidate.address).toBe(
+      "123 Example Street\nJacksonville, FL 32211",
+    );
     expect(organizationLetterContacts(candidate)).toEqual([
       { role: "Main contact", firstName: "Alex", lastName: "Sample" },
       { role: "Society letter contact", firstName: "Jamie", lastName: "Jones" },

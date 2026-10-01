@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { contactChoiceKey } from "@/utils/societyLetterContacts";
+import { formatLetterAddress } from "@/utils/societyLetters";
 import {
   recipientReviewForRow,
   saveLetterRecipientReview,
@@ -82,6 +83,83 @@ function setup() {
 }
 
 describe("saved society letter recipients", () => {
+  it("keeps reviews through 15 days and retains wording for an age-only re-review", async () => {
+    const { state, row, body, signature, save } = setup();
+    await save();
+    const saved = Object.values(state.recipient_reviews)[0];
+    const clock = vi.spyOn(Date, "now");
+    try {
+      for (const days of [2, 14, 15]) {
+        clock.mockReturnValue(Date.parse(saved.savedAt) + days * 86400000);
+        state.snapshot.generatedAt = new Date(Date.now()).toISOString();
+        expect(recipientReviewForRow(state, row, signature).status).toBe(
+          "saved",
+        );
+      }
+      clock.mockReturnValue(Date.parse(saved.savedAt) + 15 * 86400000 + 1);
+      expect(recipientReviewForRow(state, row, signature)).toMatchObject({
+        status: "needs_review",
+        reason: "expired",
+        values: { salutation: body.salutation },
+      });
+      row.members.push("99");
+      expect(recipientReviewForRow(state, row, signature).values).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  it("preserves an existing review when a refresh only adds the address comma", async () => {
+    const { state, row, body, signature, save } = setup();
+    const parts = {
+      address_line_1: "11 Test St",
+      address_line_2: "",
+      city: "Jacksonville",
+      state: "FL",
+      zip: "32211",
+      country: "",
+    };
+    row.recipientCandidates[1].addressParts = parts;
+    row.recipientCandidates[1].address = formatLetterAddress(parts, false);
+    body.reviewToken = recipientReviewForRow(state, row, signature).token;
+    body.addressParts = parts;
+    await save();
+    // Emulate an older saved review without rewriting its timestamp or source token.
+    Object.values(state.recipient_reviews)[0].values.address =
+      formatLetterAddress(parts, false);
+    const before = structuredClone(state.recipient_reviews);
+    row.recipientCandidates[1].address = formatLetterAddress(parts);
+    expect(recipientReviewForRow(state, row, signature)).toMatchObject({
+      status: "saved",
+      values: { address: "11 Test St\nJacksonville, FL 32211" },
+    });
+    expect(state.recipient_reviews).toEqual(before);
+    row.recipientCandidates[1].addressParts.zip = "99999";
+    expect(recipientReviewForRow(state, row, signature).status).toBe(
+      "needs_review",
+    );
+  });
+  it("retains separate address fields for legacy reviews that saved only the assembled address", async () => {
+    const { state, row, body, signature, save } = setup();
+    const parts = {
+      address_line_1: "11 Test St",
+      address_line_2: "",
+      city: "Jacksonville",
+      state: "FL",
+      zip: "32211",
+      country: "",
+    };
+    row.recipientCandidates[1].addressParts = parts;
+    row.recipientCandidates[1].address = body.address;
+    body.reviewToken = recipientReviewForRow(state, row, signature).token;
+    await save();
+    const saved = Object.values(state.recipient_reviews)[0];
+    delete saved.values.addressParts;
+    saved.values.address = body.address;
+    expect(recipientReviewForRow(state, row, signature).values).toMatchObject({
+      address: "11 Test St\nJacksonville, FL 32211",
+      addressParts: parts,
+    });
+  });
   it("persists explicit name-field edits independently of source names, permissions, and appeals", async () => {
     const { row, body, state, signature, save } = setup();
     const original = structuredClone(row);

@@ -56,6 +56,7 @@ import {
   reviewPostalDocument,
   approvePostalDraft,
   discardPostalDraft,
+  updateLetterDates,
   continuePostalBatch,
   savedPostalDocument,
   postalBatchDownload,
@@ -341,6 +342,7 @@ export async function POST(request) {
       "review_postal_document",
       "approve_postal_draft",
       "discard_postal_draft",
+      "update_letter_dates",
       "continue_postal_batch",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
@@ -349,6 +351,16 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "update_letter_dates":
+        await updateLetterDates(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
       case "start_postal_draft":
         await startPostalDraft(
           state,

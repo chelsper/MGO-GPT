@@ -33,6 +33,7 @@ import {
   reviewPostalDocument,
   approvePostalDraft,
   discardPostalDraft,
+  updateLetterDates,
   continuePostalBatch,
   savedPostalDocument,
   postalBatchDownload,
@@ -370,6 +371,158 @@ async function draftFixture(format = "docx") {
 }
 
 describe("saved postal batch approvals", () => {
+  it("retains a days-old recipient review while requiring fresh NXT delivery checks", async () => {
+    const f = await draftFixture();
+    const recipients = structuredClone(f.state.recipient_reviews);
+    const later = "2026-09-28";
+    vi.setSystemTime(new Date(`${later}T15:00:00Z`));
+    await expect(
+      updateLetterDates(
+        f.state,
+        definitions,
+        later,
+        { draftId: f.id, confirm: true },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toThrow(/24 hours/);
+    f.state.snapshot.generatedAt = new Date().toISOString();
+    await runLetterReadiness(
+      f.state,
+      definitions,
+      later,
+      { action: "check_readiness", channel: "post" },
+      f.store,
+      ctx,
+      f.reader,
+    );
+    await updateLetterDates(
+      f.state,
+      definitions,
+      later,
+      { draftId: f.id, confirm: true },
+      f.store,
+      ctx,
+    );
+    expect(f.state.postalDraft.entries[0].row.letterDate).toBe(later);
+    expect(f.state.recipient_reviews).toEqual(recipients);
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it("updates an older draft's date globally without resetting recipient reviews or changing history", async () => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    const recipients = structuredClone(f.state.recipient_reviews);
+    const originalDocument = f.state.postalDraft.entries[0].document;
+    const history = structuredClone(f.state.history);
+    const tomorrow = "2026-09-26";
+    vi.setSystemTime(new Date(`${tomorrow}T14:00:00Z`));
+    await updateLetterDates(
+      f.state,
+      definitions,
+      tomorrow,
+      { draftId: f.id, confirm: true },
+      f.store,
+      ctx,
+    );
+    const entry = f.state.postalDraft.entries[0];
+    expect(entry.row.letterDate).toBe(tomorrow);
+    expect(entry.document).toBeUndefined();
+    expect(entry.reviewedHash).toBeUndefined();
+    expect(f.state.recipient_reviews).toEqual(recipients);
+    expect(f.state.history).toEqual(history);
+    expect(f.documents.has(originalDocument.id)).toBe(true);
+    expect(f.client.create).not.toHaveBeenCalled();
+    await expect(
+      approvePostalDraft(
+        f.state,
+        definitions,
+        tomorrow,
+        { draftId: f.id, confirm: true },
+        f.store,
+        ctx,
+        f.read,
+      ),
+    ).rejects.toThrow(/Preview and approve every document/);
+    await preparePostalDocument(
+      f.state,
+      definitions,
+      tomorrow,
+      f.body,
+      f.store,
+    );
+    expect(renderSocietyLetter).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ letterDate: tomorrow }),
+      tomorrow,
+    );
+  });
+  it("does not reset current-date document approvals or mutate created letters", async () => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    const before = structuredClone(f.state);
+    await updateLetterDates(
+      f.state,
+      definitions,
+      today,
+      { draftId: f.id, confirm: true },
+      f.store,
+      ctx,
+    );
+    expect(f.state).toEqual(before);
+    await f.approve();
+    const approved = structuredClone(f.state);
+    await updateLetterDates(
+      f.state,
+      definitions,
+      "2026-09-26",
+      { draftId: null, confirm: true },
+      f.store,
+      ctx,
+    );
+    expect(f.state).toEqual(approved);
+  });
+  it("requires confirmation and the current draft, and rejects a changed recipient rather than approving it silently", async () => {
+    const f = await draftFixture();
+    const before = structuredClone(f.state.postalDraft);
+    await expect(
+      updateLetterDates(
+        f.state,
+        definitions,
+        "2026-09-26",
+        { draftId: f.id },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toThrow(/Confirm/);
+    await expect(
+      updateLetterDates(
+        f.state,
+        definitions,
+        "2026-09-26",
+        { draftId: "different", confirm: true },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toThrow(/draft changed/);
+    f.state.postalDraft.entries[0].row.salutation = "Old greeting";
+    await expect(
+      updateLetterDates(
+        f.state,
+        definitions,
+        "2026-09-26",
+        { draftId: f.id, confirm: true },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toThrow(/More than the date changed/);
+    expect(f.store.savePostalDraft).not.toHaveBeenCalled();
+    expect(f.state.postalDraft.entries[0].row.letterDate).toBe(
+      before.entries[0].row.letterDate,
+    );
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
   it("prepares, previews, and approves exact documents without applying an appeal", async () => {
     const f = await draftFixture();
     await f.prepare();

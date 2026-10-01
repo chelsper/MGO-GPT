@@ -537,7 +537,7 @@ export default function SocietyLettersPage() {
       else {
         accept(payload);
         setPreview(null);
-        setSelected([]);
+        if (body.action !== "update_letter_dates") setSelected([]);
       }
       return payload;
     } catch (err) {
@@ -853,6 +853,10 @@ export default function SocietyLettersPage() {
       const result = await act({ ...action, confirm: true });
       if (action.action === "restart" && result?.job?.status === "running")
         setRefreshing(true);
+      if (action.action === "update_letter_dates" && result)
+        setReviewNotice(
+          `Uncreated letters use ${result.today}. Saved recipient reviews were kept. Previously created letters are unchanged.`,
+        );
     }
   }
   return (
@@ -1234,6 +1238,13 @@ export default function SocietyLettersPage() {
                       and save before moving to the next. Nothing is sent or
                       marked ready for delivery.
                     </p>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Saved recipient reviews last 15 days. Routine refreshes
+                      and letter-date changes do not reset them; changed
+                      recipient details still need review. NXT delivery checks
+                      remain separate and must be current before creating
+                      letters.
+                    </p>
                   </div>
                 )}
                 {reviewNotice && (
@@ -1243,6 +1254,39 @@ export default function SocietyLettersPage() {
                   >
                     {reviewNotice}
                   </p>
+                )}
+                {queryPostal && (
+                  <section
+                    aria-label="Letter date"
+                    className="my-5 rounded-xl border border-gray-200 bg-white p-4"
+                  >
+                    <h3 className="font-bold">Letter date</h3>
+                    <p className="mt-2 text-sm">
+                      New previews and letters use today's date in your
+                      organization's time zone: {data.today}.
+                    </p>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Update all uncreated letters together, even if you
+                      reviewed recipients earlier. Created letters and NXT
+                      history are not changed.
+                    </p>
+                    <button
+                      type="button"
+                      className={`${button} mt-3`}
+                      disabled={busy || refreshing || !!sendingBatch}
+                      onClick={() =>
+                        setConfirmation({
+                          action: "update_letter_dates",
+                          draftId: data.postalDraft?.id || null,
+                          title: "Use today's date for all uncreated letters?",
+                          description:
+                            "Saved recipient reviews are kept for 15 days. Any existing approval draft with an older date will need its documents prepared and previewed again. Fresh delivery checks are still required. Created letters and NXT records stay unchanged.",
+                        })
+                      }
+                    >
+                      Use today's date for all letters
+                    </button>
+                  </section>
                 )}
                 {queryPostal && (
                   <section
@@ -1451,7 +1495,7 @@ export default function SocietyLettersPage() {
                 )}
                 {data.postalDraft && (
                   <PostalBatchApproval
-                    key={data.postalDraft.id}
+                    key={`${data.postalDraft.id}-${data.postalDraft.dateUpdatedAt || ""}`}
                     draft={data.postalDraft}
                     revision={data.revision}
                     busy={busy || refreshing || !!sendingBatch}

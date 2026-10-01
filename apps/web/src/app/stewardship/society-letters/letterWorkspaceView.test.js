@@ -23,6 +23,25 @@ const saved = (values = choice) => ({
 });
 
 describe("saved-data letter workspace facets", () => {
+  it("distinguishes an expired recipient review from changed recipient details", () => {
+    const view = letterReviewView(
+      {
+        ...row,
+        recipientReview: {
+          status: "needs_review",
+          reason: "expired",
+          editable: true,
+          values: choice,
+        },
+      },
+      "post",
+    );
+    expect(view).toEqual({
+      reviewed: false,
+      needsReview: true,
+      attention: ["expired"],
+    });
+  });
   it("keeps reviewed and readiness separate, and allows attention to overlap", () => {
     const checked = {
       ...saved(),

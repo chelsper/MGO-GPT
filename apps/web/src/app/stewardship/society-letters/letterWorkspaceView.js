@@ -9,6 +9,7 @@ export const REVIEW_FILTERS = [
 
 export const ATTENTION_FILTERS = [
   ["changed", "Recipient choices changed"],
+  ["expired", "Recipient review over 15 days old"],
   ["unavailable", "Recipient review unavailable"],
   ["address", "Mailing address missing"],
   ["email", "Email missing or not selected"],
@@ -32,7 +33,8 @@ export function letterReviewView(row, channel, sourceIssue = null) {
       ? candidates
       : [row];
   const attention = [];
-  if (review?.status === "needs_review") attention.push("changed");
+  if (review?.status === "needs_review")
+    attention.push(review.reason === "expired" ? "expired" : "changed");
   if (review?.editable === false) attention.push("unavailable");
   if (channel === "post" && !choices.some((item) => hasText(item.address)))
     attention.push("address");

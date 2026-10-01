@@ -416,9 +416,9 @@ export default function LetterRecipientDialog({
               )}
               {recipient.recipientReview?.status === "needs_review" && (
                 <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                  Membership, source settings, or recipient details changed
-                  since the last review. Review the current saved query details
-                  again before saving.
+                  {recipient.recipientReview.reason === "expired"
+                    ? "This recipient review is more than 15 days old. Your saved wording is still here; check it and save to renew the review."
+                    : "Membership, source settings, or recipient details changed since the last review. Review the current saved query details again before saving."}
                 </p>
               )}
               {!disabled && !candidate && (

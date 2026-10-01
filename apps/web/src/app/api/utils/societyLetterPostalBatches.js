@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import PizZip from "pizzip";
-import { letterError } from "@/utils/societyLetters";
+import { letterError, normalizeLetterAddress } from "@/utils/societyLetters";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import { renderSocietyLetter } from "./societyLetterDocuments";
 import {
@@ -31,6 +32,16 @@ const fingerprint = (state, preview) =>
     state.readiness.policy,
     state.readiness.exclusionPolicy,
   ]);
+const comparableRow = (row) => ({
+  ...normalizeLetterAddress(row, false),
+  ...(row.recipientCandidates
+    ? {
+        recipientCandidates: row.recipientCandidates.map((candidate) =>
+          normalizeLetterAddress(candidate, false),
+        ),
+      }
+    : {}),
+});
 const mime = (format) =>
   format === "pdf"
     ? "application/pdf"
@@ -262,6 +273,55 @@ export async function discardPostalDraft(state, body, store) {
     throw letterError("Confirm discarding this uncreated draft.");
   const draft = structuredClone(draftFor(state, body.draftId));
   draft.status = "cancelled";
+  await store.savePostalDraft(draft);
+}
+
+export async function updateLetterDates(
+  state,
+  definitions,
+  today,
+  body,
+  store,
+  ctx,
+) {
+  if (body.confirm !== true)
+    throw letterError("Confirm using today's date for all uncreated letters.");
+  if ((state.postalDraft?.id || null) !== (body.draftId || null))
+    throw letterError(
+      "The approval draft changed. Reload before updating dates.",
+      409,
+    );
+  // New previews already use the organization's current date. Finalized history is immutable.
+  if (
+    !state.postalDraft ||
+    state.postalDraft.entries.every((entry) => entry.row.letterDate === today)
+  )
+    return;
+  const draft = structuredClone(draftFor(state, body.draftId));
+  draft.entries = draft.entries.map((entry) => {
+    const preview = previewFinalPostalLetter(state, definitions, today, {
+      householdId: entry.householdId,
+    });
+    if (
+      !isDeepStrictEqual(
+        comparableRow({ ...entry.row, letterDate: today }),
+        comparableRow(preview.row),
+      ) ||
+      !isDeepStrictEqual(entry.appeal, preview.appeal)
+    )
+      throw letterError(
+        "More than the date changed. Discard this draft and review the updated letter details; saved recipient choices are kept.",
+        409,
+      );
+    return {
+      householdId: entry.householdId,
+      fingerprint: fingerprint(state, preview),
+      row: preview.row,
+      appeal: preview.appeal,
+    };
+  });
+  draft.dateUpdatedAt = new Date().toISOString();
+  draft.dateUpdatedBy = ctx.user.id;
   await store.savePostalDraft(draft);
 }
 

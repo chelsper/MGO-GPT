@@ -35,6 +35,7 @@ import {
   CONSTITUENT_LETTER_PREVIEW_NOTICE,
   isLetterPreviewSource,
   normalizeLetterMergeSettings,
+  normalizeLetterAddress,
 } from "@/utils/societyLetters";
 
 const hash = (value) =>
@@ -158,9 +159,19 @@ export function letterWorkspace(state, definitions, today) {
         sourceRow,
         signature,
       );
-      const row = { ...sourceRow, ...recipientReview?.values };
+      const row = normalizeLetterAddress({
+        ...sourceRow,
+        ...recipientReview?.values,
+      });
       return {
         ...row,
+        ...(row.recipientCandidates
+          ? {
+              recipientCandidates: row.recipientCandidates.map((candidate) =>
+                normalizeLetterAddress(candidate),
+              ),
+            }
+          : {}),
         ...(recipientReview ? { recipientReview } : {}),
         ...(state.settings?.sourceMode === "society_queries"
           ? {

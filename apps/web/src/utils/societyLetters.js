@@ -544,14 +544,14 @@ export function constituentHouseholdsFromQuery(
               ],
             }
           : {}),
-        address: [
-          row.address1,
-          row.address2,
-          [row.city, row.state, row.postalCode].filter(Boolean).join(" "),
-          row.country,
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        address: formatLetterAddress({
+          address_line_1: row.address1,
+          address_line_2: row.address2,
+          city: row.city,
+          state: row.state,
+          zip: row.postalCode,
+          country: row.country,
+        }),
       }));
       const memberNames = combineMemberNames(
         recipients.flatMap((row) =>
@@ -1099,15 +1099,42 @@ export function letterAddressMergeData(row) {
   );
 }
 
-export function formatLetterAddress(parts) {
+export function formatLetterAddress(parts, comma = true) {
   return [
     parts.address_line_1,
     parts.address_line_2,
-    [parts.city, parts.state, parts.zip].filter(Boolean).join(" "),
+    [
+      [parts.city, parts.state].filter(Boolean).join(comma ? ", " : " "),
+      parts.zip,
+    ]
+      .filter(Boolean)
+      .join(" "),
     parts.country,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// Correct only an address assembled from known parts; never rewrite manual text.
+export function normalizeLetterAddress(row, comma = true) {
+  const candidate = row.recipientCandidates?.find(
+    (item) => item.constituentId === row.addressConstituentId,
+  );
+  const parts =
+    row.addressParts ||
+    (candidate?.address === row.address ? candidate.addressParts : null);
+  if (
+    !parts ||
+    ![formatLetterAddress(parts), formatLetterAddress(parts, false)].includes(
+      row.address,
+    )
+  )
+    return row;
+  return {
+    ...row,
+    address: formatLetterAddress(parts, comma),
+    addressParts: parts,
+  };
 }
 
 export function mergeLetterText(template, data) {

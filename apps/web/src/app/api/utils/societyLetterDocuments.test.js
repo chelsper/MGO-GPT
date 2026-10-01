@@ -43,7 +43,8 @@ describe("society Word letters", () => {
     expect(xml).toContain("Jordan");
     expect(xml).toContain("123 Sample Street");
     expect(xml).toContain("Suite 200");
-    expect(xml).toContain("Example City");
+    expect(xml).toContain("Example City, FL 00000");
+    expect(xml).not.toContain("Example City FL 00000");
     expect(xml).toContain("00000");
     expect(xml).toContain("Order of the Dolphin");
     expect(xml).toContain("2026-09-25");

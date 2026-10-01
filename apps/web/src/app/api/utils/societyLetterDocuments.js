@@ -5,6 +5,7 @@ import { inflateRawSync } from "node:zlib";
 import {
   LETTER_TAGS,
   LETTER_ADDRESS_TAGS,
+  formatLetterAddress,
   letterError,
   letterMergeData,
   letterAddressMergeData,
@@ -219,6 +220,14 @@ export function renderSocietyLetterSample(
   period,
   today,
 ) {
+  const addressParts = {
+    address_line_1: "123 Sample Street",
+    address_line_2: "Suite 200",
+    city: "Example City",
+    state: "FL",
+    zip: "00000",
+    country: "United States",
+  };
   return renderSocietyLetter(
     template,
     {
@@ -230,16 +239,8 @@ export function renderSocietyLetterSample(
       spouseLastName: "Example",
       addressee: "Alex and Jordan Example",
       salutation: "Alex and Jordan",
-      address:
-        "123 Sample Street\nSuite 200\nExample City FL 00000\nUnited States",
-      addressParts: {
-        address_line_1: "123 Sample Street",
-        address_line_2: "Suite 200",
-        city: "Example City",
-        state: "FL",
-        zip: "00000",
-        country: "United States",
-      },
+      address: formatLetterAddress(addressParts),
+      addressParts,
       societyName,
       period,
     },

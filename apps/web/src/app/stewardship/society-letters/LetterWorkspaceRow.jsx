@@ -6,6 +6,7 @@ const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
 const issueActions = {
   changed: "Review changed choices",
+  expired: "Renew recipient review",
   address: "Add mailing address",
   email: "Choose email",
   greeting: "Review greeting",

@@ -8,8 +8,9 @@ import {
   inspectLetterTemplate,
   validateLetterTemplate,
   renderSocietyLetter,
+  renderSocietyLetterSample,
 } from "./societyLetterDocuments";
-import { LETTER_TAGS } from "@/utils/societyLetters";
+import { LETTER_TAGS, normalizeLetterAddress } from "@/utils/societyLetters";
 
 const run = (text) =>
   `<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
@@ -62,6 +63,41 @@ const xml = (result) =>
   new PizZip(result.document).file("word/document.xml").asText();
 
 describe("Word field mappings", () => {
+  it("uses the city comma in the saved Word template sample's combined address block", () => {
+    const result = xml(
+      renderSocietyLetterSample(
+        template(),
+        "Order of the Dolphin",
+        row.period,
+        "2026-10-01",
+      ),
+    );
+    expect(result).toContain("Example City, FL 00000");
+    expect(result).not.toContain("Example City FL 00000");
+    expect(result).not.toContain("Example City,,");
+  });
+  it("retains the city comma when collapsing an address block and uses the new preview date", () => {
+    const saved = template();
+    const recipient = normalizeLetterAddress({
+      ...row,
+      addressParts: {
+        address_line_1: "10 Test Street",
+        address_line_2: "Suite 2",
+        city: "Jacksonville",
+        state: "FL",
+        zip: "32211",
+        country: "",
+      },
+    });
+    const earlier = xml(renderSocietyLetter(saved, recipient, "2026-09-25"));
+    const current = xml(renderSocietyLetter(saved, recipient, "2026-10-01"));
+    expect(current).toContain("Jacksonville, FL 32211");
+    expect(current).not.toContain("Jacksonville,,");
+    expect(earlier).toContain("September 25, 2026");
+    expect(current).toContain("October 1, 2026");
+    expect(current).not.toContain("September 25, 2026");
+    expect(row.address).toBe("10 Test Street\nSuite 2\nJacksonville FL 32211");
+  });
   it("does not require an address for a template that does not use one", () => {
     const saved = template(content(p(run("Dear {salutation},"))));
     expect(

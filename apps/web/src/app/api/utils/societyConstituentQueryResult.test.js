@@ -150,7 +150,7 @@ describe("constituent-ID society result deduplication", () => {
     ).toMatchObject({
       email: "",
       emailCandidates: ["a@example.org", "b@example.org"],
-      address: "123 Example Street\nJacksonville FL 32211",
+      address: "123 Example Street\nJacksonville, FL 32211",
     });
     expect(groups.find((g) => g.householdId === "20").members).toEqual(["20"]);
   });

@@ -14,6 +14,8 @@ import {
   letterMergeData,
   letterNameMergeData,
   letterHierarchy,
+  formatLetterAddress,
+  normalizeLetterAddress,
 } from "./societyLetters";
 
 const definitions = [
@@ -58,6 +60,48 @@ const table = (...rows) => ({
   tableRows: rows.map((row) =>
     Object.keys(LETTER_COLUMNS).map((key) => row[key]),
   ),
+});
+
+describe("letter address punctuation", () => {
+  const parts = {
+    address_line_1: "10 Test Street",
+    address_line_2: "",
+    city: "Jacksonville",
+    state: "FL",
+    zip: "32211",
+    country: "",
+  };
+  it("separates city and state, omits blank lines, and leaves ZIP space-separated", () => {
+    expect(formatLetterAddress(parts)).toBe(
+      "10 Test Street\nJacksonville, FL 32211",
+    );
+    expect(formatLetterAddress({ ...parts, state: "" })).toBe(
+      "10 Test Street\nJacksonville 32211",
+    );
+    expect(formatLetterAddress({ ...parts, city: "" })).toBe(
+      "10 Test Street\nFL 32211",
+    );
+    expect(formatLetterAddress({ ...parts, city: "", state: "" })).toBe(
+      "10 Test Street\n32211",
+    );
+  });
+  it("upgrades only a matching structured address without changing manual wording", () => {
+    const old = {
+      addressParts: parts,
+      address: formatLetterAddress(parts, false),
+    };
+    expect(normalizeLetterAddress(old).address).toBe(
+      formatLetterAddress(parts),
+    );
+    expect(normalizeLetterAddress(normalizeLetterAddress(old), false)).toEqual(
+      old,
+    );
+    const edited = { ...old, address: "Use the PO Box instead" };
+    expect(normalizeLetterAddress(edited)).toBe(edited);
+    expect(normalizeLetterAddress({ address: old.address }).address).toBe(
+      old.address,
+    );
+  });
 });
 
 describe("constituent query household previews", () => {
@@ -215,12 +259,12 @@ describe("constituent query household previews", () => {
     expect(household.name).toBe("Alex Sample");
     expect(household.members).toEqual(["10", "11"]);
     expect(household.recipientCandidates[0].address).toBe(
-      "10 Test Street\nSuite 200\nJacksonville FL 32211",
+      "10 Test Street\nSuite 200\nJacksonville, FL 32211",
     );
     const [individual] = group({ ...row, spouseId: "", address2: "  " });
     expect(individual.members).toEqual(["10"]);
     expect(individual.recipientCandidates[0].address).toBe(
-      "10 Test Street\nJacksonville FL 32211",
+      "10 Test Street\nJacksonville, FL 32211",
     );
     expect(individual.mailAllowed).toBe(false);
     expect(individual.addressee).toBe("");

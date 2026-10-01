@@ -95,6 +95,51 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("confirms a global date update while keeping reviewed status, selection, and the current list", async () => {
+    const workspace = {
+      ...base,
+      today: "2026-10-01",
+      settings: societyQuerySettings(),
+      rows: [reviewRow("10", true)],
+    };
+    fetchMock.mockImplementation(async (_url, options) =>
+      Response.json(
+        options?.method === "POST"
+          ? { ...workspace, revision: 2, today: "2026-10-02" }
+          : workspace,
+      ),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Household 10" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use today's date for all letters" }),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const confirm = within(screen.getByRole("dialog"));
+    expect(
+      confirm.getByText(/Saved recipient reviews are kept for 15 days/),
+    ).toBeVisible();
+    fireEvent.click(
+      confirm.getByRole("button", { name: "Confirm", exact: true }),
+    );
+    await screen.findByText(/Uncreated letters use 2026-10-02/);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      action: "update_letter_dates",
+      draftId: null,
+      confirm: true,
+      revision: 1,
+    });
+    expect(
+      screen.getByRole("checkbox", { name: "Select Household 10" }),
+    ).toBeChecked();
+    expect(screen.getByText("Recipient choices saved")).toBeVisible();
+    expect(
+      screen.getByRole("region", { name: "Letter date" }),
+    ).toHaveTextContent("2026-10-02");
+    expect(window.location.search).not.toMatch(/excluded|history/);
+  });
   it("lets unchecked recipients be selected for review without authorizing delivery or writing NXT", async () => {
     fetchMock.mockImplementation(async () =>
       Response.json({

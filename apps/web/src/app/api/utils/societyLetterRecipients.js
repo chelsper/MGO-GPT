@@ -6,6 +6,7 @@ import {
   LETTER_ADDRESS_TAGS,
   LETTER_NAME_TAGS,
   formatLetterAddress,
+  normalizeLetterAddress,
 } from "@/utils/societyLetters";
 import {
   organizationLetterContacts,
@@ -16,6 +17,7 @@ const hash = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const membersFor = (row) => [...row.members].sort();
 const reviewKey = (row) => hash([row.period.key, membersFor(row)]);
+export const RECIPIENT_REVIEW_DAYS = 15;
 
 export function recipientReviewForRow(state, row, sourceSignature) {
   if (!isLetterPreviewSource(row) || !row.recipientCandidates) return null;
@@ -31,7 +33,8 @@ export function recipientReviewForRow(state, row, sourceSignature) {
     ),
     row.recipientCandidates
       .map((candidate) => ({
-        ...candidate,
+        // Keep old review tokens valid across the comma-only address correction.
+        ...normalizeLetterAddress(candidate, false),
         emailCandidates: [...(candidate.emailCandidates || [])].sort(),
       }))
       .sort((a, b) => a.constituentId.localeCompare(b.constituentId)),
@@ -48,12 +51,33 @@ export function recipientReviewForRow(state, row, sourceSignature) {
   const editable =
     state.snapshot?.signature === sourceSignature &&
     letterDisposition(row, state.history, state.exclusions).status === "ready";
-  const current = editable && saved?.token === token;
+  const matches = editable && saved?.token === token;
+  const savedTime = Date.parse(saved?.savedAt);
+  const age = Date.now() - savedTime;
+  const recent =
+    Number.isFinite(savedTime) &&
+    age >= 0 &&
+    age <= RECIPIENT_REVIEW_DAYS * 86400000;
+  const current = matches && recent;
+  const normalized = matches
+    ? normalizeLetterAddress({ ...row, ...saved.values })
+    : null;
+  const values = matches
+    ? {
+        ...saved.values,
+        address: normalized.address,
+        ...(normalized.addressParts
+          ? { addressParts: normalized.addressParts }
+          : {}),
+      }
+    : null;
   return {
     status: current ? "saved" : related ? "needs_review" : "unreviewed",
     token,
     editable,
-    values: current ? saved.values : null,
+    // An age-only expiration keeps the edited wording available for quick re-review.
+    values,
+    ...(matches && !recent ? { reason: "expired" } : {}),
     savedAt: related?.savedAt || null,
     savedBy: related?.savedBy || null,
   };
@@ -129,7 +153,7 @@ export function validateLetterRecipientChoices(
     throw letterError(
       "Choose one of the selected recipient's returned email addresses, or leave email blank.",
     );
-  const address = plainText(body.address, "Mailing address", 2000, true, true);
+  let address = plainText(body.address, "Mailing address", 2000, true, true);
   let nameOverrides;
   if (body.nameOverrides != null) {
     if (
@@ -160,12 +184,25 @@ export function validateLetterRecipientChoices(
         plainText(body.addressParts[key], `Address ${key}`, 300, true),
       ]),
     );
-    if (formatLetterAddress(addressParts) !== address)
+    if (
+      ![
+        formatLetterAddress(addressParts),
+        formatLetterAddress(addressParts, false),
+      ].includes(address)
+    )
       throw letterError(
         "The separate address fields do not match the mailing address. Review the address before saving.",
       );
-  } else if (address === addressSource.address && addressSource.addressParts) {
+    address = formatLetterAddress(addressParts);
+  } else if (
+    addressSource.addressParts &&
+    [
+      addressSource.address,
+      normalizeLetterAddress(addressSource).address,
+    ].includes(address)
+  ) {
     addressParts = { ...addressSource.addressParts };
+    address = normalizeLetterAddress({ address, addressParts }).address;
   }
   return {
     recipientConstituentId: selected.constituentId,

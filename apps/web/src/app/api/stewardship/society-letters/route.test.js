@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   postalReview: vi.fn(),
   postalApprove: vi.fn(),
   postalDiscard: vi.fn(),
+  letterDates: vi.fn(),
   postalContinue: vi.fn(),
   postalDocument: vi.fn(),
 }));
@@ -45,6 +46,7 @@ vi.mock("@/app/api/utils/societyLetterPostalBatches", () => ({
   reviewPostalDocument: mocks.postalReview,
   approvePostalDraft: mocks.postalApprove,
   discardPostalDraft: mocks.postalDiscard,
+  updateLetterDates: mocks.letterDates,
   continuePostalBatch: mocks.postalContinue,
   savedPostalDocument: mocks.postalDocument,
   postalBatchDownload: vi.fn(),
@@ -157,6 +159,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "review_postal_document",
     "approve_postal_draft",
     "discard_postal_draft",
+    "update_letter_dates",
     "continue_postal_batch",
   ])(
     "restricts %s to authorized reviewers and current revisions",
@@ -196,6 +199,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
       ["review_postal_document", mocks.postalReview],
       ["approve_postal_draft", mocks.postalApprove],
       ["discard_postal_draft", mocks.postalDiscard],
+      ["update_letter_dates", mocks.letterDates],
     ];
     for (const [action, mock] of steps) {
       expect((await POST(request({ action, revision: 3 }))).status).toBe(200);
