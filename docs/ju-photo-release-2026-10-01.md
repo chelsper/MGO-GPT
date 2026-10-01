@@ -27,5 +27,16 @@ adjustments occur. No sample photos are to be saved in production for testing.
 
 ## Release
 
-Pending JU-only release verification. Deploy from a clean commit archive with
-explicit JU project IDs, without pushing shared Git or changing sandbox targets.
+- Source commit: `fa46f704cd3fc2b35f1212de11f314a332904aa4`.
+- JU deployment: `dpl_8dMTf8qFobtrfrwspLHLAmg1AJAH`,
+  `https://mgo-8eoxhu88g-chelspers-projects.vercel.app`.
+- The production domain `https://www.jumgogpt.app` reported the exact source SHA.
+- Deployed a clean archive with explicit JU project IDs. No shared Git push or
+  persistent environment changes.
+- Sandbox stayed at `dpl_DjwTBKV1P5PptBLibP4oQC9GAK6N`; the other copy stayed at
+  `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`.
+- Live UI loaded all 26 active items and showed Item photo / Choose photo in
+  Edit item. The form was closed without saving. No synthetic photos, stock
+  adjustments, or NXT writes were made in production.
+- Unauthenticated image access returned 401. The inventory tab was left open
+  for the user; synthetic preview tabs were closed.
