@@ -216,6 +216,7 @@ export default function StewardshipPage() {
         <a href="/stewardship/inventory" className="py-2 hover:underline">
           Gift Inventory
         </a>
+        <a href="/stewardship/inventory/recipients" className="py-2 hover:underline">Received Items</a>
       </nav>
     </main>
   );

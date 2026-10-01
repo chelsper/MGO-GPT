@@ -14,6 +14,7 @@ const RETURN_PAGES = {
   "/setup": "Setup Hub",
   "/stewardship": "Stewardship",
   "/stewardship/inventory": "Gift Inventory",
+  "/stewardship/inventory/recipients": "Received Items",
   "/stewardship/requests": "Assistance Requests",
   "/stewardship/gift-follow-ups": "Gift Follow-ups",
   "/stewardship/society-letters": "Society Letter Creation",

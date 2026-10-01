@@ -18,6 +18,7 @@ beforeEach(() => {
       return json({ id: url.includes("data-requests") ? 1 : body.id, ...body, reviewer_notes: body.reviewerNotes });
     }
     if (url.includes("data-requests")) return failData ? json({ error: "Data service unavailable" }, false) : json(data);
+    if (url.includes("/api/stewardship/assistance?")) return json({ viewerKey: "2", giftChoices: [{ id: "12", name: "JU Blanket", description: "Green" }] });
     if (url.includes("list-requests")) return json(lists);
     if (url.includes("submissions/all")) return json(submissions);
     if (url.includes("constituency-import")) return json({ runs: imports, nextCursor: null });
@@ -196,7 +197,8 @@ describe("one linked stewardship workflow", () => {
     fireEvent.click(rowButton("Sample Foundation"));
     fireEvent.click(screen.getByRole("button", { name: "Start work" }));
     await screen.findByText(/Add a progress note/);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.filter(([, options]) => options.method)).toHaveLength(0);
     fireEvent.change(screen.getByRole("textbox", { name: /Reviewer notes/ }), { target: { value: "Choosing a gift for the officer to review." } });
     fireEvent.click(screen.getByRole("button", { name: "Start work" }));
     await screen.findByText(/Sample Foundation: In Progress/);
@@ -213,5 +215,39 @@ describe("one linked stewardship workflow", () => {
     expect(rowButton("Sample Foundation")).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("textbox", { name: /Reviewer notes/ })).toHaveValue("Gift arranged.");
     expect(screen.getByRole("button", { name: "Reopen request" })).toBeInTheDocument();
+  });
+  it("lets staff save or clear a gift on the existing request and shows the saved preference", async () => {
+    data.push({ ...request(), stewardship_gift_item_id: "12", stewardship_gift_item_snapshot: { id: "12", name: "JU Blanket" } });
+    render(<AdvancementWorkQueue initialCategory="stewardship" stewardshipOnly />); await ready();
+    fireEvent.click(rowButton("Sample Foundation"));
+    const select = await screen.findByLabelText("Gift preference (optional)");
+    expect(select).toHaveValue("12");
+    expect(screen.getByText("Gift preference:")).toBeVisible();
+    fireEvent.change(select, { target: { value: "" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Reviewer notes/ }), { target: { value: "Please suggest something else." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save request updates" }));
+    await screen.findByText(/Sample Foundation: notes saved/);
+    const write = fetch.mock.calls.find(([, options]) => options.method);
+    expect(JSON.parse(write[1].body)).toEqual({ id: "22", viewerKey: "2", version: 1, status: "Open", note: "Please suggest something else.", giftItemId: null });
+  });
+  it("links recipient history and prevents recording over unsaved gift edits", async () => {
+    data.push({ ...request(), blackbaud_constituent_id: "100", stewardship_gift_item_id: "12", stewardship_gift_item_snapshot: { id: "12", name: "JU Blanket" } });
+    render(<AdvancementWorkQueue initialCategory="stewardship" stewardshipOnly />); await ready();
+    fireEvent.click(rowButton("Sample Foundation"));
+    const select = await screen.findByLabelText("Gift preference (optional)");
+    expect(screen.getByRole("link", { name: /View this recipient's received items/ }).getAttribute("href")).toContain("constituentId=100");
+    fireEvent.change(select, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Record received item" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh queues" })); await ready();
+    // Existing request drafts stay intentionally unsaved across reloads.
+    expect(screen.getByRole("button", { name: "Record received item" })).toBeDisabled();
+  });
+  it("displays a saved receipt and no gift picker when a request is already fulfilled", async () => {
+    data.push({ ...request(), stewardship_gift_item_id: "12", stewardship_received_item: { id: "1", item_snapshot: { name: "JU Blanket" }, received_on: "2020-10-01", recorded_by_name: "Staff" } });
+    render(<AdvancementWorkQueue initialCategory="stewardship" stewardshipOnly />); await ready(); fireEvent.click(rowButton("Sample Foundation"));
+    expect(screen.getByText("Received:")).toBeVisible();
+    expect(screen.queryByRole("combobox", { name: "Gift preference (optional)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Record received item" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Complete request" })).toBeEnabled();
   });
 });

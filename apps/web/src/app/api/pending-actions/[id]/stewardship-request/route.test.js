@@ -1,9 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), context: vi.fn(), schema: vi.fn(), read: vi.fn(), create: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), context: vi.fn(), schema: vi.fn(), read: vi.fn(), create: vi.fn(), gifts: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: mocks.context }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
-vi.mock("@/app/api/utils/stewardshipAssistance", () => ({ readTaskAssistance: mocks.read, createTaskAssistance: mocks.create }));
+vi.mock("@/app/api/utils/stewardshipAssistance", () => ({ readTaskAssistance: mocks.read, createTaskAssistance: mocks.create, readAvailableStewardshipGifts: mocks.gifts }));
 import { GET, POST } from "./route";
 
 const context = { sessionUser: { id: 2, role: "admin", active: true }, workspaceUser: { id: 7, role: "mgo", active: true }, isActing: true };
@@ -14,6 +14,7 @@ beforeEach(() => {
   vi.clearAllMocks(); mocks.auth.mockResolvedValue({ user: { email: "admin@example.test" } });
   mocks.context.mockResolvedValue(context); mocks.read.mockResolvedValue({ id: 50, status: "Open", request: null });
   mocks.create.mockResolvedValue({ id: "11", already_exists: false });
+  mocks.gifts.mockResolvedValue([{ id: "12", name: "Blanket", description: "Green" }]);
 });
 it("loads saved context only and binds both workspace and actor", async () => {
   const response = await GET(request(), params);
@@ -62,4 +63,24 @@ it("reports stale tasks and safe errors without leaking internals", async () => 
   mocks.create.mockResolvedValue(null); expect((await POST(request(draft), params)).status).toBe(409);
   mocks.read.mockRejectedValue(new Error("secret"));
   const response = await GET(request(), params); expect(response.status).toBe(500); expect(JSON.stringify(await response.json())).not.toContain("secret");
+});
+it("returns gift choices only for an authorized, open follow-up without a request", async () => {
+  expect((await (await GET(request(), params)).json()).giftChoices).toHaveLength(1);
+  mocks.gifts.mockClear(); mocks.read.mockResolvedValue({ id: 50, status: "Open", request: { id: "11" } });
+  expect((await (await GET(request(), params)).json()).giftChoices).toEqual([]);
+  expect(mocks.gifts).not.toHaveBeenCalled();
+  mocks.read.mockResolvedValue(null); expect((await GET(request(), params)).status).toBe(404);
+  expect(mocks.gifts).not.toHaveBeenCalled();
+});
+it("allows assistance without a choice if catalog loading fails", async () => {
+  mocks.gifts.mockRejectedValue(new Error("Catalog unavailable"));
+  const response = await GET(request(), params);
+  expect(response.status).toBe(200); expect((await response.json()).giftChoices).toBeNull();
+});
+it("accepts only a gift ID, not a forged item snapshot or an item on a letter request", async () => {
+  expect((await POST(request({ ...draft, giftItemId: "12" }), params)).status).toBe(201);
+  expect(mocks.create).toHaveBeenLastCalledWith(context, "50", { ...draft, giftItemId: "12" });
+  expect((await POST(request({ ...draft, type: "letter", giftItemId: "12" }), params)).status).toBe(400);
+  expect((await POST(request({ ...draft, giftItemId: 12 }), params)).status).toBe(400);
+  expect((await POST(request({ ...draft, giftItemSnapshot: { name: "Forged" } }), params)).status).toBe(400);
 });

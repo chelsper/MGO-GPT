@@ -21,6 +21,35 @@ Full letter-body overrides are not part of this implementation. Shared Word
 text and merge-field settings remain in Letter templates. Saved recipient
 choices are scoped to the household and period and do not modify NXT.
 
+## Checkbox Selection (October 1)
+
+Release status is tracked in
+[the combined stewardship release note](ju-stewardship-combined-release-2026-10-01.md).
+
+Checkboxes for editable query recipients now select people for review, even
+when postal readiness is unchecked, stale, or needs attention. **Select for
+review (up to 50)** uses the current filters; **Review selected recipients**
+opens exactly those recipients, including already-saved choices. Selection and
+opening review do not issue API requests, create letters, or apply appeals.
+
+**Select ready households (up to 10)** remains a separate shortcut for document
+approval. The entire selection must pass the existing readiness requirements
+and the 10-household limit before **Start document approval** is enabled. Mixed
+ready/unready selections are not silently reduced. The page explains unmet
+requirements, including incomplete refreshes, source edits, and existing drafts.
+Preview-only sources still offer review only; email delivery remains gated.
+
+Genuinely unavailable checkboxes now have a visible, accessible explanation.
+Checkbox hit targets are larger, and filters, channel changes, and reviewer or
+period changes clear selections. Server permission, household, hierarchy,
+duplicate, freshness, and delivery checks are unchanged.
+
+Verification: 175 society-letter UI tests passed, including 11 new selection
+cases. Full suite: 5,310 passed, 140 opt-in tests skipped. Typecheck and production
+build passed. Synthetic browser checks confirmed individual and ready-only
+selection, an exact two-recipient review queue, preserved delivery blocking,
+and a 390px mobile layout without page overflow. No production records changed.
+
 ## Side-by-Side Review (September 25)
 
 On desktop, recipient fields and a personalized Word preview share one dialog.

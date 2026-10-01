@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import StewardshipAssistanceDialog from "./StewardshipAssistanceDialog";
-const data = { viewerId: "2", workspaceId: "7", task: { id: 50, status: "Open", updated_at: "2026-09-28 10:00:00.123456+00", request: null,
+const data = { viewerId: "2", workspaceId: "7", giftChoices: [{ id: "12", name: "JU Blanket", description: "Green" }], task: { id: 50, status: "Open", updated_at: "2026-09-28 10:00:00.123456+00", request: null,
   source_gift_snapshot: { constituentName: "Sample Donor", constituentId: "100", amount: 2500, date: "2026-09-28" } } };
 const saved = { ...data, task: { ...data.task, request: { id: "11", status: "Open", request_type: "Stewardship: Personal gift", request_note: "A retirement gift", needed_by: "2026-10-01" } } };
 const reply = (value, ok = true) => ({ ok, json: async () => value });
@@ -61,4 +61,21 @@ it("confirms unsaved drafts before closing and aborts pending reads", async () =
   view.unmount();
   fetch.mockImplementation(() => new Promise(() => {})); const second = mount(); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   const signal = fetch.mock.calls[1][1].signal; second.unmount(); expect(signal.aborted).toBe(true);
+});
+it("sends only the optional selected ID, then displays the saved preference", async () => {
+  mount(); await fill();
+  fireEvent.change(screen.getByLabelText("Gift preference (optional)"), { target: { value: "12" } });
+  fetch.mockResolvedValueOnce(reply({ ...saved, task: { ...saved.task, request: { ...saved.task.request, stewardship_gift_item_snapshot: { id: "12", name: "JU Blanket" } } } }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  await screen.findByText("Gift preference:");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ type: "gift", instructions: "A retirement gift", neededBy: "", giftItemId: "12", expectedUpdatedAt: data.task.updated_at });
+  expect(screen.getByText(/Saved on this request/)).toBeVisible();
+});
+it("clears a gift when switching request types and still permits requests with no available items", async () => {
+  mount(); await fill(); fireEvent.change(screen.getByLabelText("Gift preference (optional)"), { target: { value: "12" } });
+  fireEvent.change(screen.getByLabelText("What would you like help with?"), { target: { value: "letter" } });
+  expect(screen.queryByLabelText("Gift preference (optional)")).toBeNull();
+  fetch.mockResolvedValueOnce(reply(saved)); fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  await screen.findByText("Request submitted to Advancement Services.");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).not.toHaveProperty("giftItemId");
 });

@@ -3,8 +3,14 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import Papa from "papaparse";
-import { createTaskAssistance, readTaskAssistance, updateAssistance } from "./stewardshipAssistance";
+import { createTaskAssistance, readTaskAssistance, updateAssistance, readAvailableStewardshipGifts } from "./stewardshipAssistance";
 import schema from "./stewardshipAssistanceSchema";
+import inventorySchema from "./stewardshipInventorySchema";
+import giftRequestsSchema from "./stewardshipGiftRequestsSchema";
+import receiptsSchema from "./stewardshipReceiptsSchema";
+import { readGiftReceipts, writeGiftReceipt } from "./stewardshipReceipts";
+import { receiptFilters } from "@/utils/stewardshipReceipts";
+import { writeGiftInventory } from "./stewardshipInventory";
 
 const socket = process.env.GIFT_FOLLOWUP_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/gift-followup-pg\.[A-Za-z0-9]+$/.test(socket || "");
@@ -15,7 +21,7 @@ function execute(statement) {
       { encoding: "utf8" }, (error, output) => {
         if (error) { reject(error); return; }
         resolve(output.trim() ? Papa.parse(output.trim(), { header: true }).data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>
-          [key, value === "" ? null : ["request", "source_gift_snapshot"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
+          [key, value === "" ? null : ["request", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
       });
     child.stdin.end(`SET search_path=stewardship_assistance_fixture;\n${statement}`);
   });
@@ -47,9 +53,11 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     expect(statements).toHaveLength(1);
     await execute(statements[0]);
     await schema(db); await schema(db);
+    await inventorySchema(db); await giftRequestsSchema(db); await giftRequestsSchema(db);
+    await receiptsSchema(db); await receiptsSchema(db);
   });
   beforeEach(async () => {
-    await execute(`TRUNCATE users, pending_actions, data_change_requests, stewardship_request_events RESTART IDENTITY CASCADE;
+    await execute(`TRUNCATE users, pending_actions, data_change_requests, stewardship_request_events, stewardship_gift_items, stewardship_gift_item_events RESTART IDENTITY CASCADE;
       INSERT INTO users VALUES (2,'Admin','admin',TRUE),(7,'Officer','mgo',TRUE),(8,'Other Officer','mgo',TRUE);
       INSERT INTO pending_actions VALUES(10,7,'Open','2026-09-28T10:00:00Z','900',
         '{"giftId":"900","constituentId":"100","constituentName":"Sample Donor","amount":2500,"date":"2026-09-16"}');`);
@@ -121,5 +129,163 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     const first = await create(); await execute("DELETE FROM pending_actions");
     expect((await execute("SELECT id FROM data_change_requests"))[0].id).toBe(first.id);
     expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(1);
+  });
+  const addGift = async (availability = "available") => (await writeGiftInventory(actor, { operation: "create", viewerKey: "test", requestId: "18d02230-07b2-4f12-8967-3e0b0147c900", name: "Test blanket", description: "Green blanket", location: "Private storage detail", availability }, db))[0];
+  const choose = giftItemId => createTaskAssistance(context, 10, { ...draft, giftItemId }, db);
+  it("offers only available active items without exposing staff-only storage details", async () => {
+    const item = await addGift();
+    expect(await readAvailableStewardshipGifts(db)).toEqual([{ id: item.id, name: "Test blanket", description: "Green blanket" }]);
+    await writeGiftInventory(actor, { operation: "archive", viewerKey: "test", id: item.id, version: 1, reason: "Retired" }, db);
+    expect(await readAvailableStewardshipGifts(db)).toEqual([]);
+  });
+  it.each(["unknown", "unavailable"])("does not offer or accept %s items", async availability => {
+    const item = await addGift(availability);
+    expect(await readAvailableStewardshipGifts(db)).toEqual([]);
+    expect(await choose(item.id)).toBeNull();
+    expect(await execute("SELECT * FROM data_change_requests")).toHaveLength(0);
+  });
+  it("records one immutable selection on the same request and audit, without changing inventory or the donor task", async () => {
+    const item = await addGift();
+    const before = await execute("SELECT * FROM stewardship_gift_items");
+    const result = await choose(item.id);
+    const task = await readTaskAssistance(context, 10, db);
+    expect(task.request).toMatchObject({ id: result.id, stewardship_gift_item_id: item.id, stewardship_gift_item_snapshot: { id: item.id, name: "Test blanket", version: 1 } });
+    expect(task.status).toBe("Open");
+    expect(task.request.stewardship_gift_item_snapshot).not.toHaveProperty("location");
+    expect((await execute("SELECT * FROM stewardship_request_events"))[0]).toMatchObject({ gift_item_id: item.id, gift_item_snapshot: { name: "Test blanket" } });
+    expect(await execute("SELECT * FROM stewardship_gift_items")).toEqual(before);
+  });
+  it("preserves selected gift history across rename/archive and idempotent request retries", async () => {
+    const item = await addGift(); const first = await choose(item.id);
+    await writeGiftInventory(actor, { operation: "update", viewerKey: "test", id: item.id, version: 1, name: "Renamed blanket", description: "New description", location: "Elsewhere", availability: "available" }, db);
+    await writeGiftInventory(actor, { operation: "archive", viewerKey: "test", id: item.id, version: 2, reason: "Retired" }, db);
+    expect(await choose(item.id)).toMatchObject({ id: first.id, already_exists: true });
+    const updated = await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "Checking alternatives", giftItemId: item.id }, db);
+    expect(updated.stewardship_gift_item_snapshot.name).toBe("Test blanket");
+    expect((await readTaskAssistance(context, 10, db)).request.stewardship_gift_item_snapshot.name).toBe("Test blanket");
+    expect((await execute("SELECT * FROM stewardship_request_events ORDER BY version"))[0].gift_item_snapshot.name).toBe("Test blanket");
+  });
+  it("lets staff choose or clear a gift, retaining each previous choice in audit", async () => {
+    const item = await addGift(); const first = await create();
+    const selected = await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "Suggested blanket", giftItemId: item.id }, db);
+    expect(selected.stewardship_gift_item_id).toBe(item.id);
+    const cleared = await updateAssistance(actor, first.id, { version: 2, status: "In Progress", note: "Need another suggestion", giftItemId: null }, db);
+    expect(cleared.stewardship_gift_item_id).toBeNull();
+    expect(cleared.stewardship_gift_item_snapshot).toBeNull();
+    expect((await execute("SELECT * FROM stewardship_request_events WHERE version=2"))[0].gift_item_snapshot.name).toBe("Test blanket");
+  });
+  it("blocks newly archived, nonexistent, non-gift and completed-request choices", async () => {
+    const item = await addGift(); const first = await create();
+    expect(await choose("999999")).toMatchObject({ id: first.id, already_exists: true });
+    for (const giftItemId of ["999999", "0", true]) expect(await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "No", giftItemId }, db)).toBeNull();
+    await writeGiftInventory(actor, { operation: "archive", viewerKey: "test", id: item.id, version: 1, reason: "Retired" }, db);
+    expect(await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "No", giftItemId: item.id }, db)).toBeNull();
+    await execute("UPDATE stewardship_gift_items SET archived_at=NULL; UPDATE data_change_requests SET status='Completed'");
+    expect(await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "Reopen first", giftItemId: item.id }, db)).toBeNull();
+    await execute("UPDATE data_change_requests SET status='Open',request_type='Stewardship: Letter or note'");
+    expect(await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "Not a gift request", giftItemId: item.id }, db)).toBeNull();
+  });
+  it("serializes an archive with request creation so only a valid current choice can be attached", async () => {
+    const item = await addGift();
+    const [archived, request] = await Promise.all([
+      writeGiftInventory(actor, { operation: "archive", viewerKey: "test", id: item.id, version: 1, reason: "Retired" }, db), choose(item.id),
+    ]);
+    expect(archived).toHaveLength(1);
+    if (request) expect((await readTaskAssistance(context, 10, db)).request.stewardship_gift_item_snapshot.version).toBe(1);
+    else expect(await execute("SELECT * FROM data_change_requests")).toHaveLength(0);
+    expect(await readAvailableStewardshipGifts(db)).toHaveLength(0);
+  });
+
+  const filters = (query = "") => receiptFilters(new URLSearchParams(query));
+  const receiptDraft = (requestId, itemId, changes = {}) => ({ operation: "record", viewerKey: "2", requestId, version: 1,
+    itemId, token: "74512c41-89cd-41be-946e-10a056cae491", receivedOn: "2000-10-01", note: "Handed to recipient", confirmed: true, ...changes });
+  const prepareReceipt = async () => { const item = await addGift(); const request = await choose(item.id); return receiptDraft(request.id, item.id); };
+  it("records confirmed receipt with authoritative snapshots and an audit, without completing the request/task or changing inventory", async () => {
+    const command = await prepareReceipt();
+    const before = await execute("SELECT * FROM stewardship_gift_items");
+    const received = await writeGiftReceipt(actor, command, db);
+    expect(received).toMatchObject({ request_id: command.requestId, received_on: "2000-10-01", request_version: "2", recorded_by_name: "Admin", item_snapshot: { name: "Test blanket" } });
+    const task = await readTaskAssistance(context, 10, db);
+    expect(task.status).toBe("Open"); expect(task.request.status).toBe("Open");
+    expect(task.request.stewardship_received_item).toMatchObject({ id: received.id, received_on: "2000-10-01" });
+    expect(await execute("SELECT * FROM stewardship_gift_items")).toEqual(before);
+    expect((await execute("SELECT * FROM stewardship_request_events ORDER BY version"))[1].note).toContain("Received item recorded");
+    expect((await readGiftReceipts(actor, filters(), db))[0]).toMatchObject({ constituent_id: "100", constituent_name: "Sample Donor", owner_name: "Officer" });
+  });
+  it("makes repeated or simultaneous receipt submissions idempotent, rejecting a different token for the same request", async () => {
+    const command = await prepareReceipt();
+    const results = await Promise.all([writeGiftReceipt(actor, command, db), writeGiftReceipt(actor, command, db)]);
+    expect(results[0].id).toBe(results[1].id);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+    expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(2);
+    expect(await writeGiftReceipt(actor, { ...command, version: 2, token: "74512c41-89cd-41be-946e-10a056cae492" }, db)).toBeNull();
+    expect(await writeGiftReceipt(actor, { ...command, note: "Different payload" }, db)).toBeNull();
+  });
+  it("does not infer receipt from a completed request", async () => {
+    const command = await prepareReceipt();
+    await updateAssistance(actor, command.requestId, { version: 1, status: "Completed", note: "Assistance complete" }, db);
+    expect(await readGiftReceipts(actor, filters(), db)).toHaveLength(0);
+    expect(await writeGiftReceipt(actor, { ...command, version: 2 }, db)).not.toBeNull();
+  });
+  it.each([{ version: 9 }, { itemId: "99" }, { confirmed: false }, { receivedOn: "2200-01-01" }])("rejects invalid or stale receipt %o", async changes => {
+    expect(await writeGiftReceipt(actor, { ...await prepareReceipt(), ...changes }, db)).toBeNull();
+    expect(await readGiftReceipts(actor, filters(), db)).toHaveLength(0);
+  });
+  it.each(["UPDATE users SET role='mgo' WHERE id=2", "UPDATE users SET active=FALSE WHERE id=2", "UPDATE data_change_requests SET status='Declined'", "UPDATE data_change_requests SET source_pending_action_id=NULL"])("rechecks receipt authority/source: %s", async statement => {
+    const command = await prepareReceipt(); await execute(statement);
+    expect(await writeGiftReceipt(actor, command, db)).toBeNull();
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+  });
+  it("prevents changing a received gift, but preserves record identity through catalog archive/rename", async () => {
+    const command = await prepareReceipt(); const received = await writeGiftReceipt(actor, command, db);
+    expect(await updateAssistance(actor, command.requestId, { version: 2, status: "Open", note: "Clear", giftItemId: null }, db)).toBeNull();
+    await writeGiftInventory(actor, { operation: "update", viewerKey: "test", id: command.itemId, version: 1, name: "New name", description: "", location: "", availability: "unavailable" }, db);
+    await writeGiftInventory(actor, { operation: "archive", viewerKey: "test", id: command.itemId, version: 2, reason: "No longer offered" }, db);
+    expect((await readGiftReceipts(actor, filters(`itemId=${command.itemId}`), db))[0]).toMatchObject({ id: received.id, item_snapshot: { name: "Test blanket" } });
+  });
+  it("allows recording a previously selected archived item as received, without offering it again", async () => {
+    const command = await prepareReceipt();
+    await writeGiftInventory(actor, { operation: "archive", viewerKey: "test", id: command.itemId, version: 1, reason: "Retired" }, db);
+    expect(await writeGiftReceipt(actor, command, db)).not.toBeNull();
+    expect(await readAvailableStewardshipGifts(db)).toHaveLength(0);
+  });
+  it("voids an incorrect receipt without deleting history and permits a corrected record", async () => {
+    const command = await prepareReceipt(); const first = await writeGiftReceipt(actor, command, db);
+    const correction = { operation: "void", viewerKey: "2", requestId: command.requestId, version: 2, id: first.id, reason: "Wrong date" };
+    expect(await writeGiftReceipt(actor, correction, db)).toMatchObject({ id: first.id, request_version: "3" });
+    expect(await writeGiftReceipt(actor, correction, db)).toBeNull();
+    expect(await readGiftReceipts(actor, filters(), db)).toHaveLength(0);
+    expect((await readGiftReceipts(actor, filters("includeVoided=true"), db))[0].void_reason).toBe("Wrong date");
+    expect((await readTaskAssistance(context, 10, db)).request.stewardship_received_item).toBeNull();
+    expect((await writeGiftReceipt(actor, command, db)).voided_at).not.toBeNull();
+    const replacement = await writeGiftReceipt(actor, { ...command, version: 3, receivedOn: "2000-10-02", token: "74512c41-89cd-41be-946e-10a056cae492" }, db);
+    expect(replacement.id).not.toBe(first.id);
+    expect(await readGiftReceipts(actor, filters(), db)).toHaveLength(1);
+    expect(await readGiftReceipts(actor, filters("includeVoided=true"), db)).toHaveLength(2);
+    expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(4);
+  });
+  it("scopes fundraiser reads, filters by item/constituent and treats search as literal text", async () => {
+    const command = await prepareReceipt(); const item = await writeGiftReceipt(actor, command, db);
+    expect(await readGiftReceipts(owner, filters(), db)).toHaveLength(1);
+    expect(await readGiftReceipts({ ...owner, id: 8 }, filters("constituentId=100"), db)).toHaveLength(0);
+    expect(await writeGiftReceipt(owner, { ...command, viewerKey: "7" }, db)).toBeNull();
+    expect(await readGiftReceipts(actor, filters("search=blanket&constituentId=100"), db)).toHaveLength(1);
+    for (const query of ["search=%25", "search=someone", "constituentId=101", "itemId=999", `before=${item.id}`]) expect(await readGiftReceipts(actor, filters(query), db)).toHaveLength(0);
+  });
+  it("serializes a receipt and selection change so only the saved selection is confirmed", async () => {
+    const command = await prepareReceipt();
+    const results = await Promise.all([writeGiftReceipt(actor, command, db), updateAssistance(actor, command.requestId, { version: 1, status: "Open", note: "Clear selection", giftItemId: null }, db)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const task = await readTaskAssistance(context, 10, db);
+    if (results[0]) expect(task.request.stewardship_received_item).not.toBeNull();
+    else expect(task.request.stewardship_gift_item_id).toBeNull();
+  });
+  it("rolls back receipt, request version, and audit together on an audit failure", async () => {
+    const command = await prepareReceipt();
+    await execute("ALTER TABLE stewardship_request_events ADD CONSTRAINT fail_receipt_audit CHECK (version < 2)");
+    try { await expect(writeGiftReceipt(actor, command, db)).rejects.toThrow(); }
+    finally { await execute("ALTER TABLE stewardship_request_events DROP CONSTRAINT fail_receipt_audit"); }
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect((await readTaskAssistance(context, 10, db)).request.request_version).toBe(1);
   });
 });

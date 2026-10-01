@@ -261,7 +261,7 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
                     />
                   </label>
                   <label className="grid gap-2 text-sm font-semibold">
-                    Description (optional)
+                Description (optional)
                     <textarea
                       rows={3}
                       maxLength={2000}
@@ -270,8 +270,9 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
                       onChange={(event) =>
                         setDraft({ ...draft, description: event.target.value })
                       }
-                      placeholder="Sizes, colors, or helpful details"
-                    />
+                  placeholder="Sizes, colors, or helpful details"
+                />
+                <span className="text-sm font-normal text-gray-500">Names and descriptions are shared when choosing gifts for requests. Storage location stays staff-only.</span>
                   </label>
                   <label className="grid gap-2 text-sm font-semibold">
                     Storage location (optional)
@@ -526,6 +527,7 @@ export function GiftInventory({ viewerKey }) {
           Keep available gifts easy to find. Archive items you no longer offer.
         </p>
         <div className="flex flex-wrap gap-2">
+          <a className={button} href="/stewardship/inventory/recipients">Received Items</a>
           <button
             className={button}
             disabled={result.loading || !!editor}
@@ -677,6 +679,7 @@ export function GiftInventory({ viewerKey }) {
                     </p>
                   )}
                   <div className="mt-auto flex flex-wrap gap-2 pt-5">
+                    <a className={button} href={`/stewardship/inventory/recipients?itemId=${encodeURIComponent(item.id)}`} aria-label={`Who received ${item.name}?`}>Who received this?</a>
                     {item.archived_at ? (
                       <button
                         className={button}
@@ -759,8 +762,8 @@ export function GiftInventory({ viewerKey }) {
             </button>
           </details>
           <p className="text-xs text-gray-500">
-            This first step organizes the catalog. Request selection, stock
-            counts, and delivery tracking will be connected separately.
+            Available items can be selected on personal-gift assistance requests.
+            Received Items shows confirmed receipts recorded in the app, not all NXT history. Stock quantities are not tracked.
           </p>
         </>
       )}

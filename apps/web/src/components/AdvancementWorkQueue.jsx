@@ -9,6 +9,9 @@ import {
 import styles from "./AdvancementWorkQueue.module.css";
 import { getSubmissionActivityNotice, isSubmissionHistoryOnly } from "@/utils/submissionReview";
 import GiftFollowUpSource from "./GiftFollowUpSource";
+import { isPersonalGiftRequest } from "@/utils/stewardshipAssistance";
+import { StaffGiftChoice, SavedGiftPreference } from "./StewardshipGiftChoice";
+import StewardshipReceiptForm from "./StewardshipReceiptForm";
 
 const SOURCES = [
   ["data", "Data updates and research", "/api/data-requests?view=reviewer"],
@@ -38,10 +41,11 @@ function RequestDetails({ item }) {
   const r = item.record;
   if (item.category === "stewardship") return <div className="grid gap-4">
     <GiftFollowUpSource snapshot={r.source_gift_snapshot} />
+    <SavedGiftPreference request={r} />
     <dl className={styles.details}><Detail label="Request" value={r.request_note} /><Detail label="Portfolio" value={r.owner_user_name} />
       <Detail label="Needed by" value={r.needed_by ? formatQueueDate(r.needed_by) : null} /><Detail label="NXT constituent ID" value={r.blackbaud_constituent_id} /></dl>
-    <p className={styles.notice}>This is the request linked to the fundraiser's follow-up. Progress notes are shared with them. Completing this request does not complete the reminder, send anything, or confirm delivery. Society eligibility and letter preparation remain in Society Letter Creation.</p>
-    <a href="/stewardship/society-letters">Open Society Letter Creation</a>
+    <p className={styles.notice}>This is the request linked to the fundraiser's follow-up. Progress notes are shared with them. Completing this request does not complete the reminder, send anything, or confirm delivery.</p>
+    {isPersonalGiftRequest(r) ? <a href={`/stewardship/inventory/recipients?${new URLSearchParams({ constituentId: r.blackbaud_constituent_id, returnTo: `/stewardship/requests?requestId=${r.id}` })}`}>View this recipient's received items</a> : <a href="/stewardship/society-letters">Open Society Letter Creation</a>}
   </div>;
   if (item.source === "lists") return <dl className={styles.details}>
     <Detail label="Purpose" value={r.purpose_other || r.purpose} />
@@ -226,16 +230,27 @@ export default function AdvancementWorkQueue({ initialCategory = "all", returnTo
               {item.category === "stewardship" && !stewardshipOnly && <a className={styles.primary} href={`/stewardship/requests?requestId=${encodeURIComponent(item.record.id)}`}>Manage in Stewardship</a>}
               {!(item.source === "submissions" && isSubmissionHistoryOnly(item.record)) && (item.category !== "stewardship" || stewardshipOnly) && <div className={styles.review}>
                 <div className={styles.reviewHeader}><h3>Review this request</h3><span>These controls update the app queue, not NXT.</span></div>
+                {isPersonalGiftRequest(item.record) && (item.record.stewardship_received_item ? <p>This gift is recorded as received. To correct it, void the receipt from Received Items first.</p> : item.group === "history" ? <p>Reopen this request before changing its gift preference.</p> :
+                  <StaffGiftChoice viewerKey={item.record.request_viewer_id} value={Object.hasOwn(draft, "giftItemId") ? draft.giftItemId : item.record.stewardship_gift_item_id}
+                    current={item.record.stewardship_gift_item_snapshot} disabled={disabled} onChange={giftItemId => updateDraft(item, { giftItemId })} />)}
                 {item.source === "lists" && <label>Priority<select aria-label={`Priority for ${item.title}`} disabled={disabled} value={draft.queuePriority ?? item.priority} onChange={(event) => updateDraft(item, { queuePriority: Number(event.target.value) })}><option value={1}>Urgent</option><option value={2}>Normal</option><option value={3}>Backlog</option></select></label>}
                 <label>{item.category === "stewardship" ? "Progress note (shared with the fundraiser)" : "Reviewer notes"}<textarea rows={3} maxLength={item.category === "stewardship" ? 2000 : undefined} aria-label={`Reviewer notes for ${item.title}`} disabled={disabled} value={draft.reviewerNotes ?? item.record.reviewer_notes ?? ""} onChange={(event) => updateDraft(item, { reviewerNotes: event.target.value })} placeholder="Add the next step, completion details, or a clarification question." /></label>
                 {item.record.reviewed_by_name || item.record.reviewer_name ? <p>Last reviewed by {item.record.reviewed_by_name || item.record.reviewer_name}</p> : null}
                 {rowErrors[item.key] && <p className={styles.warning} role="alert">{rowErrors[item.key]}</p>}
                 <div className={styles.actions}>
-                  <button className={styles.secondary} disabled={disabled} onClick={() => save(item)}>{saving === item.key ? "Saving..." : item.source === "lists" ? "Save notes & priority" : "Save notes"}</button>
+                  <button className={styles.secondary} disabled={disabled} onClick={() => save(item)}>{saving === item.key ? "Saving..." : item.category === "stewardship" && isPersonalGiftRequest(item.record) ? "Save request updates" : item.source === "lists" ? "Save notes & priority" : "Save notes"}</button>
                   {getQueueActions(item).map(([status, label]) => <button className={status === "Declined" ? styles.danger : styles.primary} disabled={disabled} key={status} onClick={() => save(item, status)}>{label}</button>)}
                   {drafts[item.key] && <span className={styles.unsaved}>Unsaved changes</span>}
                 </div>
               </div>}
+              {stewardshipOnly && isPersonalGiftRequest(item.record) && <StewardshipReceiptForm
+                key={`${item.key}:${item.record.request_version}:${refreshKey}`} request={item.record}
+                disabled={disabled || !!drafts[item.key] || !!sourceErrors.data}
+                onSaved={receipt => {
+                  setSources(current => ({ ...current, data: current.data.map(row => String(row.id) === String(item.record.id)
+                    ? { ...row, request_version: receipt.request_version, stewardship_received_item: receipt } : row) }));
+                  setMessage(`${item.title}: received item recorded. Request status is unchanged.`);
+                }} />}
             </div>}
           </article>;
         })}

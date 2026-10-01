@@ -3,7 +3,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { canEditWorkspace } from "@/utils/workspaceRoles";
 import { assistanceDraft, assistanceId } from "@/utils/stewardshipAssistance";
-import { readTaskAssistance, createTaskAssistance } from "@/app/api/utils/stewardshipAssistance";
+import { readTaskAssistance, createTaskAssistance, readAvailableStewardshipGifts } from "@/app/api/utils/stewardshipAssistance";
 
 const reply = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
 async function handle(request, { params }, write) {
@@ -24,11 +24,13 @@ async function handle(request, { params }, write) {
       let draft;
       try { draft = assistanceDraft(await request.json()); } catch (error) { return reply({ error: error.message || "Review your request." }, 400); }
       created = await createTaskAssistance(context, params.id, draft);
-      if (!created) return reply({ error: "This follow-up changed or is no longer available. Reload its saved details before continuing." }, 409);
+      if (!created) return reply({ error: "This follow-up or gift choice changed or is no longer available. Reload its saved details before continuing." }, 409);
     }
     const task = await readTaskAssistance(context, params.id);
     if (!task) return reply({ error: "Gift follow-up not found in this workspace." }, 404);
-    return reply({ task, viewerId: String(context.sessionUser.id), workspaceId: String(context.workspaceUser.id),
+    const giftChoices = !write && !task.request && task.status === "Open"
+      ? await readAvailableStewardshipGifts().catch(() => null) : [];
+    return reply({ task, giftChoices, viewerId: String(context.sessionUser.id), workspaceId: String(context.workspaceUser.id),
       ...(created ? { alreadyExists: created.already_exists } : {}) }, created && !created.already_exists ? 201 : 200);
   } catch {
     return reply({ error: "The request status could not be confirmed. Reload saved status before trying again." }, 500);

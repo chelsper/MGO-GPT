@@ -462,6 +462,8 @@ export default function SocietyLettersPage() {
       setReviewQueue(null);
       setReviewingRecipient(null);
       setReviewConflict(false);
+      setSelected([]);
+      setPreview(null);
     }
     loadedScope.current = nextScope;
     setData(payload);
@@ -637,7 +639,8 @@ export default function SocietyLettersPage() {
   );
   const householdPreview = isLetterPreviewSource(data?.settings);
   const queryPostal = data?.settings?.sourceMode === "society_queries";
-  const selectionLimit = queryPostal ? 10 : LETTER_BATCH_LIMIT;
+  const selectionLimit = LETTER_BATCH_LIMIT;
+  const deliveryBatchLimit = queryPostal ? 10 : LETTER_BATCH_LIMIT;
   const matching = ready.filter(
     (row) =>
       (!societyFilter || row.societyKey === societyFilter) &&
@@ -681,14 +684,56 @@ export default function SocietyLettersPage() {
     setSelected([]);
     setPreview(null);
   }
-  const canSelect = (row) =>
+  const canPrepare = (row) =>
     householdPreview
       ? queryPostal &&
         channel === "post" &&
         row.recipientReview?.status === "saved" &&
         row.readiness?.post?.status === "ready_for_preview"
-      : !row.issues[channel] && (channel !== "email" || data.emailEnabled);
-  const selectable = filtered.filter(canSelect);
+      : !row.issues?.[channel] && (channel !== "email" || data.emailEnabled);
+  const selectable = filtered.filter(canPrepare);
+  // Selecting a recipient is only a local review choice, not delivery approval.
+  const canReview = (row) => !!row.recipientReview?.editable;
+  const canSelect = (row) =>
+    (householdPreview && canReview(row)) || canPrepare(row);
+  const selectedRows = filtered.filter((row) =>
+    selected.includes(row.householdId),
+  );
+  const selectedReviewable = selectedRows.filter(canReview);
+  const selectionBusy = busy || refreshing || !!sendingBatch;
+  function selectionReason(row) {
+    if (selectionBusy) return "Wait for the current operation to finish.";
+    if (!canSelect(row))
+      return householdPreview
+        ? "Recipient review is unavailable. Reload saved results; refresh membership if the query settings changed."
+        : row.issues?.[channel] || "Email delivery is not enabled.";
+    if (
+      !selected.includes(row.householdId) &&
+      selected.length >= selectionLimit
+    )
+      return `Review up to ${selectionLimit} recipients at a time. Clear a selection to choose someone else.`;
+    return "";
+  }
+  const preparationIssue =
+    !selected.length || (householdPreview && !queryPostal)
+      ? ""
+      : selectedRows.length !== selected.length
+        ? "The holding list changed. Clear your selection and choose recipients again."
+        : sourceDirty
+          ? "Save your source settings, then refresh membership before preparing letters."
+          : queryPostal && data.postalDraft
+            ? "Finish or cancel the current document approval batch before starting another."
+            : queryPostal && channel !== "post"
+              ? "These query lists support postal approval only. You can still review selected recipients."
+              : queryPostal && data.job && data.job.status !== "complete"
+                ? "Finish the membership refresh before preparing letters. You can still select recipients for review."
+                : queryPostal && data.readiness?.issue
+                  ? data.readiness.issue
+                  : selected.length > deliveryBatchLimit
+                    ? `Document approval is limited to ${deliveryBatchLimit} households at a time. Choose fewer recipients or use Select ready households.`
+                    : !selectedRows.every(canPrepare)
+                      ? "Some selected recipients still need review or current delivery checks. Review their details, then run Check readiness before starting document approval."
+                      : "";
   const reviewable = filtered.filter(
     (row) =>
       row.recipientReview?.editable &&
@@ -1192,8 +1237,8 @@ export default function SocietyLettersPage() {
                       </li>
                     </ol>
                     <p className="mt-3 text-sm">
-                      {selectable.length} ready for selection in this view.{" "}
-                      {filtered.length - selectable.length} need recipient
+                      {selectable.length} ready for document approval in this
+                      view. {filtered.length - selectable.length} need recipient
                       review or current postal checks.
                     </p>
                     {!selectable.length && (
@@ -1238,32 +1283,80 @@ export default function SocietyLettersPage() {
                     appeal updates.
                   </p>
                 )}
-                {(!householdPreview || queryPostal) && (
-                  <div className="my-4 flex flex-wrap items-center gap-3">
-                    <button
-                      className={button}
-                      disabled={
-                        busy ||
-                        !selectable.length ||
-                        (queryPostal && !!data.postalDraft)
-                      }
-                      onClick={() => {
-                        setSelected(
-                          selectable
-                            .slice(0, selectionLimit)
-                            .map((r) => r.householdId),
-                        );
-                        setPreview(null);
-                      }}
+                <div className="my-4 space-y-3">
+                  {householdPreview && (
+                    <p
+                      id="letter-selection-help"
+                      className="text-sm text-gray-600"
                     >
-                      {queryPostal
-                        ? "Select ready households"
-                        : "Select eligible households"}{" "}
-                      (up to {selectionLimit})
-                    </button>
+                      Checkboxes choose recipients for review, even if delivery
+                      checks are not finished. Selecting someone does not send a
+                      letter or add an appeal in NXT.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {householdPreview && (
+                      <>
+                        <button
+                          className={button}
+                          disabled={selectionBusy || !filtered.some(canReview)}
+                          onClick={() => {
+                            setSelected(
+                              filtered
+                                .filter(canReview)
+                                .slice(0, selectionLimit)
+                                .map((row) => row.householdId),
+                            );
+                            setPreview(null);
+                          }}
+                        >
+                          Select for review (up to {selectionLimit})
+                        </button>
+                        <button
+                          className={button}
+                          disabled={
+                            selectionBusy ||
+                            !selected.length ||
+                            selectedReviewable.length !== selected.length
+                          }
+                          onClick={() => {
+                            setError("");
+                            setReviewConflict(false);
+                            setQueueStart(0);
+                            setReviewNotice("");
+                            setReviewQueue(selectedReviewable);
+                          }}
+                        >
+                          Review selected recipients
+                        </button>
+                      </>
+                    )}
+                    {(!householdPreview || queryPostal) && (
+                      <button
+                        className={button}
+                        disabled={
+                          selectionBusy ||
+                          !selectable.length ||
+                          (queryPostal && !!data.postalDraft)
+                        }
+                        onClick={() => {
+                          setSelected(
+                            selectable
+                              .slice(0, deliveryBatchLimit)
+                              .map((r) => r.householdId),
+                          );
+                          setPreview(null);
+                        }}
+                      >
+                        {queryPostal
+                          ? "Select ready households"
+                          : "Select eligible households"}{" "}
+                        (up to {deliveryBatchLimit})
+                      </button>
+                    )}
                     <button
                       className={button}
-                      disabled={!selected.length || busy}
+                      disabled={!selected.length || selectionBusy}
                       onClick={() => {
                         setSelected([]);
                         setPreview(null);
@@ -1272,30 +1365,53 @@ export default function SocietyLettersPage() {
                       Clear selection
                     </button>
                     <span className="text-sm">{selected.length} selected</span>
-                    <button
-                      className={primary}
-                      disabled={
-                        busy ||
-                        !selected.length ||
-                        (queryPostal && !!data.postalDraft)
-                      }
-                      onClick={() =>
-                        act({
-                          action: queryPostal
-                            ? "start_postal_draft"
-                            : "preview",
-                          ...(queryPostal ? { format: postalFormat } : {}),
-                          channel,
-                          householdIds: selected,
-                        })
-                      }
-                    >
-                      {queryPostal
-                        ? "Start document approval"
-                        : "Review selected letters"}
-                    </button>
+                    {(!householdPreview || queryPostal) && (
+                      <button
+                        className={primary}
+                        aria-describedby={
+                          preparationIssue
+                            ? "letter-preparation-help"
+                            : undefined
+                        }
+                        disabled={
+                          selectionBusy ||
+                          !selected.length ||
+                          !!preparationIssue ||
+                          (queryPostal && !!data.postalDraft)
+                        }
+                        onClick={() => {
+                          if (
+                            selectionBusy ||
+                            preparationIssue ||
+                            !selected.length
+                          )
+                            return;
+                          act({
+                            action: queryPostal
+                              ? "start_postal_draft"
+                              : "preview",
+                            ...(queryPostal ? { format: postalFormat } : {}),
+                            channel,
+                            householdIds: selected,
+                          });
+                        }}
+                      >
+                        {queryPostal
+                          ? "Start document approval"
+                          : "Review selected letters"}
+                      </button>
+                    )}
                   </div>
-                )}
+                  {preparationIssue && (
+                    <p
+                      id="letter-preparation-help"
+                      role="status"
+                      className="text-sm text-amber-900"
+                    >
+                      {preparationIssue}
+                    </p>
+                  )}
+                </div>
                 {!householdPreview && !selectable.length && (
                   <p role="status" className="mb-3 text-sm">
                     No eligible households in this view. Review the delivery
@@ -1371,12 +1487,12 @@ export default function SocietyLettersPage() {
                                 : undefined
                             }
                             checked={selected.includes(row.householdId)}
-                            selectionDisabled={
-                              busy ||
-                              !canSelect(row) ||
-                              (!selected.includes(row.householdId) &&
-                                selected.length >= selectionLimit) ||
-                              (queryPostal && !!data.postalDraft)
+                            selectionDisabled={!!selectionReason(row)}
+                            selectionReason={selectionReason(row)}
+                            selectionHelpId={
+                              householdPreview
+                                ? "letter-selection-help"
+                                : undefined
                             }
                             reviewDisabled={
                               busy ||
@@ -1388,11 +1504,12 @@ export default function SocietyLettersPage() {
                               busy || refreshing || !!sendingBatch
                             }
                             onSelect={(checked) => {
+                              if (selectionReason(row)) return;
                               setPreview(null);
-                              setSelected(
+                              setSelected((current) =>
                                 checked
-                                  ? [...selected, row.householdId]
-                                  : selected.filter(
+                                  ? [...new Set([...current, row.householdId])]
+                                  : current.filter(
                                       (id) => id !== row.householdId,
                                     ),
                               );

@@ -21,12 +21,12 @@ reasons, actors, and timestamps remain in audit history. Re-imports skip both
 existing and archived items, even if an imported item's display name changed.
 Case and whitespace-normalized names are unique across both views.
 
-## Boundaries
+## Catalog Release Boundaries
 
 - No NXT API reads or writes, donor updates, deliveries, emails, or stock movements.
 - Existing stewardship requests and their shared work queue remain unchanged.
-- Item selection on requests, quantities, reservations, and fulfillment are future
-  increments, not implied by marking an item Available.
+- Item selection on requests is the next increment described below. Quantities,
+  reservations, and fulfillment are not implied by marking an item Available.
 - Each deployment uses its own database. The schema contains no automatic JU seed.
 - Only the actual signed-in Admin or Advancement Services actor can read/write;
   viewing another workspace does not confer its permissions.
@@ -59,9 +59,105 @@ Local validation on October 1, 2026: 5,250 regular tests passed (115 opt-in test
 skipped); all 11 inventory PostgreSQL tests passed in a separate fixture run.
 Type-check and production build passed. A synthetic, offline browser preview
 verified add/edit/archive/restore and the 390px mobile layout without horizontal
-overflow. No live database or NXT writes were performed. Deployment is pending.
+overflow. These tests performed no live database or NXT writes. The catalog was
+then deployed to JU on October 1, 2026; see
+[the release note](ju-gift-inventory-release-2026-10-01.md). Its 26 starter names
+were explicitly added through the production UI, all with Not checked availability.
 
-Next: link catalog item IDs to the existing Personal gift assistance requests,
-with archived items excluded from new choices but retained on historical requests.
-Then add separately audited stock counts, reservations, and fulfillment, followed
-by an explicitly configured and verified NXT action/custom-field write contract.
+## Request Connection
+
+Release status for the request connection and received items is tracked in
+[the combined stewardship release note](ju-stewardship-combined-release-2026-10-01.md).
+
+Personal gift assistance requests now support an optional gift preference. Only
+active items marked Available are offered for new selections. A fundraiser can
+still ask for help without choosing an item. Staff can choose, replace, or clear
+the preference while the request is open or in progress. Completed or declined
+requests must be reopened before changing their choice.
+
+This extends the existing request, not a second inbox. Its saved gift preference
+appears in Stewardship Assistance Requests, the original fundraiser follow-up,
+and the fundraiser's submission tracker. Names and descriptions are shared with
+fundraisers; storage location and catalog audit details remain staff-only.
+
+The additive schema stores the catalog ID and an immutable name/description/version
+snapshot on the request and its audit events. Renaming or archiving an item does
+not rewrite prior request history. Archived or unavailable selections may remain
+on existing requests but cannot be newly selected. Inventory writes and request
+selections share a transaction advisory lock so an archive cannot race a new
+selection. Request version checks protect competing staff updates. Retries return
+the original request rather than creating another one or changing its selection.
+
+Choice lists load on demand from the app database, without NXT calls or polling.
+The staff endpoint checks the actual signed-in reviewer and viewer binding; the
+fundraiser endpoint uses the existing editable-workspace/task authorization.
+Gift selection never reserves stock, marks delivery, completes a follow-up, or
+creates an NXT action. Receipt is now recorded separately as described below.
+
+Validation: 5,262 regular tests passed (123 opt-in tests skipped), plus all 25
+stewardship assistance PostgreSQL tests in an isolated local fixture. Type-check,
+production build, and whitespace checks passed. A synthetic browser workflow
+confirmed a fundraiser selection, staff replacement, and the same saved request
+and progress note in both views. The 390px layout had no horizontal overflow.
+No production requests or NXT records were changed for these tests.
+
+Before offering choices, staff should review catalog availability; the imported
+starter names intentionally remain Not checked until that review. A later release
+can add separately audited quantities and reservations, followed by an explicitly
+configured and verified NXT action/custom-field write contract.
+
+## Received Items
+
+Stewardship > Gift Inventory > Received Items is a searchable ledger of confirmed
+receipts recorded in the app. Each catalog item also has a **Who received this?**
+link that filters the ledger to its stable item ID, including archived items.
+Search accepts recipient name, constituent system ID, item name at receipt, or
+fundraiser name. Results are paginated in groups of 50, newest recorded first;
+each row shows the actual received date separately. Recipient and item shortcuts
+make it easy to move between a person's history and everyone who received an item.
+Search is submitted explicitly, not on each keystroke, and never calls NXT.
+
+Admin and Advancement Services can use **Record received item** on an existing
+Personal gift assistance request after saving its gift preference. The date
+defaults to today (Eastern), can be changed to a past date, and cannot be future.
+An optional note and explicit confirmation record actual receipt, not a requested
+gift or a shipment still in transit. The original request and fundraiser follow-up
+remain at their current status; no stock is deducted and no NXT action is created.
+The saved receipt appears on the same request in the staff queue, fundraiser
+follow-up, and submission tracker. The follow-up also links to receipt history
+before a new request is submitted.
+
+The ledger requires the original constituent system ID and saved item ID; names,
+ownership, and item snapshots come from the server, not browser-supplied donor
+data. `stewardship_gift_receipts` stores the recipient, item snapshot, received
+date, fundraiser snapshot, recording staff member, and timestamp. One active
+receipt is allowed per request. Idempotency tokens, request version checks, a
+partial unique index, and the catalog/request advisory lock protect duplicate or
+competing writes. Receipt changes and request audit/version updates are atomic.
+Recording receipt does not require an item to remain available: a previously
+selected item may have since been archived or run out of stock.
+
+Once a receipt exists, the selected gift cannot be changed underneath it. Staff
+can use **Correct this entry**, supply a reason, and void the receipt without
+deleting it. The row is omitted by default but remains visible under **Include
+corrections**. The request can then be reopened if needed and a corrected receipt
+recorded. Replaying an old create token never resurrects a voided receipt.
+
+Only the actual signed-in Admin/Advancement Services actor can record or correct
+receipts. MGOs have read-only access to ledger entries owned by their own workspace;
+viewing another workspace cannot lend its permissions. Staff can view all entries.
+Responses are viewer-bound and no-store, and reads recheck active status and role.
+Return links from a request or follow-up preserve that source context.
+
+This is not a complete history of stewardship gifts in NXT. Earlier NXT action
+custom fields have not been imported, nor are requests/completed tasks inferred
+to be deliveries. Empty states explicitly avoid claiming the donor never received
+anything. Historical NXT ingestion needs a separate reviewed mapping and source-ID
+deduplication step; do not infer receipt from catalog field names alone.
+
+Validation on October 1, 2026: 5,299 regular tests passed (140 opt-in skipped),
+and all 42 assistance/receipt PostgreSQL tests passed separately in the disposable
+local fixture. Type-check and production build passed. Browser checks used only
+synthetic data and confirmed recording, the linked fundraiser receipt display,
+history, correction preservation, and a 390px layout without horizontal overflow.
+Production, sandbox, NXT, and donor records were not changed for this increment.

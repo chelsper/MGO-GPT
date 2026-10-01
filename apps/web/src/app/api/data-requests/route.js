@@ -89,6 +89,8 @@ export async function GET(request) {
       ? await sql`
           SELECT
             dcr.*,
+            (SELECT jsonb_build_object('id',d.id::text,'received_on',d.received_on::text,'item_snapshot',d.item_snapshot,'recorded_by_name',d.recorded_by_name)
+              FROM stewardship_gift_receipts d WHERE d.request_id=dcr.id AND d.voided_at IS NULL) AS stewardship_received_item,
             requester.name AS requester_name,
             requester.email AS requester_email,
             owner_user.name AS owner_user_name,
@@ -114,6 +116,8 @@ export async function GET(request) {
       : await sql`
           SELECT
             dcr.*,
+            (SELECT jsonb_build_object('id',d.id::text,'received_on',d.received_on::text,'item_snapshot',d.item_snapshot,'recorded_by_name',d.recorded_by_name)
+              FROM stewardship_gift_receipts d WHERE d.request_id=dcr.id AND d.voided_at IS NULL) AS stewardship_received_item,
             requester.name AS requester_name,
             requester.email AS requester_email,
             owner_user.name AS owner_user_name,

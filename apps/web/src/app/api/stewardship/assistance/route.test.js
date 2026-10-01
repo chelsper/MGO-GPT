@@ -1,16 +1,17 @@
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), context: vi.fn(), schema: vi.fn(), update: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), context: vi.fn(), schema: vi.fn(), update: vi.fn(), gifts: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: mocks.context }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
-vi.mock("@/app/api/utils/stewardshipAssistance", () => ({ updateAssistance: mocks.update }));
-import { POST } from "./route";
+vi.mock("@/app/api/utils/stewardshipAssistance", () => ({ updateAssistance: mocks.update, readAvailableStewardshipGifts: mocks.gifts }));
+import { GET, POST } from "./route";
 const body = { id: "11", viewerKey: "2", version: 1, status: "In Progress", note: "Reviewing gift options" };
 const request = (change = {}) => new Request("https://example.test/api/stewardship/assistance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, ...change }) });
 beforeEach(() => {
   vi.clearAllMocks(); mocks.auth.mockResolvedValue({ user: { id: "auth-id", email: "reviewer@example.test" } });
   mocks.context.mockResolvedValue({ sessionUser: { id: 2, role: "advancement_services", active: true }, workspaceUser: { id: 7, role: "mgo" } });
   mocks.update.mockResolvedValue({ id: 11, request_version: 2, status: "In Progress" });
+  mocks.gifts.mockResolvedValue([{ id: "12", name: "Blanket" }]);
 });
 it("updates the original request using the real reviewer and an expected version", async () => {
   const response = await POST(request()); expect(response.status).toBe(200);
@@ -33,4 +34,18 @@ it("denies unauthenticated and inactive users", async () => {
   expect(mocks.schema).not.toHaveBeenCalled();
   mocks.context.mockResolvedValue({ sessionUser: { id: 2, role: "admin", active: false } });
   expect((await POST(request())).status).toBe(403);
+});
+it("returns a viewer-bound staff choice list without exposing the viewed MGO's authority", async () => {
+  const get = () => new Request("https://example.test/api/stewardship/assistance?viewerKey=2");
+  expect(await (await GET(get())).json()).toEqual({ viewerKey: "2", giftChoices: [{ id: "12", name: "Blanket" }] });
+  expect((await GET(new Request("https://example.test/api/stewardship/assistance?viewerKey=7"))).status).toBe(409);
+  mocks.context.mockResolvedValue({ sessionUser: { id: 2, role: "mgo", active: true }, workspaceUser: { id: 7, role: "admin" } });
+  expect((await GET(get())).status).toBe(403);
+});
+it("passes a selected or cleared gift through, but never trusts item details from the browser", async () => {
+  expect((await POST(request({ giftItemId: "12" }))).status).toBe(200);
+  expect(mocks.update.mock.calls[0][2].giftItemId).toBe("12");
+  expect((await POST(request({ giftItemId: null }))).status).toBe(200);
+  expect((await POST(request({ giftItemId: true }))).status).toBe(400);
+  expect((await POST(request({ giftItemSnapshot: { name: "Forged" } }))).status).toBe(400);
 });

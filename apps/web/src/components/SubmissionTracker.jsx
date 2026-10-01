@@ -6,6 +6,7 @@ import { ArrowLeft, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { canReviewSubmission, getSubmissionActivityNotice, getSubmissionDisplayStatus, getSubmissionReviewFilter, isSubmissionHistoryOnly } from "@/utils/submissionReview";
 import { isStewardshipRequest } from "@/utils/stewardshipAssistance";
+import { SavedGiftPreference } from "./StewardshipGiftChoice";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -2175,7 +2176,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                         ) : null}
                       </div>
 
-                      {request.source_pending_action_id ? <div><p>This request is linked to the original stewardship follow-up. Completing a request does not confirm delivery.</p>
+                      {request.source_pending_action_id ? <div><SavedGiftPreference request={request} /><p>This request is linked to the original stewardship follow-up. Completing a request does not confirm delivery.</p>
                         <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-emerald-800 underline" href={isReviewer ? `/stewardship/requests?requestId=${encodeURIComponent(request.id)}` : `/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(request.source_pending_action_id)}&status=${request.source_pending_action_status === "Done" ? "Done" : "Open"}`}>{isReviewer ? "Manage in Stewardship" : "View linked follow-up"}</a>
                       </div> : <div>
                         <label

@@ -95,6 +95,238 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("lets unchecked recipients be selected for review without authorizing delivery or writing NXT", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10"), reviewRow("20")],
+      }),
+    );
+    render(<Page />);
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "Select Household 20",
+    });
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).toHaveAccessibleDescription(
+      /Checkboxes choose recipients for review/,
+    );
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(screen.getByText("1 selected")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Start document approval" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/Some selected recipients still need review/),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review selected recipients" }),
+    );
+    const queue = within(screen.getByRole("dialog"));
+    expect(queue.getByLabelText("Go to recipient")).toHaveDisplayValue(
+      "1. Household 20",
+    );
+    expect(
+      within(queue.getByLabelText("Go to recipient")).getAllByRole("option"),
+    ).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("limits bulk review to 50 while keeping document approval limited to 10", async () => {
+    const rows = Array.from({ length: 51 }, (_, index) => ({
+      ...reviewRow(String(index + 10), true),
+      readiness: { post: { status: "ready_for_preview" } },
+    }));
+    fetchMock.mockImplementation(async () =>
+      Response.json({ ...base, settings: societyQuerySettings(), rows }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Select for review (up to 50)",
+      }),
+    );
+    expect(screen.getByText("50 selected")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Start document approval" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/Document approval is limited to 10 households/),
+    ).toBeVisible();
+    const remaining = screen.getByRole("checkbox", {
+      name: "Select Household 60",
+    });
+    expect(remaining).toBeDisabled();
+    expect(remaining).toHaveAccessibleDescription(/Review up to 50 recipients/);
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Household 10" }),
+    );
+    expect(remaining).toBeEnabled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select ready households (up to 10)",
+      }),
+    );
+    expect(screen.getByText("10 selected")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Start document approval" }),
+    ).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("does not silently omit an unready person from a mixed selection", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [
+          reviewRow("10"),
+          {
+            ...reviewRow("20", true),
+            readiness: { post: { status: "ready_for_preview" } },
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Household 10" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Household 20" }),
+    );
+    const approve = screen.getByRole("button", {
+      name: "Start document approval",
+    });
+    expect(approve).toBeDisabled();
+    fireEvent.click(approve);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Household 10" }),
+    );
+    expect(approve).toBeEnabled();
+    fireEvent.click(approve);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      action: "start_postal_draft",
+      householdIds: ["20"],
+    });
+  });
+  it.each([["needs_review"], ["unchecked"], ["already_acknowledged"]])(
+    "allows review, never document approval, for a %s readiness result",
+    async (status) => {
+      fetchMock.mockImplementation(async () =>
+        Response.json({
+          ...base,
+          settings: societyQuerySettings(),
+          rows: [
+            {
+              ...reviewRow("10", true),
+              readiness: { post: { status } },
+            },
+          ],
+        }),
+      );
+      render(<Page />);
+      fireEvent.click(
+        await screen.findByRole("checkbox", { name: "Select Household 10" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Review selected recipients" }),
+      ).toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "Start document approval" }),
+      ).toBeDisabled();
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+  it.each([
+    {
+      readiness: { issue: "Refresh membership before checking readiness." },
+      message: /Refresh membership before checking readiness\./,
+    },
+    {
+      job: { status: "running", id: "query" },
+      message: /Finish the membership refresh before preparing letters/,
+    },
+    {
+      postalDraft: { id: "draft", status: "draft", entries: [] },
+      message: /Finish or cancel the current document approval batch/,
+    },
+  ])(
+    "keeps review selections independent of workspace delivery blockers: %j",
+    async ({ message, ...state }) => {
+      fetchMock.mockImplementation(async () =>
+        Response.json({
+          ...base,
+          settings: societyQuerySettings(),
+          ...state,
+          rows: [
+            {
+              ...reviewRow("10", true),
+              readiness: { post: { status: "ready_for_preview" } },
+            },
+          ],
+        }),
+      );
+      render(<Page />);
+      fireEvent.click(
+        await screen.findByRole("checkbox", { name: "Select Household 10" }),
+      );
+      expect(
+        screen.getByRole("checkbox", { name: "Select Household 10" }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("button", { name: "Start document approval" }),
+      ).toBeDisabled();
+      expect(screen.getAllByText(message).length).toBeGreaterThan(0);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+  it("supports review selection for preview-only and email-disabled queries without offering delivery", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: { ...base.settings, sourceMode: "constituents" },
+        rows: [reviewRow("10")],
+      }),
+    );
+    render(<Page />);
+    await screen.findByRole("checkbox", { name: "Select Household 10" });
+    fireEvent.change(screen.getByLabelText("Delivery method"), {
+      target: { value: "email" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Household 10" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Review selected recipients" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Start document approval" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Some selected recipients still need review/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Review selected letters" }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("explains a genuinely locked recipient checkbox", async () => {
+    const row = reviewRow("10");
+    row.recipientReview.editable = false;
+    fetchMock.mockImplementation(async () =>
+      Response.json({ ...base, settings: societyQuerySettings(), rows: [row] }),
+    );
+    render(<Page />);
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "Select Household 10",
+    });
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).toHaveAccessibleDescription(
+      /Recipient review is unavailable/,
+    );
+  });
   it("explains an empty ready selection instead of allowing a no-op click", async () => {
     fetchMock.mockImplementation(async () =>
       Response.json({
@@ -1017,7 +1249,7 @@ describe("society letter workspace", () => {
     await screen.findByText(/2 of 3 recipients saved in this review session/);
     expect(saves.map((body) => body.householdId)).toEqual(["10", "30"]);
     expect(saves.map((body) => body.revision)).toEqual([1, 2]);
-    expect(screen.getByLabelText("Select Household 10")).toBeDisabled();
+    expect(screen.getByLabelText("Select Household 10")).toBeEnabled();
     expect(
       screen.queryByRole("button", { name: "Review selected letters" }),
     ).not.toBeInTheDocument();
@@ -1114,7 +1346,7 @@ describe("society letter workspace", () => {
       dialog.getByRole("button", { name: "Save recipient choices" }),
     );
     await screen.findByText("Recipient choices saved");
-    expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
+    expect(screen.getByLabelText("Select Sample Household")).toBeEnabled();
     expect(
       screen.queryByRole("button", { name: "Review selected letters" }),
     ).not.toBeInTheDocument();

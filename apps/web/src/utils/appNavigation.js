@@ -149,6 +149,11 @@ export function isNavigationItemActive(pathname, href) {
 
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
+  if (pathname === "/stewardship/inventory/recipients") return [
+    { label: "Home", href: "/" },
+    ...(canManageWorkspace ? [{ label: "Stewardship", href: "/stewardship" }, { label: "Gift Inventory", href: "/stewardship/inventory" }]
+      : [{ label: "Follow-ups & Discussion", href: "/follow-ups" }]), { label: "Received Items" },
+  ];
   if (pathname === "/stewardship/inventory") return [
     { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Gift Inventory" },
   ];

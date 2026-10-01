@@ -19,6 +19,8 @@ export default function LetterWorkspaceRow({
   definitions,
   checked,
   selectionDisabled,
+  selectionReason,
+  selectionHelpId,
   reviewDisabled,
   excludeDisabled,
   onSelect,
@@ -34,17 +36,32 @@ export default function LetterWorkspaceRow({
     view.attention.includes(key),
   );
   const detailsId = `letter-recipient-details-${row.householdId}`;
+  const selectionReasonId = `letter-selection-reason-${row.householdId}`;
   return (
     <>
       <tr className="border-t border-gray-100 align-top">
         <td className="p-3 pt-4">
-          <input
-            aria-label={`Select ${row.name}`}
-            type="checkbox"
-            checked={checked}
-            disabled={selectionDisabled}
-            onChange={(event) => onSelect(event.target.checked)}
-          />
+          <label className="inline-flex min-h-11 min-w-11 items-center justify-center">
+            <input
+              aria-label={`Select ${row.name}`}
+              aria-describedby={
+                selectionReason ? selectionReasonId : selectionHelpId
+              }
+              type="checkbox"
+              className="h-5 w-5 accent-emerald-700 disabled:cursor-not-allowed"
+              checked={checked}
+              disabled={selectionDisabled}
+              onChange={(event) => onSelect(event.target.checked)}
+            />
+          </label>
+          {selectionReason && (
+            <p
+              id={selectionReasonId}
+              className="mt-1 max-w-40 text-xs text-gray-600"
+            >
+              {selectionReason}
+            </p>
+          )}
         </td>
         <td className="p-3">
           <p className="font-semibold text-gray-900">{row.name}</p>

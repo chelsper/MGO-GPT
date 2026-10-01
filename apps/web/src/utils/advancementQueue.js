@@ -91,7 +91,7 @@ export function getQueueActions(item) {
     : [...(item.group === "waiting" ? [["Pending", "Return to open work"]] : [["Needs Clarification", "Request clarification"]]), ["Approved", "Approve review"], ["Ready for CRM", "Ready for CRM"]];
 }
 
-export function buildQueueMutation(item, { status, reviewerNotes, queuePriority } = {}) {
+export function buildQueueMutation(item, { status, reviewerNotes, queuePriority, giftItemId } = {}) {
   if (item.source === "imports") throw new Error("Imports are not part of the work queue.");
   if (item.source === "submissions" && isSubmissionHistoryOnly(item.record)) throw new Error("This activity is in History and does not require review.");
   if (status && !getQueueActions(item).some(([value]) => value === status)) throw new Error("This action is not available for this request.");
@@ -101,6 +101,7 @@ export function buildQueueMutation(item, { status, reviewerNotes, queuePriority 
     return { url: "/api/stewardship/assistance", method: "POST", body: {
       id: String(item.record.id), viewerKey: item.record.request_viewer_id, version: item.record.request_version,
       status: status || item.record.status, note: notes,
+      ...(giftItemId !== undefined ? { giftItemId } : {}),
     } };
   }
   if (status === "Needs Clarification" && !notes) throw new Error("Write your clarification question in Reviewer notes first.");
