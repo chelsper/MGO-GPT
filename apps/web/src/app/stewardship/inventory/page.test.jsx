@@ -10,6 +10,8 @@ import { JU_GIFT_STARTERS } from "@/utils/stewardshipInventory";
 import { getBreadcrumbs } from "@/utils/appNavigation";
 import { getReturnDestination } from "@/utils/workflowNavigation";
 const session = vi.hoisted(() => ({ user: { id: "auth-2" }, loading: false }));
+vi.mock("@/utils/stewardshipPhoto", async original => ({ ...await original(), prepareGiftPhoto: vi.fn() }));
+import { prepareGiftPhoto } from "@/utils/stewardshipPhoto";
 vi.mock("@/utils/useUser", () => ({
   default: () => ({ data: session.user, loading: session.loading }),
 }));
@@ -244,4 +246,33 @@ it("shows not-counted and zero balances without guessing stock from availability
   expect(screen.getByText("Not counted")).toBeVisible();
   expect(screen.getByText("0 on hand")).toBeVisible();
   expect(screen.getByRole("button", { name: "Manage stock for JU Blanket" })).toBeEnabled();
+});
+it("saves explicit photo removal with the item version and allows undo before saving", async () => {
+  const photographed = { ...blanket, has_photo: true, photo_alt: "Green blanket", photo_version: 1 };
+  fetch.mockResolvedValueOnce(reply([photographed]));
+  render(<Page />); await screen.findByText("JU Blanket");
+  expect(screen.getByRole("img")).toHaveAttribute("src", "/api/stewardship/inventory/photo?id=1&v=1");
+  fireEvent.click(screen.getByRole("button", { name: "Edit JU Blanket" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove photo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.getByText("Discard your unsaved changes?")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  fetch.mockResolvedValueOnce(reply([{ ...photographed, has_photo: false, photo_alt: "", photo_version: 2, version: 2 }]));
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ photo: { operation: "remove" }, version: 1, id: "1" });
+  expect(screen.queryByRole("img")).toBeNull();
+});
+it("blocks saving and closing until photo preparation finishes", async () => {
+  let finish; prepareGiftPhoto.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  render(<Page />); await screen.findByText("JU Blanket");
+  fireEvent.click(screen.getByRole("button", { name: "Edit JU Blanket" }));
+  fireEvent.change(screen.getByLabelText("Choose photo"), { target: { files: [new File(["png"], "gift.png", { type: "image/png" })] } });
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+  fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form"));
+  expect(fetch).toHaveBeenCalledOnce();
+  finish("data:image/png;base64,preview");
+  await screen.findByLabelText(/Photo description/);
+  expect(screen.getByRole("button", { name: "Close" })).toBeEnabled();
 });

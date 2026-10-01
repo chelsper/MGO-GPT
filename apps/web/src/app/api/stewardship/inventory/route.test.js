@@ -137,3 +137,7 @@ it("authorizes stock writes and rejects unconfirmed quantities", async () => {
   expect((await POST(request({ ...stock, confirmed: false }))).status).toBe(400);
   expect((await POST(request(stock, { origin: "https://evil.test" }))).status).toBe(403);
 });
+it("bounds the request body before accepting an upload", async () => {
+  expect((await POST(request({ ...command, excessive: "x".repeat(160 * 1024) }))).status).toBe(413);
+  expect(writeGiftInventory).not.toHaveBeenCalled();
+});

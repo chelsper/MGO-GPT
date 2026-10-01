@@ -170,8 +170,8 @@ Status reviewed October 1, 2026: the catalog, optional request choice, and
 app-recorded recipient history are live. The read-only NXT history importer is
 also deployed; see [its release note](ju-gift-history-release-2026-10-01.md) for
 the JU import result. Adding, editing, archiving, and restoring item types is
-supported. Numeric stock is implemented as described below; pictures are not yet
-implemented.
+supported. Numeric stock and optional staff-only item photos are implemented as
+described below.
 
 1. Review held or unmapped historical gift records and add future query results
    through the deployed read-only importer. Review each attribute-to-item mapping
@@ -180,10 +180,35 @@ implemented.
 2. Establish physical opening counts with Manage stock, then use the audited
    restock, return, recount, and receipt-deduction controls. If reservations are
    added later, display on-hand, reserved, and available separately.
-3. Extend the existing Add/Edit item form with an optional picture and accessible
-   description. Validate file type and size, use instance-isolated storage, and
-   allow replacement without rewriting receipt or stock history. Archived items
-   remain discoverable in past recipient history.
+3. Add item photos using Add/Edit item. A possible future increment is a scoped
+   fundraiser photo picker on gift requests; this release keeps photos within the
+   staff-only inventory rather than expanding media access implicitly.
+
+### Item Photos
+
+Add/Edit item accepts one optional PNG, JPEG, or WebP up to 2 MB and 16 million
+source pixels. The browser resizes/re-encodes it to a metadata-free PNG, up to
+512 pixels on either side and 96 KB. A short visual description is required.
+Preview, replacement, removal, and undo apply only when the item is saved; an
+upload still being prepared blocks save/close. Failed files leave the saved
+photo intact, and stale/uncertain saves require reloading before retrying.
+
+Only the actual signed-in Admin or Advancement Services actor can manage or view
+photos. No external URL, third-party upload service, or public media link is used.
+`stewardship_gift_item_photos` stores current image data separately in the instance
+database. Catalog/API/audit rows contain only photo presence, description, and
+version, not image payloads. Authenticated image GETs validate identity/version
+and stored PNG structure, return no-store PNG responses with nosniff and
+same-origin resource headers, and recheck active staff permissions in SQL.
+Inventory POST bodies are bounded to 160 KB while streaming.
+
+Photo bytes, item metadata, and catalog audit commit atomically. Older clients
+that omit photo changes preserve the current image. Archived items retain photos;
+restore the item before changing them. Replacing/removing a photo does not alter
+stock quantities, requests, receipts, NXT, or previous audit metadata. Previous
+image bytes are not retained as a photo-version gallery. Missing image reads show
+a fallback rather than a broken-image icon. Photos load lazily and fit without
+cropping. See [the photo release note](ju-photo-release-2026-10-01.md).
 
 ### Physical Stock
 

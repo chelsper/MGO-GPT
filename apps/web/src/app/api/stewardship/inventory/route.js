@@ -18,7 +18,7 @@ const reply = (body, status = 200) =>
     status,
     headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
-async function access(request) {
+export async function inventoryAccess(request) {
   const session = await auth();
   if (!session?.user?.email)
     return { error: reply({ error: "Sign in to view gift inventory." }, 401) };
@@ -44,7 +44,7 @@ async function access(request) {
 }
 export async function GET(request) {
   try {
-    const context = await access(request);
+    const context = await inventoryAccess(request);
     if (context.error) return context.error;
     const id = new URL(request.url).searchParams.get("id");
     if (id !== null && !inventoryId(id))
@@ -64,7 +64,7 @@ export async function GET(request) {
 }
 export async function POST(request) {
   try {
-    const context = await access(request);
+    const context = await inventoryAccess(request);
     if (context.error) return context.error;
     if (
       !request.headers.get("content-type")?.includes("application/json") ||
@@ -73,9 +73,22 @@ export async function POST(request) {
         request.headers.get("origin") !== new URL(request.url).origin)
     )
       return reply({ error: "Make inventory changes from the app." }, 403);
-    const command = validateInventoryCommand(
-      await request.json().catch(() => null),
-    );
+    const reader = request.body?.getReader();
+    const parts = []; let size = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > 160 * 1024) { await reader.cancel(); return reply({ error: "Item details are too large. Choose a smaller photo." }, 413); }
+          parts.push(value);
+        }
+      } finally { reader.releaseLock(); }
+    }
+    let body = null;
+    try { body = JSON.parse(Buffer.concat(parts).toString("utf8")); } catch { /* Validation handles malformed JSON. */ }
+    const command = validateInventoryCommand(body);
     if (!command)
       return reply({ error: "Check the item details and try again." }, 400);
     if (command.viewerKey !== context.viewerKey)

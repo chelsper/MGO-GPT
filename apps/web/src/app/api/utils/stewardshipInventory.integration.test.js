@@ -7,6 +7,7 @@ import {
   readGiftInventory,
   readGiftItemHistory,
   writeGiftInventory,
+  readGiftPhoto,
 } from "./stewardshipInventory";
 import { JU_GIFT_STARTERS } from "@/utils/stewardshipInventory";
 
@@ -348,5 +349,63 @@ describe.skipIf(!enabled)("gift inventory PostgreSQL persistence", () => {
         .version,
     ).toBe(1);
     expect(await readGiftItemHistory(actor, first.id, db)).toHaveLength(1);
+  });
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVh0AAAAASUVORK5CYII=";
+  const photo = { operation: "replace", dataUrl: png, alt: "Green gift" };
+  const edit = (item, change = {}) => ({ operation: "update", id: item.id, version: item.version, name: item.name, description: item.description || "", location: item.location || "", availability: item.availability, ...change });
+  it("stores photos separately from catalog and audit payloads and preserves legacy edits", async () => {
+    const [item] = await write({ ...create, photo });
+    expect(item).toMatchObject({ has_photo: "t", photo_alt: "Green gift", photo_version: "1" });
+    expect(await readGiftPhoto(actor, item.id, 1, db)).toBe(png);
+    expect(JSON.stringify(await readGiftInventory(actor, db))).not.toContain("base64");
+    expect(JSON.stringify(await readGiftItemHistory(actor, item.id, db))).not.toContain("base64");
+    const [updated] = await write(edit(item, { name: "Renamed" }));
+    expect(updated.photo_version).toBe("1"); expect(await readGiftPhoto(actor, item.id, 1, db)).toBe(png);
+    expect(await readGiftPhoto(actor, item.id, 2, db)).toBeNull();
+  });
+  it("describes, replaces, and removes photos atomically without changing stock", async () => {
+    let [item] = await write({ ...create, photo });
+    await execute("UPDATE stewardship_gift_items SET on_hand=7,stock_version=3");
+    [item] = await write(edit(item, { photo: { operation: "describe", alt: "Revised description" } }));
+    expect(item).toMatchObject({ photo_version: "2", photo_alt: "Revised description", on_hand: "7", stock_version: "3" });
+    [item] = await write(edit(item, { photo: { ...photo, alt: "Replacement" } }));
+    expect(await readGiftPhoto(actor, item.id, 3, db)).toBe(png);
+    expect(await write(edit({ ...item, version: 1 }, { photo: { operation: "remove" } }))).toHaveLength(0);
+    [item] = await write(edit(item, { photo: { operation: "remove" } }));
+    expect(item).toMatchObject({ has_photo: "f", photo_alt: null, photo_version: "4", on_hand: "7", stock_version: "3" });
+    expect(await execute("SELECT * FROM stewardship_gift_item_photos")).toHaveLength(0);
+    expect(await readGiftItemHistory(actor, item.id, db)).toHaveLength(4);
+  });
+  it("retains photos through archive and restore and refuses archived replacements", async () => {
+    const [item] = await write({ ...create, photo });
+    const [archived] = await write({ operation: "archive", id: item.id, version: 1, reason: "Retired" });
+    expect(await readGiftPhoto(actor, item.id, 1, db)).toBe(png);
+    expect(await write(edit(archived, { photo: { operation: "remove" } }))).toHaveLength(0);
+    await write({ operation: "restore", id: item.id, version: 2 });
+    expect(await readGiftPhoto(actor, item.id, 1, db)).toBe(png);
+  });
+  it("denies photo reads after a permission change and rejects stale or concurrent edits", async () => {
+    const [item] = await write({ ...create, photo });
+    const results = await Promise.all(["First", "Second"].map(alt => write(edit(item, { photo: { operation: "describe", alt } }))));
+    expect(results.flat()).toHaveLength(1);
+    expect(await readGiftPhoto({ id: 4, role: "mgo" }, item.id, 2, db)).toBeNull();
+    await execute("UPDATE users SET active=FALSE WHERE id=2");
+    expect(await readGiftPhoto(actor, item.id, 2, db)).toBeNull();
+  });
+  it("rolls photo removal and catalog metadata back together if the audit fails", async () => {
+    const [item] = await write({ ...create, photo });
+    await execute("ALTER TABLE stewardship_gift_item_events ADD CONSTRAINT reject_photo_audit CHECK(version<2)");
+    try { await expect(write(edit(item, { photo: { operation: "remove" } }))).rejects.toThrow(); }
+    finally { await execute("ALTER TABLE stewardship_gift_item_events DROP CONSTRAINT reject_photo_audit"); }
+    expect(await readGiftPhoto(actor, item.id, 1, db)).toBe(png);
+    expect((await readGiftInventory(actor, db))[0].version).toBe(1);
+  });
+  it("rolls creation back if photo storage fails and cannot describe a nonexistent photo", async () => {
+    await execute("ALTER TABLE stewardship_gift_item_photos ADD CONSTRAINT reject_photo_storage CHECK(item_id<0)");
+    try { await expect(write({ ...create, photo })).rejects.toThrow(); }
+    finally { await execute("ALTER TABLE stewardship_gift_item_photos DROP CONSTRAINT reject_photo_storage"); }
+    expect(await readGiftInventory(actor, db)).toHaveLength(0);
+    const [item] = await write(create);
+    expect(await write(edit(item, { photo: { operation: "describe", alt: "Missing" } }))).toHaveLength(0);
   });
 });

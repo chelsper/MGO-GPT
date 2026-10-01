@@ -33,18 +33,18 @@ export function isOrganizationLogo(value) {
   return false;
 }
 
-export async function prepareOrganizationLogo(file) {
+export async function prepareOrganizationLogo(file, noun = "logo") {
   if (!file || !["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("Choose a PNG, JPEG, or WebP image. SVG and animated formats are not supported.");
-  if (!file.size || file.size > MAX_LOGO_UPLOAD_BYTES) throw new Error("Choose a logo smaller than 2 MB.");
+  if (!file.size || file.size > MAX_LOGO_UPLOAD_BYTES) throw new Error(`Choose a ${noun} smaller than 2 MB.`);
   const url = URL.createObjectURL(file);
   try {
     const image = new Image();
     await new Promise((resolve, reject) => {
       image.onload = resolve;
-      image.onerror = () => reject(new Error("This image could not be opened. Try a different logo."));
+      image.onerror = () => reject(new Error(`This image could not be opened. Try a different ${noun}.`));
       image.src = url;
     });
-    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 16_000_000) throw new Error("Choose a logo with no more than 16 million pixels.");
+    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 16_000_000) throw new Error(`Choose a ${noun} with no more than 16 million pixels.`);
     // Re-encode locally to remove metadata and keep the saved branding lightweight.
     for (const maximum of [512, 384, 256, 128]) {
       const scale = Math.min(1, maximum / Math.max(image.naturalWidth, image.naturalHeight));
@@ -57,6 +57,6 @@ export async function prepareOrganizationLogo(file) {
       const result = canvas.toDataURL("image/png");
       if (isOrganizationLogo(result)) return result;
     }
-    throw new Error("This logo is too detailed. Try a simpler or smaller image.");
+    throw new Error(`This ${noun} is too detailed. Try a simpler or smaller image.`);
   } finally { URL.revokeObjectURL(url); }
 }

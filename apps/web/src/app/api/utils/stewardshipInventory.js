@@ -31,11 +31,22 @@ export async function readGiftItemHistory(actor, id, db = sql) {
     WHERE e.item_id=${id} ORDER BY e.version DESC LIMIT 50`;
 }
 
+export async function readGiftPhoto(actor, id, version, db = sql) {
+  if (!allowed(actor) || !inventoryId(id) || !Number.isSafeInteger(version) || version < 1 || version > 2147483647) return null;
+  const rows = await db`SELECT p.data_url FROM stewardship_gift_item_photos p
+    JOIN stewardship_gift_items i ON i.id=p.item_id AND i.has_photo AND i.photo_version=${version}
+    JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
+    WHERE p.item_id=${id}`;
+  return rows[0]?.data_url || null;
+}
+
 export async function writeGiftInventory(actor, body, db = sql) {
   const command = validateInventoryCommand(body);
   if (!allowed(actor) || !command) return null;
   if (command.operation === "stock") return (await writeGiftStock(actor, command, db))?.map(serialize) || null;
   const { operation } = command;
+  const photo = command.photo;
+  const photoOperation = photo?.operation || "keep";
   // Serialize catalog writes and actor permission changes. Every write and audit
   // commit together; importing again never changes an existing or archived item.
   const locks = [
@@ -69,11 +80,15 @@ export async function writeGiftInventory(actor, body, db = sql) {
             },
           ];
     query = db`WITH inserted AS (
-      INSERT INTO stewardship_gift_items(name,name_key,description,location,availability,source_key,source_label)
-      SELECT input.name,input.name_key,input.description,input.location,input.availability,input.source_key,input.source_label
+      INSERT INTO stewardship_gift_items(name,name_key,description,location,availability,source_key,source_label,has_photo,photo_alt,photo_version)
+      SELECT input.name,input.name_key,input.description,input.location,input.availability,input.source_key,input.source_label,
+        ${photoOperation === "replace"},${photo?.alt?.trim() || ""},${photoOperation === "replace" ? 1 : 0}
       FROM jsonb_to_recordset(${JSON.stringify(items)}::jsonb) AS input(name text,name_key text,description text,location text,availability text,source_key text,source_label text)
       JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
       ON CONFLICT DO NOTHING RETURNING *
+    ), photo_saved AS (
+      INSERT INTO stewardship_gift_item_photos(item_id,data_url)
+      SELECT id,${photo?.dataUrl || ""} FROM inserted WHERE ${photoOperation}='replace' RETURNING item_id
     ), audited AS (
       INSERT INTO stewardship_gift_item_events(item_id,actor_user_id,actor_name,operation,snapshot,version)
       SELECT i.id,actor.id,actor.name,${operation},to_jsonb(i),i.version FROM inserted i JOIN users actor ON actor.id=${actor.id} RETURNING id
@@ -88,11 +103,21 @@ export async function writeGiftInventory(actor, body, db = sql) {
         availability=CASE WHEN ${operation}='restore' THEN 'unknown' WHEN ${operation}='update' THEN ${command.availability ?? "unknown"} ELSE i.availability END,
         archived_at=CASE WHEN ${operation}='archive' THEN NOW() WHEN ${operation}='restore' THEN NULL ELSE i.archived_at END,
         archive_reason=CASE WHEN ${operation}='archive' THEN ${command.reason ?? ""} WHEN ${operation}='restore' THEN '' ELSE i.archive_reason END,
+        has_photo=CASE WHEN ${photoOperation}='replace' THEN TRUE WHEN ${photoOperation}='remove' THEN FALSE ELSE i.has_photo END,
+        photo_alt=CASE WHEN ${photoOperation}='remove' THEN '' WHEN ${photoOperation} IN ('replace','describe') THEN ${photo?.alt?.trim() || ""} ELSE i.photo_alt END,
+        photo_version=CASE WHEN ${photoOperation}<>'keep' THEN i.photo_version+1 ELSE i.photo_version END,
         version=i.version+1,updated_at=NOW()
       FROM users actor WHERE i.id=${command.id} AND i.version=${command.version}
         AND actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
         AND ((${operation}='restore' AND i.archived_at IS NOT NULL) OR (${operation} IN ('update','archive') AND i.archived_at IS NULL))
+        AND (${photoOperation}<>'describe' OR i.has_photo)
       RETURNING i.*
+    ), photo_saved AS (
+      INSERT INTO stewardship_gift_item_photos(item_id,data_url)
+      SELECT id,${photo?.dataUrl || ""} FROM updated WHERE ${photoOperation}='replace'
+      ON CONFLICT(item_id) DO UPDATE SET data_url=EXCLUDED.data_url RETURNING item_id
+    ), photo_removed AS (
+      DELETE FROM stewardship_gift_item_photos p USING updated i WHERE p.item_id=i.id AND ${photoOperation}='remove' RETURNING p.item_id
     ), audited AS (
       INSERT INTO stewardship_gift_item_events(item_id,actor_user_id,actor_name,operation,snapshot,version)
       SELECT i.id,actor.id,actor.name,${operation},to_jsonb(i),i.version FROM updated i JOIN users actor ON actor.id=${actor.id} RETURNING id

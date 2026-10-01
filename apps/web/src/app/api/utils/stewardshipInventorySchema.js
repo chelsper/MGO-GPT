@@ -32,6 +32,13 @@ export default async function stewardshipInventorySchema(db) {
       ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS on_hand INTEGER CHECK (on_hand BETWEEN 0 AND 1000000);
       ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS stock_version INTEGER NOT NULL DEFAULT 0 CHECK (stock_version>=0);
       ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS stock_updated_at TIMESTAMPTZ;
+      ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS has_photo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS photo_alt TEXT NOT NULL DEFAULT '' CHECK (length(photo_alt)<=240);
+      ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS photo_version INTEGER NOT NULL DEFAULT 0 CHECK (photo_version>=0);
+      CREATE TABLE IF NOT EXISTS stewardship_gift_item_photos (
+        item_id BIGINT PRIMARY KEY REFERENCES stewardship_gift_items(id),
+        data_url TEXT NOT NULL CHECK (length(data_url)<=131094 AND data_url LIKE 'data:image/png;base64,%')
+      );
     END $stewardship_inventory_schema$
   `;
 }

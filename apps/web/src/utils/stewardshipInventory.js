@@ -1,4 +1,5 @@
 import { stockCommand } from "./stewardshipStock";
+import { validPhotoChange } from "./stewardshipPhoto";
 
 export const GIFT_AVAILABILITY = Object.freeze({
   unknown: "Not checked",
@@ -54,7 +55,7 @@ export function validateInventoryCommand(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   if (body.operation === "stock") return stockCommand(body);
   const common = ["operation", "viewerKey"];
-  const itemFields = ["name", "description", "location", "availability"];
+  const itemFields = ["name", "description", "location", "availability", "photo"];
   const operations = {
     create: ["requestId", ...itemFields],
     import: ["keys"],
@@ -96,6 +97,7 @@ export function validateInventoryCommand(body) {
   )
     return null;
   if (body.operation === "archive" && !text(body.reason, 1000)) return null;
+  if (Object.hasOwn(body, "photo") && !validPhotoChange(body.photo, body.operation === "create")) return null;
   if (
     body.operation === "import" &&
     (!Array.isArray(body.keys) ||

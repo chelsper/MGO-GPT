@@ -3,6 +3,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Archive, Package, Plus, Search } from "lucide-react";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 import useUser from "@/utils/useUser";
+import StewardshipGiftPhoto from "@/components/StewardshipGiftPhoto";
+import StewardshipGiftPhotoEditor from "@/components/StewardshipGiftPhotoEditor";
 import StockDialog, { StockHistory } from "./StockDialog";
 import { stockLabel } from "@/utils/stewardshipStock";
 import {
@@ -96,6 +98,7 @@ function ItemHistory({ item, viewerKey }) {
               {event.snapshot.description}
             </p>
           )}
+          {event.snapshot.photo_version > 0 && <p className="mt-2 text-gray-600">Photo: {event.snapshot.has_photo ? event.snapshot.photo_alt : "Removed"}</p>}
           {event.operation === "archive" && event.snapshot.archive_reason && (
             <p className="mt-2 whitespace-pre-wrap break-words">
               Reason: {event.snapshot.archive_reason}
@@ -116,6 +119,9 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
   const dialog = useRef(null);
   const inFlight = useRef(false);
   const requestId = useRef(null);
+  const photoPreparing = useRef(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photo, setPhoto] = useState(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [needsReload, setNeedsReload] = useState(false);
@@ -140,7 +146,7 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
     candidates.map((starter) => starter.key),
   );
   const dirty =
-    JSON.stringify(initial) !== JSON.stringify(draft) || Boolean(reason);
+    JSON.stringify(initial) !== JSON.stringify(draft) || Boolean(reason) || photo !== undefined;
   useEffect(() => {
     const element = dialog.current;
     const previous = document.activeElement;
@@ -151,22 +157,22 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
     };
   }, []);
   useEffect(() => {
-    if (!dirty && !busy) return;
+    if (!dirty && !busy && !photoBusy) return;
     const warn = (event) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty, busy]);
+  }, [dirty, busy, photoBusy]);
   function close() {
-    if (inFlight.current) return;
+    if (inFlight.current || photoPreparing.current) return;
     if (dirty && !needsReload) setDiscard(true);
     else onClose(needsReload);
   }
   async function submit(event) {
     event.preventDefault();
-    if (inFlight.current || needsReload) return;
+    if (inFlight.current || needsReload || photoPreparing.current) return;
     inFlight.current = true;
     setBusy(true);
     setError("");
@@ -180,6 +186,7 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
           ? { id: item.id, version: item.version }
           : {}),
         ...(["create", "update"].includes(mode) ? draft : {}),
+        ...(photo !== undefined && ["create", "update"].includes(mode) ? { photo } : {}),
         ...(mode === "create" ? { requestId: requestId.current } : {}),
         ...(mode === "archive" ? { reason } : {}),
         ...(mode === "import" ? { keys } : {}),
@@ -234,7 +241,7 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
           <button
             autoFocus
             type="button"
-            disabled={busy}
+            disabled={busy || photoBusy}
             className={button}
             onClick={close}
           >
@@ -309,6 +316,8 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
                       Choose Available only after checking. Use Manage stock for counts. Zero-count items are not offered for new requests.
                     </span>
                   </label>
+                  <StewardshipGiftPhotoEditor item={item} value={photo} onChange={setPhoto} disabled={busy || needsReload || discard}
+                    onBusyChange={value => { photoPreparing.current = value; setPhotoBusy(value); }} />
                   {item?.source_key.startsWith("ju-action-field:") && (
                     <p className="text-sm text-gray-500">
                       Original NXT field name: {item.source_label}. Editing this
@@ -418,9 +427,9 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
                 type="submit"
                 className={primary}
                 disabled={
-                  mode === "import"
+                  photoBusy || (mode === "import"
                     ? !keys.length
-                    : ["create", "update"].includes(mode) && !draft.name.trim()
+                    : ["create", "update"].includes(mode) && !draft.name.trim())
                 }
               >
                 {busy
@@ -664,6 +673,7 @@ export function GiftInventory({ viewerKey }) {
                         : GIFT_AVAILABILITY[item.availability]}
                     </span>
                   </div>
+                  <StewardshipGiftPhoto item={item} className="mt-4 h-40 w-full" />
                   {item.description && (
                     <p className="mt-3 whitespace-pre-wrap break-words text-sm text-gray-600">
                       {item.description}
