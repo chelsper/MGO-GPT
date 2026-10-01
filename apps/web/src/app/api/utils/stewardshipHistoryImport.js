@@ -95,7 +95,7 @@ async function historyMatches(actor, rows, db) {
   return db`SELECT d.source_key,d.source_kind,d.item_id::text,d.constituent_id,d.received_on::text,d.voided_at
     FROM stewardship_gift_receipts d JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
     WHERE EXISTS (SELECT 1 FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS x(key text,"itemId" text,"constituentId" text,date text)
-      WHERE d.source_key=x.key OR (d.source_kind='app' AND d.item_id=x."itemId"::bigint AND d.constituent_id=x."constituentId" AND d.received_on=x.date::date))`;
+      WHERE d.source_key=x.key OR (d.source_kind='app' AND d.item_id=x."itemId"::bigint AND d.constituent_id=x."constituentId" AND (x.date IS NULL OR d.received_on=x.date::date)))`;
 }
 
 export async function commitHistoryImport(actor, state, db = sql) {
@@ -116,9 +116,10 @@ export async function commitHistoryImport(actor, state, db = sql) {
         AND s.job->>'actorId'=${String(actor.id)} AND s.job->>'error' IS NULL
         AND (s.job->>'loadedAt')::timestamptz>NOW()-INTERVAL '24 hours'
         AND NOT EXISTS (SELECT 1 FROM candidates x LEFT JOIN stewardship_gift_items i ON i.id=x."itemId"::bigint
-          WHERE i.id IS NULL OR i.version<>(x.item->>'version')::integer OR x.date::date>(NOW() AT TIME ZONE 'America/New_York')::date)
+          WHERE i.id IS NULL OR i.version<>(x.item->>'version')::integer OR x.date::date>(NOW() AT TIME ZONE 'America/New_York')::date
+            OR (x.date IS NULL AND COALESCE((s.job->'preview'->'mapping'->>'allowUndated')::boolean,false)=false))
         AND NOT EXISTS (SELECT 1 FROM candidates x JOIN stewardship_gift_receipts d ON d.source_key=x.key
-          WHERE d.item_id<>x."itemId"::bigint OR d.constituent_id<>x."constituentId" OR d.received_on<>x.date::date)
+          WHERE d.item_id<>x."itemId"::bigint OR d.constituent_id<>x."constituentId" OR d.received_on IS DISTINCT FROM x.date::date)
     ), inserted AS (
       INSERT INTO stewardship_gift_receipts(item_id,item_snapshot,constituent_id,constituent_name,owner_name,received_on,note,
         request_token,recorded_by,recorded_by_name,source_kind,source_key,source_snapshot)
@@ -128,7 +129,7 @@ export async function commitHistoryImport(actor, state, db = sql) {
           'queryId',e.config->>'queryId','importId',e.job->>'id','dateBasis',x."dateBasis")
       FROM candidates x CROSS JOIN eligible e
       WHERE NOT EXISTS (SELECT 1 FROM stewardship_gift_receipts d WHERE d.source_key=x.key OR
-        (d.source_kind='app' AND d.voided_at IS NULL AND d.item_id=x."itemId"::bigint AND d.constituent_id=x."constituentId" AND d.received_on=x.date::date))
+        (d.source_kind='app' AND d.voided_at IS NULL AND d.item_id=x."itemId"::bigint AND d.constituent_id=x."constituentId" AND (x.date IS NULL OR d.received_on=x.date::date)))
       ON CONFLICT DO NOTHING RETURNING id
     ), updated AS (
       UPDATE stewardship_gift_import_state s SET version=s.version+1,lease=NULL,lease_until=NULL,

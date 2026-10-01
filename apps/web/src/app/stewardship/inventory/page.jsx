@@ -3,6 +3,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Archive, Package, Plus, Search } from "lucide-react";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 import useUser from "@/utils/useUser";
+import StockDialog, { StockHistory } from "./StockDialog";
+import { stockLabel } from "@/utils/stewardshipStock";
 import {
   GIFT_AVAILABILITY,
   inventoryNameKey,
@@ -43,7 +45,7 @@ function ItemHistory({ item, viewerKey }) {
       .then((data) => {
         if (data.id !== item.id || !Array.isArray(data.events))
           throw new Error("Item history could not be loaded.");
-        if (!controller.signal.aborted) setResult({ events: data.events });
+        if (!controller.signal.aborted) setResult({ events: data.events, stockEvents: data.stockEvents || [] });
       })
       .catch(() => {
         if (!controller.signal.aborted) setResult({ error: true });
@@ -53,7 +55,7 @@ function ItemHistory({ item, viewerKey }) {
   return (
     <div className="grid gap-3 text-sm">
       <p className="text-gray-600">
-        Catalog changes only. This is not a record of gifts delivered.
+        Catalog and stock changes. Open Received Items for recipient history.
       </p>
       {result.loading && <p role="status">Loading item history...</p>}
       {result.error && (
@@ -104,6 +106,7 @@ function ItemHistory({ item, viewerKey }) {
       {result.events?.length === 50 && (
         <p>Showing the most recent 50 changes.</p>
       )}
+      {result.stockEvents && <><h3 className="font-semibold">Stock movements</h3><StockHistory events={result.stockEvents} /></>}
     </div>
   );
 }
@@ -303,8 +306,7 @@ function InventoryDialog({ mode, item, items, viewerKey, onClose, onSaved }) {
                       )}
                     </select>
                     <span className="font-normal text-gray-500">
-                      Choose Available only after checking. Stock quantities are
-                      not tracked yet.
+                      Choose Available only after checking. Use Manage stock for counts. Zero-count items are not offered for new requests.
                     </span>
                   </label>
                   {item?.source_key.startsWith("ju-action-field:") && (
@@ -510,7 +512,7 @@ export function GiftInventory({ viewerKey }) {
     }));
     setEditor(null);
     setNotice(
-      mode === "import"
+      mode === "stock" ? "Stock updated. This change is recorded in stock history." : mode === "import"
         ? `${data.added} ${data.added === 1 ? "item" : "items"} added. Availability starts as Not checked.`
         : {
             create: "Gift item added.",
@@ -667,6 +669,7 @@ export function GiftInventory({ viewerKey }) {
                       {item.description}
                     </p>
                   )}
+                  <p className="mt-3 text-lg font-semibold text-emerald-900">{stockLabel(item)}</p>
                   <p className="mt-3 break-words text-sm text-gray-500">
                     {item.location
                       ? `Stored at: ${item.location}`
@@ -690,6 +693,7 @@ export function GiftInventory({ viewerKey }) {
                       </button>
                     ) : (
                       <>
+                        <button className={button} aria-label={`Manage stock for ${item.name}`} onClick={() => setEditor({ mode: "stock", item })}>Manage stock</button>
                         <button
                           className={button}
                           onClick={() => setEditor({ mode: "update", item })}
@@ -763,11 +767,11 @@ export function GiftInventory({ viewerKey }) {
           </details>
           <p className="text-xs text-gray-500">
             Available items can be selected on personal-gift assistance requests.
-            Received Items shows confirmed receipts recorded in the app, not all NXT history. Stock quantities are not tracked.
+            Received Items includes app receipts and reviewed historical imports. Set an opening count to track stock; historical imports never deduct it.
           </p>
         </>
       )}
-      {editor && (
+      {editor?.mode === "stock" ? <StockDialog item={editor.item} viewerKey={viewerKey} onSaved={saved} onClose={reloadNeeded => { setEditor(null); if (reloadNeeded) setReload(value => value + 1); }} /> : editor && (
         <InventoryDialog
           {...editor}
           items={items}

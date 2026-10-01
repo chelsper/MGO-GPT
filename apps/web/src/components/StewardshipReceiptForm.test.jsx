@@ -16,7 +16,7 @@ function fill() {
   fireEvent.change(screen.getByLabelText("Date received"), {
     target: { value: "2020-10-01" },
   });
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "I confirm this recipient received this item." }));
 }
 it("requires actual receipt confirmation and submits the saved item/request version, not donor text", async () => {
   const saved = vi.fn();
@@ -41,7 +41,7 @@ it("requires actual receipt confirmation and submits the saved item/request vers
   expect(
     screen.getByRole("button", { name: "Save received item" }),
   ).toBeDisabled();
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "I confirm this recipient received this item." }));
   fireEvent.click(screen.getByRole("button", { name: "Save received item" }));
   await waitFor(() => expect(saved).toHaveBeenCalledWith(receipt));
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
@@ -54,7 +54,19 @@ it("requires actual receipt confirmation and submits the saved item/request vers
     receivedOn: "2020-10-01",
     note: "",
     confirmed: true,
+    stockQuantity: 0,
   });
+});
+it("deducts only an explicitly selected quantity for a new delivery", async () => {
+  const saved = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ viewerKey: "2", receipt: { id: "1", request_id: "22" } })));
+  render(<StewardshipReceiptForm request={request} onSaved={saved} />);
+  fill();
+  fireEvent.click(screen.getByRole("checkbox", { name: /Deduct this newly delivered/ }));
+  fireEvent.change(screen.getByLabelText("Quantity delivered"), { target: { value: "2" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save received item" }));
+  await waitFor(() => expect(saved).toHaveBeenCalled());
+  expect(JSON.parse(fetch.mock.calls[0][1].body).stockQuantity).toBe(2);
 });
 it("prevents a repeat submission after an uncertain result and keeps the draft", async () => {
   vi.stubGlobal(

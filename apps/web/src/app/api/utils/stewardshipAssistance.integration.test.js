@@ -9,6 +9,8 @@ import inventorySchema from "./stewardshipInventorySchema";
 import giftRequestsSchema from "./stewardshipGiftRequestsSchema";
 import receiptsSchema from "./stewardshipReceiptsSchema";
 import historySchema from "./stewardshipHistorySchema";
+import stockSchema from "./stewardshipStockSchema";
+import { writeGiftStock, readGiftStockHistory } from "./stewardshipStock";
 import { readGiftReceipts, writeGiftReceipt } from "./stewardshipReceipts";
 import { receiptFilters } from "@/utils/stewardshipReceipts";
 import { writeGiftInventory } from "./stewardshipInventory";
@@ -59,6 +61,7 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     await inventorySchema(db); await giftRequestsSchema(db); await giftRequestsSchema(db);
     await receiptsSchema(db); await receiptsSchema(db);
     await historySchema(db); await historySchema(db);
+    await stockSchema(db); await stockSchema(db);
   });
   beforeEach(async () => {
     await execute(`TRUNCATE users, pending_actions, data_change_requests, stewardship_request_events, stewardship_gift_items, stewardship_gift_item_events RESTART IDENTITY CASCADE;
@@ -376,5 +379,118 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     finally { await execute("ALTER TABLE stewardship_request_events DROP CONSTRAINT fail_receipt_audit"); }
     expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
     expect((await readTaskAssistance(context, 10, db)).request.request_version).toBe(1);
+  });
+  const stockDraft = (id, changes = {}) => ({ operation: "stock", viewerKey: "test", id, stockVersion: 0, kind: "opening", quantity: 5,
+    token: "81512c41-89cd-41be-946e-10a056cae491", reason: "", confirmed: true, ...changes });
+  const stockBalance = async () => (await execute("SELECT on_hand,stock_version,version FROM stewardship_gift_items"))[0];
+  it("distinguishes uncounted and zero, saves opening stock once, and preserves catalog version", async () => {
+    const item = await addGift();
+    expect(item.on_hand).toBeNull();
+    const command = stockDraft(item.id, { quantity: 0 });
+    const results = await Promise.all([writeGiftStock(actor, command, db), writeGiftStock(actor, command, db)]);
+    expect(results.every(rows => rows.length === 1)).toBe(true);
+    expect(await stockBalance()).toMatchObject({ on_hand: "0", stock_version: "1", version: "1" });
+    expect(await readGiftStockHistory(actor, item.id, db)).toHaveLength(1);
+    expect(await readAvailableStewardshipGifts(db)).toHaveLength(0);
+    expect(await choose(item.id)).toBeNull();
+    expect(await writeGiftStock(actor, { ...command, quantity: 1 }, db)).toHaveLength(0);
+  });
+  it("records restocks, physical returns, and recounts with before/after balances", async () => {
+    const item = await addGift(); await writeGiftStock(actor, stockDraft(item.id), db);
+    await writeGiftStock(actor, stockDraft(item.id, { stockVersion: 1, kind: "restock", quantity: 3, token: "81512c41-89cd-41be-946e-10a056cae492" }), db);
+    await writeGiftStock(actor, stockDraft(item.id, { stockVersion: 2, kind: "return", quantity: 1, reason: "Physically returned unused", token: "81512c41-89cd-41be-946e-10a056cae493" }), db);
+    await writeGiftStock(actor, stockDraft(item.id, { stockVersion: 3, kind: "adjustment", quantity: 7, reason: "Physical recount", token: "81512c41-89cd-41be-946e-10a056cae494" }), db);
+    expect(await stockBalance()).toMatchObject({ on_hand: "7", stock_version: "4" });
+    expect((await readGiftStockHistory(actor, item.id, db)).map(row => [row.kind, row.delta])).toEqual([["adjustment", "-2"], ["return", "1"], ["restock", "3"], ["opening", "5"]]);
+  });
+  it("rejects stale, overflowing, archived, inactive and unauthorized stock writes", async () => {
+    const item = await addGift(); const command = stockDraft(item.id);
+    expect(await writeGiftStock(owner, command, db)).toBeNull();
+    expect(await readGiftStockHistory(owner, item.id, db)).toBeNull();
+    expect(await writeGiftStock(actor, { ...command, kind: "restock" }, db)).toHaveLength(0);
+    await writeGiftStock(actor, command, db);
+    expect(await writeGiftStock(actor, { ...command, kind: "restock", token: "81512c41-89cd-41be-946e-10a056cae492" }, db)).toHaveLength(0);
+    const next = { ...command, stockVersion: 1, kind: "restock", token: "81512c41-89cd-41be-946e-10a056cae492" };
+    expect(await writeGiftStock(actor, { ...next, quantity: 1000000 }, db)).toHaveLength(0);
+    await execute("UPDATE users SET active=FALSE WHERE id=2");
+    expect(await writeGiftStock(actor, next, db)).toHaveLength(0);
+    await execute("UPDATE users SET active=TRUE WHERE id=2; UPDATE stewardship_gift_items SET archived_at=NOW()");
+    expect(await writeGiftStock(actor, next, db)).toHaveLength(0);
+    expect(await stockBalance()).toMatchObject({ on_hand: "5", stock_version: "1" });
+  });
+  it("deducts a newly delivered receipt atomically and only once across retries", async () => {
+    const receipt = { ...await prepareReceipt(), stockQuantity: 2 };
+    await writeGiftStock(actor, stockDraft(receipt.itemId), db);
+    const results = await Promise.all([writeGiftReceipt(actor, receipt, db), writeGiftReceipt(actor, receipt, db)]);
+    expect(results[0].id).toBe(results[1].id);
+    expect(await stockBalance()).toMatchObject({ on_hand: "3", stock_version: "2" });
+    const history = await readGiftStockHistory(actor, receipt.itemId, db);
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({ kind: "fulfillment", quantity: "2", receipt_id: results[0].id });
+    expect(await writeGiftReceipt(actor, { ...receipt, stockQuantity: 1 }, db)).toBeNull();
+    await writeGiftReceipt(actor, { operation: "void", viewerKey: "2", requestId: receipt.requestId, version: 2, id: results[0].id, reason: "Wrong recorded date" }, db);
+    expect(await stockBalance()).toMatchObject({ on_hand: "3", stock_version: "2" });
+  });
+  it("prevents deduction from unknown or insufficient stock without creating a receipt", async () => {
+    const receipt = { ...await prepareReceipt(), stockQuantity: 6 };
+    expect(await writeGiftReceipt(actor, receipt, db)).toBeNull();
+    await writeGiftStock(actor, stockDraft(receipt.itemId), db);
+    expect(await writeGiftReceipt(actor, receipt, db)).toBeNull();
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect(await stockBalance()).toMatchObject({ on_hand: "5", stock_version: "1" });
+  });
+  it("serializes competing fulfillments so stock never oversells", async () => {
+    const first = { ...await prepareReceipt(), stockQuantity: 3 };
+    await writeGiftStock(actor, stockDraft(first.itemId), db);
+    await execute("INSERT INTO pending_actions SELECT 11,owner_user_id,status,updated_at,source_gift_id,source_gift_snapshot FROM pending_actions WHERE id=10");
+    const request = await createTaskAssistance(context, 11, { ...draft, giftItemId: first.itemId }, db);
+    const second = receiptDraft(request.id, first.itemId, { stockQuantity: 3, token: "74512c41-89cd-41be-946e-10a056cae492" });
+    const results = await Promise.all([writeGiftReceipt(actor, first, db), writeGiftReceipt(actor, second, db)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await stockBalance()).toMatchObject({ on_hand: "2", stock_version: "2" });
+  });
+  it("rolls back stock, receipt and request version together if the stock audit fails", async () => {
+    const receipt = { ...await prepareReceipt(), stockQuantity: 2 };
+    await writeGiftStock(actor, stockDraft(receipt.itemId), db);
+    await execute("ALTER TABLE stewardship_stock_movements ADD CONSTRAINT fail_stock_audit CHECK(kind<>'fulfillment')");
+    try { await expect(writeGiftReceipt(actor, receipt, db)).rejects.toThrow(); }
+    finally { await execute("ALTER TABLE stewardship_stock_movements DROP CONSTRAINT fail_stock_audit"); }
+    expect(await stockBalance()).toMatchObject({ on_hand: "5", stock_version: "1" });
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect((await readTaskAssistance(context, 10, db)).request.request_version).toBe(1);
+  });
+  it("imports unknown dates only when approved, preserves stock, and skips repeat source keys", async () => {
+    const item = await addGift(); await writeGiftStock(actor, stockDraft(item.id), db);
+    const unknown = [...historyRow]; unknown[7] = "";
+    const preview = async () => {
+      await step("start", { queryId: "31053", confirmed: true });
+      await execute("UPDATE stewardship_gift_import_state SET job=jsonb_set(job,'{nextCheckAt}','\"2000-01-01T00:00:00Z\"')");
+      await step("check", {}, { read: async () => ({ headers: Object.keys(historyColumns), rows: [unknown] }) });
+      return step("preview", { mapping: { columns: historyColumns, rules: [{ category: "Blanket", itemId: item.id, value: "Yes" }], completedValue: "Yes", confirmed: true, allowUndated: true } });
+    };
+    expect((await preview()).job.preview.rows[0]).toMatchObject({ date: null, status: "new" });
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(1);
+    expect((await readGiftReceipts(actor, filters(), db))[0]).toMatchObject({ received_on: null, stock_quantity: "0" });
+    expect(await stockBalance()).toMatchObject({ on_hand: "5", stock_version: "1" });
+    expect((await preview()).job.preview.rows[0].status).toBe("existing");
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(0);
+    await preview(); await execute("UPDATE stewardship_gift_receipts SET received_on='2000-09-20'");
+    expect((await step("commit", { confirmed: true })).job.error).toContain("changed");
+  });
+  it("keeps new app receipt dates mandatory at the database boundary", async () => {
+    await writeGiftReceipt(actor, await prepareReceipt(), db);
+    await expect(execute("UPDATE stewardship_gift_receipts SET received_on=NULL")).rejects.toThrow();
+  });
+  it("holds undated history when the same person and item already have an app receipt", async () => {
+    const receipt = await prepareReceipt();
+    await writeGiftReceipt(actor, receipt, db);
+    const unknown = [...historyRow]; unknown[7] = "";
+    await step("start", { queryId: "31053", confirmed: true });
+    await execute("UPDATE stewardship_gift_import_state SET job=jsonb_set(job,'{nextCheckAt}','\"2000-01-01T00:00:00Z\"')");
+    await step("check", {}, { read: async () => ({ headers: Object.keys(historyColumns), rows: [unknown] }) });
+    const preview = await step("preview", { mapping: { columns: historyColumns, rules: [{ category: "Blanket", itemId: receipt.itemId, value: "Yes" }], completedValue: "Yes", confirmed: true, allowUndated: true } });
+    expect(preview.job.preview.rows[0].status).toBe("possible_app_match");
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(0);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
   });
 });

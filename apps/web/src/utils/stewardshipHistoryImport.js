@@ -29,7 +29,7 @@ export function historyMapping(input) {
   if (rules.some(rule => !rule.category || rule.category.length > 240 || !receiptId(rule.itemId) ||
       (!rule.anyValue && (typeof rule.value !== "string" || !rule.value || rule.value.length > 1000))) ||
       new Set(rules.map(r => r.category)).size !== rules.length) return null;
-  return { columns, rules, completedValue: input.completedValue.trim(), confirmed: true };
+  return { columns, rules, completedValue: input.completedValue.trim(), confirmed: true, allowUndated: input.allowUndated === true };
 }
 
 export function historyDate(value) {
@@ -67,7 +67,7 @@ export function prepareHistoryRows(table, input, items, today) {
       !/^[A-Za-z0-9_-]{1,100}$/.test(row.fieldId) && "custom-field Import ID", (!row.name || row.name.length > 240) && "recipient name"].filter(Boolean);
     if (invalid.length) throw new Error(`Query row ${index + 1} needs a valid ${invalid.join(", ")}. Nothing was imported.`);
     const key = `${row.actionId}:${row.fieldId}`;
-    if (!date || date > today) {
+    if ((!date && (dateValue || !mapping.allowUndated)) || date > today) {
       if (rows.has(key)) throw new Error(`Query row ${index + 1} conflicts with a dated row for the same action custom field.`);
       heldKeys.add(key); totals.needsReview++;
       if (held.length < 100) held.push({ row: index + 1, name: row.name, actionId: row.actionId, fieldId: row.fieldId, category: row.category,
@@ -78,7 +78,7 @@ export function prepareHistoryRows(table, input, items, today) {
     const item = catalog.get(rule.itemId);
     const candidate = { key, actionId: row.actionId, fieldId: row.fieldId, constituentId: row.constituentId,
       name: row.name, itemId: rule.itemId, item: { id: rule.itemId, name: item.name, version: Number(item.version) },
-      date, dateBasis: row.date ? mapping.columns.date : mapping.columns.fallbackDate, category: row.category, value: row.value };
+      date, dateBasis: date ? (row.date ? mapping.columns.date : mapping.columns.fallbackDate) : null, category: row.category, value: row.value };
     if (rows.has(key)) {
       if (JSON.stringify(rows.get(key)) !== JSON.stringify(candidate)) throw new Error(`Query row ${index + 1} conflicts with another row for the same action custom field. Review the query; no row was chosen automatically.`);
       totals.repeated++;
@@ -96,7 +96,7 @@ export function classifyHistoryRows(rows, existing) {
     if (found) status = found.item_id === row.itemId && found.constituent_id === row.constituentId && found.received_on === row.date
       ? (found.voided_at ? "corrected" : "existing") : "conflict";
     else if (existing.some(item => item.source_kind === "app" && !item.voided_at && item.item_id === row.itemId &&
-      item.constituent_id === row.constituentId && item.received_on === row.date)) status = "possible_app_match";
+      item.constituent_id === row.constituentId && (row.date === null || item.received_on === row.date))) status = "possible_app_match";
     return { ...row, status };
   });
 }

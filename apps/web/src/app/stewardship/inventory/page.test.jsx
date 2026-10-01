@@ -237,3 +237,11 @@ it("rejects another viewer's data and clears inventory on sign-out", async () =>
     screen.getByRole("link", { name: "Sign in to view gift inventory" }),
   ).toBeVisible();
 });
+it("shows not-counted and zero balances without guessing stock from availability", async () => {
+  fetch.mockResolvedValueOnce(reply([blanket, { ...archived, archived_at: null, on_hand: 0, stock_version: 1 }]));
+  render(<Page />);
+  await screen.findByText("JU Blanket");
+  expect(screen.getByText("Not counted")).toBeVisible();
+  expect(screen.getByText("0 on hand")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Manage stock for JU Blanket" })).toBeEnabled();
+});

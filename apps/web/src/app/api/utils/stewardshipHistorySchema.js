@@ -7,6 +7,11 @@ export default async function stewardshipHistorySchema(db) {
       ALTER TABLE stewardship_gift_receipts ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'app';
       ALTER TABLE stewardship_gift_receipts ADD COLUMN IF NOT EXISTS source_key TEXT;
       ALTER TABLE stewardship_gift_receipts ADD COLUMN IF NOT EXISTS source_snapshot JSONB;
+      ALTER TABLE stewardship_gift_receipts ALTER COLUMN received_on DROP NOT NULL;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='stewardship_gift_receipts'::regclass AND conname='stewardship_receipt_date_contract') THEN
+        ALTER TABLE stewardship_gift_receipts ADD CONSTRAINT stewardship_receipt_date_contract
+          CHECK (received_on IS NOT NULL OR source_kind='nxt_history');
+      END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='stewardship_gift_receipts'::regclass AND conname='stewardship_receipt_source_contract') THEN
         ALTER TABLE stewardship_gift_receipts ADD CONSTRAINT stewardship_receipt_source_contract CHECK (
           (source_kind='app' AND request_id IS NOT NULL AND source_key IS NULL) OR

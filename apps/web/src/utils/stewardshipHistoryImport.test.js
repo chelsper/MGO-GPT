@@ -86,3 +86,20 @@ it("does not allow No as completed or false/planned gift markers even with an an
     expect(prepareHistoryRows(table([values]), { ...mapping, rules: [{ ...mapping.rules[0], anyValue: true }] }, items, "2026-10-01").rows).toHaveLength(0);
   }
 });
+it("imports explicitly approved missing dates as null but continues holding malformed and future dates", () => {
+  const undated = [...row]; undated[7] = "";
+  const approved = { ...mapping, allowUndated: true };
+  expect(prepareHistoryRows(table([undated]), approved, items, "2026-10-01").rows[0]).toMatchObject({ date: null, dateBasis: null });
+  expect(prepare([undated]).held[0].reason).toBe("Missing date");
+  for (const date of ["invalid", "2026-12-01"]) {
+    undated[7] = date;
+    expect(prepareHistoryRows(table([undated]), approved, items, "2026-10-01").rows).toHaveLength(0);
+  }
+});
+it("keeps null-date source deduplication and conflict detection strict", () => {
+  const candidate = { key: "10:20", itemId: "1", constituentId: "100", date: null };
+  const saved = { source_key: "10:20", item_id: "1", constituent_id: "100", received_on: null };
+  expect(classifyHistoryRows([candidate], [saved])[0].status).toBe("existing");
+  expect(classifyHistoryRows([candidate], [{ ...saved, received_on: "2026-09-20" }])[0].status).toBe("conflict");
+  expect(classifyHistoryRows([candidate], [{ ...saved, source_key: null, source_kind: "app", received_on: "2026-09-20" }])[0].status).toBe("possible_app_match");
+});

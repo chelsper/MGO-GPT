@@ -102,9 +102,10 @@ and progress note in both views. The 390px layout had no horizontal overflow.
 No production requests or NXT records were changed for these tests.
 
 Before offering choices, staff should review catalog availability; the imported
-starter names intentionally remain Not checked until that review. A later release
-can add separately audited quantities and reservations, followed by an explicitly
-configured and verified NXT action/custom-field write contract.
+starter names intentionally remain Not checked until that review. Counted items
+with zero on hand cannot be newly selected. Uncounted Available items remain
+selectable without implying a known quantity. Reservations and an NXT action write
+contract remain future work.
 
 ## Received Items
 
@@ -122,7 +123,8 @@ Personal gift assistance request after saving its gift preference. The date
 defaults to today (Eastern), can be changed to a past date, and cannot be future.
 An optional note and explicit confirmation record actual receipt, not a requested
 gift or a shipment still in transit. The original request and fundraiser follow-up
-remain at their current status; no stock is deducted and no NXT action is created.
+remain at their current status; no NXT action is created. Stock is unchanged unless
+staff explicitly select the new-gift deduction option described below.
 The saved receipt appears on the same request in the staff queue, fundraiser
 follow-up, and submission tracker. The follow-up also links to receipt history
 before a new request is submitted.
@@ -168,23 +170,44 @@ Status reviewed October 1, 2026: the catalog, optional request choice, and
 app-recorded recipient history are live. The read-only NXT history importer is
 also deployed; see [its release note](ju-gift-history-release-2026-10-01.md) for
 the JU import result. Adding, editing, archiving, and restoring item types is
-supported. Numeric stock and item pictures are not implemented.
+supported. Numeric stock is implemented as described below; pictures are not yet
+implemented.
 
 1. Review held or unmapped historical gift records and add future query results
    through the deployed read-only importer. Review each attribute-to-item mapping
    and its receipt meaning. Reimports retain stable source IDs and corrections;
    historical gifts never deduct current stock.
-2. Add audited stock quantities. Staff establish an opening count; replenishment,
-   fulfillment, returns, and count corrections create explicit stock movements.
-   Unknown quantity must remain distinct from zero. Retries must not deduct twice,
-   concurrent updates must not oversell, and corrections retain their history.
-   If reservations are added, display on-hand, reserved, and available separately.
+2. Establish physical opening counts with Manage stock, then use the audited
+   restock, return, recount, and receipt-deduction controls. If reservations are
+   added later, display on-hand, reserved, and available separately.
 3. Extend the existing Add/Edit item form with an optional picture and accessible
    description. Validate file type and size, use instance-isolated storage, and
    allow replacement without rewriting receipt or stock history. Archived items
    remain discoverable in past recipient history.
 
-Stock quantities and pictures remain proposed increments, not current capabilities.
+### Physical Stock
+
+Admin and Advancement Services can use **Manage stock** on each active item.
+An uncounted item requires an explicitly confirmed opening count; zero is valid
+and distinct from unknown. Subsequent changes support restock, physical return,
+or setting the total after a recount. Return and recount require a reason.
+Counts are nonnegative integers capped at 1,000,000. Archived items retain their
+counts and history but must be restored before a manual stock change.
+
+On **Record received item**, staff may explicitly deduct a quantity for a newly
+delivered gift. The default is no deduction for backward compatibility and to
+avoid deducting older gifts. A deduction requires a known, sufficient balance.
+Receipt creation, request audit/version update, stock deduction, and stock audit
+commit atomically. A corrected receipt never automatically returns physical
+stock; staff record a physical return separately when appropriate.
+
+`stewardship_stock_movements` records before/after balances, quantity, change
+kind, actor, time, reason, and a receipt reference for fulfillment. Stock has its
+own version, independent of catalog metadata. Shared advisory locking, version
+checks, and unique idempotency tokens prevent stale overwrites, duplicate
+deductions, and overselling. History shows the latest 50 movements. No NXT stock
+writes, automatic reservations, opening-count inference, or import deductions
+are performed. See [the stock release note](ju-stock-release-2026-10-01.md).
 
 ### JU History Source Readiness
 
@@ -226,12 +249,16 @@ Duplicate protection uses Action System Record ID plus Action Custom Field
 Import ID, not donor name or constituent ID alone. Corrections preserve that key
 so a repeat query cannot resurrect a voided receipt. Possible app-recorded matches
 with the same item, recipient, and date are skipped for review. Invalid IDs or
-conflicting source identities fail closed. Blank/invalid/future dates are held
-out with row-level review details, without blocking distinct valid records.
+conflicting source identities fail closed. Blank dates are held by default. Staff
+may explicitly include confirmed gifts with a missing date; these retain NULL
+and display **Date not recorded**. Invalid or future dates remain held. Unknown
+dates with an existing app receipt for the same recipient/item are conservatively
+held as possible matches, regardless of the app receipt date.
 An explicitly selected recorded-date fallback applies only when the primary date
 is blank; invalid values are never silently replaced. The actual date field used
 is retained in each receipt's NXT source details. Held rows remain visible after
-the valid portion is imported. Dates are never inferred from Date Added.
+the valid portion is imported. Dates are never inferred from Date Added. New
+app-recorded receipts still require an actual date, enforced in the database.
 
 The import is bound to its initiating staff account and NXT connection. It has
 version/lease guards, active-role checks inside database writes, and atomic

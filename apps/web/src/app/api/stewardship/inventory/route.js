@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { readGiftStockHistory } from "@/app/api/utils/stewardshipStock";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   inventoryId,
@@ -52,7 +53,7 @@ export async function GET(request) {
       viewerKey: context.viewerKey,
       ...(id === null
         ? { items: await readGiftInventory(context.actor) }
-        : { id, events: await readGiftItemHistory(context.actor, id) }),
+        : { id, events: await readGiftItemHistory(context.actor, id), stockEvents: await readGiftStockHistory(context.actor, id) }),
     });
   } catch {
     return reply(
@@ -84,7 +85,7 @@ export async function POST(request) {
       return reply(
         {
           error:
-            "This item changed or already exists. Close this form and reload inventory before trying again. Your draft has not been overwritten.",
+            command.operation === "stock" ? "Stock changed, the item is archived, or this count cannot be applied. Close and reload inventory before trying again. Your draft has not been overwritten." : "This item changed or already exists. Close this form and reload inventory before trying again. Your draft has not been overwritten.",
         },
         409,
       );

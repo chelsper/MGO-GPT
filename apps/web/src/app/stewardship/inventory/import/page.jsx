@@ -20,6 +20,7 @@ export function GiftHistoryImport({ sessionKey }) {
   const [columns, setColumns] = useState({});
   const [rules, setRules] = useState({});
   const [completedValue, setCompletedValue] = useState("");
+  const [allowUndated, setAllowUndated] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [approved, setApproved] = useState(false);
   const [page, setPage] = useState(0);
@@ -38,6 +39,7 @@ export function GiftHistoryImport({ sessionKey }) {
       const mapping = result.state.config?.mapping;
       setColumns(mapping?.columns || {}); setCompletedValue(mapping?.completedValue || "");
       setRules(Object.fromEntries((mapping?.rules || []).map(rule => [rule.category, rule])));
+      setAllowUndated(mapping?.allowUndated === true);
       setReviewed(false); setApproved(false); setPage(0);
     }).catch(failure => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
@@ -73,7 +75,7 @@ export function GiftHistoryImport({ sessionKey }) {
   const conflicts = rows.filter(row => row.status === "conflict").length;
   const heldCount = job?.preview?.totals?.needsReview || job?.heldCount || 0;
   const heldRows = job?.preview?.held || job?.held || [];
-  const previewMapping = () => ({ columns, completedValue, confirmed: reviewed,
+  const previewMapping = () => ({ columns, completedValue, confirmed: reviewed, allowUndated,
     rules: categories.filter(category => ownRule(rules, category).itemId).map(category => ({ category, ...ownRule(rules, category) })) });
   function editColumns(key, value) {
     setColumns(previous => ({ ...previous, [key]: value })); setReviewed(false); setApproved(false);
@@ -118,7 +120,8 @@ export function GiftHistoryImport({ sessionKey }) {
         <h2 className="text-lg font-bold">2. Match fields and gift items</h2><p className="text-sm text-gray-600">{table.rows.length.toLocaleString()} query rows loaded. These settings are saved when you create the preview.</p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(HISTORY_COLUMNS).map(([key, label]) => <label key={key} className="grid min-w-0 gap-2 text-sm font-semibold">{label}
           <select className={input} value={columns[key] || ""} disabled={!canContinue} onChange={event => editColumns(key, event.target.value)}><option value="">{key === "fallbackDate" ? "No fallback; hold undated rows" : key === "constituentId" ? "Verify recipient from its NXT action" : key === "value" ? "Use reviewed field presence instead" : "Choose a returned field"}</option>{table.headers.map(header => <option key={header}>{header}</option>)}</select></label>)}</div>
-        <p className="text-sm text-gray-600">Use recorded receipt or completion dates, not Date Added. An optional fallback is used only when the first field is blank. Missing, invalid, or future dates are held for review.</p>
+        <p className="text-sm text-gray-600">Use recorded receipt or completion dates, not Date Added. An optional fallback is used only when the first field is blank. Invalid or future dates are always held for review.</p>
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={allowUndated} disabled={!canContinue} onChange={event => { setAllowUndated(event.target.checked); setReviewed(false); setApproved(false); }} />Include confirmed gifts with a missing date as "Date not recorded". Do not invent a date.</label>
         {!columns.value && <p className="text-sm text-amber-900">Only use field presence when this category's existence means an item was received. If values such as No, False, or Planned are possible, return and map the value field instead.</p>}
         <label className="grid max-w-sm gap-2 text-sm font-semibold">Value that means action completed<select className={input} value={completedValue} disabled={!canContinue} onChange={event => { setCompletedValue(event.target.value); setReviewed(false); setApproved(false); }}>
           <option value="">Choose a returned Yes / True / 1 value</option>{[...new Set(table.rows.map(row => row[table.headers.indexOf(columns.completed)]?.trim()).filter(isCompletedHistoryValue))].map(value => <option key={value}>{value}</option>)}</select></label>
@@ -162,7 +165,7 @@ export function GiftHistoryImport({ sessionKey }) {
         <p className="text-sm text-gray-600">Possible app matches are skipped, not confirmed as duplicates. Check Received Items before handling those separately. Previously corrected imports stay excluded.</p>
         {!!conflicts && <p role="alert" className="text-amber-900">An existing source record disagrees with this mapping or date. No import can proceed until the conflict is resolved.</p>}
         <div className="overflow-x-auto"><table className="w-full text-left text-sm"><caption className="sr-only">Gift history import preview</caption><thead><tr>{["Recipient", "Item", "Date", "NXT action / field", "Result"].map(label => <th className="p-2" key={label}>{label}</th>)}</tr></thead>
-          <tbody>{rows.slice(page * 50, page * 50 + 50).map(row => <tr className="border-t" key={row.key}><td className="p-2">{row.name}<br /><span className="text-xs text-gray-500">#{row.constituentId}</span></td><td className="p-2">{row.item.name}</td><td className="p-2 whitespace-nowrap">{row.date}</td><td className="p-2">{row.actionId} / {row.fieldId}</td><td className="p-2">{statusLabels[row.status]}</td></tr>)}</tbody></table></div>
+          <tbody>{rows.slice(page * 50, page * 50 + 50).map(row => <tr className="border-t" key={row.key}><td className="p-2">{row.name}<br /><span className="text-xs text-gray-500">#{row.constituentId}</span></td><td className="p-2">{row.item.name}</td><td className="p-2 whitespace-nowrap">{row.date || "Date not recorded"}</td><td className="p-2">{row.actionId} / {row.fieldId}</td><td className="p-2">{statusLabels[row.status]}</td></tr>)}</tbody></table></div>
         <nav aria-label="Preview pages" className="flex flex-wrap items-center gap-3"><button className={button} disabled={!page} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page + 1} of {Math.max(1, Math.ceil(rows.length / 50))}</span><button className={button} disabled={(page + 1) * 50 >= rows.length} onClick={() => setPage(value => value + 1)}>Next</button></nav>
         {dirty && <p className="text-sm text-amber-900">Mappings changed. Save mappings and preview again before importing.</p>}
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" disabled={!canContinue || dirty || !!conflicts || !!job.error} checked={approved} onChange={event => setApproved(event.target.checked)} />Import the new records shown in this preview into this app's Received Items history. Do not change NXT or stock.</label>

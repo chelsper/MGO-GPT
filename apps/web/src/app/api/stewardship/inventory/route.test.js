@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: vi.fn() }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: vi.fn() }));
+vi.mock("@/app/api/utils/stewardshipStock", () => ({ readGiftStockHistory: vi.fn() }));
+import { readGiftStockHistory } from "@/app/api/utils/stewardshipStock";
 vi.mock("@/app/api/utils/stewardshipInventory", () => ({
   readGiftInventory: vi.fn(),
   readGiftItemHistory: vi.fn(),
@@ -41,6 +43,7 @@ beforeEach(() => {
   });
   readGiftInventory.mockResolvedValue([]);
   readGiftItemHistory.mockResolvedValue([]);
+  readGiftStockHistory.mockResolvedValue([]);
   writeGiftInventory.mockResolvedValue([{ id: "10", version: 2 }]);
 });
 it("reads saved catalog only and uses the signed-in actor, not the viewed MGO", async () => {
@@ -123,6 +126,14 @@ it("validates and authorizes item history reads", async () => {
     viewerKey: "auth-2",
     id: "10",
     events: [],
+    stockEvents: [],
   });
   expect(readGiftItemHistory).toHaveBeenCalledWith(actor, "10");
+});
+it("authorizes stock writes and rejects unconfirmed quantities", async () => {
+  const stock = { operation: "stock", viewerKey: "auth-2", id: "10", stockVersion: 0, kind: "opening", quantity: 5, reason: "", confirmed: true, token: "74512c41-89cd-41be-946e-10a056cae491" };
+  expect((await POST(request(stock))).status).toBe(200);
+  expect(writeGiftInventory).toHaveBeenCalledWith(actor, stock);
+  expect((await POST(request({ ...stock, confirmed: false }))).status).toBe(400);
+  expect((await POST(request(stock, { origin: "https://evil.test" }))).status).toBe(403);
 });

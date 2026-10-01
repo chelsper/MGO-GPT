@@ -1,5 +1,6 @@
 import sql from "./sql";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { writeGiftStock } from "./stewardshipStock";
 import {
   inventoryId,
   inventoryNameKey,
@@ -33,6 +34,7 @@ export async function readGiftItemHistory(actor, id, db = sql) {
 export async function writeGiftInventory(actor, body, db = sql) {
   const command = validateInventoryCommand(body);
   if (!allowed(actor) || !command) return null;
+  if (command.operation === "stock") return (await writeGiftStock(actor, command, db))?.map(serialize) || null;
   const { operation } = command;
   // Serialize catalog writes and actor permission changes. Every write and audit
   // commit together; importing again never changes an existing or archived item.

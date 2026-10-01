@@ -16,8 +16,12 @@ const command = {
   confirmed: true,
 };
 it("requires explicit confirmation and normalizes only safe receipt fields", () => {
-  expect(receiptCommand(command)).toEqual({ ...command, note: "At visit" });
+  expect(receiptCommand(command)).toEqual({ ...command, note: "At visit", stockQuantity: 0 });
   expect(formatReceivedDate("2026-09-30")).toBe("Sep 30, 2026");
+  expect(formatReceivedDate(null)).toBe("Date not recorded");
+});
+it.each([-1, 0.5, "1", 1000001, null])("rejects invalid stock deductions %s", stockQuantity => {
+  expect(receiptCommand({ ...command, stockQuantity })).toBeNull();
 });
 it.each([
   { confirmed: false },

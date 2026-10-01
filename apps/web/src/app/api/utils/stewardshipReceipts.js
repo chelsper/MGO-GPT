@@ -13,7 +13,7 @@ export async function readGiftReceipts(actor, filters, db = sql) {
     SELECT d.id::text,d.request_id::text,d.item_id::text,d.item_snapshot,
       d.constituent_id,d.constituent_name,d.owner_name,d.received_on::text,d.note,
       d.recorded_by_name,d.recorded_at,d.voided_at,d.voided_by_name,d.void_reason,r.request_version,
-      d.source_kind,d.source_snapshot
+      d.source_kind,d.source_snapshot,d.stock_quantity
     FROM stewardship_gift_receipts d
     LEFT JOIN data_change_requests r ON r.id=d.request_id
     JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
@@ -63,24 +63,34 @@ export async function writeGiftReceipt(actor, input, db = sql) {
     record
       ? db`
       WITH eligible AS MATERIALIZED (
-        SELECT r.*,actor.name AS actor_name,COALESCE(owner.name,'Former fundraiser') AS owner_name
+        SELECT r.*,actor.name AS actor_name,COALESCE(owner.name,'Former fundraiser') AS owner_name,gift.on_hand AS stock_on_hand
         FROM data_change_requests r
         JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
         LEFT JOIN users owner ON owner.id=r.owner_user_id
+        LEFT JOIN stewardship_gift_items gift ON gift.id=r.stewardship_gift_item_id
         WHERE r.id=${command.requestId} AND r.source_pending_action_id IS NOT NULL
           AND r.request_type='Stewardship: Personal gift'
       ), inserted AS (
         INSERT INTO stewardship_gift_receipts(request_id,item_id,item_snapshot,constituent_id,constituent_name,
-          owner_user_id,owner_name,received_on,note,request_token,recorded_by,recorded_by_name)
+          owner_user_id,owner_name,received_on,note,request_token,recorded_by,recorded_by_name,stock_quantity)
         SELECT id,stewardship_gift_item_id,stewardship_gift_item_snapshot,blackbaud_constituent_id,constituent_name,
-          owner_user_id,owner_name,${command.receivedOn}::date,${command.note},${command.token}::uuid,${actor.id},actor_name
+          owner_user_id,owner_name,${command.receivedOn}::date,${command.note},${command.token}::uuid,${actor.id},actor_name,${command.stockQuantity}
         FROM eligible WHERE request_version=${command.version} AND status IN ('Open','In Progress','Completed')
           AND stewardship_gift_item_id=${command.itemId}::bigint
           AND stewardship_gift_item_snapshot->>'name' IS NOT NULL
           AND blackbaud_constituent_id ~ '^[1-9][0-9]*$'
           AND ${command.receivedOn}::date<=(NOW() AT TIME ZONE 'America/New_York')::date
+          AND (${command.stockQuantity}=0 OR stock_on_hand>=${command.stockQuantity})
           AND NOT EXISTS (SELECT 1 FROM stewardship_gift_receipts WHERE request_id=${command.requestId} AND voided_at IS NULL)
         ON CONFLICT DO NOTHING RETURNING *
+    ), changed_stock AS (
+        UPDATE stewardship_gift_items i SET on_hand=i.on_hand-d.stock_quantity,stock_version=i.stock_version+1,stock_updated_at=NOW()
+        FROM inserted d WHERE i.id=d.item_id AND d.stock_quantity>0 RETURNING i.*
+      ), stock_audit AS (
+        INSERT INTO stewardship_stock_movements(item_id,kind,quantity,delta,before_quantity,after_quantity,stock_version,reason,actor_id,actor_name,request_token,receipt_id)
+        SELECT i.id,'fulfillment',d.stock_quantity,-d.stock_quantity,i.on_hand+d.stock_quantity,i.on_hand,i.stock_version,
+          'New gift receipt #' || d.id,${actor.id},d.recorded_by_name,d.request_token,d.id
+        FROM changed_stock i JOIN inserted d ON d.item_id=i.id RETURNING id
       ), changed AS (
         UPDATE data_change_requests r SET request_version=r.request_version+1,updated_at=NOW()
         FROM inserted d WHERE r.id=d.request_id RETURNING r.*
@@ -95,7 +105,7 @@ export async function writeGiftReceipt(actor, input, db = sql) {
       SELECT d.id::text,d.request_id::text,d.received_on::text,d.item_snapshot,d.recorded_by_name,d.voided_at,r.request_version
         FROM stewardship_gift_receipts d JOIN eligible r ON r.id=d.request_id
         WHERE d.request_token=${command.token}::uuid AND d.recorded_by=${actor.id}
-          AND d.item_id=${command.itemId}::bigint AND d.received_on=${command.receivedOn}::date AND d.note=${command.note}
+          AND d.item_id=${command.itemId}::bigint AND d.received_on=${command.receivedOn}::date AND d.note=${command.note} AND d.stock_quantity=${command.stockQuantity}
           AND NOT EXISTS(SELECT 1 FROM inserted)
     `
       : db`

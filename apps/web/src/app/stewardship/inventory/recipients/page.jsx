@@ -304,7 +304,7 @@ export function ReceivedItems({
                     {item.source_kind === "nxt_history" && item.source_snapshot && <details className="mt-2 text-xs text-gray-500">
                       <summary className="cursor-pointer">NXT source details</summary>
                       <p className="mt-1 break-words">Action {item.source_snapshot.actionId} · Custom field {item.source_snapshot.fieldId} · Query {item.source_snapshot.queryId}</p>
-                      <p className="mt-1">Date from: {item.source_snapshot.dateBasis || "Saved query mapping"}</p>
+                      <p className="mt-1">{item.received_on ? `Date from: ${item.source_snapshot.dateBasis || "Saved query mapping"}` : "Date not recorded in NXT"}</p>
                     </details>}
                   </div>
                   <span
@@ -334,6 +334,7 @@ export function ReceivedItems({
                     </dd>
                   </div>
                 </dl>
+                {Number(item.stock_quantity) > 0 && <p className="mt-3 text-sm text-gray-600">{item.stock_quantity} deducted from inventory when recorded. Correcting this receipt does not return stock; record a physical return or count correction in Gift Inventory.</p>}
                 {item.note && (
                   <p className="mt-4 whitespace-pre-wrap break-words text-sm text-gray-700">
                     {item.note}

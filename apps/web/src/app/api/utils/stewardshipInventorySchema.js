@@ -29,6 +29,9 @@ export default async function stewardshipInventorySchema(db) {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(item_id, version)
       );
+      ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS on_hand INTEGER CHECK (on_hand BETWEEN 0 AND 1000000);
+      ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS stock_version INTEGER NOT NULL DEFAULT 0 CHECK (stock_version>=0);
+      ALTER TABLE stewardship_gift_items ADD COLUMN IF NOT EXISTS stock_updated_at TIMESTAMPTZ;
     END $stewardship_inventory_schema$
   `;
 }

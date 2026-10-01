@@ -86,7 +86,7 @@ export async function POST(request) {
       return reply(
         {
           error:
-            "This request changed, receipt is already recorded, or the date is in the future. Reload saved details before continuing.",
+            "This request changed, receipt is already recorded, the date is in the future, or counted stock is insufficient. Reload saved details; establish an opening count before deducting stock.",
         },
         409,
       );

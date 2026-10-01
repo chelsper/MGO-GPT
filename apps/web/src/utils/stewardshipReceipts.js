@@ -13,7 +13,7 @@ export function receiptCommand(body) {
   const common = ["operation", "viewerKey", "requestId", "version"];
   const fields =
     body.operation === "record"
-      ? [...common, "token", "itemId", "receivedOn", "note", "confirmed"]
+      ? [...common, "token", "itemId", "receivedOn", "note", "confirmed", "stockQuantity"]
       : body.operation === "void"
         ? [...common, "id", "reason"]
         : body.operation === "void_imported"
@@ -37,10 +37,11 @@ export function receiptCommand(body) {
         body.token,
       ) ||
       typeof body.note !== "string" ||
-      body.note.length > 2000
+      body.note.length > 2000 ||
+      (body.stockQuantity !== undefined && (!Number.isSafeInteger(body.stockQuantity) || body.stockQuantity < 0 || body.stockQuantity > 1000000))
     )
       return null;
-    return { ...body, token: body.token.toLowerCase(), note: body.note.trim() };
+    return { ...body, token: body.token.toLowerCase(), note: body.note.trim(), stockQuantity: body.stockQuantity ?? 0 };
   }
   if (
     !receiptId(body.id) ||
@@ -80,5 +81,5 @@ export function formatReceivedDate(value) {
         year: "numeric",
         timeZone: "UTC",
       })
-    : "Date unavailable";
+    : "Date not recorded";
 }

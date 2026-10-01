@@ -11,6 +11,8 @@ export default function StewardshipReceiptForm({ request, disabled, onSaved }) {
   );
   const [note, setNote] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [deductStock, setDeductStock] = useState(false);
+  const [quantity, setQuantity] = useState("1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const flight = useRef(false);
@@ -56,6 +58,7 @@ export default function StewardshipReceiptForm({ request, disabled, onSaved }) {
           receivedOn,
           note,
           confirmed,
+          stockQuantity: deductStock ? Number(quantity) : 0,
         }),
       });
       const data = await response.json();
@@ -138,6 +141,12 @@ export default function StewardshipReceiptForm({ request, disabled, onSaved }) {
                 placeholder="For example, handed to the recipient at their visit"
               />
             </label>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" checked={deductStock} onChange={event => setDeductStock(event.target.checked)} className="mt-1" />
+              Deduct this newly delivered gift from counted inventory.
+            </label>
+            <p className="text-xs text-gray-600">Leave unchecked for historical gifts or items already removed from stock. An opening count and enough stock are required. Correcting a receipt later does not automatically return items to stock.</p>
+            {deductStock && <label className="grid gap-1 text-sm font-semibold">Quantity delivered<input className={input} type="number" min="1" max="1000000" step="1" required value={quantity} onChange={event => setQuantity(event.target.value)} /></label>}
             <label className="flex items-start gap-2 text-sm">
               <input
                 required

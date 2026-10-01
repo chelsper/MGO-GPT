@@ -1,3 +1,5 @@
+import { stockCommand } from "./stewardshipStock";
+
 export const GIFT_AVAILABILITY = Object.freeze({
   unknown: "Not checked",
   available: "Available",
@@ -50,6 +52,7 @@ const text = (value, max, required = false) =>
 
 export function validateInventoryCommand(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  if (body.operation === "stock") return stockCommand(body);
   const common = ["operation", "viewerKey"];
   const itemFields = ["name", "description", "location", "availability"];
   const operations = {

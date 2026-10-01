@@ -6,7 +6,7 @@ import { ASSISTANCE_TYPES, validGiftItemId } from "@/utils/stewardshipAssistance
 // details to fundraisers; this is a choice list, not inventory administration.
 export async function readAvailableStewardshipGifts(db = sql) {
   return db`SELECT id::text,name,description FROM stewardship_gift_items
-    WHERE archived_at IS NULL AND availability='available' ORDER BY lower(name),id`;
+    WHERE archived_at IS NULL AND availability='available' AND (on_hand IS NULL OR on_hand>0) ORDER BY lower(name),id`;
 }
 
 export async function readTaskAssistance(context, id, db = sql) {
@@ -62,7 +62,7 @@ export async function createTaskAssistance(context, id, draft, db = sql) {
           ${`Stewardship: ${ASSISTANCE_TYPES[draft.type]}`}, ${draft.instructions}, ${draft.neededBy}::date, 'stewardship', 'Open',
           gift.id, CASE WHEN gift.id IS NULL THEN NULL ELSE jsonb_build_object('id',gift.id::text,'name',gift.name,'description',gift.description,'version',gift.version) END
         FROM eligible e LEFT JOIN stewardship_gift_items gift ON gift.id=${draft.giftItemId ?? null}::bigint
-          AND gift.archived_at IS NULL AND gift.availability='available'
+          AND gift.archived_at IS NULL AND gift.availability='available' AND (gift.on_hand IS NULL OR gift.on_hand>0)
         WHERE e.status = 'Open' AND e.updated_at = ${draft.expectedUpdatedAt}::timestamptz
           AND (${draft.giftItemId ?? null}::bigint IS NULL OR gift.id IS NOT NULL)
         ON CONFLICT (source_pending_action_id) WHERE source_pending_action_id IS NOT NULL DO NOTHING RETURNING *
@@ -92,7 +92,7 @@ export async function updateAssistance(actor, id, draft, db = sql) {
       WITH choice AS MATERIALIZED (
         SELECT id,jsonb_build_object('id',id::text,'name',name,'description',description,'version',version) AS snapshot
         FROM stewardship_gift_items WHERE id=${draft.giftItemId ?? null}::bigint
-          AND archived_at IS NULL AND availability='available'
+          AND archived_at IS NULL AND availability='available' AND (on_hand IS NULL OR on_hand>0)
       ), updated AS (
         UPDATE data_change_requests r
         SET status = ${draft.status}, reviewer_notes = ${draft.note},
