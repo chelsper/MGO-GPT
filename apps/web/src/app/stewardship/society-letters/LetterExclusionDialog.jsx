@@ -8,6 +8,7 @@ export default function LetterExclusionDialog({
   error,
   onClose,
   onSave,
+  cancelLabel = "Keep in holding list",
 }) {
   const dialog = useRef(null);
   const [reason, setReason] = useState("");
@@ -116,7 +117,7 @@ export default function LetterExclusionDialog({
           onClick={onClose}
           className="min-h-11 rounded-xl border border-gray-300 px-4 py-2 font-semibold"
         >
-          Keep in holding list
+          {cancelLabel}
         </button>
         <button
           type="button"

@@ -11,12 +11,14 @@ import {
 import RecipientLetterPreview from "./RecipientLetterPreview";
 import RecipientNameFields from "./RecipientNameFields";
 import RecipientConflictReview from "./RecipientConflictReview";
+import LetterExclusionDialog from "./LetterExclusionDialog";
 import { reviewVersion } from "./letterReviewRecovery";
 import {
   organizationLetterContacts,
   isOrganizationLetterCandidate,
   contactChoiceKey,
   contactDisplayName,
+  organizationContactAddressee,
 } from "@/utils/societyLetterContacts";
 
 const input =
@@ -61,6 +63,9 @@ export default function LetterRecipientDialog({
   error,
   onClose,
   onSave,
+  onExclude,
+  exclusion,
+  notice,
   template,
   navigation,
   unavailable = false,
@@ -75,6 +80,9 @@ export default function LetterRecipientDialog({
 }) {
   const dialog = useRef(null);
   const fields = useRef({});
+  const excludeButton = useRef(null);
+  const returnToExclusionButton = useRef(false);
+  const [excluding, setExcluding] = useState(false);
   const [pendingFocus, setPendingFocus] = useState(initialFocus);
   const [restoredDraft] = useState(Boolean(draft));
   const [recoveryRequired, setRecoveryRequired] = useState(
@@ -167,6 +175,11 @@ export default function LetterRecipientDialog({
   );
   const contacts = organizationLetterContacts(candidate);
   const organization = isOrganizationLetterCandidate(candidate);
+  const selectedContact = contacts.find(
+    (contact) => contactChoiceKey(contact) === values.organizationContactKey,
+  );
+  const organizationName = candidate?.addressee || recipient.name || "";
+  const AddresseeInput = values.includeOrganizationName ? "textarea" : "input";
   const emails = [
     ...new Set(
       [candidate?.email, ...(candidate?.emailCandidates || [])].filter(Boolean),
@@ -230,9 +243,14 @@ export default function LetterRecipientDialog({
   }
   useEffect(() => {
     const element = dialog.current;
+    if (!element) return;
     element.showModal();
+    if (returnToExclusionButton.current) {
+      excludeButton.current?.focus();
+      returnToExclusionButton.current = false;
+    }
     return () => element.close();
-  }, []);
+  }, [excluding]);
   useEffect(() => {
     if (!pendingFocus || disabled) return;
     focusField(pendingFocus);
@@ -248,6 +266,28 @@ export default function LetterRecipientDialog({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+  if (excluding)
+    return (
+      <LetterExclusionDialog
+        recipient={{
+          ...recipient,
+          period: recipient.period || exclusion?.period,
+        }}
+        appealSettings={exclusion?.appealSettings}
+        today={exclusion?.today}
+        busy={busy}
+        error={error}
+        onClose={() => {
+          returnToExclusionButton.current = true;
+          setExcluding(false);
+        }}
+        onSave={async (choices) => {
+          const result = await onExclude(choices);
+          if (result) setExcluding(false);
+        }}
+        cancelLabel="Back to recipient review"
+      />
+    );
   return (
     <>
       <dialog
@@ -278,6 +318,8 @@ export default function LetterRecipientDialog({
                 <p className="font-semibold text-emerald-900" role="status">
                   Recipient {navigation.index + 1} of {navigation.items.length}{" "}
                   · {navigation.savedCount} saved this session
+                  {!!navigation.excludedCount &&
+                    ` · ${navigation.excludedCount} excluded`}
                 </p>
               )}
             </div>
@@ -314,6 +356,14 @@ export default function LetterRecipientDialog({
                 and no NXT records change. Each household or individual receives
                 one letter.
               </p>
+              {notice && (
+                <p
+                  role="status"
+                  className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"
+                >
+                  {notice}
+                </p>
+              )}
               {restoredDraft && (
                 <p className="mt-3 text-sm text-emerald-800">
                   Unsaved draft restored for this page visit. Review it again
@@ -477,8 +527,15 @@ export default function LetterRecipientDialog({
                               setValues((current) => ({
                                 ...current,
                                 organizationContactKey: key,
+                                includeOrganizationName: contact
+                                  ? current.includeOrganizationName === true
+                                  : false,
                                 addressee: contact
-                                  ? contactDisplayName(contact)
+                                  ? organizationContactAddressee(
+                                      contact,
+                                      organizationName,
+                                      current.includeOrganizationName === true,
+                                    )
                                   : candidate.addressee || "",
                                 salutation: contact
                                   ? contact.preferredName ||
@@ -512,6 +569,37 @@ export default function LetterRecipientDialog({
                             ? "Choose a letter contact, or keep the organization's greeting. Review the suggested wording below."
                             : "No eligible contact names were returned. Keep the organization's greeting, or map the contact columns in Source & period and refresh membership."}
                         </p>
+                        {selectedContact && (
+                          <label className="mt-3 flex items-start gap-3 text-sm font-semibold text-emerald-950">
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              aria-label="Include organization name in address block"
+                              checked={values.includeOrganizationName === true}
+                              onChange={(event) => {
+                                const include = event.target.checked;
+                                setValues((current) => ({
+                                  ...current,
+                                  includeOrganizationName: include,
+                                  addressee: organizationContactAddressee(
+                                    selectedContact,
+                                    organizationName,
+                                    include,
+                                  ),
+                                }));
+                                setConfirmed(false);
+                              }}
+                            />
+                            <span>
+                              Include organization name in address block
+                              <span className="mt-1 block font-normal">
+                                Adds the organization's saved addressee above
+                                the contact. You can edit both lines below. The
+                                greeting and mailing address stay unchanged.
+                              </span>
+                            </span>
+                          </label>
+                        )}
                         <details className="mt-2 text-xs text-emerald-900">
                           <summary className="min-h-11 cursor-pointer py-3 font-semibold">
                             How organization contacts are used
@@ -527,12 +615,13 @@ export default function LetterRecipientDialog({
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-semibold">
                         Addressee
-                        <input
+                        <AddresseeInput
                           ref={(element) => {
                             fields.current.addressee = element;
                           }}
                           required
-                          maxLength={300}
+                          rows={values.includeOrganizationName ? 2 : undefined}
+                          maxLength={values.includeOrganizationName ? 700 : 300}
                           className={input}
                           value={values.addressee}
                           onChange={(event) =>
@@ -785,6 +874,19 @@ export default function LetterRecipientDialog({
               </div>
             )}
             <div className="flex flex-wrap justify-end gap-2">
+              {onExclude && (
+                <button
+                  ref={excludeButton}
+                  type="button"
+                  disabled={
+                    disabled || exclusion?.disabled || !!pendingNavigation
+                  }
+                  onClick={() => setExcluding(true)}
+                  className="mr-auto min-h-11 rounded-xl border border-gray-300 px-4 py-2 font-semibold text-red-800 disabled:opacity-50"
+                >
+                  Exclude for this period
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy}

@@ -143,6 +143,75 @@ describe("saved society letter recipients", () => {
       "needs_review",
     );
   });
+  it("persists an optional multiline organization addressee while preserving membership, permissions, and history", async () => {
+    const { row, state, body, signature, save } = setup();
+    const contact = {
+      role: "Main contact",
+      firstName: "Taylor",
+      lastName: "Contact",
+    };
+    row.recipientCandidates[0].organizationContacts = {
+      keyIndicator: "organization",
+      contacts: [contact],
+    };
+    body.organizationContactKey = contactChoiceKey(contact);
+    body.includeOrganizationName = true;
+    body.addressee = "Example Foundation\r\nAttn: Taylor Contact";
+    body.reviewToken = recipientReviewForRow(state, row, signature).token;
+    const original = structuredClone(row);
+    await save();
+    expect(recipientReviewForRow(state, row, signature).values).toMatchObject({
+      includeOrganizationName: true,
+      organizationContactKey: body.organizationContactKey,
+      addressee: "Example Foundation\nAttn: Taylor Contact",
+      salutation: body.salutation,
+      address: body.address,
+      recipientConstituentId: "10",
+      addressConstituentId: "11",
+    });
+    expect(row).toEqual(original);
+    expect(state.history).toEqual([]);
+    expect(Object.values(state.recipient_reviews)[0].members).toEqual([
+      "10",
+      "11",
+    ]);
+  });
+  it.each([true, "true", null, 1, {}])(
+    "rejects an invalid or unbound organization option %j",
+    async (includeOrganizationName) => {
+      const { body, save, store } = setup();
+      body.includeOrganizationName = includeOrganizationName;
+      await expect(save()).rejects.toThrow(
+        /Choose a returned organization contact/,
+      );
+      expect(store.save).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { includeOrganizationName: false, addressee: "Foundation\nContact" },
+    { includeOrganizationName: true, addressee: "x".repeat(701) },
+    { includeOrganizationName: true, addressee: "Foundation\u0000Contact" },
+  ])(
+    "validates the optional address block before saving: %j",
+    async (values) => {
+      const { row, state, body, signature, save, store } = setup();
+      const contact = {
+        role: "Main contact",
+        firstName: "Taylor",
+        lastName: "Contact",
+      };
+      row.recipientCandidates[0].organizationContacts = {
+        keyIndicator: "organization",
+        contacts: [contact],
+      };
+      Object.assign(body, values, {
+        organizationContactKey: contactChoiceKey(contact),
+        reviewToken: recipientReviewForRow(state, row, signature).token,
+      });
+      await expect(save()).rejects.toThrow(/Addressee must be/);
+      expect(store.save).not.toHaveBeenCalled();
+    },
+  );
   it.each(["other-record", "not-organization", "forged", "wrong-type"])(
     "rejects %s contact choices before saving",
     async (kind) => {

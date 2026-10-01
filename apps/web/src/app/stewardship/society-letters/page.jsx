@@ -579,6 +579,37 @@ export default function SocietyLettersPage() {
     }
     return result;
   }
+  async function excludeRecipient(values) {
+    const remainingSelection = selected.filter(
+      (id) => id !== values.householdId,
+    );
+    const result = await act({ action: "exclude_recipient", ...values });
+    if (result) {
+      if (reviewScope(result) === reviewScope(data))
+        setSelected(
+          remainingSelection.filter((id) =>
+            result.rows.some(
+              (row) => row.householdId === id && row.status === "ready",
+            ),
+          ),
+        );
+      recovery.keepDraft(values.householdId, null);
+      const row = result.rows.find(
+        (row) => row.householdId === values.householdId,
+      );
+      const excluded = result.exclusions?.find((item) =>
+        item.members.some((id) => row?.members?.includes(id)),
+      );
+      setReviewNotice(
+        `${row?.name || "Recipient"} excluded for this period. No letter was sent. ${
+          excluded?.nxt && excluded.nxt.status !== "complete"
+            ? "NXT updates need attention; check Excluded for details."
+            : "Find this decision in Excluded."
+        }`,
+      );
+    }
+    return result;
+  }
   function resumeReview() {
     const checkpoint = recovery.checkpoint;
     if (!checkpoint) return;
@@ -2514,14 +2545,12 @@ export default function SocietyLettersPage() {
               error={error}
               onClose={() => setExcluding(null)}
               onSave={async (values) => {
-                const result = await act({
-                  action: "exclude_recipient",
+                const result = await excludeRecipient({
                   householdId: excluding.householdId,
                   ...values,
                 });
                 if (result) {
                   setExcluding(null);
-                  setTab("excluded");
                 }
               }}
             />
@@ -2562,6 +2591,23 @@ export default function SocietyLettersPage() {
               busy={busy}
               error={error}
               onClose={() => setReviewingRecipient(null)}
+              exclusion={{
+                appealSettings: data.exclusionAppeals,
+                today: data.today,
+                period: data.period,
+                disabled: refreshing || !!sendingBatch,
+              }}
+              onExclude={async (values) => {
+                const result = await excludeRecipient({
+                  householdId: reviewingRecipient.householdId,
+                  ...values,
+                });
+                if (result) {
+                  recovery.clearCheckpoint();
+                  setReviewingRecipient(null);
+                }
+                return result;
+              }}
               onSave={async (values) => {
                 const result = await saveRecipient({
                   householdId: reviewingRecipient.householdId,
@@ -2599,12 +2645,20 @@ export default function SocietyLettersPage() {
               error={error}
               onNavigate={resolveReviewConflict}
               onSave={saveRecipient}
-              onClose={(saved, total, complete) => {
+              onExclude={excludeRecipient}
+              exclusion={{
+                appealSettings: data.exclusionAppeals,
+                today: data.today,
+                period: data.period,
+                disabled: refreshing || !!sendingBatch,
+              }}
+              notice={reviewNotice}
+              onClose={(saved, total, complete, excluded = 0) => {
                 if (complete) recovery.clearCheckpoint();
                 setReviewQueue(null);
                 setError("");
                 setReviewNotice(
-                  `${saved} of ${total} recipients saved in this review session. All other recipients are unchanged. No letters were sent or marked ready for delivery.`,
+                  `${saved} of ${total} recipients saved in this review session. ${excluded ? `${excluded} excluded for this period. Check Excluded for decisions and any NXT updates needing attention. ` : ""}All other recipients are unchanged. No letters were sent or marked ready for delivery.`,
                 );
               }}
             />

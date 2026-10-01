@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import LetterRecipientDialog from "./LetterRecipientDialog";
+import RecipientConflictReview from "./RecipientConflictReview";
 import { reviewVersion } from "./letterReviewRecovery";
 
 const values = {
@@ -60,6 +67,30 @@ function setup(options = {}) {
   };
 }
 describe("recipient conflict recovery", () => {
+  it("shows the organization address option as Yes or No when comparing drafts with legacy saved choices", () => {
+    const { rerender } = render(
+      <RecipientConflictReview
+        draft={{ ...values, includeOrganizationName: true }}
+        latest={recipient}
+        sameSource
+        onChoose={vi.fn()}
+      />,
+    );
+    const comparison = screen.getByText(
+      "Include organization in address block · Your draft",
+    ).parentElement.parentElement;
+    expect(within(comparison).getByText("Yes")).toBeVisible();
+    expect(within(comparison).getByText("No")).toBeVisible();
+    rerender(
+      <RecipientConflictReview
+        draft={{ ...values, includeOrganizationName: false }}
+        latest={recipient}
+        sameSource
+        onChoose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/No wording or address differences/)).toBeVisible();
+  });
   it("compares explicitly, preserves draft wording, and requires confirmation before a separate save", async () => {
     let view;
     const latest = {

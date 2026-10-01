@@ -112,6 +112,15 @@ export function validateLetterRecipientChoices(
     throw letterError(
       "Choose an organization contact from this record's returned Main contact or Society letter contact names.",
     );
+  const includeOrganizationName = body.includeOrganizationName === true;
+  if (
+    (body.includeOrganizationName !== undefined &&
+      typeof body.includeOrganizationName !== "boolean") ||
+    (includeOrganizationName && !organizationContactKey)
+  )
+    throw letterError(
+      "Choose a returned organization contact before including the organization in the address block.",
+    );
   if (
     email &&
     (!/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(email) ||
@@ -161,8 +170,17 @@ export function validateLetterRecipientChoices(
   return {
     recipientConstituentId: selected.constituentId,
     ...(organizationContactKey ? { organizationContactKey } : {}),
+    ...(organizationContactKey && body.includeOrganizationName !== undefined
+      ? { includeOrganizationName }
+      : {}),
     addressConstituentId: addressSource.constituentId,
-    addressee: plainText(body.addressee, "Addressee", 300),
+    addressee: plainText(
+      body.addressee,
+      "Addressee",
+      includeOrganizationName ? 700 : 300,
+      false,
+      includeOrganizationName,
+    ),
     salutation: plainText(body.salutation, "Salutation", 300),
     ...(nameOverrides ? { nameOverrides } : {}),
     address,

@@ -29,6 +29,7 @@ import {
 } from "./societyLetterWorkflow";
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
+import { contactChoiceKey } from "@/utils/societyLetterContacts";
 
 vi.mock("./constituentQueryList", () => ({ advanceQueryList: vi.fn() }));
 vi.mock("./blackbaud", () => ({ getBlackbaudSavedQueryById: vi.fn() }));
@@ -142,6 +143,71 @@ function draftSetup() {
   };
 }
 describe("society letter workflow", () => {
+  it("keeps an organization and its contact on separate lines through save, reload, and letter rendering", async () => {
+    const { state, store, body } = draftSetup();
+    const contact = {
+      role: "Main contact",
+      firstName: "Alexandra",
+      preferredName: "Lex",
+      lastName: "Contact",
+    };
+    const row = state.snapshot.rows[0];
+    row.members = ["10"];
+    row.name = "Example Foundation";
+    row.recipientCandidates[0].organizationContacts = {
+      keyIndicator: "organization",
+      contacts: [contact],
+    };
+    row.recipientCandidates[0].addressee = "Example Foundation";
+    const template = {
+      ...validateLetterTemplate({
+        ...templateFixture(),
+        content: wordFixture(
+          "{addressee} | {address} | Dear {first_name},",
+        ).generate({ type: "base64" }),
+      }),
+      societyKey: "presidents_society",
+      sequence: 2,
+    };
+    state.templates[template.version] = template;
+    const choices = {
+      ...body,
+      confirm: true,
+      templateVersion: template.version,
+      reviewToken: letterWorkspace(state, definitions, today).rows[0]
+        .recipientReview.token,
+      organizationContactKey: contactChoiceKey(contact),
+      includeOrganizationName: true,
+      addressee: "Example Foundation\nAttn: Alexandra Contact",
+      salutation: "Lex",
+    };
+    await updateLetterRecipient(state, definitions, today, choices, store, 7);
+    const saved = letterWorkspace(state, definitions, today).rows[0];
+    expect(saved.recipientReview.values).toMatchObject({
+      includeOrganizationName: true,
+      addressee: choices.addressee,
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+    });
+    expect(saved.addressee).toBe(choices.addressee);
+    const result = previewLetterRecipient(state, definitions, today, {
+      ...choices,
+      ...saved.recipientReview.values,
+      reviewToken: saved.recipientReview.token,
+    });
+    const xml = new PizZip(result.document).file("word/document.xml").asText();
+    expect(xml).toMatch(
+      /Example Foundation<\/w:t>.*?<w:br\/>.*?Attn: Alexandra Contact/,
+    );
+    expect(xml).toContain("Updated draft address | Dear Lex,");
+    expect(result.text).toBe("Dear Lex, please see your attached letter.");
+    expect(state.history).toEqual([]);
+    expect(saved.members).toEqual(["10"]);
+    expect(saved.mailAllowed).toBe(false);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+    expect(advanceQueryList).not.toHaveBeenCalled();
+  });
   it("keeps individual name edits through save, reload, and Word preview without NXT or delivery changes", async () => {
     const { state, store, body } = draftSetup();
     const template = {

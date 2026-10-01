@@ -9,6 +9,9 @@ export default function RecipientReviewQueue({
   busy,
   error,
   onSave,
+  onExclude,
+  exclusion,
+  notice,
   onNavigate,
   onClose,
   startIndex = 0,
@@ -22,22 +25,34 @@ export default function RecipientReviewQueue({
 }) {
   const [index, setIndex] = useState(startIndex);
   const [saved, setSaved] = useState([]);
-  const current = rows.find(
-    (row) => row.householdId === items[index].householdId,
+  const [excluded, setExcluded] = useState([]);
+  const activeItems = items.filter(
+    (item) => !excluded.includes(item.householdId),
   );
-  const recipient = current || items[index];
+  const item = activeItems[index] || activeItems.at(-1);
+  const current = rows.find((row) => row.householdId === item?.householdId);
+  const recipient = current || item;
   const positionCallback = useRef(onPosition);
   positionCallback.current = onPosition;
   useEffect(() => {
-    positionCallback.current?.(recipient.householdId);
-  }, [recipient.householdId]);
+    if (recipient) positionCallback.current?.(recipient.householdId);
+  }, [recipient?.householdId]);
   function go(next) {
     onNavigate();
     setIndex(next);
   }
-  function advance(savedIds) {
-    if (index === items.length - 1) {
-      const unfinished = items.find(
+  function advance(savedIds, excludedIds = excluded) {
+    const remaining = items.filter(
+      (item) => !excludedIds.includes(item.householdId),
+    );
+    const originalIndex = items.findIndex(
+      (item) => item.householdId === recipient.householdId,
+    );
+    const next = items
+      .slice(originalIndex + 1)
+      .find((item) => !excludedIds.includes(item.householdId));
+    if (!next) {
+      const unfinished = remaining.find(
         (item) =>
           !savedIds.includes(item.householdId) &&
           (drafts[item.householdId] ||
@@ -45,9 +60,11 @@ export default function RecipientReviewQueue({
               ?.recipientReview?.status !== "saved"),
       );
       if (unfinished) onPosition?.(unfinished.householdId);
-      onClose(savedIds.length, items.length, !unfinished);
-    } else go(index + 1);
+      onClose(savedIds.length, items.length, !unfinished, excludedIds.length);
+    } else
+      go(remaining.findIndex((item) => item.householdId === next.householdId));
   }
+  if (!recipient) return null;
   return (
     <LetterRecipientDialog
       key={recipient.householdId}
@@ -73,14 +90,40 @@ export default function RecipientReviewQueue({
         !current?.recipientReview?.editable || current.status !== "ready"
       }
       error={error}
+      notice={notice}
+      exclusion={exclusion}
+      onExclude={
+        onExclude
+          ? async (values) => {
+              const result = await onExclude({
+                householdId: recipient.householdId,
+                ...values,
+              });
+              if (!result) return result;
+              const excludedIds = [
+                ...new Set([...excluded, recipient.householdId]),
+              ];
+              const savedIds = saved.filter(
+                (id) => id !== recipient.householdId,
+              );
+              setExcluded(excludedIds);
+              setSaved(savedIds);
+              advance(savedIds, excludedIds);
+              return result;
+            }
+          : undefined
+      }
       navigation={{
-        items,
+        items: activeItems,
         index,
         savedCount: saved.length,
+        excludedCount: excluded.length,
         onNavigate: go,
         onSkip: () => advance(saved),
       }}
-      onClose={() => onClose(saved.length, items.length)}
+      onClose={() =>
+        onClose(saved.length, items.length, false, excluded.length)
+      }
       onSave={async (values) => {
         const result = await onSave({
           householdId: recipient.householdId,

@@ -9,6 +9,7 @@ const fields = [
   ["recipientConstituentId", "Recipient record"],
   ["addressConstituentId", "Address source"],
   ["organizationContactKey", "Organization contact"],
+  ["includeOrganizationName", "Include organization in address block"],
   ["addressee", "Addressee"],
   ["salutation", "Salutation"],
   ["nameOverrides", "Name merge fields"],
@@ -47,7 +48,11 @@ export default function RecipientConflictReview({
                 `${LETTER_FIELD_LABELS[tag]}: ${values.addressParts[tag]}`,
             )
             .join("\n") || "Not selected"
-        : values[key] || "Not selected";
+        : key === "includeOrganizationName"
+          ? values[key] === true
+            ? "Yes"
+            : "No"
+          : values[key] || "Not selected";
   const changed = fields.filter(
     ([key]) => display(draft, key) !== display(saved, key),
   );

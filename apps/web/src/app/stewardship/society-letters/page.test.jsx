@@ -1144,6 +1144,316 @@ describe("society letter workspace", () => {
       screen.getByLabelText("Order of the Dolphin fill First_Name with"),
     ).toHaveValue("first_names");
   });
+  it("excludes from individual review only after NXT confirmation, keeps edits on failure, and returns to the holding list", async () => {
+    let workspace = {
+      ...base,
+      settings: societyQuerySettings(),
+      today: "2026-10-01",
+      exclusions: [],
+      rows: [{ ...reviewRow("10"), members: ["10", "11"] }],
+      exclusionAppeals: {
+        current: true,
+        policy: {
+          appeals: {
+            presidents_society: {
+              lookupId: "CY26PRES-EX",
+              description: "President's Society exclusion",
+            },
+          },
+        },
+      },
+    };
+    let fail = true;
+    const posts = [];
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        posts.push(body);
+        if (fail)
+          return Response.json(
+            { error: "Membership needs a current refresh." },
+            { status: 409 },
+          );
+        workspace = {
+          ...workspace,
+          revision: workspace.revision + 1,
+          rows: workspace.rows.map((row) => ({
+            ...row,
+            status: "excluded",
+            recipientReview: { ...row.recipientReview, editable: false },
+          })),
+          exclusions: [
+            {
+              id: "e10",
+              name: "Household 10",
+              members: ["10", "11"],
+              period: base.period,
+              reason: body.reason,
+            },
+          ],
+        };
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Review letter recipient for Household 10",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "Keep my draft" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    const dialog = within(screen.getByRole("dialog"));
+    expect(
+      dialog.getByText(/Applied to member system IDs: 10, 11/),
+    ).toBeVisible();
+    expect(
+      dialog.getByRole("button", { name: "Exclude and record in NXT" }),
+    ).toBeDisabled();
+    expect(posts).toHaveLength(0);
+    fireEvent.change(dialog.getByLabelText("Reason (NXT comments)"), {
+      target: { value: "Staff requested no letter" },
+    });
+    fireEvent.click(
+      dialog.getByRole("checkbox", { name: /Apply this exclusion appeal/ }),
+    );
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Exclude and record in NXT" }),
+    );
+    await dialog.findByText("Membership needs a current refresh.");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({
+      action: "exclude_recipient",
+      householdId: "10",
+      reason: "Staff requested no letter",
+      exclusionDate: "2026-10-01",
+      confirmNxt: true,
+      revision: 1,
+    });
+    expect(dialog.getByLabelText("Reason (NXT comments)")).toHaveValue(
+      "Staff requested no letter",
+    );
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Back to recipient review" }),
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Keep my draft");
+    fail = false;
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Reason (NXT comments)"), {
+      target: { value: "Staff requested no letter" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Apply this exclusion appeal/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Exclude and record in NXT" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Your letter holding list")).toBeVisible();
+    expect(
+      screen.getByText(
+        /Household 10 excluded for this period. No letter was sent/,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Resume review" }),
+    ).not.toBeInTheDocument();
+    expect(posts.map((body) => body.action)).toEqual([
+      "exclude_recipient",
+      "exclude_recipient",
+    ]);
+  });
+  it("continues bulk review after exclusions, skips excluded recipients, and distinguishes exclusions from saved choices", async () => {
+    let workspace = {
+      ...base,
+      settings: societyQuerySettings(),
+      exclusions: [],
+      rows: [reviewRow("10"), reviewRow("20"), reviewRow("30")],
+    };
+    const posts = [];
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        expect(body.revision).toBe(workspace.revision);
+        posts.push(body);
+        const excluding = body.action === "exclude_recipient";
+        workspace = {
+          ...workspace,
+          revision: workspace.revision + 1,
+          rows: workspace.rows.map((row) =>
+            row.householdId !== body.householdId
+              ? row
+              : {
+                  ...row,
+                  status: excluding ? "excluded" : "ready",
+                  recipientReview: {
+                    ...row.recipientReview,
+                    editable: !excluding,
+                    status: excluding ? "unreviewed" : "saved",
+                    values: excluding ? null : body,
+                  },
+                },
+          ),
+          exclusions: excluding
+            ? [
+                ...workspace.exclusions,
+                {
+                  id: `e${body.householdId}`,
+                  name: `Household ${body.householdId}`,
+                  members: [body.householdId],
+                  period: base.period,
+                  reason: body.reason,
+                },
+              ]
+            : workspace.exclusions,
+        };
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review recipients in bulk" }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Reason (optional)"), {
+      target: { value: "Not this period" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Go to recipient")).toHaveDisplayValue(
+        "1. Household 20",
+      ),
+    );
+    expect(screen.getByText(/0 saved this session · 1 excluded/)).toBeVisible();
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        /Household 10 excluded for this period/,
+      ),
+    ).toBeVisible();
+    expect(
+      within(screen.getByLabelText("Go to recipient")).queryByRole("option", {
+        name: /Household 10/,
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the recipient/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save & next" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Go to recipient")).toHaveDisplayValue(
+        "2. Household 30",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByLabelText("Go to recipient")).toHaveDisplayValue(
+      "1. Household 20",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(
+        /1 of 3 recipients saved in this review session. 2 excluded/,
+      ),
+    ).toBeVisible();
+    expect(posts.map((body) => [body.action, body.householdId])).toEqual([
+      ["exclude_recipient", "10"],
+      ["save_recipient", "20"],
+      ["exclude_recipient", "30"],
+    ]);
+    expect(
+      screen.queryByRole("button", { name: "Resume review" }),
+    ).not.toBeInTheDocument();
+  });
+  it("surfaces incomplete NXT exclusion updates while continuing to the next recipient", async () => {
+    let workspace = {
+      ...base,
+      settings: societyQuerySettings(),
+      rows: [reviewRow("10"), reviewRow("20")],
+      exclusions: [],
+    };
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        workspace = {
+          ...workspace,
+          revision: 2,
+          rows: [
+            { ...workspace.rows[0], status: "excluded" },
+            workspace.rows[1],
+          ],
+          exclusions: [
+            {
+              id: "e1",
+              name: "Household 10",
+              members: ["10"],
+              period: base.period,
+              nxt: { status: "uncertain" },
+            },
+          ],
+        };
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review recipients in bulk" }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Go to recipient")).toHaveDisplayValue(
+        "1. Household 20",
+      ),
+    );
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        /NXT updates need attention; check Excluded for details/,
+      ),
+    ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(1);
+  });
   it("reviews a filtered queue, saves individually with current revisions, and leaves skipped households unchanged", async () => {
     let workspace = {
       ...base,
@@ -1379,6 +1689,99 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: "Save source settings" }),
     ).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("stays in the filtered holding list after excluding and preserves other selections", async () => {
+    let workspace = {
+      ...base,
+      settings: societyQuerySettings(),
+      exclusions: [],
+      rows: [
+        reviewRow("10"),
+        reviewRow("20"),
+        { ...reviewRow("30"), name: "Different recipient" },
+      ],
+    };
+    const posts = [];
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        posts.push(body);
+        workspace = {
+          ...workspace,
+          revision: workspace.revision + 1,
+          rows: workspace.rows.map((row) =>
+            row.householdId === body.householdId
+              ? { ...row, status: "excluded" }
+              : row,
+          ),
+          exclusions: [
+            {
+              id: "e10",
+              name: "Household 10",
+              members: ["10"],
+              period: base.period,
+              reason: body.reason,
+            },
+          ],
+        };
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    await screen.findByRole("button", { name: "Letter workspace" });
+    fireEvent.change(screen.getByLabelText("Find a household"), {
+      target: { value: "Household" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Needs review 2" }));
+    fireEvent.click(screen.getByLabelText("Select Household 10"));
+    fireEvent.click(screen.getByLabelText("Select Household 20"));
+    const location = window.location.href;
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Exclude Household 10 for this period",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Reason (optional)"), {
+      target: { value: "Not this year" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Exclude for this period",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(window.location.href).toBe(location);
+    expect(screen.getByText("Your letter holding list")).toBeVisible();
+    expect(screen.getByLabelText("Find a household")).toHaveValue("Household");
+    expect(
+      screen.getByRole("button", { name: "Needs review 1" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Select Household 20")).toBeChecked();
+    expect(
+      screen.queryByLabelText("Select Household 10"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Select Different recipient"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Excluded recipients" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Household 10 excluded for this period/),
+    ).toBeVisible();
+    expect(posts).toEqual([
+      expect.objectContaining({
+        action: "exclude_recipient",
+        householdId: "10",
+        reason: "Not this year",
+      }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Excluded (1)" }));
+    expect(
+      screen.getByRole("region", { name: "Excluded recipients" }),
+    ).toBeVisible();
   });
   it("keeps preview recipients in a persistent holding area with reversible exclusions", async () => {
     let excluded = false;

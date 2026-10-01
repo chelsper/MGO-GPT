@@ -57,6 +57,82 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("letter recipient review dialog", () => {
+  it("opens exclusion confirmation from review without saving edits, and preserves them when canceled", () => {
+    const save = vi.fn(),
+      exclude = vi.fn();
+    render(
+      <LetterRecipientDialog
+        recipient={recipient}
+        onSave={save}
+        onClose={vi.fn()}
+        onExclude={exclude}
+        exclusion={{ period: { start: "2026-01-01", end: "2026-12-31" } }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("Salutation"), {
+      target: { value: "My unsaved greeting" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Exclude for this period" }),
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Exclude Alex & Pat Sample for this period?",
+    );
+    expect(screen.getByText(/2026-01-01 through 2026-12-31/)).toBeVisible();
+    expect(save).not.toHaveBeenCalled();
+    expect(exclude).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to recipient review" }),
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByLabelText("Salutation")).toHaveValue(
+      "My unsaved greeting",
+    );
+    expect(screen.getByLabelText("Recipient record")).toHaveValue("10");
+    expect(
+      screen.getByRole("button", { name: "Exclude for this period" }),
+    ).toHaveFocus();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Exclude for this period" }),
+    );
+    fireEvent(
+      screen.getByRole("dialog"),
+      new Event("cancel", { bubbles: true, cancelable: true }),
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue(
+      "My unsaved greeting",
+    );
+    expect(save).not.toHaveBeenCalled();
+    expect(exclude).not.toHaveBeenCalled();
+  });
+  it.each([
+    { busy: true },
+    { unavailable: true },
+    { conflict: true },
+    { exclusion: { disabled: true } },
+  ])(
+    "blocks review exclusions while an operation or recovery is required: %j",
+    (props) => {
+      const exclude = vi.fn();
+      render(
+        <LetterRecipientDialog
+          recipient={recipient}
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+          onExclude={exclude}
+          {...props}
+        />,
+      );
+      expect(
+        screen.getByRole("button", { name: "Exclude for this period" }),
+      ).toBeDisabled();
+      expect(exclude).not.toHaveBeenCalled();
+    },
+  );
   it("suggests preferred joint wording and makes the template's actual name fields editable without fetching", () => {
     const fetcher = vi.spyOn(globalThis, "fetch");
     const save = vi.fn();
@@ -656,6 +732,173 @@ describe("letter recipient review dialog", () => {
       target: { value: "" },
     });
     expect(screen.getByLabelText("Addressee")).toHaveValue("Alex Sample");
+  });
+  it("optionally includes the organization above a contact, previews edits, and saves both lines without changing the greeting or record", async () => {
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { error: "Synthetic preview unavailable." },
+          { status: 422 },
+        ),
+      );
+    const save = vi.fn();
+    const contact = {
+      role: "Main contact",
+      firstName: "Alexandra",
+      preferredName: "Lex",
+      lastName: "Contact",
+    };
+    const org = structuredClone(recipient);
+    org.recipientCandidates = [
+      {
+        ...org.recipientCandidates[0],
+        addressee: "Example Foundation",
+        organizationContacts: {
+          keyIndicator: "organization",
+          contacts: [contact],
+        },
+      },
+    ];
+    render(
+      <LetterRecipientDialog
+        recipient={org}
+        onSave={save}
+        onClose={vi.fn()}
+        template={{ version: "a".repeat(64), filename: "saved.docx" }}
+      />,
+    );
+    expect(
+      screen.queryByRole("checkbox", {
+        name: "Include organization name in address block",
+      }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Name this letter to"), {
+      target: { value: contactChoiceKey(contact) },
+    });
+    const include = screen.getByRole("checkbox", {
+      name: "Include organization name in address block",
+    });
+    expect(include).not.toBeChecked();
+    expect(screen.getByLabelText("Addressee").tagName).toBe("INPUT");
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(include);
+    expect(
+      screen.getByRole("checkbox", { name: /I reviewed/ }),
+    ).not.toBeChecked();
+    expect(screen.getByLabelText("Addressee").tagName).toBe("TEXTAREA");
+    expect(screen.getByLabelText("Addressee")).toHaveValue(
+      "Example Foundation\nAlexandra Contact",
+    );
+    expect(screen.getByLabelText("Salutation")).toHaveValue("Lex");
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      "10 Test Street",
+    );
+    fireEvent.change(screen.getByLabelText("Addressee"), {
+      target: { value: "Example Foundation\nAttn: Alexandra Contact" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Preview personalized letter" }),
+    );
+    fireEvent.load(screen.getByTitle("Alex & Pat Sample personalized draft"));
+    await screen.findByText("Synthetic preview unavailable.");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
+      action: "preview_recipient_document",
+      includeOrganizationName: true,
+      addressee: "Example Foundation\nAttn: Alexandra Contact",
+      salutation: "Lex",
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+    });
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save recipient choices" }),
+    );
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeOrganizationName: true,
+        organizationContactKey: contactChoiceKey(contact),
+        addressee: "Example Foundation\nAttn: Alexandra Contact",
+        salutation: "Lex",
+        recipientConstituentId: "10",
+        addressConstituentId: "10",
+      }),
+    );
+  });
+  it("restores the organization option with edited wording and resets it when returning to the organization or another record", () => {
+    const contact = {
+      role: "Main contact",
+      firstName: "Taylor",
+      lastName: "Main",
+    };
+    const other = {
+      role: "Society letter contact",
+      firstName: "Jamie",
+      lastName: "Letters",
+    };
+    const org = structuredClone(recipient);
+    org.recipientCandidates[0].addressee = "Example Foundation";
+    org.recipientCandidates[0].organizationContacts = {
+      keyIndicator: "organization",
+      contacts: [contact, other],
+    };
+    org.recipientReview.values = {
+      recipientConstituentId: "10",
+      addressConstituentId: "10",
+      organizationContactKey: contactChoiceKey(contact),
+      includeOrganizationName: true,
+      addressee: "The Example Foundation\nAttn: Taylor Main",
+      salutation: "Taylor",
+      address: "10 Test Street",
+      email: "",
+    };
+    render(
+      <LetterRecipientDialog
+        recipient={org}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const include = () =>
+      screen.getByRole("checkbox", {
+        name: "Include organization name in address block",
+      });
+    expect(include()).toBeChecked();
+    expect(screen.getByLabelText("Addressee")).toHaveValue(
+      "The Example Foundation\nAttn: Taylor Main",
+    );
+    const chooser = screen.getByLabelText("Name this letter to");
+    fireEvent.change(chooser, { target: { value: contactChoiceKey(other) } });
+    expect(include()).toBeChecked();
+    expect(screen.getByLabelText("Addressee")).toHaveValue(
+      "Example Foundation\nJamie Letters",
+    );
+    fireEvent.click(include());
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Jamie Letters");
+    fireEvent.click(include());
+    fireEvent.change(chooser, { target: { value: "" } });
+    expect(screen.getByLabelText("Addressee")).toHaveValue(
+      "Example Foundation",
+    );
+    expect(
+      screen.queryByRole("checkbox", {
+        name: "Include organization name in address block",
+      }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(chooser, { target: { value: contactChoiceKey(contact) } });
+    expect(include()).not.toBeChecked();
+    fireEvent.click(include());
+    fireEvent.change(screen.getByLabelText("Recipient record"), {
+      target: { value: "11" },
+    });
+    expect(screen.getByLabelText("Addressee")).toHaveValue("Pat Sample");
+    expect(screen.getByLabelText("Addressee").tagName).toBe("INPUT");
+    expect(
+      screen.queryByRole("checkbox", {
+        name: "Include organization name in address block",
+      }),
+    ).not.toBeInTheDocument();
   });
   it("edits address components together and clears them after a free-form correction", () => {
     const save = vi.fn();

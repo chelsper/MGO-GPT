@@ -45,6 +45,18 @@ export const contactDisplayName = (contact) =>
   [contact.firstName || contact.preferredName, contact.lastName]
     .filter(Boolean)
     .join(" ");
+export function organizationContactAddressee(
+  contact,
+  organizationName,
+  includeOrganizationName = false,
+) {
+  const contactName = contactDisplayName(contact);
+  return includeOrganizationName
+    ? [...new Set([text(organizationName), contactName].filter(Boolean))].join(
+        "\n",
+      )
+    : contactName;
+}
 export const isOrganizationLetterCandidate = (candidate) => {
   const indicator = text(candidate?.organizationContacts?.keyIndicator);
   // An explicit record type takes precedence over legacy constituency codes.

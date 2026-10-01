@@ -14,6 +14,7 @@ import {
 } from "@/utils/societyLetters";
 import {
   contactChoiceKey,
+  organizationContactAddressee,
   organizationLetterContacts,
   validateOrganizationContactColumns,
 } from "@/utils/societyLetterContacts";
@@ -76,6 +77,22 @@ const society = {
 };
 
 describe("organization contact query output", () => {
+  it("only adds the organization when requested and keeps the contact's full name rather than its preferred greeting", () => {
+    const contact = {
+      firstName: "Alexandra",
+      preferredName: "Lex",
+      lastName: "Sample",
+    };
+    expect(organizationContactAddressee(contact, "Example Foundation")).toBe(
+      "Alexandra Sample",
+    );
+    expect(
+      organizationContactAddressee(contact, "Example Foundation", true),
+    ).toBe("Example Foundation\nAlexandra Sample");
+    expect(
+      organizationContactAddressee(contact, "Alexandra Sample", true),
+    ).toBe("Alexandra Sample");
+  });
   it("uses Key indicator without requiring Business/Foundation codes and keeps each contact paired", () => {
     const config = settings();
     Object.assign(config.columns, {
