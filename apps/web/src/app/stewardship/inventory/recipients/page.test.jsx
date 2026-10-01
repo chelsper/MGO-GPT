@@ -48,7 +48,7 @@ it("shows who received what, date and recorder, with item/recipient filters and 
   );
   expect(fetch.mock.calls.at(-1)[0]).not.toContain("itemId=");
   expect(
-    screen.getByText(/Earlier NXT gift-item history has not been imported/),
+    screen.getByText(/NXT history appears only after staff imports it/),
   ).toBeVisible();
   expect(
     getBreadcrumbs("/stewardship/inventory/recipients", {
@@ -58,6 +58,19 @@ it("shows who received what, date and recorder, with item/recipient filters and 
   expect(getReturnDestination("/stewardship/inventory/recipients").label).toBe(
     "Back to Received Items",
   );
+});
+it("labels imported history, does not invent a request, and uses a source-specific correction", async () => {
+  fetch.mockResolvedValueOnce(response({ items: [{ ...item,request_id:null,request_version:null,source_kind:"nxt_history" }] }));
+  render(<ReceivedItems sessionKey="auth-user" />);
+  await screen.findByText("Imported from NXT");
+  expect(screen.queryByRole("link", { name:/Open request/ })).toBeNull();
+  expect(screen.getByRole("link", { name:"Import NXT gift history" })).toHaveAttribute("href","/stewardship/inventory/import");
+  fireEvent.click(screen.getByRole("button", { name:"Correct this entry" }));
+  fireEvent.change(screen.getByLabelText("Correction reason"), { target:{value:"Wrong source marker"} });
+  fetch.mockResolvedValueOnce(Response.json({ viewerKey:"2",receipt:{id:"1",voided_at:"now"} })).mockResolvedValueOnce(response({items:[]}));
+  fireEvent.click(screen.getByRole("button", { name:"Void receipt and keep history" }));
+  await screen.findByText(/Receipt voided/);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({operation:"void_imported",id:"1",viewerKey:"2",reason:"Wrong source marker"});
 });
 it("searches only on request, without polling or searching each keystroke", async () => {
   render(<ReceivedItems sessionKey="auth-user" />);

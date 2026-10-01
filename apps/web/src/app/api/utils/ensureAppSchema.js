@@ -3,6 +3,7 @@ import stewardshipAssistanceSchema from "./stewardshipAssistanceSchema";
 import stewardshipInventorySchema from "./stewardshipInventorySchema";
 import stewardshipGiftRequestsSchema from "./stewardshipGiftRequestsSchema";
 import stewardshipReceiptsSchema from "./stewardshipReceiptsSchema";
+import stewardshipHistorySchema from "./stewardshipHistorySchema";
 import prospectLifecycleSchema from "./prospectLifecycleSchema";
 
 let schemaReadyPromise;
@@ -1229,6 +1230,7 @@ export default async function ensureAppSchema() {
     await stewardshipInventorySchema(sql);
     await stewardshipGiftRequestsSchema(sql);
     await stewardshipReceiptsSchema(sql);
+    await stewardshipHistorySchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (

@@ -12,9 +12,10 @@ export async function readGiftReceipts(actor, filters, db = sql) {
   return db`
     SELECT d.id::text,d.request_id::text,d.item_id::text,d.item_snapshot,
       d.constituent_id,d.constituent_name,d.owner_name,d.received_on::text,d.note,
-      d.recorded_by_name,d.recorded_at,d.voided_at,d.voided_by_name,d.void_reason,r.request_version
+      d.recorded_by_name,d.recorded_at,d.voided_at,d.voided_by_name,d.void_reason,r.request_version,
+      d.source_kind,d.source_snapshot
     FROM stewardship_gift_receipts d
-    JOIN data_change_requests r ON r.id=d.request_id
+    LEFT JOIN data_change_requests r ON r.id=d.request_id
     JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
     WHERE (${isReviewerRole(actor.role)} OR d.owner_user_id=actor.id)
       AND (${filters.includeVoided} OR d.voided_at IS NULL)
@@ -37,6 +38,21 @@ export async function writeGiftReceipt(actor, input, db = sql) {
     command.viewerKey !== String(actor.id)
   )
     return null;
+  if (command.operation === "void_imported") {
+    const result = await db.transaction([
+      db`SELECT pg_advisory_xact_lock(734019,97)`,
+      db`SELECT id FROM users WHERE id=${actor.id} FOR UPDATE`,
+      db`WITH changed AS (
+        UPDATE stewardship_gift_receipts d SET voided_at=NOW(),voided_by=${actor.id},voided_by_name=actor.name,void_reason=${command.reason}
+        FROM users actor WHERE d.id=${command.id} AND d.source_kind='nxt_history' AND d.voided_at IS NULL
+          AND actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE RETURNING d.*
+      ), audited AS (
+        INSERT INTO stewardship_gift_import_events(actor_id,actor_name,operation,snapshot)
+        SELECT ${actor.id},${actor.name},'correction',jsonb_build_object('receiptId',id,'reason',void_reason,'sourceKey',source_key) FROM changed RETURNING id
+      ) SELECT id::text,voided_at FROM changed`,
+    ]);
+    return result.at(-1)?.[0] || null;
+  }
   // Same lock order as gift selection/catalog edits; request versions protect
   // receipt creation from concurrent preference changes and reviewer updates.
   const record = command.operation === "record";

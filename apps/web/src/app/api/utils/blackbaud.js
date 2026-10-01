@@ -796,6 +796,8 @@ export async function createBlackbaudQueryJob({
   origin,
   queryId,
   includeResponseMetadata = false,
+  maxRetries,
+  timeoutMs,
 }) {
   if (!queryId) throw new Error("A Blackbaud query ID is required");
 
@@ -819,6 +821,8 @@ export async function createBlackbaudQueryJob({
         sql_generation_mode: "Query",
       },
       includeResponseMetadata,
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   );
 }
@@ -931,6 +935,8 @@ export async function getBlackbaudQueryJob({
   origin,
   jobId,
   includeResponseMetadata = false,
+  maxRetries,
+  timeoutMs,
 }) {
   if (!jobId) throw new Error("A Blackbaud query job ID is required");
 
@@ -946,6 +952,8 @@ export async function getBlackbaudQueryJob({
         include_read_url: "OnceCompleted",
       },
       includeResponseMetadata,
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   );
 }
@@ -2269,6 +2277,8 @@ export async function getBlackbaudAction({
   authUserId,
   origin,
   actionId,
+  maxRetries,
+  timeoutMs,
 }) {
   if (!actionId) {
     throw new Error("A Blackbaud action ID is required to fetch an action");
@@ -2281,6 +2291,8 @@ export async function getBlackbaudAction({
       authUserId,
       origin,
       method: "GET",
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   );
 }

@@ -15,6 +15,7 @@ const RETURN_PAGES = {
   "/stewardship": "Stewardship",
   "/stewardship/inventory": "Gift Inventory",
   "/stewardship/inventory/recipients": "Received Items",
+  "/stewardship/inventory/import": "Import NXT Gift History",
   "/stewardship/requests": "Assistance Requests",
   "/stewardship/gift-follow-ups": "Gift Follow-ups",
   "/stewardship/society-letters": "Society Letter Creation",

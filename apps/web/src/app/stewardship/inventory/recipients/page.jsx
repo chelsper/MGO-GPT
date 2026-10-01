@@ -28,10 +28,9 @@ function CorrectReceipt({ item, viewerKey, onSaved }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          operation: "void",
+          operation: item.source_kind === "nxt_history" ? "void_imported" : "void",
           id: item.id,
-          requestId: item.request_id,
-          version: item.request_version,
+          ...(item.source_kind === "nxt_history" ? {} : { requestId: item.request_id, version: item.request_version }),
           viewerKey,
           reason,
         }),
@@ -64,8 +63,9 @@ function CorrectReceipt({ item, viewerKey, onSaved }) {
     >
       <p className="text-sm text-amber-950">
         Mark this receipt as entered in error? It will leave the received list,
-        but remain in correction history. Then open the request to record the
-        correct item or date.
+        but remain in correction history. {item.source_kind === "nxt_history"
+          ? "NXT is unchanged. This source record will stay excluded on repeat imports; correct the original record in NXT as needed."
+          : "Then open the request to record the correct item or date."}
       </p>
       <label className="grid gap-1 text-sm font-semibold">
         Correction reason
@@ -179,10 +179,11 @@ export function ReceivedItems({
         </button>
       </header>
       <p className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-950">
-        Confirmed receipts recorded in this app. Requests and completed tasks
-        are not counted as deliveries. Earlier NXT gift-item history has not
-        been imported.
+        App-recorded receipts and reviewed NXT history imports. Requests and completed tasks
+        alone are not counted as deliveries. NXT history appears only after staff imports it;
+        this is not a live or complete NXT history check.
       </p>
+      {result.canManage && <a className={button} href="/stewardship/inventory/import">Import NXT gift history</a>}
       {result.items && !result.canManage && (
         <p className="text-sm text-gray-600">
           Showing receipts linked to your fundraiser workspace.
@@ -290,6 +291,7 @@ export function ReceivedItems({
               >
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold text-gray-500">{item.source_kind === "nxt_history" ? "Imported from NXT" : "Recorded in app"}</p>
                     <h2 className="break-words text-lg font-bold text-gray-900">
                       {item.constituent_name}
                     </h2>
@@ -364,7 +366,7 @@ export function ReceivedItems({
                   >
                     More recipients of this item
                   </button>
-                  {result.canManage && (
+                  {result.canManage && item.request_id && (
                     <a
                       className="inline-flex min-h-11 items-center font-semibold text-emerald-800 underline"
                       href={`/stewardship/requests?requestId=${encodeURIComponent(item.request_id)}`}

@@ -161,3 +161,77 @@ local fixture. Type-check and production build passed. Browser checks used only
 synthetic data and confirmed recording, the linked fundraiser receipt display,
 history, correction preservation, and a 390px layout without horizontal overflow.
 Production, sandbox, NXT, and donor records were not changed for this increment.
+
+## Next Inventory Phases
+
+Status reviewed October 1, 2026: the catalog, optional request choice, and
+app-recorded recipient history are live. Adding, editing, archiving, and restoring
+item types is supported. Numeric stock and item pictures are not implemented.
+
+1. Import existing NXT action custom-field history read-only. Review the mapping
+   from each attribute to a catalog item and what its value means before treating
+   it as receipt. Keep stable source action/attribute IDs, deduplicate repeat
+   imports, label imported history separately, and preserve corrections. Do not
+   infer receipt from an attribute category alone or deduct current stock for
+   historical gifts.
+2. Add audited stock quantities. Staff establish an opening count; replenishment,
+   fulfillment, returns, and count corrections create explicit stock movements.
+   Unknown quantity must remain distinct from zero. Retries must not deduct twice,
+   concurrent updates must not oversell, and corrections retain their history.
+   If reservations are added, display on-hand, reserved, and available separately.
+3. Extend the existing Add/Edit item form with an optional picture and accessible
+   description. Validate file type and size, use instance-isolated storage, and
+   allow replacement without rewriting receipt or stock history. Archived items
+   remain discoverable in past recipient history.
+
+These are proposed increments, not capabilities of the current release.
+
+### JU History Source Readiness
+
+The selected JU source is query **31053**, **Stewardship Action Query - JUMGOGPT**,
+replacing proposed constituent query 31052. Read-only inspection on October 1,
+2026 confirmed an Action query and 834 returned rows before its latest output
+changes. Release and live import results are recorded in the history release note.
+
+Present output includes Action System Record ID, Action Custom Field Import ID,
+Action Custom Field Category, Action Custom Field Date, Name, and Fundraiser
+Name. The user added Action Completed, Action Completed On, Constituent Import
+ID, and Constituent Integration ID. The Action query field picker does not expose
+Constituent System Record ID. Leave that mapping blank: the importer reads each
+selected completed action and uses its authoritative constituent_id. It never
+substitutes lookup/import/integration IDs. Action Date Added is not a receipt date.
+Use a reviewed custom-field receipt date or actual completed date.
+
+The query also returns non-gift categories. Map only actual stewardship gift
+categories to inventory items; do not treat every returned action as a receipt.
+Category presence may be used only with explicit staff verification that it
+means an item was actually received. Query configuration belongs to this JU
+instance, not hard-coded defaults shared with the sandbox.
+
+### Historical Import Workflow
+
+Staff can open Received Items > Import NXT gift history. Loading a query only
+reads NXT; mappings and previews are saved in the app. Match returned columns,
+map gift categories to catalog items (including archived items), and explicitly
+confirm that completed actions and the selected field rules mean actual receipt.
+An exact-name matching shortcut leaves all unknown categories excluded.
+
+Recipient verification reads at most 25 selected actions per step with a bounded
+time budget, then saves progress. It pauses for Blackbaud rate limits. No polling
+or import runs merely from opening the page. The final preview separates new,
+already imported, corrected, possible app matches, and conflicting records.
+Only an explicit Import command writes the app ledger. NXT and stock never change.
+
+Duplicate protection uses Action System Record ID plus Action Custom Field
+Import ID, not donor name or constituent ID alone. Corrections preserve that key
+so a repeat query cannot resurrect a voided receipt. Possible app-recorded matches
+with the same item, recipient, and date are skipped for review. Invalid IDs/dates
+or conflicting source identities fail closed. Blank/future dates are not guessed.
+
+The import is bound to its initiating staff account and NXT connection. It has
+version/lease guards, active-role checks inside database writes, and atomic
+receipt/audit updates. Query jobs expire after 30 minutes and loaded previews
+after 24 hours. Limits are 10,000 raw rows, 2,000 distinct receipts, 4 MiB streamed
+input, and 2 MiB retained row JSON. No partial query results are published.
+Imported rows are staff-only until fundraiser ownership is verifiable; names
+alone never grant MGO access. Use one NXT database per application instance.

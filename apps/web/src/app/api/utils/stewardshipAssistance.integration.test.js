@@ -8,9 +8,12 @@ import schema from "./stewardshipAssistanceSchema";
 import inventorySchema from "./stewardshipInventorySchema";
 import giftRequestsSchema from "./stewardshipGiftRequestsSchema";
 import receiptsSchema from "./stewardshipReceiptsSchema";
+import historySchema from "./stewardshipHistorySchema";
 import { readGiftReceipts, writeGiftReceipt } from "./stewardshipReceipts";
 import { receiptFilters } from "@/utils/stewardshipReceipts";
 import { writeGiftInventory } from "./stewardshipInventory";
+import { advanceHistoryImport, readHistoryState } from "./stewardshipHistoryImport";
+import { HISTORY_COLUMNS } from "@/utils/stewardshipHistoryImport";
 
 const socket = process.env.GIFT_FOLLOWUP_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/gift-followup-pg\.[A-Za-z0-9]+$/.test(socket || "");
@@ -21,7 +24,7 @@ function execute(statement) {
       { encoding: "utf8" }, (error, output) => {
         if (error) { reject(error); return; }
         resolve(output.trim() ? Papa.parse(output.trim(), { header: true }).data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>
-          [key, value === "" ? null : ["request", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
+          [key, value === "" ? null : ["request", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot", "source_snapshot", "config", "job"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
       });
     child.stdin.end(`SET search_path=stewardship_assistance_fixture;\n${statement}`);
   });
@@ -55,10 +58,12 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     await schema(db); await schema(db);
     await inventorySchema(db); await giftRequestsSchema(db); await giftRequestsSchema(db);
     await receiptsSchema(db); await receiptsSchema(db);
+    await historySchema(db); await historySchema(db);
   });
   beforeEach(async () => {
     await execute(`TRUNCATE users, pending_actions, data_change_requests, stewardship_request_events, stewardship_gift_items, stewardship_gift_item_events RESTART IDENTITY CASCADE;
       INSERT INTO users VALUES (2,'Admin','admin',TRUE),(7,'Officer','mgo',TRUE),(8,'Other Officer','mgo',TRUE);
+      UPDATE stewardship_gift_import_state SET version=1,config='{}',job=NULL,lease=NULL,lease_until=NULL;
       INSERT INTO pending_actions VALUES(10,7,'Open','2026-09-28T10:00:00Z','900',
         '{"giftId":"900","constituentId":"100","constituentName":"Sample Donor","amount":2500,"date":"2026-09-16"}');`);
   });
@@ -131,6 +136,90 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(1);
   });
   const addGift = async (availability = "available") => (await writeGiftInventory(actor, { operation: "create", viewerKey: "test", requestId: "18d02230-07b2-4f12-8967-3e0b0147c900", name: "Test blanket", description: "Green blanket", location: "Private storage detail", availability }, db))[0];
+  const historyColumns = Object.fromEntries(Object.keys(HISTORY_COLUMNS).map(key => [key, key]));
+  const historyRow = ["100", "Sample Donor", "10", "00001-505-20", "Blanket", "Yes", "Yes", "2000-09-20"];
+  const historyDeps = {
+    connection: async () => ({ connected_at: "2026-01-01T00:00:00Z" }),
+    create: async () => ({ id: "query-job" }),
+    check: async () => ({ status: "Completed", row_count: 1, result_url: "https://example.test/result.csv" }),
+    read: async () => ({ headers: Object.keys(historyColumns), rows: [historyRow] }),
+    action: async ({ actionId }) => ({ id: actionId, constituent_id: "100", completed: true }),
+  };
+  const step = async (operation, payload = {}, deps = {}) => {
+    const state = await readHistoryState(actor, db);
+    return advanceHistoryImport(actor, { operation, version: state.version, ...payload }, "https://example.test", db, { ...historyDeps, ...deps });
+  };
+  const previewHistory = async (item, columns = historyColumns) => {
+    await step("start", { queryId: "31053", confirmed: true });
+    await execute("UPDATE stewardship_gift_import_state SET job=jsonb_set(job,'{nextCheckAt}','\"2000-01-01T00:00:00Z\"')");
+    await step("check");
+    return step("preview", { mapping: { columns, rules: [{ category: "Blanket", itemId: item.id, value: "Yes" }], completedValue: "Yes", confirmed: true } });
+  };
+  it("imports query history atomically, preserves stock, skips repeats and never invents an assistance request", async () => {
+    const item = await addGift(); const before = await execute("SELECT * FROM stewardship_gift_items");
+    const preview = await previewHistory(item);
+    expect(preview.job.preview.rows[0].status).toBe("new");
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(1);
+    const receipt = (await readGiftReceipts(actor, receiptFilters(new URLSearchParams()), db))[0];
+    expect(receipt).toMatchObject({ source_kind: "nxt_history", request_id: null, source_snapshot: { queryId: "31053", actionId: "10" } });
+    expect(await execute("SELECT * FROM stewardship_gift_items")).toEqual(before);
+    expect(await execute("SELECT * FROM data_change_requests")).toHaveLength(0);
+    expect(await readGiftReceipts(owner, receiptFilters(new URLSearchParams()), db)).toHaveLength(0);
+    expect((await previewHistory(item)).job.preview.rows[0].status).toBe("existing");
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(0);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+  });
+  it("resolves system IDs from completed actions, checkpoints a pause and resumes without rechecking resolved actions", async () => {
+    const item = await addGift();
+    expect((await previewHistory(item, { ...historyColumns, constituentId: "" })).job.stage).toBe("resolving");
+    let reads = 0;
+    const paused = await step("resolve", {}, { action: async () => { reads++; throw Object.assign(new Error("throttle"), { httpStatus: 429 }); } });
+    expect(paused.job.stage).toBe("resolving");
+    expect(paused.job.error).toContain("paused");
+    await step("resolve", {}, { action: async () => { reads++; } });
+    expect(reads).toBe(1);
+    await execute("UPDATE stewardship_gift_import_state SET job=jsonb_set(job,'{nextCheckAt}','\"2000-01-01T00:00:00Z\"')");
+    const ready = await step("resolve");
+    expect(ready.job.stage).toBe("preview"); expect(ready.job.error).toBeUndefined();
+    expect(ready.job.preview.rows[0].constituentId).toBe("100");
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(1);
+  });
+  it.each([
+    { id: "wrong", constituent_id: "100", completed: true },
+    { id: "10", constituent_id: "lookup", completed: true },
+    { id: "10", constituent_id: "100", completed: false },
+  ])("holds identity checks when the action is not authoritative: %o", async action => {
+    await previewHistory(await addGift(), { ...historyColumns, constituentId: "" });
+    expect((await step("resolve", {}, { action: async () => action })).job.error).toContain("does not confirm");
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+  });
+  it("requires a new preview after mapping failure, changed inventory or expired source", async () => {
+    const item = await addGift(); await previewHistory(item);
+    expect((await step("preview", { mapping: {} })).job.error).toBeTruthy();
+    expect((await step("commit", { confirmed: true })).job.error).toContain("fresh preview");
+    await previewHistory(item); await execute("UPDATE stewardship_gift_items SET version=version+1");
+    expect((await step("commit", { confirmed: true })).job.error).toContain("changed");
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+  });
+  it("preserves imported corrections across repeated imports and archives", async () => {
+    const item = await addGift(); await previewHistory(item); await step("commit", { confirmed: true });
+    const [receipt] = await execute("SELECT id FROM stewardship_gift_receipts");
+    expect(await writeGiftReceipt(actor, { operation: "void_imported", viewerKey: "2", id: receipt.id, reason: "Not received" }, db)).toBeTruthy();
+    expect((await previewHistory(item)).job.preview.rows[0].status).toBe("corrected");
+    expect((await step("commit", { confirmed: true })).job.inserted).toBe(0);
+    expect(await readGiftReceipts(actor, receiptFilters(new URLSearchParams()), db)).toHaveLength(0);
+    expect(await readGiftReceipts(actor, receiptFilters(new URLSearchParams("includeVoided=true")), db)).toHaveLength(1);
+  });
+  it("serializes competing commits and rechecks active staff role", async () => {
+    await previewHistory(await addGift());
+    const state = await readHistoryState(actor, db);
+    const results = await Promise.allSettled([1,2].map(() => advanceHistoryImport(actor, { operation: "commit", confirmed: true, version: state.version }, "https://example.test", db, historyDeps)));
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+    await execute("UPDATE users SET role='mgo' WHERE id=2");
+    await expect(advanceHistoryImport(actor, { operation: "start", version: 1, queryId: "31053", confirmed: true }, "https://example.test", db, historyDeps)).rejects.toThrow();
+  });
   const choose = giftItemId => createTaskAssistance(context, 10, { ...draft, giftItemId }, db);
   it("offers only available active items without exposing staff-only storage details", async () => {
     const item = await addGift();

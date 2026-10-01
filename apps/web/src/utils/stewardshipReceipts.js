@@ -16,14 +16,15 @@ export function receiptCommand(body) {
       ? [...common, "token", "itemId", "receivedOn", "note", "confirmed"]
       : body.operation === "void"
         ? [...common, "id", "reason"]
+        : body.operation === "void_imported"
+          ? ["operation", "viewerKey", "id", "reason"]
         : [];
   if (
     !fields.length ||
     Object.keys(body).some((key) => !fields.includes(key)) ||
     !receiptId(body.viewerKey) ||
-    !receiptId(body.requestId) ||
-    !Number.isSafeInteger(body.version) ||
-    body.version < 1
+    (body.operation !== "void_imported" && (!receiptId(body.requestId) ||
+    !Number.isSafeInteger(body.version) || body.version < 1))
   )
     return null;
   if (body.operation === "record") {
