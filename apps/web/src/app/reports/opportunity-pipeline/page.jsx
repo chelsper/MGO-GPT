@@ -73,6 +73,7 @@ export function PipelineReport({ report, reload, onChanged = reload, refreshing 
       title={report.title || "Opportunity Pipeline"}
       description="Every saved app opportunity, across workspaces. Explore the expected fiscal year without waiting for a new NXT pull."
       action={<div className={styles.actions}><button className={styles.button} onClick={exportRows} disabled={!rows.length}>Export CSV ({rows.length})</button><button className={styles.button} onClick={reload} disabled={refreshing}><RefreshCw size={16} aria-hidden="true" />{refreshing ? "Reloading..." : "Reload saved data"}</button></div>} />
+    <nav className={styles.actions} aria-label="Pipeline reports"><a className={styles.button} href="/reports/opportunity-pipeline" aria-current="page">Opportunities</a><a className={styles.button} href="/reports/opportunity-pipeline/lifecycle">Prospect Lifecycle</a></nav>
     {message && <p className={styles.notice} role="status">{message}</p>}
     {editor && <OpportunityEditor row={editor.row} operation={editor.operation} onClose={() => setEditor(null)} onSaved={async result => { if (result.message) setMessage(result.message); await onChanged(); }} />}
 

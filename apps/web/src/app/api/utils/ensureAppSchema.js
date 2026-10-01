@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import stewardshipAssistanceSchema from "./stewardshipAssistanceSchema";
+import prospectLifecycleSchema from "./prospectLifecycleSchema";
 
 let schemaReadyPromise;
 
@@ -2836,6 +2837,7 @@ export default async function ensureAppSchema() {
       CREATE INDEX IF NOT EXISTS idx_custom_field_reports_active
       ON custom_field_reports (active, updated_at DESC)
     `;
+    await prospectLifecycleSchema(sql);
   })().catch((error) => {
     // A failed cold start must not poison all later requests on this worker.
     schemaReadyPromise = null;

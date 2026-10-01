@@ -69,7 +69,23 @@
 .error { color: #9f1239; background: #fff1f2; border-radius: 10px; padding: 16px; }
 .editor .confirm { display: flex; flex-direction: row; align-items: center; gap: 12px; color: #334155; line-height: 1.5; }
 .editor .confirm input { min-height: 20px; width: 20px; flex-shrink: 0; }
+.journey { border-top: 1px solid #e2e8f0; }
+.journey summary { cursor: pointer; display: grid; grid-template-columns: minmax(180px, 2fr) 1fr 1fr; gap: 20px; align-items: center; padding: 22px; }
+.journey summary::before { content: none; }
+.journey summary:hover { background: #f0fdfa; }
+.journeyStage { color: #047857; font-weight: 700; }
+.journeyHint { display: block; margin-top: 8px; color: #0f766e; font-size: 12px; text-decoration: underline; }
+.journey[open] .journeyHint { display: none; }
+.journeyBody { padding: 0 24px 24px; background: linear-gradient(90deg, #f8fafc, #fff); }
+.journeyStats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding-top: 20px; }
+.journeyStats dt { font-size: 12px; color: #64748b; }
+.journeyStats dd { margin: 4px 0 0; font-weight: 700; }
+.timeline { list-style: none; padding: 16px 0; margin: 0; }
+.timeline li { display: grid; grid-template-columns: 110px 1fr; gap: 20px; padding: 15px 0; border-top: 1px solid #e2e8f0; }
+.timeline time { color: #64748b; font-size: 13px; }
 @media (max-width: 700px) {
+  .journey summary, .journeyStats { grid-template-columns: 1fr; gap: 12px; }
+  .timeline li { grid-template-columns: 1fr; gap: 6px; }
   .editFields { grid-template-columns: 1fr; }
   .editor header, .editor footer { padding: 16px; flex-wrap: wrap; }
   .editorBody { padding: 0 16px 16px; }
