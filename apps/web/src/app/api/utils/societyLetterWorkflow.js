@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import { advanceQueryList } from "./constituentQueryList";
+import { getQueryJobMetadataRowCount } from "./savedQueryExecution";
 import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
 import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
 import {
@@ -611,7 +612,7 @@ export async function refreshLetterSource(
                 url,
                 options,
                 state.settings,
-                result?.row_count,
+                getQueryJobMetadataRowCount(result),
               ),
           }
         : {}),

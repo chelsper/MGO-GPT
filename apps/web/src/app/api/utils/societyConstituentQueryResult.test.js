@@ -2,13 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BlackbaudQueryResultTooLargeError,
-  downloadBlackbaudQueryResultWithMetadata,
+  streamBlackbaudQueryResultWithMetadata,
 } from "./blackbaud";
 import { decodeResult, parseResultCsv } from "./dashboardQueryResults";
 import {
   deduplicateSocietyConstituentCsv,
   readSocietyConstituentQueryResult,
-  SOCIETY_CONSTITUENT_RESULT_LIMITS,
 } from "./societyConstituentQueryResult";
 import {
   constituentQueryOutput,
@@ -24,6 +23,7 @@ import { advanceQueryList } from "./constituentQueryList";
 
 vi.mock("./blackbaud", () => ({
   downloadBlackbaudQueryResultWithMetadata: vi.fn(),
+  streamBlackbaudQueryResultWithMetadata: vi.fn(),
   getBlackbaudQueryJob: vi.fn(),
   createBlackbaudQueryJob: vi.fn(),
   createBlackbaudAdHocQueryJob: vi.fn(),
@@ -45,6 +45,16 @@ const file = (content) => ({
   body: new TextEncoder().encode(content),
   contentType: "text/csv; charset=utf-8",
 });
+function mockStreamFile(value) {
+  streamBlackbaudQueryResultWithMetadata.mockImplementation(
+    async (_url, _options, createConsumer) => {
+      const consumer = createConsumer(value);
+      for (let i = 0; i < value.body.length; i += 65536)
+        consumer.write(value.body.subarray(i, i + 65536));
+      return { result: consumer.finish() };
+    },
+  );
+}
 const context = { userId: 1, authUserId: 1, origin: "https://example.org" };
 const hierarchy = getDefaultGivingSocietyConfigurations()
   .filter((d) => ["presidents_society", "order_of_the_dolphin"].includes(d.key))
@@ -70,7 +80,7 @@ describe("constituent-ID society result deduplication", () => {
       })),
     );
     expect(file(content).body.byteLength).toBeGreaterThan(512 * 1024);
-    downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(file(content));
+    mockStreamFile(file(content));
     const table = await readSocietyConstituentQueryResult(
       "https://example.org/result.csv",
       context,
@@ -82,10 +92,12 @@ describe("constituent-ID society result deduplication", () => {
       rawRows: 41273,
       uniqueConstituents: 148,
       repeatedRows: 41125,
+      varyingOutputFields: [],
     });
-    expect(downloadBlackbaudQueryResultWithMetadata).toHaveBeenCalledWith(
+    expect(streamBlackbaudQueryResultWithMetadata).toHaveBeenCalledWith(
       "https://example.org/result.csv",
-      { ...context, maxBytes: 12 * 1024 * 1024, redirect: "error" },
+      { ...context, maxBytes: 64 * 1024 * 1024, redirect: "error" },
+      expect.any(Function),
     );
   });
   it("ignores unused changing outputs but never merges different people with the same name", () => {
@@ -107,6 +119,10 @@ describe("constituent-ID society result deduplication", () => {
     );
     expect(table.rows).toHaveLength(2);
     expect(table.headers).not.toContain("Constituency Code");
+    expect(table.metadata.deduplication.varyingOutputFields).toEqual([
+      "Constituency Code",
+    ]);
+    expect(JSON.stringify(table)).not.toContain("Alumnus");
   });
   it("retains distinct email choices and consistent postal data without selecting an email", () => {
     const table = deduplicateSocietyConstituentCsv(
@@ -271,32 +287,32 @@ describe("constituent-ID society result deduplication", () => {
     ).toThrow(/not returned/);
   });
   it("reports download bounds clearly and preserves MIME/encoding checks", async () => {
-    downloadBlackbaudQueryResultWithMetadata.mockRejectedValueOnce(
+    streamBlackbaudQueryResultWithMetadata.mockRejectedValueOnce(
       new BlackbaudQueryResultTooLargeError(),
     );
     await expect(
-      readSocietyConstituentQueryResult("url", context, settings()),
+      readSocietyConstituentQueryResult("url", context, settings(), 0),
     ).rejects.toMatchObject({
       status: 413,
-      message: expect.stringMatching(/12 MB.*No partial/),
+      message: expect.stringMatching(/64 MB.*No partial/),
     });
-    downloadBlackbaudQueryResultWithMetadata.mockResolvedValueOnce({
+    mockStreamFile({
       ...file(csv()),
       contentType: "text/html",
     });
     await expect(
-      readSocietyConstituentQueryResult("url", context, settings()),
+      readSocietyConstituentQueryResult("url", context, settings(), 0),
     ).rejects.toThrow(/CSV result/);
-    downloadBlackbaudQueryResultWithMetadata.mockResolvedValueOnce({
+    mockStreamFile({
       ...file(csv()),
-      body: new Uint8Array(SOCIETY_CONSTITUENT_RESULT_LIMITS.bytes + 1),
+      body: Uint8Array.of(0xc3),
     });
     await expect(
-      readSocietyConstituentQueryResult("url", context, settings()),
-    ).rejects.toMatchObject({ status: 413 });
+      readSocietyConstituentQueryResult("url", context, settings(), 0),
+    ).rejects.toThrow(/encoding/);
   });
   it("checks completed NXT row count before returning a compacted table", async () => {
-    downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(
+    mockStreamFile(
       file(csv([{ constituentId: "10" }, { constituentId: "10" }])),
     );
     await expect(
@@ -326,7 +342,7 @@ describe("constituent-ID society result deduplication", () => {
       sas_uri: "https://example.org/file",
       row_count: 2,
     });
-    downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(
+    mockStreamFile(
       file(
         csv([
           { constituentId: "10", email: "a@example.org" },

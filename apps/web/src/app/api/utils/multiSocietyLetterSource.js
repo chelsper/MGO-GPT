@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
 import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
+import { getQueryJobMetadataRowCount } from "./savedQueryExecution";
 import {
   constituentHouseholdsFromQuery,
   letterError,
@@ -122,7 +123,7 @@ export async function refreshMultipleSocietySources({
           url,
           options,
           sourceSettings,
-          result?.row_count,
+          getQueryJobMetadataRowCount(result),
         ),
       source: {
         source: "query",

@@ -1027,7 +1027,7 @@ export class BlackbaudQueryResultTooLargeError extends Error {
   }
 }
 
-async function readBoundedQueryResult(response, maxBytes, controller) {
+async function readBoundedQueryResult(response, maxBytes, controller, onChunk) {
   const contentLength = response.headers.get("content-length");
   if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
     controller.abort();
@@ -1047,7 +1047,12 @@ async function readBoundedQueryResult(response, maxBytes, controller) {
       if (byteLength > maxBytes) {
         throw new BlackbaudQueryResultTooLargeError(maxBytes);
       }
-      chunks.push(value);
+      if (onChunk) {
+        for (let offset = 0; offset < value.byteLength; offset += 65536) {
+          onChunk(value.subarray(offset, offset + 65536));
+        }
+      }
+      else chunks.push(value);
     }
   } catch (error) {
     controller.abort();
@@ -1057,6 +1062,7 @@ async function readBoundedQueryResult(response, maxBytes, controller) {
     reader.releaseLock();
   }
 
+  if (onChunk) return;
   const body = new Uint8Array(byteLength);
   let offset = 0;
   for (const chunk of chunks) {
@@ -1071,6 +1077,33 @@ async function readBoundedQueryResult(response, maxBytes, controller) {
 // downloader unchanged.
 export async function downloadBlackbaudQueryResultWithMetadata(
   resultUrl,
+  options = {},
+) {
+  return readBlackbaudQueryResultWithMetadata(resultUrl, options);
+}
+
+// Consumers must validate every chunk and publish only from finish(), after EOF.
+// This path never accumulates the raw file and never forwards SKY credentials
+// to a signed-file host. Existing buffered readers retain their original limits.
+export async function streamBlackbaudQueryResultWithMetadata(
+  resultUrl,
+  options,
+  createConsumer,
+) {
+  if (!Number.isSafeInteger(options?.maxBytes) || options.maxBytes < 1 ||
+      typeof createConsumer !== "function") {
+    throw new Error("Streaming query results require a positive byte limit and a consumer.");
+  }
+  if (options.redirect !== undefined && options.redirect !== "error") {
+    throw new Error("Streaming query results do not allow redirects.");
+  }
+  return readBlackbaudQueryResultWithMetadata(
+    resultUrl, { ...options, redirect: "error" }, createConsumer,
+  );
+}
+
+async function readBlackbaudQueryResultWithMetadata(
+  resultUrl,
   {
     userId,
     authUserId,
@@ -1079,6 +1112,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     maxBytes,
     redirect = "follow",
   } = {},
+  createConsumer,
 ) {
   if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
     throw new Error("The query result byte limit must be a nonnegative integer.");
@@ -1126,10 +1160,39 @@ export async function downloadBlackbaudQueryResultWithMetadata(
       signal: controller.signal,
       redirect,
     });
+    const metadata = {
+      httpStatus: response.status,
+      statusText: response.statusText || null,
+      contentType: response.headers.get("content-type") || null,
+      contentLength: response.headers.get("content-length") || null,
+    };
+    if (response.ok && createConsumer) {
+      let consumer;
+      try {
+        consumer = createConsumer(metadata);
+        if (typeof consumer?.write !== "function" || typeof consumer?.finish !== "function") {
+          throw new Error("Invalid query result stream consumer.");
+        }
+      } catch (error) {
+        controller.abort();
+        await response.body?.cancel().catch(() => {});
+        throw error;
+      }
+      await readBoundedQueryResult(response, maxBytes, controller, (chunk) => consumer.write(chunk));
+      return { ...metadata, result: consumer.finish() };
+    }
     // Diagnostics retain their original unbounded behavior unless opted in.
-    const body = maxBytes === undefined
-      ? new Uint8Array(await response.arrayBuffer())
-      : await readBoundedQueryResult(response, maxBytes, controller);
+    let body;
+    try {
+      body = maxBytes === undefined
+        ? new Uint8Array(await response.arrayBuffer())
+        : await readBoundedQueryResult(response, createConsumer ? Math.min(maxBytes, 65536) : maxBytes, controller);
+    } catch (error) {
+      // An oversized error page is not an oversized CSV. Keep its HTTP status
+      // and Retry-After so signed-link expiry and throttling remain recoverable.
+      if (createConsumer && !response.ok && error instanceof BlackbaudQueryResultTooLargeError) body = new Uint8Array();
+      else throw error;
+    }
 
     if (!response.ok) {
       const responseText = new TextDecoder().decode(body);
@@ -1149,10 +1212,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     }
 
     return {
-      httpStatus: response.status,
-      statusText: response.statusText || null,
-      contentType: response.headers.get("content-type") || null,
-      contentLength: response.headers.get("content-length") || null,
+      ...metadata,
       body,
     };
   } catch (error) {

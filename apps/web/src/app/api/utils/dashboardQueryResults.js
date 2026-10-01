@@ -43,6 +43,10 @@ export function decodeResult({ body, contentType }, { maxBytes = QUERY_RESULTS_L
   if (!(body instanceof Uint8Array)) throw new DashboardQueryResultsError(FAILURE_MESSAGE);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new DashboardQueryResultsError(FAILURE_MESSAGE);
   if (body.byteLength > maxBytes) throw limitError(`Query results must not exceed ${maxBytes} bytes.`);
+  return createResultTextDecoder(contentType).decode(body);
+}
+
+export function createResultTextDecoder(contentType) {
   // Only the actual response MIME can authorize CSV decoding, not the URL or Accept header.
   const [mime, ...parameters] = String(contentType || "").split(";");
   if (!CSV_MIME_TYPES.has(mime.trim().toLowerCase())) {
@@ -53,11 +57,16 @@ export function decodeResult({ body, contentType }, { maxBytes = QUERY_RESULTS_L
   if (charsetParameters.length > 1 || (charsetParameters.length && !match)) {
     throw new DashboardQueryResultsError("NXT returned an invalid CSV charset.");
   }
-  try {
-    return new TextDecoder(match ? (match[1] || match[2]) : "utf-8", { fatal: true }).decode(body);
-  } catch {
-    throw new DashboardQueryResultsError("NXT returned an unsupported charset or invalid CSV text encoding.");
-  }
+  const invalidEncoding = () => new DashboardQueryResultsError("NXT returned an unsupported charset or invalid CSV text encoding.");
+  let decoder;
+  try { decoder = new TextDecoder(match ? (match[1] || match[2]) : "utf-8", { fatal: true }); }
+  catch { throw invalidEncoding(); }
+  return {
+    decode(body, options) {
+      try { return decoder.decode(body, options); }
+      catch { throw invalidEncoding(); }
+    },
+  };
 }
 
 function malformedCsv() {
@@ -98,11 +107,23 @@ export function visitResultCsv(content, { onHeaders, onRow, maxRows = QUERY_RESU
     if (isJson) throw malformedCsv();
   }
 
+  const visitor = createResultCsvVisitor({ onHeaders, onRow, maxRows });
+  visitor.write(text);
+  return visitor.finish();
+}
+
+// Keep only one bounded row between chunks. A closing quote and CRLF can each
+// span chunks, so neither requires lookahead or retaining the previous chunk.
+export function createResultCsvVisitor({ onHeaders, onRow, maxRows = QUERY_RESULTS_LIMITS.rows }) {
+  if (!Number.isSafeInteger(maxRows) || maxRows < 1) throw malformedCsv();
   let headers = null;
   let rowCount = 0;
   let row = [];
   let cell = "";
   let state = "start";
+  let firstCharacter = true;
+  let skipLF = false;
+  let finished = false;
 
   const append = (character) => {
     cell += character;
@@ -139,33 +160,48 @@ export function visitResultCsv(content, { onHeaders, onRow, maxRows = QUERY_RESU
     row = [];
   };
 
-  // A strict state machine preserves empty cells and quoted newlines without
-  // accepting embedded unescaped quotes or dropping blank records.
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (state === "quoted") {
-      if (character === '"') {
-        if (text[index + 1] === '"') { append('"'); index += 1; }
-        else state = "closed";
-      } else append(character);
-    } else if (character === ",") {
-      finishCell();
-    } else if (character === "\r" || character === "\n") {
-      finishCell();
-      finishRow();
-      if (character === "\r" && text[index + 1] === "\n") index += 1;
-    } else if (character === '"' && state === "start") {
-      state = "quoted";
-    } else {
-      if (character === '"' || state === "closed") throw malformedCsv();
-      append(character);
-      state = "unquoted";
-    }
-  }
-  if (state === "quoted") throw malformedCsv();
-  if (state !== "start" || row.length) { finishCell(); finishRow(); }
-  if (!headers) throw malformedCsv();
-  return { headers, rowCount };
+  return {
+    write(text) {
+      if (finished || typeof text !== "string" || /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) throw malformedCsv();
+      for (let index = 0; index < text.length; index += 1) {
+        const character = text[index];
+        if (firstCharacter) {
+          firstCharacter = false;
+          if (character === "\uFEFF") continue;
+        }
+        if (skipLF) {
+          skipLF = false;
+          if (character === "\n") continue;
+        }
+        if (state === "quoted") {
+          if (character === '"') state = "closed";
+          else append(character);
+        } else if (state === "closed" && character === '"') {
+          append('"');
+          state = "quoted";
+        } else if (character === ",") {
+          finishCell();
+        } else if (character === "\r" || character === "\n") {
+          finishCell();
+          finishRow();
+          skipLF = character === "\r";
+        } else if (character === '"' && state === "start") {
+          state = "quoted";
+        } else {
+          if (character === '"' || state === "closed") throw malformedCsv();
+          append(character);
+          state = "unquoted";
+        }
+      }
+    },
+    finish() {
+      if (finished || state === "quoted") throw malformedCsv();
+      finished = true;
+      if (state !== "start" || row.length) { finishCell(); finishRow(); }
+      if (!headers) throw malformedCsv();
+      return { headers, rowCount };
+    },
+  };
 }
 
 export function parseResultCsv(content, { preserveTechnical = false } = {}) {

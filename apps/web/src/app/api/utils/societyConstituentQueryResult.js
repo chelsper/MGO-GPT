@@ -1,8 +1,12 @@
+import { createHash } from "node:crypto";
 import {
   BlackbaudQueryResultTooLargeError,
-  downloadBlackbaudQueryResultWithMetadata,
+  streamBlackbaudQueryResultWithMetadata,
 } from "./blackbaud";
-import { decodeResult, visitResultCsv } from "./dashboardQueryResults";
+import {
+  createResultTextDecoder,
+  createResultCsvVisitor,
+} from "./dashboardQueryResults";
 import {
   isValidDashboardTableData,
   QUERY_RESULTS_LIMITS,
@@ -19,7 +23,9 @@ import {
 } from "@/utils/societyLetterContacts";
 
 export const SOCIETY_CONSTITUENT_RESULT_LIMITS = Object.freeze({
-  bytes: 12 * 1024 * 1024,
+  // A transfer bound, not a buffer size. Only the current CSV row and compacted
+  // recipients are retained; the saved output is still limited to 512 KB.
+  bytes: 64 * 1024 * 1024,
   rawRows: 100000,
   constituents: 1000,
   emailCandidates: 20,
@@ -29,6 +35,12 @@ const boundedError = (message) =>
   letterError(`${message} No partial membership was saved.`, 413);
 
 export function deduplicateSocietyConstituentCsv(content, settings) {
+  const reader = createSocietyConstituentCsvReader(settings);
+  reader.write(content);
+  return reader.finish();
+}
+
+function createSocietyConstituentCsvReader(settings) {
   validateOrganizationContactColumns(settings.columns || {});
   const configured = Object.entries(CONSTITUENT_LETTER_COLUMNS)
     .map(([key]) => [key, settings.columns?.[key]])
@@ -67,8 +79,12 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
       "Map contact fields to distinct query output columns, separate from constituent IDs and other recipient details.",
     );
   let indexes;
+  let diagnosticColumns;
+  const varyingOutputFields = new Set();
+  const fingerprint = (value) =>
+    createHash("sha256").update(value.trim()).digest("hex");
   let retainedBytes = 0;
-  const { rowCount } = visitResultCsv(content, {
+  const visitor = createResultCsvVisitor({
     maxRows: SOCIETY_CONSTITUENT_RESULT_LIMITS.rawRows,
     onHeaders(returned) {
       indexes = headers.map((column) => {
@@ -79,6 +95,17 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
           );
         return index;
       });
+      const identityAndLetterColumns = new Set(
+        configured
+          .filter(
+            ([key]) =>
+              key !== "email" && !(key in ORGANIZATION_CONTACT_COLUMNS),
+          )
+          .map(([, column]) => column),
+      );
+      diagnosticColumns = returned.flatMap((name, index) =>
+        identityAndLetterColumns.has(name) ? [] : [{ name, index }],
+      );
     },
     onRow(values) {
       const row = indexes.map((index) => values[index].trim());
@@ -111,6 +138,21 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
           "The society query exceeds 1,000 unique constituents.",
         );
       const record = previous || { row, emails: new Set() };
+      // Bounded fingerprints identify varying outputs without retaining or
+      // publishing unused gift/contact values. Stable letter fields are already
+      // compared above; variations there must block the refresh, not be merged.
+      if (!previous)
+        record.fieldHashes = diagnosticColumns.map(({ index }) =>
+          fingerprint(values[index]),
+        );
+      else
+        diagnosticColumns.forEach(({ name, index }, i) => {
+          if (
+            !varyingOutputFields.has(name) &&
+            record.fieldHashes[i] !== fingerprint(values[index])
+          )
+            varyingOutputFields.add(name);
+        });
       if (!previous) retainedBytes += Buffer.byteLength(JSON.stringify(row));
       if (contactColumns.length) {
         const before = record.organizationContacts
@@ -140,38 +182,45 @@ export function deduplicateSocietyConstituentCsv(content, settings) {
       records.set(id, record);
     },
   });
-  const emailCandidates = {};
-  const organizationContacts = {};
-  const rows = [...records.entries()].map(([id, record]) => {
-    const emails = [...record.emails].sort();
-    if (emailIndex >= 0)
-      record.row[emailIndex] = emails.length === 1 ? emails[0] : "";
-    if (emails.length > 1) emailCandidates[id] = emails;
-    if (record.organizationContacts)
-      organizationContacts[id] = record.organizationContacts;
-    return record.row;
-  });
-  const table = {
-    headers,
-    rows,
-    metadata: {
-      emailCandidates,
-      ...(contactColumns.length ? { organizationContacts } : {}),
-      deduplication: {
-        rawRows: rowCount,
-        uniqueConstituents: rows.length,
-        repeatedRows: rowCount - rows.length,
-      },
+  return {
+    write: visitor.write,
+    finish() {
+      const { rowCount } = visitor.finish();
+      const emailCandidates = {};
+      const organizationContacts = {};
+      const rows = [...records.entries()].map(([id, record]) => {
+        const emails = [...record.emails].sort();
+        if (emailIndex >= 0)
+          record.row[emailIndex] = emails.length === 1 ? emails[0] : "";
+        if (emails.length > 1) emailCandidates[id] = emails;
+        if (record.organizationContacts)
+          organizationContacts[id] = record.organizationContacts;
+        return record.row;
+      });
+      const table = {
+        headers,
+        rows,
+        metadata: {
+          emailCandidates,
+          ...(contactColumns.length ? { organizationContacts } : {}),
+          deduplication: {
+            rawRows: rowCount,
+            uniqueConstituents: rows.length,
+            repeatedRows: rowCount - rows.length,
+            varyingOutputFields: [...varyingOutputFields].sort(),
+          },
+        },
+      };
+      if (
+        !isValidDashboardTableData({ headers, rows }) ||
+        Buffer.byteLength(JSON.stringify(table)) > QUERY_RESULTS_LIMITS.bytes
+      )
+        throw boundedError(
+          "The deduplicated society output exceeds the supported table size.",
+        );
+      return table;
     },
   };
-  if (
-    !isValidDashboardTableData({ headers, rows }) ||
-    Buffer.byteLength(JSON.stringify(table)) > QUERY_RESULTS_LIMITS.bytes
-  )
-    throw boundedError(
-      "The deduplicated society output exceeds the supported table size.",
-    );
-  return table;
 }
 
 export async function readSocietyConstituentQueryResult(
@@ -180,23 +229,42 @@ export async function readSocietyConstituentQueryResult(
   settings,
   expectedRows,
 ) {
-  try {
-    const file = await downloadBlackbaudQueryResultWithMetadata(url, {
-      ...context,
-      maxBytes: SOCIETY_CONSTITUENT_RESULT_LIMITS.bytes,
-      redirect: "error",
-    });
-    const table = deduplicateSocietyConstituentCsv(
-      decodeResult(file, { maxBytes: SOCIETY_CONSTITUENT_RESULT_LIMITS.bytes }),
-      settings,
+  if (
+    !/^\d+$/.test(String(expectedRows)) ||
+    !Number.isSafeInteger(Number(expectedRows))
+  ) {
+    throw letterError(
+      "NXT did not return a valid completed row count. No partial membership was saved.",
     );
-    if (
-      expectedRows !== undefined &&
-      expectedRows !== null &&
-      (!/^\d+$/.test(String(expectedRows)) ||
-        !Number.isSafeInteger(Number(expectedRows)) ||
-        Number(expectedRows) !== table.metadata.deduplication.rawRows)
-    )
+  }
+  if (Number(expectedRows) > SOCIETY_CONSTITUENT_RESULT_LIMITS.rawRows) {
+    throw boundedError(
+      "The society query exceeds 100,000 raw rows. Reduce repeated query output.",
+    );
+  }
+  try {
+    const reader = createSocietyConstituentCsvReader(settings);
+    const { result: table } = await streamBlackbaudQueryResultWithMetadata(
+      url,
+      {
+        ...context,
+        maxBytes: SOCIETY_CONSTITUENT_RESULT_LIMITS.bytes,
+        redirect: "error",
+      },
+      ({ contentType }) => {
+        const decoder = createResultTextDecoder(contentType);
+        return {
+          write(chunk) {
+            reader.write(decoder.decode(chunk, { stream: true }));
+          },
+          finish() {
+            reader.write(decoder.decode());
+            return reader.finish();
+          },
+        };
+      },
+    );
+    if (Number(expectedRows) !== table.metadata.deduplication.rawRows)
       throw letterError(
         "The downloaded society result does not match NXT's completed row count. No partial membership was saved.",
       );
@@ -204,7 +272,7 @@ export async function readSocietyConstituentQueryResult(
   } catch (error) {
     if (error instanceof BlackbaudQueryResultTooLargeError)
       throw boundedError(
-        "The society query file exceeds 12 MB before deduplication. Reduce repeated query output.",
+        "The society query exceeds the 64 MB streamed download limit. Reduce repeated query output.",
       );
     throw error;
   }

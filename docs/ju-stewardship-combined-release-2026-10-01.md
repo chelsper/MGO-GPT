@@ -1,6 +1,15 @@
 # JU Combined Stewardship Release - October 1, 2026
 
-Status: release candidate verified; deployment verification pending.
+Status: deployed to JU; release verified. Live society-letter query recovery
+remains outstanding as described below.
+
+- Application commit: `543e6b14974d4759843f7b028df93e7129b59042`.
+- Production deployment: `dpl_QdqwXhLe4AprQieuteogUw7PFSkJ`, READY.
+- Deployment URL: https://mgo-7lu72456l-chelspers-projects.vercel.app.
+- Live site: https://www.jumgogpt.app.
+- Published a clean Git archive with 1,162 source files and the web Vercel
+  manifest. No shared-repository push or persistent environment-setting change.
+- Deployment-only build/runtime commit variables identify the exact source SHA.
 
 ## Scope
 
@@ -41,6 +50,35 @@ The schema changes are additive and compatible with the previous application.
 - All 42 isolated PostgreSQL assistance/receipt tests passed before release,
   including idempotent schema setup, duplicate protection, corrections, and
   permission checks. No production database was used for these tests.
+- A fresh dependency installation in a separate clean archive repeated the full
+  5,310-test suite, typecheck, and production build successfully. Vercel's build
+  also succeeded. Existing dependency deprecation and mixed-import notices remain.
+- Public production SHA, deployment ID, and HTML assets match this release.
+- All three affected page routes and 18 referenced assets returned HTTP 200;
+  unauthenticated Received Items API access returned HTTP 401.
+- Signed-in checks confirmed the 26-item inventory and new Received Items page,
+  including the empty-history explanation and contextual back navigation.
+- Society Letter Creation displays the new review-selection controls and retains
+  the server's safety gates. Live selections could not be exercised with the
+  current saved membership state; see the remaining blocker below.
+- No browser console errors or entries in the bounded deployment error-log check.
+- All five JU cron paths/schedules, sandbox production, and the other copy's
+  production deployment were verified unchanged against the pre-release snapshot.
+
+## Remaining Live Membership Blocker
+
+The signed-in society-letter page reports the President's Society query file
+exceeds 12 MB before deduplication; no partial membership was saved. Membership
+is dated September 24, 2026, setup reports query-field mappings incomplete, and
+all 396 displayed recipients are unavailable for review in this saved state.
+Their selection controls remain disabled with an explanation. The UI selection
+improvement does not bypass missing or mismatched source data.
+
+Recover the query output/mapping and finish a complete membership refresh before
+testing live recipient selection or running delivery readiness. Do not raise
+size limits blindly, infer missing household membership, or assign appeals from
+this incomplete refresh. No query restart or NXT settings change was made during
+deployment verification.
 
 Unrelated documentation edits, desktop metadata, and the unfinished private PDF
 conversion service are excluded. Production verification is read-only: no live
