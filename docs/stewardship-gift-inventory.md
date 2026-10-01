@@ -149,11 +149,11 @@ viewing another workspace cannot lend its permissions. Staff can view all entrie
 Responses are viewer-bound and no-store, and reads recheck active status and role.
 Return links from a request or follow-up preserve that source context.
 
-This is not a complete history of stewardship gifts in NXT. Earlier NXT action
-custom fields have not been imported, nor are requests/completed tasks inferred
-to be deliveries. Empty states explicitly avoid claiming the donor never received
-anything. Historical NXT ingestion needs a separate reviewed mapping and source-ID
-deduplication step; do not infer receipt from catalog field names alone.
+This is not necessarily a complete history of stewardship gifts in NXT. The
+separate reviewed import below can add earlier NXT action custom fields, with
+source-ID deduplication. Requests and completed tasks are not automatically
+inferred to be deliveries. Empty states avoid claiming the donor never received
+anything; only explicitly reviewed gift-category/value rules establish receipt.
 
 Validation on October 1, 2026: 5,299 regular tests passed (140 opt-in skipped),
 and all 42 assistance/receipt PostgreSQL tests passed separately in the disposable
@@ -165,15 +165,15 @@ Production, sandbox, NXT, and donor records were not changed for this increment.
 ## Next Inventory Phases
 
 Status reviewed October 1, 2026: the catalog, optional request choice, and
-app-recorded recipient history are live. Adding, editing, archiving, and restoring
-item types is supported. Numeric stock and item pictures are not implemented.
+app-recorded recipient history are live. The read-only NXT history importer is
+also deployed; see [its release note](ju-gift-history-release-2026-10-01.md) for
+the JU import result. Adding, editing, archiving, and restoring item types is
+supported. Numeric stock and item pictures are not implemented.
 
-1. Import existing NXT action custom-field history read-only. Review the mapping
-   from each attribute to a catalog item and what its value means before treating
-   it as receipt. Keep stable source action/attribute IDs, deduplicate repeat
-   imports, label imported history separately, and preserve corrections. Do not
-   infer receipt from an attribute category alone or deduct current stock for
-   historical gifts.
+1. Review held or unmapped historical gift records and add future query results
+   through the deployed read-only importer. Review each attribute-to-item mapping
+   and its receipt meaning. Reimports retain stable source IDs and corrections;
+   historical gifts never deduct current stock.
 2. Add audited stock quantities. Staff establish an opening count; replenishment,
    fulfillment, returns, and count corrections create explicit stock movements.
    Unknown quantity must remain distinct from zero. Retries must not deduct twice,
@@ -184,14 +184,14 @@ item types is supported. Numeric stock and item pictures are not implemented.
    allow replacement without rewriting receipt or stock history. Archived items
    remain discoverable in past recipient history.
 
-These are proposed increments, not capabilities of the current release.
+Stock quantities and pictures remain proposed increments, not current capabilities.
 
 ### JU History Source Readiness
 
 The selected JU source is query **31053**, **Stewardship Action Query - JUMGOGPT**,
 replacing proposed constituent query 31052. Read-only inspection on October 1,
-2026 confirmed an Action query and 834 returned rows before its latest output
-changes. Release and live import results are recorded in the history release note.
+2026 confirmed an Action query. After its output changes, the app loaded 834 rows.
+Release and live import results are recorded in the history release note.
 
 Present output includes Action System Record ID, Action Custom Field Import ID,
 Action Custom Field Category, Action Custom Field Date, Name, and Fundraiser
@@ -225,8 +225,8 @@ Only an explicit Import command writes the app ledger. NXT and stock never chang
 Duplicate protection uses Action System Record ID plus Action Custom Field
 Import ID, not donor name or constituent ID alone. Corrections preserve that key
 so a repeat query cannot resurrect a voided receipt. Possible app-recorded matches
-with the same item, recipient, and date are skipped for review. Invalid IDs/dates
-or conflicting source identities fail closed. Blank/invalid/future dates are held
+with the same item, recipient, and date are skipped for review. Invalid IDs or
+conflicting source identities fail closed. Blank/invalid/future dates are held
 out with row-level review details, without blocking distinct valid records.
 An explicitly selected recorded-date fallback applies only when the primary date
 is blank; invalid values are never silently replaced. The actual date field used
