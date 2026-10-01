@@ -47,6 +47,7 @@ describe("saved status classifications", () => {
     expect(portfolioHealth({ ...current, has_mapping: false }, now).label).toBe("Fundraiser mapping needed");
     expect(portfolioHealth({ ...current, summary_current: 4 }, now).label).toBe("Refresh backlog");
     expect(portfolioHealth({ ...current, summary_failed: 1 }, now).level).toBe("review");
+    expect(portfolioHealth({ ...current, job_status: "completed_with_failures", failed_count: 1 }, now).level).toBe("review");
   });
   it("prioritizes an active cooldown and does not promise a worker heartbeat", () => {
     expect(portfolioHealth({ ...current, summary_failed: 5, paused_until: "2026-09-17T16:00:00Z" }, now).level).toBe("wait");

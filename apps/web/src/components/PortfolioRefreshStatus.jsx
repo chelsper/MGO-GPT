@@ -64,9 +64,18 @@ export default function PortfolioRefreshStatus({
     inventory.total > 0 &&
     validProgress &&
     !error;
+  const completedWithAttention =
+    job?.mode === "nightly" && job.status === "completed_with_failures" &&
+    !!job.jobId && summariesCurrent && inventory.total > 0 &&
+    [job.totalCount, job.processedCount, job.successCount, job.failedCount]
+      .every((count) => Number.isInteger(count) && count >= 0) &&
+    job.totalCount > 0 && job.processedCount === job.totalCount &&
+    job.successCount + job.failedCount === job.totalCount && job.failedCount > 0 &&
+    !isPending && !error;
 
-  // Failures, stale summaries and pauses without a verified retry stay visible.
-  if (!healthy && !quietBackground)
+  // Finished background exceptions remain visible in the compact status, not
+  // as an expanded technical panel. Missing data and stalled work stay expanded.
+  if (!healthy && !quietBackground && !completedWithAttention)
     return (
       <>
         {backgroundJob && !recentProgress && !error ? (
@@ -82,17 +91,23 @@ export default function PortfolioRefreshStatus({
 
   return (
     <details
-      key={`${job?.workspaceUserId || "workspace"}:${job?.jobId || "saved"}:${quietBackground ? "background" : "settled"}`}
-      className="rounded-lg border border-gray-200 bg-gray-50 text-sm"
+      key={`${job?.workspaceUserId || "workspace"}:${job?.jobId || "saved"}:${completedWithAttention ? "attention" : quietBackground ? "background" : "settled"}`}
+      className={`rounded-lg border text-sm ${completedWithAttention ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-gray-50"}`}
     >
       <summary className="cursor-pointer px-3 py-2 text-gray-600 marker:text-gray-400">
-        <span className="font-semibold text-emerald-800">
-          {quietBackground
+        <span className={`font-semibold ${completedWithAttention ? "text-amber-800" : "text-emerald-800"}`}>
+          {completedWithAttention ? "Saved portfolio available" : quietBackground
             ? "Saved summaries ready"
             : inventory.total
               ? "Portfolio summaries up to date"
               : "No portfolio summaries to refresh"}
         </span>{" "}
+        {completedWithAttention ? (
+          <span className="ml-3 inline-block text-amber-800" role="status">
+            {job.failedCount === 1 ? "1 background update needs attention." : `${job.failedCount} background updates need attention.`}{" "}
+            You can keep working with saved information.
+          </span>
+        ) : null}
         {quietBackground ? (
           <span className="ml-3 inline-block">
             {routineCooldown
@@ -101,7 +116,7 @@ export default function PortfolioRefreshStatus({
           </span>
         ) : null}
         <span className="ml-3 inline-block whitespace-nowrap text-xs font-semibold text-indigo-700">
-          {quietBackground ? "Refresh details" : "Refresh options"}
+          {completedWithAttention ? "View details" : quietBackground ? "Refresh details" : "Refresh options"}
         </span>
       </summary>
       <div className="border-t border-gray-200 p-2 sm:p-3">{children}</div>

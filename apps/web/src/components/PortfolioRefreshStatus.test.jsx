@@ -162,6 +162,57 @@ function View({ state = healthy(), onRefresh = vi.fn(), ...props }) {
   </PortfolioRefreshStatus>;
 }
 
+describe("compact completed background exceptions", () => {
+  const completed = () => ({
+    inventory: { total: 215, current: 215, stale: 0, failed: 0 },
+    job: { jobId: "42", workspaceUserId: 9, mode: "nightly", status: "completed_with_failures",
+      totalCount: 54, processedCount: 54, successCount: 53, failedCount: 1,
+      failedItems: [{ constituentId: "123" }] },
+  });
+  it("shows the reported failure without expanding technical details or claiming all data is current", () => {
+    const onRefresh = vi.fn();
+    render(<View state={completed()} onRefresh={onRefresh} />);
+    expect(screen.getByText("Saved portfolio available")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("1 background update needs attention.");
+    expect(screen.getByText("Nightly portfolio maintenance")).not.toBeVisible();
+    expect(screen.queryByText("Portfolio summaries up to date")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("View details"));
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+  it("keeps the user's details choice on polling and clears the warning after a successful retry", () => {
+    const state = completed();
+    const { rerender } = render(<View state={state} />);
+    fireEvent.click(screen.getByText("View details"));
+    rerender(<View state={completed()} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+    rerender(<View state={{ ...state, job: { ...state.job, status: "completed", successCount: 54, failedCount: 0, failedItems: [] } }} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText("Portfolio summaries up to date")).toBeVisible();
+    expect(screen.getByText("Nightly portfolio maintenance")).not.toBeVisible();
+  });
+  it.each([
+    { mode: "full" }, { mode: "stale" }, { jobId: null }, { totalCount: 0 },
+    { processedCount: 53 }, { successCount: 52 }, { failedCount: "1" },
+  ])("does not collapse manual or inconsistent work: %j", overrides => {
+    const state = completed();
+    render(<View state={{ ...state, job: { ...state.job, ...overrides } }} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+  });
+  it("keeps missing snapshots and fresh request errors expanded", () => {
+    const state = completed();
+    const { rerender } = render(<View state={{ ...state, inventory: { total: 215, current: 214, stale: 1, failed: 0 } }} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+    rerender(<View state={state} error={new Error("Status unavailable")} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+  });
+  it("uses plural wording for multiple failures, including a fully failed pass", () => {
+    const state = completed();
+    render(<View state={{ ...state, job: { ...state.job, successCount: 0, failedCount: 54 } }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("54 background updates need attention.");
+  });
+});
+
 describe("quiet completed portfolio maintenance", () => {
   it("collapses a healthy completed job without starting another refresh", () => {
     const onRefresh = vi.fn();

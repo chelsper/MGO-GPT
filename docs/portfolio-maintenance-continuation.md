@@ -46,6 +46,30 @@ This is bounded catch-up capacity, not a promise that all portfolios finish
 daily. Large records, old backlogs, authentication issues, provider throttling,
 or terminal failures can still require attention.
 
+### Connection Renewal Failures
+
+OAuth renewal errors retain their provider HTTP status and `blackbaud_auth`
+stage, including through the nested fiscal-year giving route. An explicit
+HTTP 429 or 5xx response to a refresh-token request may defer a nightly item
+twice using the item's persisted `retry_count`. The existing scheduler resumes
+the paused job after at least ten minutes, or the provider's longer Retry-After.
+Other failures/pauses also consume that counter, so recovery is conservative.
+The third failed attempt is terminal and remains available for investigation.
+
+Invalid/rejected credentials, authorization-code exchanges, uncertain transport
+responses and manual rebuilds do not get this automatic recovery. The OAuth
+helper never immediately replays a request. No NXT writes are retried and no
+completed historic failures are automatically requeued. A pre-fix token failure
+must be reviewed before retrying because it did not retain its provider status.
+
+When a nightly pass finishes with failures but saved summaries are still
+current, the portfolio shows a compact amber notice with the failed-update
+count. Details and deliberate retry controls remain accessible, and restricted
+diagnostics remain admin-only. This does not claim that giving is current or
+promise another retry of a terminal failure. Missing/stale summaries, stalled
+work and fresh request errors still expand the maintenance panel. Integration
+Health flags failed giving checks even if the summary inventory is current.
+
 ## Controlled Rollout
 
 The feature is **off by default**. Implementation and local verification do not

@@ -285,14 +285,18 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
     const reportedStatus = numeric(payload?.providerStatus);
     const lastProviderStatus = numeric(response.headers.get("x-mgogpt-nxt-last-status"));
     const providerFailure = reportedStatus >= 400 ? reportedStatus : lastProviderStatus >= 400 ? lastProviderStatus : null;
-    const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval"].includes(payload?.failureStage)
+    const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval", "blackbaud_auth"].includes(payload?.failureStage)
       ? payload.failureStage : providerFailure ? "blackbaud_retrieval" : "summary_processing";
+    const connectionFailure = failureStage === "blackbaud_auth";
     const error = new Error(payload?.error || `Portfolio refresh returned ${response.status}`);
     Object.assign(error, {
       stage: failureStage, httpStatus: providerFailure || response.status,
       retryAfterMs: numeric(response.headers.get("x-mgogpt-nxt-retry-after-ms"), numeric(payload?.retryAfterMs)),
-      endpoint: providerFailure ? info.lastEndpoint : url.pathname, apiCallCount: info.apiCallCount, requestDurationMs: info.requestDurationMs,
-      paused: response.status === 429 || payload?.quotaPaused === true,
+      endpoint: connectionFailure ? "https://oauth2.sky.blackbaud.com/token" : providerFailure ? info.lastEndpoint : url.pathname,
+      apiCallCount: info.apiCallCount, requestDurationMs: info.requestDurationMs,
+      connectionRetryable: connectionFailure && payload?.connectionRetryable === true &&
+        (providerFailure === 429 || providerFailure >= 500),
+      paused: !connectionFailure && (response.status === 429 || payload?.quotaPaused === true),
     });
     throw error;
   }
@@ -487,8 +491,12 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     `;
     return { status: complete ? "success" : "failed" };
   } catch (error) {
-    const paused = error?.paused === true;
-    const retryAfterMs = Math.max(0, numeric(error?.retryAfterMs));
+    // Only read-only nightly work is deferred, with a persisted ceiling. Never
+    // retry an invalid grant, an unknown response, or any NXT write here.
+    const deferConnection = job.mode === "nightly" && error?.connectionRetryable === true &&
+      numeric(item.retry_count) < 2;
+    const paused = error?.paused === true || deferConnection;
+    const retryAfterMs = Math.max(deferConnection ? 10 * 60_000 : 0, numeric(error?.retryAfterMs));
     await sql`
       UPDATE portfolio_refresh_items
       SET

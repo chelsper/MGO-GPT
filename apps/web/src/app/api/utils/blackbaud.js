@@ -314,11 +314,24 @@ async function requestBlackbaudToken(params, config) {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       payload?.error_description ||
         payload?.error ||
         "Blackbaud token exchange failed",
     );
+    // Preserve the cause without replaying OAuth requests or classifying a
+    // rejected/uncertain renewal as a temporary failure.
+    Object.assign(error, {
+      name: "BlackbaudTokenError",
+      stage: "blackbaud_auth",
+      httpStatus: response.status,
+      connectionRetryable: params.grant_type === "refresh_token" &&
+        (response.status === 429 || response.status >= 500) &&
+        !["invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope", "unsupported_grant_type", "access_denied"].includes(payload?.error),
+      retryAfterMs: response.status === 429 || response.status >= 500
+        ? Math.max(60_000, parseRetryAfterMs(response)) : null,
+    });
+    throw error;
   }
 
   return payload;

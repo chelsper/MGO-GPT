@@ -113,7 +113,7 @@ export default function PortfolioRefreshProgress({
               ? serverManaged ? "Continuing automatically in small background batches. You can leave this page."
                 : `Currently processing in batches of 10 from checkpoint ${Number(job.currentCursor || 0) + 1}.`
               : paused
-                ? `${serverManaged ? "Background check paused" : "Waiting for Blackbaud's rate limit"}${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
+                ? `Background check paused${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
                 : job.status === "cancelled"
                   ? "Refresh cancelled. Saved summaries were preserved."
                   : "Refresh pass completed."}
@@ -128,7 +128,7 @@ export default function PortfolioRefreshProgress({
         <div role="status" style={{ color: "#92400E", fontSize: "12px", lineHeight: 1.5 }}>
           {serverManaged
             ? "Scheduled maintenance will continue when the cooldown and daily request allowance permit, even with this page closed. Saved summaries remain available; a pause does not count as a failed record."
-            : "This refresh will continue automatically after the cooldown while this page is open. If you leave, overnight maintenance picks it up. Saved summaries remain available; a rate-limit pause does not count as a failed record."}
+            : "This refresh will continue automatically after the cooldown while this page is open. If you leave, overnight maintenance picks it up. Saved summaries remain available; a pause does not count as a failed record."}
         </div>
       ) : null}
 

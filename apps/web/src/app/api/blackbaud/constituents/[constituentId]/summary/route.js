@@ -1397,6 +1397,10 @@ async function handleGet(request, { params }) {
         error.httpStatus = fy?.providerStatus || fyResponse.status;
         error.retryAfterMs = fy?.retryAfterMs || 0;
         error.quotaPaused = fy?.quotaPaused;
+        if (fy?.failureStage === "blackbaud_auth") {
+          error.stage = "blackbaud_auth";
+          error.connectionRetryable = fy?.connectionRetryable === true;
+        }
         throw error;
       }
       const currentYear = new Date().getMonth() >= 6 ? new Date().getFullYear() + 1 : new Date().getFullYear();
@@ -1753,7 +1757,9 @@ async function handleGet(request, { params }) {
             ? error.message
             : "Failed to fetch Blackbaud constituent summary",
         providerStatus,
-        failureStage: error?.stage === "proposal_summary" ? "proposal_summary" : providerStatus ? "blackbaud_retrieval" : "summary_processing",
+        failureStage: ["proposal_summary", "blackbaud_auth"].includes(error?.stage)
+          ? error.stage : providerStatus ? "blackbaud_retrieval" : "summary_processing",
+        connectionRetryable: error?.stage === "blackbaud_auth" && error?.connectionRetryable === true,
         quotaPaused,
         retryAfterMs,
       },

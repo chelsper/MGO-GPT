@@ -9,7 +9,7 @@ vi.mock("@/app/api/utils/reportRefresh", () => ({ isAuthorizedReportRefreshReque
 vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn() }));
 
 const mapped = { lifetimeGiving: { totalGiving: 100 }, proposalSummary: [] };
-let job, snapshot, giving;
+let job, snapshot, giving, retryCount;
 const request = (action = "process") => new Request("https://jumgogpt.app/api/blackbaud/portfolio-refresh", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, jobId: "1" }),
 });
@@ -63,12 +63,13 @@ beforeEach(() => {
   job = { id: 1, workspace_user_id: 7, mode: "nightly", status: "queued", batch_size: 10, concurrency: 2 };
   snapshot = { summary_payload: { mapped: { ...mapped, constituent: { id: "123", name: "Test" }, prospectSummaryNarrative: "Good snapshot" } }, data_complete: true, stale_after: new Date(Date.now() + 6 * 86400000).toISOString() };
   giving = null;
+  retryCount = 0;
   sql.mockReset().mockImplementation(async (strings) => {
     const query = strings.join(" ");
     if (query.includes("SELECT * FROM portfolio_refresh_jobs")) return [job];
     if (query.includes("SELECT summary_payload")) return [snapshot];
     if (query.includes("FROM portfolio_giving_snapshots")) return giving ? [giving] : [];
-    if (query.includes("WITH next_items")) return [{ id: 24, constituent_id: "123", position: 23 }];
+    if (query.includes("WITH next_items")) return [{ id: 24, constituent_id: "123", position: 23, retry_count: retryCount }];
     if (query.includes("WITH counts")) return [{ ...job, status: "completed" }];
     return [];
   });
@@ -79,6 +80,56 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("nightly portfolio batches", () => {
+  it.each([429, 503])("defers an explicit temporary OAuth %i failure using the existing cooldown, without erasing data", async providerStatus => {
+    fetch.mockImplementation(async () => Response.json({ error: "Renewal temporarily unavailable", providerStatus,
+      failureStage: "blackbaud_auth", connectionRetryable: true, retryAfterMs: 60000,
+    }, { status: providerStatus === 429 ? 429 : 500 }));
+    for (retryCount = 0; retryCount < 3; retryCount++) {
+      sql.mockClear(); fetch.mockClear();
+      await POST(request());
+      const failure = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+      expect(failure).toContain(retryCount < 2 ? "pending" : "failed");
+      expect(failure).toContain("blackbaud_auth");
+      expect(failure).toContain("https://oauth2.sky.blackbaud.com/token");
+      expect(failure).toContain(providerStatus);
+      if (retryCount < 2) expect(failure).toContain(600000);
+      expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(retryCount < 2);
+      expect(sql.mock.calls.some(([s]) => s.join(" ").includes("UPDATE portfolio_constituent_snapshots"))).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it.each([
+    { providerStatus: 400, connectionRetryable: false },
+    { providerStatus: 401, connectionRetryable: true },
+    { providerStatus: 403, connectionRetryable: false },
+    { providerStatus: null, connectionRetryable: true },
+    { providerStatus: 503, connectionRetryable: false },
+  ])("never automatically retries rejected or unverified connection failures: %j", async failure => {
+    fetch.mockResolvedValue(Response.json({ error: "Connection needs review", failureStage: "blackbaud_auth", ...failure }, { status: 500 }));
+    await POST(request());
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"))).toContain("failed");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(false);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not silently retry manually requested full rebuilds", async () => {
+    job.mode = "full";
+    fetch.mockResolvedValue(Response.json({ error: "Renewal unavailable", providerStatus: 503,
+      failureStage: "blackbaud_auth", connectionRetryable: true }, { status: 500 }));
+    await POST(request());
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"))).toContain("failed");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(false);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("honors a longer provider renewal cooldown", async () => {
+    fetch.mockResolvedValue(Response.json({ error: "Renewal unavailable", providerStatus: 503,
+      failureStage: "blackbaud_auth", connectionRetryable: true, retryAfterMs: 3600000 }, { status: 500 }));
+    await POST(request());
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"))).toContain(3600000);
+  });
+
   it("updates giving without rebuilding a current unchanged summary", async () => {
     expect((await POST(request())).status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(1);

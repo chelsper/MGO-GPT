@@ -131,6 +131,25 @@ it("restricts diagnostics and full rebuild to admins and preserves refresh modes
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it.each([false, true])("keeps the morning failure compact and its retry deliberate for admin=%s", isAdmin => {
+  const props = controls({ isAdmin, state: {
+    inventory: { total: 215, current: 215, stale: 0, failed: 0 },
+    job: { jobId: "42", mode: "nightly", status: "completed_with_failures", totalCount: 54,
+      processedCount: 54, successCount: 53, failedCount: 1,
+      failedItems: [{ constituentId: "123", position: 1, stage: "blackbaud_auth", httpStatus: 503, apiCallCount: 0, retryCount: 3 }] },
+  } });
+  render(<PortfolioRefreshProgress {...props} />);
+  expect(screen.getByRole("status")).toHaveTextContent("1 background update needs attention.");
+  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  expect(props.onRetryFailures).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText("View details"));
+  expect(screen.getByRole("button", { name: "Retry 1 failed" })).toBeVisible();
+  expect(Boolean(screen.queryByText(/Restricted failure diagnostics/))).toBe(isAdmin);
+  fireEvent.click(screen.getByRole("button", { name: "Retry 1 failed" }));
+  expect(props.onRetryFailures).toHaveBeenCalledOnce();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("does not dispatch additional refreshes while a mutation is pending", () => {
   const props = controls({ isPending: true, isAdmin: true });
   render(<PortfolioRefreshProgress {...props} />);

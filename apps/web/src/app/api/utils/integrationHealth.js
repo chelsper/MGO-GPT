@@ -23,7 +23,7 @@ export function portfolioHealth(row, now = Date.now()) {
   if (!row.has_mapping) return status("review", "Fundraiser mapping needed", "Check this MGO's system-ID mapping in Security & Access. Reconnecting will not fix a missing fundraiser mapping.");
   if (!row.has_portfolio) return status("notice", "No assignment snapshot", "Select this MGO in My Prospects and check the saved portfolio before choosing Sync NXT portfolio.");
   if (date(row.paused_until) && Date.parse(row.paused_until) > now) return status("wait", "Waiting for cooldown", "Wait until the saved pause ends. Do not reconnect or repeatedly restart portfolios for a rate limit.");
-  if (count(row.summary_failed)) return status("review", "Refresh needs investigation", "Select this MGO's portfolio and inspect its restricted refresh details. Keep saved values; retry reads only after checking the cause.");
+  if (count(row.summary_failed) || count(row.failed_count)) return status("review", "Refresh needs investigation", "Select this MGO's portfolio and inspect its restricted refresh details. Keep saved values; retry reads only after checking the cause.");
   if (["queued", "processing", "paused"].includes(row.job_status)) {
     if (!date(row.job_updated_at) || now - Date.parse(row.job_updated_at) > 15 * 60_000) {
       return status("notice", "Progress needs checking", "No progress has been saved in 15 minutes. This does not prove a failure. Check the portfolio's job and next scheduled window before resuming a read.");

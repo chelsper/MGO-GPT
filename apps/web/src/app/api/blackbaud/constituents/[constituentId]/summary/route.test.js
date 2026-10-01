@@ -121,6 +121,17 @@ describe("scheduled summary continuation authorization", () => {
     expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
     expect(listBlackbaudGifts).not.toHaveBeenCalled();
   });
+
+  it("returns token-renewal failures as connection errors, not local summary-processing errors", async () => {
+    blackbaudApiFetch.mockRejectedValue(Object.assign(new Error("Renewal unavailable"), {
+      stage: "blackbaud_auth", httpStatus: 503, connectionRetryable: true, retryAfterMs: 600000,
+    }));
+    const response = await read();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ providerStatus: 503, failureStage: "blackbaud_auth",
+      connectionRetryable: true, retryAfterMs: 600000, quotaPaused: false });
+    expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
+  });
 });
 
 function entry(label, dates = {}) {
@@ -604,6 +615,17 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect(await response.json()).toMatchObject({ failureStage: "proposal_summary", providerStatus: null });
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(false);
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it("preserves a nested FY token failure after lifetime giving succeeds", async () => {
+    listBlackbaudGifts.mockRejectedValue(Object.assign(new Error("Renewal unavailable"), {
+      stage: "blackbaud_auth", httpStatus: 503, connectionRetryable: true, retryAfterMs: 900000,
+    }));
+    const response = await summary("giving_only=1&refresh=1");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ failureStage: "blackbaud_auth", providerStatus: 503,
+      connectionRetryable: true, retryAfterMs: 900000 });
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(false);
   });
 
   it("also lets badge loading reuse data fetched first by a summary", async () => {
