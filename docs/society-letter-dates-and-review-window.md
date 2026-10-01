@@ -1,6 +1,6 @@
 # Society Letter Dates and Review Window
 
-Implemented October 1, 2026. Not yet deployed.
+Implemented and deployed to JU on October 1, 2026.
 
 ## Behavior
 
@@ -55,3 +55,29 @@ safety limit, not a Blackbaud query limit.
 - Follow-up preview regression: two assertions reproduced the missing comma
   in template samples before the fix; 327 targeted document, recipient,
   workflow, finalization, route, and shared-helper tests passed afterward.
+
+## JU Release
+
+- Application source: `1986feea2160d0a04410a0f64d6241df87a30fcc`.
+- Previous JU source: `c09934ff096aacc4bb565fa5b87bfbe6afdd8261`, deployment
+  `dpl_5RLLKJgeS5fJLBbYVnaGzo5YpXTA`.
+- Clean source archive deployed directly to JU project
+  `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY`; no Git push, schema changes, or
+  persistent environment configuration changes.
+- Deployment `dpl_3pYpANuonPdHprKv3fQcb5Tqz58Z` is READY at
+  `https://mgo-z3gfxzfqk-chelspers-projects.vercel.app`, aliased to
+  `https://www.jumgogpt.app`.
+- Production version verification returned the exact source SHA and new HTML
+  assets. Unauthenticated society-letter API access returned 401.
+- Read-only browser verification confirmed the global date control, 15-day
+  review guidance, retained reviewed recipients, and the city/state comma in
+  both an existing recipient's editor and the rendered personalized Word
+  preview. The editor was cancelled without saving, then the verification tab
+  was closed. No live recipient saves, date changes, NXT checks/writes,
+  exclusions, final documents, or sends were performed.
+- The sandbox remained at `dpl_DjwTBKV1P5PptBLibP4oQC9GAK6N`; the other copy
+  remained at `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`.
+- Existing dependency deprecation, PDF.js eval, mixed-import, and optional
+  canvas build warnings were non-blocking. PDF service provisioning, larger
+  batches, and compressed PDF output remain outside this release; production
+  still reports the private converter as not configured.
