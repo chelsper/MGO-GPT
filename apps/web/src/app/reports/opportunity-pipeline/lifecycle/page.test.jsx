@@ -15,3 +15,13 @@ it('reloads saved data only and allows cohort selection',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Reload saved data'}));expect(reload).toHaveBeenCalledTimes(1);
   fireEvent.change(screen.getByLabelText('Assigned fiscal year'),{target:{value:'all'}});expect(screen.getByText('Example Donor')).toBeInTheDocument();
 });
+it('filters 60-89 day outreach review and can return to all assignments without a request',()=>{
+  const reload=vi.fn();render(<LifecycleReport report={report()} reload={reload}/>);
+  const bucket=screen.getByRole('button',{name:/60-89 days/});fireEvent.click(bucket);
+  expect(bucket).toHaveAttribute('aria-pressed','true');expect(screen.getByText('Example Donor')).toBeInTheDocument();
+  expect(screen.getByText('61 days since assignment')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:/90\+ days/}));expect(screen.getByText('No assignments in this view')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'All assignments'}));expect(screen.getByText('Example Donor')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Sort by'),{target:{value:'oldest-outreach'}});
+  expect(screen.getByLabelText('Sort by')).toHaveValue('oldest-outreach');expect(reload).not.toHaveBeenCalled();
+});

@@ -5,6 +5,7 @@ import useUser from '@/utils/useUser';
 import SharedReportHeader from '@/app/reports/SharedReportHeader';
 import { PIPELINE_REPORT_KEY } from '@/utils/pipelineReport';
 import { filterLifecycle, lifecycleTotals, lifecycleCsv } from '@/utils/prospectLifecycle';
+import { OUTREACH_BUCKETS, outreachAgingTotals } from '@/utils/prospectOutreachAging';
 import { formatCalendarDate } from '@/utils/prospectActivity';
 import { buildBlackbaudConstituentProfileUrl } from '@/utils/blackbaudLinks';
 import styles from '../pipeline.module.css';
@@ -24,9 +25,13 @@ export function LifecycleReport({report,reload,refreshing=false}) {
   const [fundraiser,setFundraiser] = useState('all');
   const [stage,setStage] = useState('all');
   const [search,setSearch] = useState('');
+  const [aging,setAging] = useState('all');
+  const [sort,setSort] = useState('newest');
   const [page,setPage] = useState(1);
   const [message,setMessage] = useState('');
-  const rows = filterLifecycle(report.rows,{year,fundraiser,stage,search});
+  const cohortRows = filterLifecycle(report.rows,{year,fundraiser,stage,search});
+  const agingTotals = outreachAgingTotals(cohortRows);
+  const rows = filterLifecycle(cohortRows,{aging,sort});
   const totals = lifecycleTotals(rows);
   const years = [...new Set([report.currentYear,...report.rows.map(r=>r.fiscalYear)])].sort((a,b)=>b-a);
   const owners = [...new Map(report.rows.map(r=>[r.fundraiserId,r.fundraiserName])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
@@ -52,6 +57,13 @@ export function LifecycleReport({report,reload,refreshing=false}) {
       <label>Fundraiser<select value={fundraiser} onChange={e=>filter(setFundraiser,e.target.value)}><option value="all">All fundraisers</option>{owners.map(([id,name])=><option key={id} value={id}>{name || 'Unassigned'}</option>)}</select></label>
       <label>Progress<select value={stage} onChange={e=>filter(setStage,e.target.value)}><option value="all">All progress</option>{['Assigned','Activity recorded','Qualified','Outcome recorded'].map(s=><option key={s}>{s}</option>)}</select></label>
       <label className={styles.search}>Search prospects<input type="search" value={search} placeholder="Name, constituent ID, or outcome" onChange={e=>filter(setSearch,e.target.value)}/></label>
+      <label>Sort by<select value={sort} onChange={e=>filter(setSort,e.target.value)}><option value="newest">Newest assignment</option><option value="oldest-outreach">Longest without recorded outreach</option></select></label>
+    </section>
+    <section className={styles.aging} aria-label="Outreach review">
+      <div className={styles.resultHeading}><div><h2>Who may need a follow-up?</h2><p>Current assignments still awaiting an outcome, as of {date(report.asOf)}.</p></div><button className={styles.button} aria-pressed={aging==='all'} onClick={()=>filter(setAging,'all')}>All assignments</button></div>
+      <div className={styles.agingBuckets}>{OUTREACH_BUCKETS.map(bucket=><button key={bucket.key} type="button" aria-pressed={aging===bucket.key} onClick={()=>filter(setAging,aging===bucket.key?'all':bucket.key)}><span>{bucket.label}</span><strong>{agingTotals[bucket.key]}</strong><small>{agingTotals[bucket.key]===1?'assignment':'assignments'}</small></button>)}</div>
+      <p className={styles.source}>Time since the last recorded completed outreach, or assignment if none is saved. Planned actions do not reset the clock. Review the record before following up; saved history may be incomplete.</p>
+      {aging!=='all' && <p role="status">Showing {OUTREACH_BUCKETS.find(bucket=>bucket.key===aging)?.label.toLowerCase()} in this view. Select All assignments to return to the full list.</p>}
     </section>
     <section className={styles.metrics} aria-label="Lifecycle totals">
       <div><span>Assignments</span><strong>{totals.assigned}</strong><small>{new Set(rows.map(r=>r.constituentId).filter(Boolean)).size} linked constituents; repeat assignments count separately</small></div>
@@ -65,7 +77,7 @@ export function LifecycleReport({report,reload,refreshing=false}) {
       {!visible.length ? <div className={styles.empty}><h3>No assignments in this view</h3><p>Try another assigned fiscal year or clear a filter.</p></div> : visible.map(row=><LifecycleRow key={row.id} row={row}/>)}
       {pages>1 && <div className={styles.pagination}><button className={styles.button} disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous page</button><span>Page {currentPage} of {pages}</span><button className={styles.button} disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next page</button></div>}
     </section>
-    <details className={styles.method}><summary>How this report works</summary><p>Assignment dates come from the app audit, not an inferred NXT date. The requested MGOGPT date and recorded sync result are shown separately. Existing outcome snapshots cannot reconstruct earlier changes; new outcome selections are retained from this release onward.</p><p>Actions are attributed to the assigned fundraiser, not the staff member who entered them. Counts reflect saved action receipts and safely identified Team Standings actions, not a complete NXT history or a live check of completion status. Calendar dates determine the assignment window; activity on a reassignment day belongs to the new cycle.</p><p>Giving follows the constituent, not the fundraiser. Only direct gifts in the published date range are included; soft credits are excluded. Pledges and other gift types appear in the timeline but are not added to the monetary receipt total. Joint assignment rows can overlap; the report total counts each gift ID once.</p><p>Viewing, filtering, exporting, and reloading this report do not contact NXT or change its custom fields.</p></details>
+    <details className={styles.method}><summary>How this report works</summary><p>Assignment dates come from the app audit, not an inferred NXT date. The requested MGOGPT date and recorded sync result are shown separately. Existing outcome snapshots cannot reconstruct earlier changes; new outcome selections are retained from this release onward.</p><p>Actions are attributed to the assigned fundraiser, not the staff member who entered them. Counts reflect saved action receipts and safely identified Team Standings actions, not a complete NXT history or a live check of completion status. Calendar dates determine the assignment window; activity on a reassignment day belongs to the new cycle.</p><p>Outreach review includes current assignment cycles with no selected outcome. Ended cycles and recorded outcomes are excluded even if NXT sync still needs attention. Buckets are separate, not cumulative, and follow the fiscal-year, fundraiser, progress, and search filters. Selecting a bucket filters the list and export. Gifts, planned actions, and actions with unknown completion do not reset the outreach clock. These are review prompts, not overdue tasks or performance scores.</p><p>Giving follows the constituent, not the fundraiser. Only direct gifts in the published date range are included; soft credits are excluded. Pledges and other gift types appear in the timeline but are not added to the monetary receipt total. Joint assignment rows can overlap; the report total counts each gift ID once.</p><p>Viewing, filtering, exporting, and reloading this report do not contact NXT or change its custom fields.</p></details>
   </>;
 }
 
@@ -78,7 +90,9 @@ function LifecycleRow({row}) {
   ].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.key.localeCompare(b.key));
   return <details className={styles.journey}>
     <summary><div><strong>{row.constituentName}</strong><span className={styles.secondary}>{row.fundraiserName} · Assigned {date(row.assignedDate)}{row.endedDate?` · Ended ${date(row.endedDate)}`:''}</span><span className={styles.journeyHint}>View timeline</span></div><span className={styles.journeyStage}>{row.outcome?.value || row.stage}</span><span>{row.actionCount} recorded {row.actionCount===1?'action':'actions'}<span className={styles.secondary}>{row.givingCoverage==='unavailable'?'Giving unavailable':`${money(row.receivedAmount)} known receipts`}</span></span></summary>
-    <div className={styles.journeyBody}><dl className={styles.journeyStats}>
+    <div className={styles.journeyBody}>
+    {row.outreach?.eligible && <div className={styles.outreachNote}><strong>{row.outreach.days} {row.outreach.days===1?'day':'days'} {row.outreach.baseline==='completed_action'?'since recorded completed outreach':'since assignment'}</strong><p>{row.outreach.baseline==='completed_action'?`Last recorded completed action: ${date(row.outreach.baselineDate)}.`:'No completed outreach is recorded in the available saved history.'} {row.outreach.nextPlannedDate?`Next recorded planned action: ${date(row.outreach.nextPlannedDate)}.`:'No upcoming planned action is recorded.'}</p><small>Check the timeline and NXT before deciding on another follow-up. This does not create or send anything.</small></div>}
+    <dl className={styles.journeyStats}>
       <div><dt>First recorded completed action</dt><dd>{date(row.firstActionDate)}{row.daysToFirstRecordedAction!==null?` (${row.daysToFirstRecordedAction} days)`:''}</dd></div>
       <div><dt>Latest recorded completed action</dt><dd>{date(row.lastActionDate)}</dd></div>
       <div><dt>Outcome recorded</dt><dd>{date(row.outcome?.date)}{row.daysToOutcome!==null?` (${row.daysToOutcome} days)`:''}</dd></div>

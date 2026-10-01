@@ -23,4 +23,10 @@ The additive schema is installed by `ensureAppSchema`. It does not alter NXT or 
 
 Unit and UI tests cover exact identity joins, reassignment boundaries, action completion, deduplication, coverage, outcome clearing, CSV escaping, permissions, and error privacy. `prospectLifecycle.integration.test.js` runs against a disposable PostgreSQL schema only when `LIFECYCLE_TEST_PG_SOCKET` is set. It verifies triggers, history retention, safe backfill, and actual reader SQL. Never point this test at production.
 
-Before comparing staff performance, validate the saved action and gift coverage. Recommended follow-on reporting: 30/60/90-day outreach aging, assignment-to-qualified conversion, and linked opportunity-to-gift progression. Broader historical coverage should be added through bounded background ingestion, not live per-prospect requests on report load.
+## Outreach review
+
+The follow-up view divides current assignments awaiting an outcome into separate under-30, 30-59, 60-89, and 90-or-more-day buckets. Age is measured in organization calendar days since the latest saved completed action, or since assignment when none is recorded. Future completed actions, unknown completion, gifts, and planned actions do not reset this clock. The next saved planned action remains visible as context.
+
+Ended cycles and any selected outcome are excluded, regardless of NXT sync success. Clearing an outcome reopens review without resetting its clock. Buckets respect the other report filters; selecting a bucket filters results, totals, and CSV export. Sort by longest without recorded outreach to put the oldest unresolved cycles first. These are prompts to review the record, not automatic tasks, performance scores, proof of inactivity, or permission to contact someone. No additional provider requests or writes are introduced.
+
+Before comparing staff performance, validate the saved action and gift coverage. Recommended follow-on reporting: assignment-to-qualified conversion and linked opportunity-to-gift progression. Broader historical coverage should be added through bounded background ingestion, not live per-prospect requests on report load.

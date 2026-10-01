@@ -2,6 +2,7 @@ import { calendarDate } from './prospectActivity';
 import { getStandingsPeriods } from './standingsPeriods';
 import { prospectExportCsv } from './prospectExport';
 import { currentPipelineFiscalYear, pipelineFiscalYear } from './pipelineReport';
+import { buildOutreachAging } from './prospectOutreachAging';
 
 const clean = value => typeof value === 'string' ? value.trim().slice(0, 250) : '';
 const id = value => value == null ? '' : String(value);
@@ -58,7 +59,7 @@ export function buildProspectLifecycle({ assignments = [], outcomes = [], action
     const latest = completedActions.at(-1)?.date || null;
     const coverageEnd = end && end <= today ? calendarDate(new Date(Date.parse(end) - 86400000)) : today;
     const coverageComplete = Boolean(giftCoverage && giftCoverage.startDate <= start && giftCoverage.endDate >= coverageEnd && !conflicts.size);
-    return { id: id(a.id), poolId: id(a.pool_id), constituentId: clean(a.constituent_id), constituentName: clean(a.constituent_name),
+    const row = { id: id(a.id), poolId: id(a.pool_id), constituentId: clean(a.constituent_id), constituentName: clean(a.constituent_name),
       fundraiserId: id(a.fundraiser_id), fundraiserName: clean(a.fundraiser_name), assignedAt: timestamp(a.assigned_at),
       assignedDate: start, endedDate: end, fiscalYear: pipelineFiscalYear(start),
       fieldDate: calendarDate(a.field_date), fieldValue: clean(a.field_value), assignmentSync: clean(a.sync_state),
@@ -71,18 +72,21 @@ export function buildProspectLifecycle({ assignments = [], outcomes = [], action
       giftConflicts: conflicts.size,
       receivedAmount: giftActivity.filter(g => g.received).reduce((sum, g) => sum + Math.round(g.amount * 100), 0) / 100,
     };
+    return { ...row, outreach: buildOutreachAging(row, today) };
   });
-  return { rows: rows.reverse(), loadedAt: now.toISOString(), currentYear: currentPipelineFiscalYear(now),
+  return { rows: rows.reverse(), loadedAt: now.toISOString(), asOf: today, currentYear: currentPipelineFiscalYear(now),
     giftCoverage,nxtActionCoverage, actionCoverage: nxtActionCoverage
       ? 'Actions combine confirmed app logs with safely identified NXT actions from saved Team Standings. Coverage depends on the last saved refresh; missing completion status is not treated as completed.'
       : 'Confirmed app-logged actions only so far. NXT actions join after Team Standings is refreshed with system-ID metadata; older unverified app logs are not included.' };
 }
 
-export function filterLifecycle(rows, { year = 'all', fundraiser = 'all', stage = 'all', search = '' } = {}) {
+export function filterLifecycle(rows, { year = 'all', fundraiser = 'all', stage = 'all', search = '', aging = 'all', sort = 'newest' } = {}) {
   const term = clean(search).toLowerCase();
-  return rows.filter(row => (year === 'all' || row.fiscalYear === Number(year)) &&
+  const filtered = rows.filter(row => (year === 'all' || row.fiscalYear === Number(year)) &&
     (fundraiser === 'all' || row.fundraiserId === fundraiser) && (stage === 'all' || row.stage === stage) &&
+    (aging === 'all' || (row.outreach?.eligible && row.outreach.bucket === aging)) &&
     (!term || [row.constituentName, row.constituentId, row.fundraiserName, row.outcome?.value].join(' ').toLowerCase().includes(term)));
+  return sort === 'oldest-outreach' ? filtered.sort((a,b) => (b.outreach?.days ?? -1) - (a.outreach?.days ?? -1) || a.assignedDate.localeCompare(b.assignedDate) || a.id.localeCompare(b.id)) : filtered;
 }
 
 export function lifecycleTotals(rows) {
@@ -103,8 +107,13 @@ export function lifecycleCsv(rows) {
     ['assignedDate','App assignment date'],['fieldDate','Requested MGOGPT identification date'],['assignmentSync','Assignment NXT sync'],
     ['endedDate','Assignment ended (exclusive)'],['actionCount','Known recorded actions'],['completedCount','Known completed actions'],['plannedCount','Known planned actions'],
     ['firstActionDate','First recorded completed action'],['daysToFirstRecordedAction','Days to first recorded action'],['outcomeValue','Latest recorded outcome'],
-    ['outcomeDate','Outcome recorded date'],['outcomeSync','Outcome NXT sync'],['receivedAmount','Known direct monetary receipts'],['givingCoverage','Giving coverage'],['scope','Coverage note']]
+    ['outcomeDate','Outcome recorded date'],['outcomeSync','Outcome NXT sync'],['outreachState','Outreach review'],['outreachAsOf','Outreach review as of'],
+    ['outreachDays','Days since saved outreach or assignment'],['outreachBaseline','Outreach clock based on'],['outreachBaselineDate','Outreach baseline date'],
+    ['nextPlannedDate','Next recorded planned action'],['receivedAmount','Known direct monetary receipts'],['givingCoverage','Giving coverage'],['scope','Coverage note']]
     .map(([key,label]) => ({key,label}));
   return prospectExportCsv({ columns, summary: rows.map(r => ({ ...r, outcomeValue:r.outcome?.value, outcomeDate:r.outcome?.date,
-    outcomeSync:r.outcome?.syncState, scope:'Saved app and safely identified Team Standings actions only; history may be incomplete. Giving is not fundraiser credit; joint assignment rows may overlap.' })) });
+    outcomeSync:r.outcome?.syncState, outreachState:r.outreach?.reason, outreachAsOf:r.outreach?.asOf, outreachDays:r.outreach?.days,
+    outreachBaseline:r.outreach?.baseline === 'completed_action' ? 'Last recorded completed action' : r.outreach?.eligible ? 'Assignment; no completed outreach recorded' : '',
+    outreachBaselineDate:r.outreach?.baselineDate, nextPlannedDate:r.outreach?.nextPlannedDate,
+    scope:'Saved app and safely identified Team Standings actions only; history may be incomplete. Aging is a review prompt, not proof of no contact. Giving is not fundraiser credit; joint assignment rows may overlap.' })) });
 }
