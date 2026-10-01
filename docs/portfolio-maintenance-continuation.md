@@ -9,34 +9,63 @@ and keeps the last good giving and summary snapshots available.
 
 Daytime work only resumes existing queued, processing, or eligible paused jobs
 for active users. It does not rebuild assignment membership, seed new portfolios,
-restart completed/failed jobs, or continue manual stale/full rebuilds. Existing
-overnight membership and job creation behavior is unchanged. The separate
+restart completed/failed jobs, or continue manual stale/full rebuilds. Overnight
+membership and job creation now share the fair rotation below. The separate
 last-gift/action catch-up worker is unchanged.
+
+## Fair Scheduling
+
+The additive `portfolio_maintenance_schedule` table enrolls active users with
+the MGO role and a saved fundraiser system-ID mapping on every scheduler tick.
+An initial portfolio page visit is no longer required. The shared scheduled
+connection still needs NXT permission to read the fundraiser's assignments.
+
+Each tick leases the least recently served eligible workspace. New/unserved
+workspaces enter before previously served ones; missing and oldest due data
+break ties. Assignment discovery gets its own overnight turn, then enrichment
+competes with all other portfolios on later ticks. Paused jobs, active item
+leases, unmapped/inactive accounts, and manual jobs are not eligible. Completed
+nightly jobs are not restarted the same night. Failed setup turns wait at least
+an hour. Claims and completion updates are token-fenced; concurrent ticks cannot
+claim the same workspace. Fresh assignments and current snapshots are skipped.
+
+Within a new manifest, missing/incomplete/failed summaries come first, then
+missing giving, then the oldest due snapshots. Existing manifests retain their
+checkpoints. Each item rechecks saved freshness before reading NXT, avoiding
+duplicate reads when another refresh already completed it.
 
 ## Bounds And Recovery
 
-- One constituent per daytime invocation, processed serially. The existing
-  overnight ten-record batch and two-worker setting remain unchanged.
-- At most 360 additional daytime SKY API attempts per Eastern calendar day,
-  shared across every portfolio in the database, and 60 per batch. Reservations
+- One constituent per daytime invocation; up to ten overnight. Both budgeted
+  paths process serially, reducing bursts rather than increasing concurrency.
+- At most 360 additional daytime SKY API attempts per Eastern calendar day.
+- At most 2,160 overnight SKY API attempts per Eastern calendar day, including
+  assignment discovery. This adds a ceiling where there was no explicit night
+  call cap; it does not increase the schedule. Both paths stop at 60 per batch.
+  Counters are shared across every portfolio in the database. Reservations
   are atomic and made before each provider request, including pagination.
 - These are conservative local ceilings, not a measurement of remaining
-  Blackbaud subscription quota. Other jobs, interactive requests, overnight
-  work, and OAuth token refreshes are outside this additional SKY-read budget.
+  Blackbaud subscription quota. Other jobs, interactive requests,
+  and OAuth token refreshes are outside this worker's SKY-read budget.
+  These caps leave headroom; they cannot guarantee a subscription-wide reserved
+  amount for users when other integrations also consume the subscription.
   Existing subscription-wide cooldowns still take precedence.
 - Only provider GETs are allowed inside the budgeted context. Transport retries
   are disabled and each request has an eight-second timeout. Interactive reads
   and writes outside this context retain their existing behavior.
-- A database-wide, token-fenced 240-second lease prevents overlapping daytime
+- A database-wide, token-fenced 240-second lease prevents overlapping maintenance
   batches. New provider requests stop after 160 seconds. Summary and worker
   subrequests have 170/180-second deadlines, below the existing five-minute
   abandoned-item recovery lease.
 - Reservations check the lease, origin, job, active workspace user, cancellation,
-  and specific processing constituent. A denied reservation or budget-store
+  and specific processing constituent (or the exact overnight membership
+  workspace). A denied reservation or budget-store
   failure pauses work rather than returning incomplete successful summaries.
 - Releasing the lease enforces one minute of minimum spacing. Lost workers
   recover after lease expiry; counters are retained. Eastern day rollover resets
-  the daily count on the next reservation. Different origins do not get separate
+  both window counts on the next reservation. The database clock fences each
+  reservation to its claimed day/night window, including DST transitions.
+  Different origins do not get separate
   counters within one database.
 - Old open browser tabs cannot process server-managed nightly jobs. New tabs
   poll saved status every minute instead of driving a batch every three seconds.
@@ -45,6 +74,11 @@ last-gift/action catch-up worker is unchanged.
 This is bounded catch-up capacity, not a promise that all portfolios finish
 daily. Large records, old backlogs, authentication issues, provider throttling,
 or terminal failures can still require attention.
+
+Budgeted SKY HTTP 429 responses persist a subscription-wide Retry-After pause
+and do not immediately replay the request. A shorter new cooldown cannot replace
+a longer saved one. Subsequent workers wait; saved data remains available. This
+does not add retries to NXT writes or change the interactive request retry policy.
 
 ### Connection Renewal Failures
 
@@ -62,13 +96,24 @@ helper never immediately replays a request. No NXT writes are retried and no
 completed historic failures are automatically requeued. A pre-fix token failure
 must be reviewed before retrying because it did not retain its provider status.
 
-When a nightly pass finishes with failures but saved summaries are still
-current, the portfolio shows a compact amber notice with the failed-update
-count. Details and deliberate retry controls remain accessible, and restricted
-diagnostics remain admin-only. This does not claim that giving is current or
-promise another retry of a terminal failure. Missing/stale summaries, stalled
-work and fresh request errors still expand the maintenance panel. Integration
-Health flags failed giving checks even if the summary inventory is current.
+## Portfolio And Admin Experience
+
+My Portfolio shows only a small giving-update date or missing-data message.
+The date is the oldest successful giving check across current assignments, not
+the newest record or a completed job. Missing/future/invalid check dates prevent
+a whole-portfolio timestamp. Individual summary/activity dates remain separate.
+Giving over 48 hours old or a summary over 24 hours past its seven-day deadline
+produces a plain-language delay notice. Failure to read saved status produces
+a short availability notice. Routine progress, cooldowns and one-off failures
+do not expand technical panels for portfolio users.
+
+Admin > Integration Health owns progress, diagnostics, counters, rotation
+timestamps and explicit refresh/retry/cancel controls. Opening it and opening
+workspace details read saved status only. Cross-workspace reads and controls
+require an active Admin session; internal summary reads use that selected
+workspace without changing the browser's acting-as cookie. Manual refreshes
+need the details panel open; nightly work is server-owned. A terminal failure
+is not hidden from administrators or automatically retried without review.
 
 ## Controlled Rollout
 
@@ -88,8 +133,8 @@ with no trailing slash, credentials, path, or query. Do not copy these settings
 to the conference sandbox or another project. Existing scheduled-secret and
 authorized service-connection requirements still apply.
 
-No cron schedule change is required. The first eligible daytime claim creates
-the additive `portfolio_maintenance_gate` table under an advisory schema lock.
+No cron schedule change is required. Scheduler/lease claims initialize additive
+schedule/gate tables and columns under advisory schema locks.
 Schema privileges are required; a failure blocks continuation rather than
 running unbounded. No constituent or NXT records are mutated by this feature.
 
@@ -110,7 +155,9 @@ browser bypass prevention, cancellation, and snapshot retention on pauses.
 disposable schema against an explicitly provided temporary local Unix socket.
 It refuses remote targets. It checks concurrent migration, single lease ownership,
 exact daily/batch caps, day rollover, scope fencing, deadlines, subscription
-cooldowns, cancelled/inactive jobs, and DST boundaries. It drops only its own
+cooldowns, cancelled/inactive jobs, and DST boundaries. It also runs the actual
+scheduler SQL for enrollment, rotation, current-data skipping, concurrent claims,
+setup backoff, paused-job bypass and manual-job isolation. It drops only its own
 test schema. It does not load app environment files or connect to production.
 
 ```sh

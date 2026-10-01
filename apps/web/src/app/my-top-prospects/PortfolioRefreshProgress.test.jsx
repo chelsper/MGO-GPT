@@ -72,7 +72,7 @@ it.each([false, true])("collapses the reported 169-current cooldown for admin=%s
   expect(screen.getByText("Saved summaries ready")).toBeVisible();
   expect(screen.getByText("Background check waiting. You can keep working.")).toBeVisible();
   expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
-  expect(screen.getByText(/This refresh will continue automatically/)).not.toBeVisible();
+  expect(screen.getByText(/Keep these maintenance details open/)).not.toBeVisible();
   expect(screen.getByRole("button", { name: "Cancel" })).not.toBeVisible();
   fireEvent.click(screen.getByText("Refresh details"));
   expect(screen.getByText("Background portfolio maintenance")).toBeVisible();

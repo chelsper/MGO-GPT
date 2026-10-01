@@ -213,40 +213,40 @@ it("closes a portfolio detail deep link in place without clearing other URL cont
 
 it("keeps healthy background progress compact on the page but exposes status-query failures", () => {
   state.data["portfolio-refresh-job"] = {
-    inventory: { total: 2, current: 2, stale: 0, failed: 0 },
+    inventory: { total: 2, current: 2, stale: 0, failed: 0, freshness: { givingUpdatedAt: "2026-10-01T12:00:00Z", delayed: 0, missing: 0 } },
     job: { jobId: "40", workspaceUserId: 44, mode: "nightly", status: "queued",
       totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
       updatedAt: new Date().toISOString() },
   };
   const { rerender } = render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  expect(screen.getByText("Saved summaries ready")).toBeVisible();
-  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  expect(screen.getByText("Giving last updated Oct 1, 2026")).toBeVisible();
+  expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
   state.queryErrors["portfolio-refresh-job"] = new Error("Failed to load portfolio refresh progress");
   rerender(<MyProspects />);
-  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
-  expect(screen.getByText("Failed to load portfolio refresh progress")).toBeVisible();
+  expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
+  expect(screen.getByText("Update status is unavailable. Saved portfolio details are still shown.")).toBeVisible();
   expect(screen.getAllByRole("article")).toHaveLength(2);
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("keeps cooldown details out of the portfolio worklist until requested", () => {
+it("keeps cooldown details and controls in Integration Health, not the portfolio worklist", () => {
   state.data["portfolio-refresh-job"] = {
-    inventory: { total: 2, current: 2, stale: 0, failed: 0 },
+    inventory: { total: 2, current: 2, stale: 0, failed: 0, freshness: { givingUpdatedAt: "2026-10-01T12:00:00Z", delayed: 0, missing: 0 } },
     job: { jobId: "41", workspaceUserId: 44, mode: "nightly", status: "paused",
       totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
       updatedAt: new Date().toISOString(), pausedUntil: new Date(Date.now() + 60000).toISOString() },
   };
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  expect(screen.getByText("Background check waiting. You can keep working.")).toBeVisible();
-  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
-  expect(screen.getByText(/This refresh will continue automatically/)).not.toBeVisible();
+  expect(screen.getByText("Giving last updated Oct 1, 2026")).toBeVisible();
+  expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
+  expect(screen.queryByText(/This refresh will continue automatically/)).not.toBeInTheDocument();
   expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toBeVisible();
   expect(screen.getAllByRole("article")).toHaveLength(2);
-  fireEvent.click(screen.getByText("Refresh details"));
-  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Waiting for Blackbaud" })).toBeDisabled();
+  expect(screen.queryByText("Refresh details")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Waiting for Blackbaud" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Integration Health" })).toHaveAttribute("href", "/integration-health#health-portfolios");
   expect(fetch).not.toHaveBeenCalled();
 });
 

@@ -1,6 +1,7 @@
 import { PORTFOLIO_REFRESH_HOURS } from "./portfolioMaintenancePolicy";
 
 export const MAINTENANCE_DAYTIME_CALLS = 360;
+export const MAINTENANCE_NIGHT_CALLS = 2160;
 export const MAINTENANCE_BATCH_CALLS = 60;
 export const MAINTENANCE_DAYTIME_ITEMS = 1;
 export const MAINTENANCE_LEASE_SECONDS = 240;

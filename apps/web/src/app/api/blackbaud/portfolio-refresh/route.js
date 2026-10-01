@@ -14,6 +14,7 @@ import { isAdminRole } from "@/utils/workspaceRoles";
 import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE } from "@/app/api/utils/portfolioMaintenancePolicy";
 import { maintenanceContinuationEnabled, maintenanceOrigin, isPortfolioOvernight, MAINTENANCE_DAYTIME_ITEMS, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
 import { claimMaintenanceGate, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
+import { portfolioFreshnessStatus } from "@/app/api/utils/portfolioFreshnessStatus";
 
 const DEFAULT_CONCURRENCY = 2;
 const PROCESSING_LEASE_MINUTES = 5;
@@ -131,10 +132,11 @@ async function getInventory(workspaceUserId, failedCount = 0) {
     return { total: 0, current: 0, stale: 0, failed: numeric(failedCount) };
   }
   const snapshots = await sql`
-    SELECT constituent_id, summary_payload, data_complete, stale_after, last_error_stage
-    FROM portfolio_constituent_snapshots
-    WHERE workspace_user_id = ${workspaceUserId}
-      AND constituent_id = ANY(${ids})
+    SELECT ids.constituent_id, s.summary_payload, s.data_complete, s.stale_after, s.last_error_stage,
+      g.payload AS giving_payload, g.refreshed_at AS giving_refreshed_at
+    FROM unnest(${ids}::text[]) AS ids(constituent_id)
+    LEFT JOIN portfolio_constituent_snapshots s ON s.workspace_user_id = ${workspaceUserId} AND s.constituent_id = ids.constituent_id
+    LEFT JOIN portfolio_giving_snapshots g ON g.workspace_user_id = ${workspaceUserId} AND g.constituent_id = ids.constituent_id
   `;
   const current = snapshots.filter((snapshot) => isPortfolioSummaryCurrent(snapshot)).length;
   return {
@@ -142,6 +144,7 @@ async function getInventory(workspaceUserId, failedCount = 0) {
     current,
     stale: Math.max(0, ids.length - current),
     failed: numeric(failedCount),
+    freshness: portfolioFreshnessStatus(ids, snapshots),
   };
 }
 
@@ -211,6 +214,13 @@ async function getContext(request) {
   if (!session?.user?.email) return null;
   const context = await getWorkspaceUser(session, request);
   if (!context?.workspaceUser) return null;
+  const requestedWorkspace = new URL(request.url).searchParams.get("adminWorkspaceId");
+  if (requestedWorkspace !== null) {
+    if (!isAdminRole(context.sessionUser?.role) || context.sessionUser?.active !== true || !/^[1-9]\d*$/.test(requestedWorkspace)) return null;
+    const [workspaceUser] = await sql`SELECT * FROM users WHERE id = ${Number(requestedWorkspace)} AND active = TRUE LIMIT 1`;
+    if (!workspaceUser) return null;
+    return { ...context, workspaceUser, authUserId: context.sessionUser.id, isActing: workspaceUser.id !== context.sessionUser.id };
+  }
   return {
     ...context,
     authUserId: context.isActing
@@ -261,6 +271,13 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
   if (!fullRebuild) url.searchParams.set("reuse_giving", "1");
   const scheduled = isAuthorizedReportRefreshRequest(request);
   if (scheduled) url.searchParams.set("workspaceUserId", String(workspaceUserId));
+  // The admin override was authorized in getContext. Scope only this internal
+  // request; never change the administrator's browser workspace cookie.
+  let cookie = request.headers.get("cookie") || "";
+  if (!scheduled && new URL(request.url).searchParams.has("adminWorkspaceId")) {
+    cookie = cookie.split(";").map(value => value.trim()).filter(value => value && !value.startsWith("workspace_acting_user_id="))
+      .concat(`workspace_acting_user_id=${encodeURIComponent(String(workspaceUserId))}`).join("; ");
+  }
   const response = await fetch(url, {
     headers: scheduled ? {
       authorization: request.headers.get("authorization") || "",
@@ -268,7 +285,7 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
       ...(request.headers.get("x-mgogpt-portfolio-continuation") ? {
         "x-mgogpt-portfolio-continuation": request.headers.get("x-mgogpt-portfolio-continuation"),
       } : {}),
-    } : { cookie: request.headers.get("cookie") || "" },
+    } : { cookie },
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(MAINTENANCE_REQUEST_MS - 10000),
@@ -722,7 +739,7 @@ export async function POST(request) {
     return Response.json({ error: "Background continuation is not available here." }, { status: 409 });
   }
   let gate = null;
-  if (daytime) {
+  if (serverManaged && context.scheduledRefresh) {
     if (new URL(request.url).origin !== maintenanceOrigin()) return Response.json({ error: "Invalid maintenance origin" }, { status: 409 });
     gate = await claimMaintenanceGate(maintenanceOrigin(), job.id);
     if (!gate) return Response.json({ job: serializeJob(job), deferred: true, reason: "busy_cooldown_or_daily_limit" });
@@ -753,7 +770,7 @@ export async function POST(request) {
         FROM portfolio_refresh_items
         WHERE job_id = ${job.id} AND status = 'pending'
         ORDER BY position ASC
-        LIMIT ${gate ? MAINTENANCE_DAYTIME_ITEMS : numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
+        LIMIT ${daytime ? MAINTENANCE_DAYTIME_ITEMS : numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
         FOR UPDATE SKIP LOCKED
       )
       UPDATE portfolio_refresh_items AS item

@@ -3,6 +3,8 @@ import { getReportRefreshUser } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import { PORTFOLIO_REFRESH_HOURS } from "@/app/api/utils/portfolioMaintenancePolicy";
 import { maintenanceContinuationEnabled, maintenanceOrigin, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
+import { claimPortfolioTurn, finishPortfolioTurn } from "@/app/api/utils/portfolioMaintenanceScheduler";
+import { claimMaintenanceGate, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
 
 export const maxDuration = 300;
 
@@ -150,7 +152,7 @@ async function getRefreshTarget(daytime = false) {
   return null;
 }
 
-async function callRefreshRoute({ origin, authorization, workspaceUserId, body, path }) {
+async function callRefreshRoute({ origin, authorization, workspaceUserId, body, path, token }) {
   const url = new URL(path, origin);
   url.searchParams.set("workspaceUserId", String(workspaceUserId));
   const response = await fetch(url, {
@@ -158,6 +160,7 @@ async function callRefreshRoute({ origin, authorization, workspaceUserId, body, 
     headers: {
       authorization,
       "x-mgogpt-report-refresh": "scheduled",
+      ...(token ? { "x-mgogpt-portfolio-continuation": token } : {}),
       ...(body ? { "content-type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -198,7 +201,7 @@ export async function GET(request) {
     );
   }
 
-  const target = await getRefreshTarget(daytime);
+  const target = continuationEnabled ? await claimPortfolioTurn(daytime) : await getRefreshTarget(daytime);
   if (!target) {
     return Response.json({ status: "complete", reason: daytime ? "No unfinished nightly maintenance is ready to continue." : "Portfolio maintenance is current or already attempted this night." });
   }
@@ -227,23 +230,36 @@ export async function GET(request) {
     }
   }
 
+  let turnResult = "completed";
   try {
     let job = target.job;
     if (!job) {
       // Refresh assignment membership once before constructing a new manifest.
       // This call persists every assignment before enrichment starts.
       if (target.refreshAssignments) {
-        const assignments = await callRefreshRoute({
-          origin: url.origin,
+        const gate = continuationEnabled ? await claimMaintenanceGate(maintenanceOrigin(), null, { workspaceUserId: target.workspaceUserId }) : null;
+        if (continuationEnabled && !gate) {
+          turnResult = "deferred";
+          return Response.json({ status: "deferred", reason: "Background allowance or cooldown is active." });
+        }
+        let assignments;
+        try {
+          assignments = await callRefreshRoute({
+          origin: continuationEnabled ? maintenanceOrigin() : url.origin,
           authorization,
           workspaceUserId: target.workspaceUserId,
           path: "/api/blackbaud/portfolio?refreshAssignments=1",
-        });
+          token: gate?.token,
+          });
+        } finally { if (gate) await releaseMaintenanceGate(gate); }
         const meta = assignments?.portfolioMeta;
         if (meta?.assignmentDataStatus !== "live" || (meta.source && meta.source !== "live")
           || !Array.isArray(assignments.leadSolicitor) || !Array.isArray(assignments.supportingSolicitor)) {
           throw new Error("NXT portfolio membership could not be verified. Saved assignments were retained; retry when NXT is available.");
         }
+        // Enrollment/membership gets one turn; enrichment competes fairly on
+        // a later tick rather than taking an extra batch from other portfolios.
+        if (continuationEnabled) return Response.json({ status: "assignments_updated", workspaceUserId: target.workspaceUserId });
       }
       const started = await callRefreshRoute({
         origin: url.origin,
@@ -275,6 +291,7 @@ export async function GET(request) {
       path: "/api/blackbaud/portfolio-refresh",
       body: { action: "process", jobId: job.jobId || job.id, ...(daytime ? { backgroundContinuation: true } : {}) },
     });
+    turnResult = processed?.deferred ? "deferred" : processed?.job?.status || "completed";
     return Response.json({
       status: processed?.job?.status || "queued",
       workspaceUserId: Number(target.workspaceUserId),
@@ -282,6 +299,7 @@ export async function GET(request) {
       batchSize: Number(processed?.job?.batchSize || 10),
     });
   } catch (error) {
+    turnResult = "failed";
     console.error("Scheduled portfolio refresh failed:", error);
     return Response.json(
       {
@@ -291,5 +309,7 @@ export async function GET(request) {
       },
       { status: 502 },
     );
+  } finally {
+    await finishPortfolioTurn(target, turnResult);
   }
 }

@@ -19,7 +19,7 @@ import {
 } from "./prospectDetailPresentation";
 
 import PortfolioTier from "./PortfolioTier";
-import PortfolioRefreshProgress from "./PortfolioRefreshProgress";
+import PortfolioMaintenanceIndicator from "@/components/PortfolioMaintenanceIndicator";
 import PortfolioCategoryManagerModal from "./PortfolioCategoryManagerModal";
 import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
 import { AnnualGivingSocietyBadge } from "./ProspectGiving";
@@ -7502,32 +7502,10 @@ export default function MyTopProspectsPage() {
             </div>
 
             {!isExecutiveReadOnly && !isLocalPortfolioFallback ? (
-              <PortfolioRefreshProgress
+              <PortfolioMaintenanceIndicator
                 state={portfolioRefreshState}
-                isPending={portfolioRefreshMutation.isPending}
                 error={portfolioRefreshMutation.error || portfolioRefreshQueryError}
                 isAdmin={isAdmin}
-                onStart={(mode) =>
-                  portfolioRefreshMutation.mutate({ action: "start", mode })
-                }
-                onResume={() =>
-                  portfolioRefreshMutation.mutate({
-                    action: "resume",
-                    jobId: portfolioRefreshJob?.jobId,
-                  })
-                }
-                onRetryFailures={() =>
-                  portfolioRefreshMutation.mutate({
-                    action: "retry_failed",
-                    jobId: portfolioRefreshJob?.jobId,
-                  })
-                }
-                onCancel={() =>
-                  portfolioRefreshMutation.mutate({
-                    action: "cancel",
-                    jobId: portfolioRefreshJob?.jobId,
-                  })
-                }
               />
             ) : null}
 

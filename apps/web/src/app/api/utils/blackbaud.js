@@ -199,10 +199,12 @@ async function assertBlackbaudQuotaAvailable() {
   }
 }
 
-async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs }) {
+async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs, rateLimited = false }) {
   const blockedUntil = new Date(Date.now() + retryAfterMs).toISOString();
-  const message = formatQuotaMessage({ responseText, retryAfterMs });
-  await sql`
+  const message = rateLimited
+    ? "Blackbaud requested a pause before more API requests. Saved data remains available."
+    : formatQuotaMessage({ responseText, retryAfterMs });
+  const rows = await sql`
     INSERT INTO blackbaud_api_limit_state (
       state_key,
       blocked_until,
@@ -217,17 +219,20 @@ async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs }) {
     )
     ON CONFLICT (state_key) DO UPDATE
     SET
-      blocked_until = EXCLUDED.blocked_until,
-      message = EXCLUDED.message,
+      blocked_until = GREATEST(blackbaud_api_limit_state.blocked_until, EXCLUDED.blocked_until),
+      message = CASE WHEN blackbaud_api_limit_state.blocked_until > EXCLUDED.blocked_until
+        THEN blackbaud_api_limit_state.message ELSE EXCLUDED.message END,
       updated_at = NOW()
+    RETURNING blocked_until, message
   `;
+  const savedUntil = Math.max(Date.parse(rows?.[0]?.blocked_until || blockedUntil), blackbaudQuotaStateCache.blockedUntil);
   blackbaudQuotaStateCache = {
     checkedAt: Date.now(),
-    blockedUntil: new Date(blockedUntil).getTime(),
-    message,
+    blockedUntil: savedUntil,
+    message: rows?.[0]?.message || message,
     updatedAt: new Date().toISOString(),
   };
-  return new BlackbaudQuotaExceededError({ message, retryAfterMs });
+  return new BlackbaudQuotaExceededError({ message: blackbaudQuotaStateCache.message, retryAfterMs: Math.max(0, savedUntil - Date.now()) });
 }
 
 export function getBlackbaudConfig(origin) {
@@ -617,11 +622,12 @@ export async function blackbaudApiFetch(
 
       if (!response.ok) {
         const responseText = await response.clone().text().catch(() => "");
-        if (isQuotaExceededResponse(response, responseText)) {
+        if (isQuotaExceededResponse(response, responseText) || (budgeted && response.status === 429)) {
           clearTimeout(timeoutId);
           throw await recordBlackbaudQuotaExceeded({
             responseText,
             retryAfterMs: parseRetryAfterMs(response, responseText),
+            rateLimited: response.status === 429,
           });
         }
       }

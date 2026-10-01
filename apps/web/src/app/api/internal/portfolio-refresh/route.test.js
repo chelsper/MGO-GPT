@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ensureAppSchemaMock, getReportRefreshUserMock, sqlMock } = vi.hoisted(() => ({
+const { ensureAppSchemaMock, getReportRefreshUserMock, sqlMock, claimTurn, finishTurn, claimGate, releaseGate } = vi.hoisted(() => ({
   ensureAppSchemaMock: vi.fn(),
   getReportRefreshUserMock: vi.fn(),
   sqlMock: vi.fn(),
+  claimTurn: vi.fn(), finishTurn: vi.fn(), claimGate: vi.fn(), releaseGate: vi.fn(),
 }));
+vi.mock("@/app/api/utils/portfolioMaintenanceScheduler", () => ({ claimPortfolioTurn: claimTurn, finishPortfolioTurn: finishTurn }));
+vi.mock("@/app/api/utils/portfolioMaintenanceStore", () => ({ claimMaintenanceGate: claimGate, releaseMaintenanceGate: releaseGate }));
 
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/reportRefresh", () => ({
@@ -26,6 +29,10 @@ describe("scheduled portfolio refresh worker", () => {
     ensureAppSchemaMock.mockReset().mockResolvedValue();
     getReportRefreshUserMock.mockReset().mockResolvedValue({ id: 99, role: "admin" });
     sqlMock.mockReset().mockResolvedValue([]);
+    claimTurn.mockReset().mockResolvedValue(null);
+    finishTurn.mockReset().mockResolvedValue();
+    claimGate.mockReset().mockResolvedValue({ token: "fixture-token" });
+    releaseGate.mockReset().mockResolvedValue();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -43,19 +50,15 @@ describe("scheduled portfolio refresh worker", () => {
     vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-30T16:00:00Z"));
-    sqlMock.mockResolvedValueOnce([{ id: 44, workspace_user_id: 7, status: "queued" }]);
+    claimTurn.mockResolvedValueOnce({ workspaceUserId: 7, turnToken: "turn", job: { id: 44, status: "queued" } });
     fetch.mockResolvedValueOnce(Response.json({ job: { jobId: "44", status: "queued" } }));
     const { GET } = await import("./route.js");
     expect((await GET(request(""))).status).toBe(200);
     expect(fetch).toHaveBeenCalledOnce();
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ action: "process", jobId: 44, backgroundContinuation: true });
-    const query = sqlMock.mock.calls[0][0].join(" ");
-    expect(query).toContain("j.mode = 'nightly'");
-    expect(query).toContain("u.active = TRUE");
-    expect(query).toContain("j.paused_until <= NOW()");
-    expect(query).toContain("NOT j.cancel_requested");
-    expect(query).toContain("NOT EXISTS");
-    expect(query).not.toContain("blackbaud_portfolio_cache");
+    expect(claimTurn).toHaveBeenCalledWith(true);
+    expect(finishTurn).toHaveBeenCalledWith(expect.objectContaining({ turnToken: "turn" }), "queued");
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it("does not start a daytime job when no unfinished nightly work is ready", async () => {
@@ -66,7 +69,8 @@ describe("scheduled portfolio refresh worker", () => {
     vi.setSystemTime(new Date("2026-09-30T16:00:00Z"));
     const { GET } = await import("./route.js");
     expect(await (await GET(request(""))).json()).toMatchObject({ status: "complete" });
-    expect(sqlMock).toHaveBeenCalledOnce();
+    expect(claimTurn).toHaveBeenCalledWith(true);
+    expect(sqlMock).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -75,6 +79,31 @@ describe("scheduled portfolio refresh worker", () => {
     const response = await GET(request("?force=1", "wrong"));
     expect(response.status).toBe(401);
     expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["success", "unavailable", "budget"])("gives new membership a single fenced overnight turn: %s", async result => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T06:00:00Z"));
+    const target = { workspaceUserId: 7, turnToken: "turn", refreshAssignments: true, job: null };
+    claimTurn.mockResolvedValue(target);
+    if (result === "budget") claimGate.mockResolvedValue(null);
+    fetch.mockResolvedValue(Response.json({ leadSolicitor: [], supportingSolicitor: [],
+      portfolioMeta: { assignmentDataStatus: result === "success" ? "live" : "unavailable" } }));
+    const { GET } = await import("./route.js");
+    const response = await GET(request(""));
+    expect(response.status).toBe(result === "unavailable" ? 502 : 200);
+    expect(claimTurn).toHaveBeenCalledWith(false);
+    expect(claimGate).toHaveBeenCalledWith("https://jumgogpt.app", null, { workspaceUserId: 7 });
+    if (result === "budget") expect(fetch).not.toHaveBeenCalled();
+    else {
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(fetch.mock.calls[0][1].headers["x-mgogpt-portfolio-continuation"]).toBe("fixture-token");
+      expect(releaseGate).toHaveBeenCalledOnce();
+    }
+    expect(finishTurn).toHaveBeenCalledWith(target, result === "success" ? "completed" : result === "budget" ? "deferred" : "failed");
   });
 
   it("processes exactly one batch for the oldest queued job", async () => {

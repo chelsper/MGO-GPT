@@ -46,6 +46,15 @@ it("continues exactly one checkpoint under the durable lease and passes its budg
   expect(sql.mock.calls.some(([parts]) => parts.join(" ").includes("UPDATE portfolio_constituent_snapshots"))).toBe(false);
   expect(releaseMaintenanceGate).toHaveBeenCalledWith(gate);
 });
+it("also caps overnight scheduled reads while retaining the bounded ten-record batch", async () => {
+  vi.setSystemTime(new Date("2026-09-30T06:00:00Z"));
+  expect((await POST(request())).status).toBe(200);
+  expect(claimMaintenanceGate).toHaveBeenCalledWith("https://example.org", 1);
+  const claim = sql.mock.calls.find(([parts]) => parts.join(" ").includes("WITH next_items"));
+  expect(claim.slice(1)).toEqual([1, 10]);
+  expect(fetch.mock.calls[0][1].headers["x-mgogpt-portfolio-continuation"]).toBe(gate.token);
+  expect(releaseMaintenanceGate).toHaveBeenCalledWith(gate);
+});
 it("prevents old browser tabs from processing server-owned nightly jobs", async () => {
   expect(await (await POST(request(false))).json()).toMatchObject({ serverManaged: true });
   expect(fetch).not.toHaveBeenCalled(); expect(claimMaintenanceGate).not.toHaveBeenCalled();

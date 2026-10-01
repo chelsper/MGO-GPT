@@ -31,6 +31,16 @@ describe("lightweight portfolio policy", () => {
     expect(isPortfolioSummaryCurrent({ ...current, data_complete: false }, now)).toBe(false);
   });
 
+  it("puts missing giving ahead of oldest due records and excludes already-current records", () => {
+    const snapshots = [
+      { constituent_id: "1", ...current, giving_payload: {}, giving_stale_after: "2026-09-02" },
+      { constituent_id: "2", ...current, giving_payload: {}, giving_stale_after: "2026-08-01" },
+      { constituent_id: "3", ...current },
+      { constituent_id: "4", ...current, giving_payload: {}, giving_stale_after: "2026-09-05" },
+    ];
+    expect(selectPortfolioRefreshIds(["1", "2", "3", "4"], snapshots, "nightly", now)).toEqual(["3", "2", "1"]);
+  });
+
   it("detects giving/proposal changes without reacting to refresh timestamps", () => {
     const summary = { mapped: { lifetimeGiving: { totalGiving: 123 }, proposalSummary: [{ estimated_amount: 500 }] } };
     expect(hasPortfolioSummaryChanges(summary, { ...summary, givingRefreshedAt: "2026-09-03" })).toBe(false);

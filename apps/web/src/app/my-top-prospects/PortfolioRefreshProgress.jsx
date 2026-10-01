@@ -1,5 +1,6 @@
 import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 import { smallActionButton } from "./prospectPresentation";
+const TechnicalStatus = ({ children }) => <>{children}</>;
 
 export default function PortfolioRefreshProgress({
   state,
@@ -10,6 +11,7 @@ export default function PortfolioRefreshProgress({
   onResume,
   onRetryFailures,
   onCancel,
+  technical = false,
 }) {
   const job = state?.job || null;
   const inventory = state?.inventory || null;
@@ -20,9 +22,10 @@ export default function PortfolioRefreshProgress({
   const processed = Number(job?.processedCount || 0);
   const total = Number(job?.totalCount || 0);
   const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const Status = technical ? TechnicalStatus : PortfolioRefreshStatus;
 
   return (
-    <PortfolioRefreshStatus state={state} isPending={isPending} error={error}>
+    <Status state={state} isPending={isPending} error={error}>
     <div
       style={{
         border: "1px solid #BFDBFE",
@@ -128,7 +131,7 @@ export default function PortfolioRefreshProgress({
         <div role="status" style={{ color: "#92400E", fontSize: "12px", lineHeight: 1.5 }}>
           {serverManaged
             ? "Scheduled maintenance will continue when the cooldown and daily request allowance permit, even with this page closed. Saved summaries remain available; a pause does not count as a failed record."
-            : "This refresh will continue automatically after the cooldown while this page is open. If you leave, overnight maintenance picks it up. Saved summaries remain available; a pause does not count as a failed record."}
+            : "Keep these maintenance details open to continue this manual refresh after its cooldown. Saved summaries remain available; a pause does not count as a failed record."}
         </div>
       ) : null}
 
@@ -165,6 +168,6 @@ export default function PortfolioRefreshProgress({
       ) : null}
       {error ? <div style={{ color: "#991B1B", fontSize: "12px", fontWeight: 700 }}>{error.message}</div> : null}
     </div>
-    </PortfolioRefreshStatus>
+    </Status>
   );
 }
