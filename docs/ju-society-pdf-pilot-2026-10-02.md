@@ -45,7 +45,7 @@ not a shared Git push. The converter remains project
 
 ## Verification Before Release
 
-- 248 focused tests passed; the full suite passed 5,539 tests with 165 skipped
+- 248 focused tests passed; the full suite passed 5,539 tests with 166 skipped
   opt-in checks. Typecheck, local build, and release guard passed.
 - Six fresh fictional samples were generated using the real saved-font setting
   and converted through the actual app adapter to the protected hosted service.
@@ -56,7 +56,8 @@ not a shared Git push. The converter remains project
   timings, not cold-start, load, or billing guarantees.
 - Earlier separately recorded long-name/address tests remain useful evidence;
   this adapter run covers individual, household, and organization cases for
-  both supplied templates. Current live template previews still need checking.
+  both supplied templates. Live template previews were checked after release,
+  as recorded below.
 - No real recipient data was sent to the converter, no NXT write was made,
   and no real letter was approved or marked sent during automated validation.
 
@@ -86,4 +87,41 @@ work; PDF compression alone does not remove aggregate response-size limits.
 
 ## Release Result
 
-Pending deployment and signed-in verification.
+Deployed to JU production on October 2, 2026:
+
+- Application commit: `0da8f2424b0b4e13da25ea86a5fa41d164ff7411`.
+- Deployment: `dpl_3EaEM2RNzo9KS2adVCH3jyXJWguT`, READY.
+- URL: <https://www.jumgogpt.app>.
+- Previous deployment: `dpl_3pYpANuonPdHprKv3fQcb5Tqz58Z`.
+- A clean archive of the exact commit was deployed directly to the explicit
+  JU project, without a Git push. Production version and asset checks passed.
+- All five variables above were added to JU production only; both credentials
+  are sensitive server variables. The protected converter deployment and all
+  five JU cron definitions remain unchanged.
+- Unauthenticated access to the society-letter API still returns 401.
+
+Signed-in checks confirmed both saved templates use Carlito. Existing uploaded
+files and merge mappings were retained, and all 17 recipient reviews remained
+present. The new saved versions are:
+
+| Society | New Template Version |
+| --- | --- |
+| President's Society | `adf42002af313148c55a1bb34078319f08a30f128ec48a83136806a6b7239519` |
+| Order of the Dolphin | `c4753777456d9dfd853a08cab9acd5b2159361f7055eaf8e4853c78a6187e404` |
+
+Both fictional sample previews rendered with logos, merged date, names,
+greeting, and comma-separated city/state intact. Selecting PDF displayed the
+three-household instructions and selection limit; Word still allows ten.
+There were no font-loading or preview-CSP errors. A browser listener/channel
+error was logged separately; it did not prevent either preview from rendering.
+
+Sandbox remains on `dpl_DjwTBKV1P5PptBLibP4oQC9GAK6N`, and the other app copy
+remains on `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. Neither received PDF variables.
+Their Git-link settings were unchanged.
+
+No real-recipient batch was prepared, approved, sent, or marked sent in this
+verification, and no NXT appeals were written. Staff must still complete the
+one-to-three-household acceptance step above before increasing the limit.
+Existing build warnings (deprecated dependencies, PDF.js eval, mixed imports,
+chunk size, and optional canvas resolution) remain; both local and hosted
+builds completed successfully.
