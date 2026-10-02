@@ -371,6 +371,34 @@ async function draftFixture(format = "docx") {
 }
 
 describe("saved postal batch approvals", () => {
+  it("enforces the PDF pilot limit on the server before saving or updating appeals", async () => {
+    const f = await draftFixture("pdf");
+    f.state.postalDraft = null;
+    f.store.createPostalDraft.mockClear();
+    vi.stubEnv("SOCIETY_PDF_MAX_BATCH_SIZE", "3");
+    await expect(
+      startPostalDraft(
+        f.state,
+        definitions,
+        today,
+        { householdIds: ["10", "20", "30", "40"], format: "pdf" },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toThrow("Choose 1-3 households");
+    expect(f.store.createPostalDraft).not.toHaveBeenCalled();
+    expect(f.events).not.toContain("reserve");
+    await startPostalDraft(
+      f.state,
+      definitions,
+      today,
+      { householdIds: ["10"], format: "pdf" },
+      f.store,
+      ctx,
+    );
+    expect(f.store.createPostalDraft).toHaveBeenCalledOnce();
+    expect(f.state.postalDraft.format).toBe("pdf");
+  });
   it("retains a days-old recipient review while requiring fresh NXT delivery checks", async () => {
     const f = await draftFixture();
     const recipients = structuredClone(f.state.recipient_reviews);

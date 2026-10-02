@@ -92,10 +92,15 @@ export async function startPostalDraft(
     );
   if (!["pdf", "docx"].includes(body.format))
     throw letterError("Choose PDF or Word output.");
-  if (body.format === "pdf" && !postalPdfCapability().enabled)
+  const pdf = postalPdfCapability();
+  if (body.format === "pdf" && !pdf.enabled)
     throw letterError(
       "Private PDF conversion is not configured. Choose Word explicitly or ask your administrator to finish PDF setup.",
       503,
+    );
+  if (body.format === "pdf" && ids.length > pdf.maxBatchSize)
+    throw letterError(
+      `Choose 1-${pdf.maxBatchSize} households for this PDF batch. Word batches remain available.`,
     );
   const members = new Set();
   const entries = ids.map((householdId) => {

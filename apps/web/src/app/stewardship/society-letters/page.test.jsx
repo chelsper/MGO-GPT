@@ -394,37 +394,49 @@ describe("society letter workspace", () => {
     ).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
-  it("selects only ten checked and reviewed households and starts a draft, not delivery", async () => {
-    const rows = Array.from({ length: 12 }, (_, index) => ({
-      ...reviewRow(String(10 + index), true),
-      readiness: { post: { status: "ready_for_preview" } },
-    }));
-    const payload = {
-      ...base,
-      settings: societyQuerySettings(),
-      rows: [reviewRow("99"), ...rows],
-    };
-    fetchMock.mockImplementation(async () => Response.json(payload));
-    render(<Page />);
-    fireEvent.click(
+  it.each(["docx", "pdf"])(
+    "selects only the configured %s batch limit and starts a draft, not delivery",
+    async (format) => {
+      const limit = format === "pdf" ? 3 : 10;
+      const rows = Array.from({ length: 12 }, (_, index) => ({
+        ...reviewRow(String(10 + index), true),
+        readiness: { post: { status: "ready_for_preview" } },
+      }));
+      const payload = {
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("99"), ...rows],
+        postalPdf: { enabled: true, maxBatchSize: 3 },
+      };
+      fetchMock.mockImplementation(async () => Response.json(payload));
+      render(<Page />);
       await screen.findByRole("button", {
         name: "Select ready households (up to 10)",
-      }),
-    );
-    expect(screen.getByText("10 selected")).toBeVisible();
-    expect(fetchMock).toHaveBeenCalledOnce();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Start document approval" }),
-    );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-      action: "start_postal_draft",
-      householdIds: rows.slice(0, 10).map((r) => r.householdId),
-      channel: "post",
-      format: "docx",
-      revision: 1,
-    });
-  });
+      });
+      if (format === "pdf")
+        fireEvent.change(screen.getByLabelText("Final letter format"), {
+          target: { value: "pdf" },
+        });
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Select ready households (up to ${limit})`,
+        }),
+      );
+      expect(screen.getByText(`${limit} selected`)).toBeVisible();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Start document approval" }),
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+        action: "start_postal_draft",
+        householdIds: rows.slice(0, limit).map((r) => r.householdId),
+        channel: "post",
+        format,
+        revision: 1,
+      });
+    },
+  );
   it("uses the latest saved revision for each sequential document request", async () => {
     const payload = {
       ...base,
@@ -2078,6 +2090,9 @@ describe("society letter workspace", () => {
       screen.getByLabelText("President's Society merge date appearance"),
       { target: { value: "long_us" } },
     );
+    fireEvent.change(screen.getByLabelText("President's Society letter font"), {
+      target: { value: "carlito" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Save template and field settings" }),
     );
@@ -2085,6 +2100,7 @@ describe("society letter workspace", () => {
     expect(template.mergeSettings).toEqual({
       fields: ["salutation", "society_name", "first_name"],
       dateFormat: "long_us",
+      fontReplacement: "carlito",
     });
     first.unmount();
     render(<Page />);
@@ -2098,6 +2114,9 @@ describe("society letter workspace", () => {
     expect(
       screen.getByLabelText("President's Society merge date appearance"),
     ).toHaveValue("long_us");
+    expect(
+      screen.getByLabelText("President's Society letter font"),
+    ).toHaveValue("carlito");
     expect(
       fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
     ).toHaveLength(1);

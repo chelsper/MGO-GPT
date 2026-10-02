@@ -11,6 +11,7 @@ import {
 } from "@/app/api/utils/societyLetterStore";
 import {
   letterArchive,
+  letterTemplateFile,
   renderSocietyLetter,
   validateLetterTemplate,
   inspectLetterTemplate,
@@ -123,7 +124,7 @@ export async function GET(request) {
         );
       // Revalidate archive safety before serving a stored document to the browser.
       const validated = validateLetterTemplate(template);
-      return new Response(Buffer.from(validated.content, "base64"), {
+      return new Response(letterTemplateFile(validated), {
         headers: {
           ...headers,
           "Content-Type":

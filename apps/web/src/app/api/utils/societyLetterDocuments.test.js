@@ -9,6 +9,7 @@ import {
   renderSocietyLetter,
   letterArchive,
   renderSocietyLetterSample,
+  letterTemplateFile,
 } from "./societyLetterDocuments";
 import { LETTER_TAGS } from "@/utils/societyLetters";
 import { contactChoiceKey } from "@/utils/societyLetterContacts";
@@ -25,6 +26,58 @@ const row = {
   letterDate: "2026-09-22",
 };
 describe("society Word letters", () => {
+  it("versions the optional font choice without changing source bytes or historical templates", () => {
+    const zip = wordFixture(
+      "Dear {salutation}. Avenir Next LT Pro is literal body text.",
+    );
+    zip.file(
+      "word/document.xml",
+      zip
+        .file("word/document.xml")
+        .asText()
+        .replace(
+          "<w:b/>",
+          '<w:b/><w:rFonts w:ascii="Avenir Next LT Pro" w:hAnsi="Avenir Next LT Pro"/><w:sz w:val="22"/>',
+        ),
+    );
+    zip.file(
+      "word/fontTable.xml",
+      '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Avenir Next LT Pro"/></w:fonts>',
+    );
+    const original = validateLetterTemplate({
+      ...templateFixture(),
+      content: zip.generate({ type: "base64" }),
+    });
+    const changed = validateLetterTemplate({
+      ...original,
+      mergeSettings: { ...original.mergeSettings, fontReplacement: "carlito" },
+    });
+    expect(changed.version).not.toBe(original.version);
+    expect(changed.content).toBe(original.content);
+    expect(letterTemplateFile(original)).toEqual(
+      Buffer.from(original.content, "base64"),
+    );
+    for (const bytes of [
+      letterTemplateFile(changed),
+      renderSocietyLetter(changed, row, row.letterDate).document,
+    ]) {
+      const effective = new PizZip(bytes);
+      const xml = effective.file("word/document.xml").asText();
+      expect(xml).toContain('w:ascii="Carlito"');
+      expect(xml).toContain('w:hAnsi="Carlito"');
+      expect(xml).toContain('w:sz w:val="22"');
+      expect(xml).toContain("Avenir Next LT Pro is literal body text.");
+      expect(effective.file("word/fontTable.xml").asText()).toContain(
+        'w:name="Carlito"',
+      );
+    }
+    expect(() =>
+      validateLetterTemplate({
+        ...original,
+        mergeSettings: { fontReplacement: "unexpected" },
+      }),
+    ).toThrow();
+  });
   it("renders a setup sample with fictional values for every supported merge field", () => {
     const template = validateLetterTemplate({
       ...templateFixture(),

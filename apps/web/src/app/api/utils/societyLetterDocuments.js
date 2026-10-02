@@ -80,6 +80,7 @@ export function inspectLetterTemplate(content) {
 
 function templateDocument(base64, settings, usedFields = new Set()) {
   const zip = validatedTemplateZip(base64);
+  applyLetterFont(zip, settings);
   if (settings.wordBindings) processLetterWordFields(zip, settings);
   for (const file of Object.values(zip.files)) {
     if (/^word\/.+\.xml$/.test(file.name)) {
@@ -117,6 +118,31 @@ function templateDocument(base64, settings, usedFields = new Set()) {
       );
   }
   return document;
+}
+
+function applyLetterFont(zip, settings) {
+  if (settings.fontReplacement !== "carlito") return;
+  for (const file of zip.file(/^word\/.+\.xml$/)) {
+    // Change font attributes only, never letter text, sizing, or embedded media.
+    const xml = file
+      .asText()
+      .replace(/<w:(?:rFonts|font)\b[^>]*>/g, (tag) =>
+        tag.replace(
+          /(\bw:(?:ascii|hAnsi|eastAsia|cs|name)\s*=\s*)(["'])Avenir Next LT Pro\2/g,
+          "$1$2Carlito$2",
+        ),
+      );
+    zip.file(file.name, xml);
+  }
+}
+
+export function letterTemplateFile(template) {
+  const settings = normalizeLetterMergeSettings(template.mergeSettings);
+  const zip = validatedTemplateZip(template.content);
+  if (settings.fontReplacement !== "carlito")
+    return Buffer.from(template.content, "base64");
+  applyLetterFont(zip, settings);
+  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
 export function validateLetterTemplate(raw) {

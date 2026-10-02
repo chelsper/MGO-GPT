@@ -3,7 +3,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SavedLetterPreview, { savedTemplateUrl } from "./SavedLetterPreview";
 
 const { renderAsync } = vi.hoisted(() => ({ renderAsync: vi.fn() }));
+const { loadLetterPreviewFont } = vi.hoisted(() => ({
+  loadLetterPreviewFont: vi.fn(),
+}));
 vi.mock("docx-preview", () => ({ renderAsync }));
+vi.mock("./letterPreviewFont", () => ({ loadLetterPreviewFont }));
 const template = {
   societyName: "President's Society",
   version: "a".repeat(64),
@@ -42,6 +46,54 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("saved letter preview", () => {
+  it("loads the saved Carlito font before rendering without weakening isolation", async () => {
+    const onReady = vi.fn();
+    loadLetterPreviewFont.mockResolvedValueOnce(undefined);
+    render(
+      <SavedLetterPreview
+        template={{
+          ...template,
+          mergeSettings: { fontReplacement: "carlito" },
+        }}
+        onReady={onReady}
+        onClose={vi.fn()}
+      />,
+    );
+    const frame = screen.getByTitle("President's Society saved Word letter");
+    fireEvent.load(frame);
+    await waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(loadLetterPreviewFont).toHaveBeenCalledWith(
+      frame,
+      expect.any(AbortSignal),
+    );
+    expect(loadLetterPreviewFont.mock.invocationCallOrder[0]).toBeLessThan(
+      renderAsync.mock.invocationCallOrder[0],
+    );
+    expect(frame.getAttribute("srcdoc")).toContain("font-src data:");
+    expect(frame.getAttribute("srcdoc")).toContain("connect-src 'none'");
+  });
+  it("does not silently fall back to another font or approve a failed preview", async () => {
+    const onReady = vi.fn();
+    loadLetterPreviewFont.mockRejectedValueOnce(
+      new Error("The letter font could not be loaded."),
+    );
+    render(
+      <SavedLetterPreview
+        template={{
+          ...template,
+          mergeSettings: { fontReplacement: "carlito" },
+        }}
+        onReady={onReady}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.load(screen.getByTitle("President's Society saved Word letter"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "font could not be loaded",
+    );
+    expect(renderAsync).not.toHaveBeenCalled();
+    expect(onReady).not.toHaveBeenCalled();
+  });
   it("fits embedded Word pages to the panel and disconnects its resize observer", async () => {
     let resize;
     const observe = vi.fn(),

@@ -671,7 +671,11 @@ export default function SocietyLettersPage() {
   const householdPreview = isLetterPreviewSource(data?.settings);
   const queryPostal = data?.settings?.sourceMode === "society_queries";
   const selectionLimit = LETTER_BATCH_LIMIT;
-  const deliveryBatchLimit = queryPostal ? 10 : LETTER_BATCH_LIMIT;
+  const deliveryBatchLimit = queryPostal
+    ? postalFormat === "pdf"
+      ? Math.min(10, data.postalPdf?.maxBatchSize || 10)
+      : 10
+    : LETTER_BATCH_LIMIT;
   const matching = ready.filter(
     (row) =>
       (!societyFilter || row.societyKey === societyFilter) &&
@@ -1302,8 +1306,8 @@ export default function SocietyLettersPage() {
                         readiness above.
                       </li>
                       <li>
-                        Select up to 10 ready households. Prepare and approve
-                        each saved document.
+                        Select up to {deliveryBatchLimit} ready households.
+                        Prepare and approve each saved document.
                       </li>
                       <li>
                         Approve the batch, then continue its appeal updates in
@@ -1341,6 +1345,14 @@ export default function SocietyLettersPage() {
                         </option>
                       </select>
                     </label>
+                    {data.postalPdf?.enabled && postalFormat === "pdf" && (
+                      <p className="mt-2 text-sm text-gray-600">
+                        PDF batches are limited to {deliveryBatchLimit}{" "}
+                        households for this initial rollout. Word batches still
+                        allow 10. Review each saved PDF before approving;
+                        preparing a document does not apply appeals.
+                      </p>
+                    )}
                     {!data.postalPdf?.enabled && (
                       <p className="mt-2 text-sm text-gray-600">
                         Automatic PDFs require private conversion setup. Word

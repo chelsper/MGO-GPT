@@ -107,6 +107,7 @@ vi.mock("@/app/api/utils/societyLetterExclusionAppeals", () => ({
 }));
 vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
+  letterTemplateFile: vi.fn((template) => Buffer.from(template.content, "base64")),
   renderSocietyLetter: vi.fn(),
   validateLetterTemplate: mocks.validateTemplate,
   inspectLetterTemplate: mocks.inspectTemplate,

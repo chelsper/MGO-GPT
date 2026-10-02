@@ -9,6 +9,11 @@ function configuration(env) {
   if (env.SOCIETY_PDF_ENABLED !== "true") return null;
   try {
     const url = new URL(env.SOCIETY_PDF_CONVERTER_URL);
+    const token = env.SOCIETY_PDF_CONVERTER_TOKEN;
+    const bypass = env.SOCIETY_PDF_VERCEL_BYPASS_SECRET;
+    const maxBatchSize = Number(env.SOCIETY_PDF_MAX_BATCH_SIZE || 10);
+    const safeSecret = (value) =>
+      typeof value === "string" && /^[\x21-\x7e]+$/.test(value);
     // Deployment-owned configuration only. Never accept a URL from a request.
     if (
       url.protocol !== "https:" ||
@@ -17,17 +22,26 @@ function configuration(env) {
       url.search ||
       url.hash ||
       url.pathname !== "/forms/libreoffice/convert" ||
-      !env.SOCIETY_PDF_CONVERTER_TOKEN?.trim()
+      !safeSecret(token) ||
+      (bypass !== undefined && !safeSecret(bypass)) ||
+      (url.hostname.endsWith(".vercel.app") && !safeSecret(bypass)) ||
+      !Number.isInteger(maxBatchSize) ||
+      maxBatchSize < 1 ||
+      maxBatchSize > 10
     )
       return null;
-    return { url: url.href, token: env.SOCIETY_PDF_CONVERTER_TOKEN };
+    return { url: url.href, token, bypass, maxBatchSize };
   } catch {
     return null;
   }
 }
 
 export function postalPdfCapability(env = process.env) {
-  return { enabled: !!configuration(env) };
+  const config = configuration(env);
+  return {
+    enabled: !!config,
+    ...(config ? { maxBatchSize: config.maxBatchSize } : {}),
+  };
 }
 
 export async function convertLetterPdf(
@@ -60,15 +74,19 @@ export async function convertLetterPdf(
       signal: controller.signal,
       headers: {
         Authorization: `Bearer ${config.token}`,
+        ...(config.bypass
+          ? { "x-vercel-protection-bypass": config.bypass }
+          : {}),
         "Gotenberg-Output-Filename": "letter",
       },
     });
     if (
       !response.ok ||
-      !response.headers
+      response.headers
         .get("content-type")
-        ?.toLowerCase()
-        .startsWith("application/pdf")
+        ?.split(";")[0]
+        .trim()
+        .toLowerCase() !== "application/pdf"
     )
       throw new Error("Conversion failed");
     if (Number(response.headers.get("content-length")) > POSTAL_DOCUMENT_LIMIT)

@@ -143,6 +143,9 @@ export const LETTER_FIELD_LABELS = {
 export function normalizeLetterMergeSettings(raw) {
   const fields = raw === undefined ? LETTER_TAGS : raw?.fields;
   const dateFormat = raw === undefined ? "iso" : raw?.dateFormat || "iso";
+  const fontReplacement = raw?.fontReplacement;
+  if (fontReplacement !== undefined && fontReplacement !== "carlito")
+    throw letterError("Choose a supported letter font option.");
   if (
     !Array.isArray(fields) ||
     fields.length > LETTER_TAGS.length ||
@@ -170,6 +173,7 @@ export function normalizeLetterMergeSettings(raw) {
   return {
     fields: LETTER_TAGS.filter((field) => fields.includes(field)),
     dateFormat,
+    ...(fontReplacement ? { fontReplacement } : {}),
     ...(bindings === undefined
       ? {}
       : {

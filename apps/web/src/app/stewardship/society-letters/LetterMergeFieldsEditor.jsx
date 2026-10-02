@@ -204,6 +204,33 @@ export default function LetterMergeFieldsEditor({
         </div>
       </details>
       <label className="mt-4 block text-sm font-semibold">
+        Letter font
+        <select
+          aria-label={`${name} letter font`}
+          className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+          value={value.fontReplacement || "template"}
+          onChange={(event) => {
+            const { fontReplacement: _previous, ...settings } = value;
+            onChange({
+              ...settings,
+              ...(event.target.value === "carlito"
+                ? { fontReplacement: "carlito" }
+                : {}),
+            });
+          }}
+        >
+          <option value="template">Keep the original template fonts</option>
+          <option value="carlito">
+            Use Carlito in place of Avenir (PDF compatible)
+          </option>
+        </select>
+        <span className="mt-2 block font-normal text-gray-600">
+          Applies to previews and new Word/PDF letters. Sizes, spacing, and
+          logos stay unchanged. Saving creates a new template version;
+          previously approved documents stay unchanged.
+        </span>
+      </label>
+      <label className="mt-4 block text-sm font-semibold">
         Date appearance
         <select
           aria-label={`${name} merge date appearance`}

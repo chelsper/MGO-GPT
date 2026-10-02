@@ -98,6 +98,11 @@ export default function SavedLetterPreview({
         const styles = doc.createElement("div");
         const body = doc.createElement("div");
         doc.body.replaceChildren(styles, body);
+        if (template.mergeSettings?.fontReplacement === "carlito") {
+          const { loadLetterPreviewFont } = await import("./letterPreviewFont");
+          await loadLetterPreviewFont(frame, controller.signal);
+          if (controller.signal.aborted) return;
+        }
         await renderAsync(content, body, styles, {
           useBase64URL: true,
           renderAltChunks: false,
@@ -129,7 +134,15 @@ export default function SavedLetterPreview({
       doc.removeEventListener("keydown", closeOnEscape);
       doc.body.replaceChildren();
     };
-  }, [frame, template.version, draft, sample, attempt, embedded]);
+  }, [
+    frame,
+    template.version,
+    template.mergeSettings?.fontReplacement,
+    draft,
+    sample,
+    attempt,
+    embedded,
+  ]);
   const Container = embedded ? "section" : "dialog";
   return (
     <Container
