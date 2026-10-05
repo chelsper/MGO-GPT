@@ -10,7 +10,11 @@ than asking staff to review them again. Specific review/issue filters include
 editable recipients in that view, including saved choices. Each editing session
 contains at most 50 households.
 
-## Approval Shortcut Discoverability (October 5, Not Yet Deployed)
+## Approval Shortcut Discoverability (Deployed October 5)
+
+Deployed with [automatic postal checks](ju-automatic-postal-checks-release-2026-10-05.md)
+in application release `76133f8`. The verification below describes implementation
+before deployment.
 
 The follow-up fix makes **Continue to document approval** visible in All
 recipients and other filtered views whenever they contain saved recipient
@@ -31,7 +35,10 @@ preserved selection, and focused approval area. The live user tab was inspected
 without changing its three selections or triggering checks. No deployment or
 live record changes were made for this follow-up.
 
-## Automatic Postal Checks (October 5, Not Yet Deployed)
+## Automatic Postal Checks (Deployed October 5)
+
+JU production verification is recorded in
+[the automatic postal checks release note](ju-automatic-postal-checks-release-2026-10-05.md).
 
 This subsequent change removes the separate delivery-readiness prerequisite
 from society-query postal document preparation and approval. The workflow is
@@ -63,8 +70,9 @@ now start without manual preflight; regressions cover unfinished optional
 checks, both-member restrictions, prior letters, and NXT failure/rate limits
 preventing writes and downloads. Fictional, write-blocked browser QA confirmed
 collapsed optional controls, direct approval navigation, preserved selection,
-and selection of reviewed recipients without prior checks. No deployment,
-production letter, NXT write, email, or sandbox change was performed.
+and selection of reviewed recipients without prior checks. These implementation
+checks preceded deployment; no production letter, NXT write, email, or sandbox
+change was performed.
 
 ## Reviewed To Approval (Deployed October 5)
 
