@@ -14,11 +14,19 @@ appeal transport, durable receipts, and recovery rules.
 
 ## Staff Workflow
 
-1. In Society Letters, refresh membership when needed, save recipient choices,
-   and complete postal readiness checks. Review alone does not apply appeals.
-2. Select ready households (up to 10). Households without a saved review or
-   current passing postal checks are not selectable. If none qualify, the
-   control is disabled with instructions rather than silently selecting zero.
+**Deployed October 5:** society-query postal letters no longer require a
+separate manual readiness scan. Documents can be prepared and approved
+without cached readiness results or while an optional check is unfinished.
+Step 6 still runs fresh NXT checks automatically for every selected household
+before any appeal writes, and step 7 still requires verified receipts for all
+members. See [automatic postal checks](society-letter-bulk-review.md#automatic-postal-checks-deployed-october-5).
+
+1. In Society Letters, refresh membership when needed and save recipient choices.
+   Review alone does not apply appeals. Separate NXT preflight checks are optional.
+2. Select reviewed households (up to 10 for Word, or the configured PDF batch
+   limit). Households need a saved recipient review, not cached readiness results.
+   If none qualify, the control is disabled with instructions rather than silently
+   selecting zero.
 3. Choose Word or, when configured, PDF. Start document approval and prepare
    the documents. One request prepares one document; failure leaves the saved
    draft available without reserving a letter or applying an appeal.
