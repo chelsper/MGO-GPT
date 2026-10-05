@@ -30,9 +30,11 @@ export default function LetterWorkspaceRow({
   onExclude,
   onFinalize,
   sourceIssue,
+  automaticPostalChecks = false,
 }) {
   const [expanded, setExpanded] = useState(false);
   const readiness = row.readiness?.[channel];
+  const automatic = automaticPostalChecks && channel === "post";
   const issueLabels = ATTENTION_FILTERS.filter(([key]) =>
     view.attention.includes(key),
   );
@@ -125,33 +127,46 @@ export default function LetterWorkspaceRow({
           )}
         </td>
         <td className="p-3">
-          <span
-            className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${readiness?.status === "needs_review" ? "bg-amber-50 text-amber-900" : "bg-gray-100 text-gray-700"}`}
-          >
-            {readiness
-              ? readinessLabels[readiness.status] || "Not checked"
-              : row.issues?.[channel]
-                ? "Not ready for delivery"
-                : "Not checked"}
-          </span>
-          {readiness?.reasons?.map((reason) => (
-            <p key={reason} className="mt-1 max-w-sm text-xs text-gray-600">
-              {reason}
-            </p>
-          ))}
-          {!readiness &&
-            row.issues?.[channel] &&
-            row.issues[channel] !== sourceIssue && (
+          {automatic ? (
+            <>
+              <span className="inline-block rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
+                {view.reviewed ? "Prepare document" : "Review recipient"}
+              </span>
               <p className="mt-1 max-w-sm text-xs text-gray-600">
-                {row.issues[channel]}
+                NXT is checked automatically before appeal updates.
               </p>
-            )}
+            </>
+          ) : (
+            <>
+              <span
+                className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${readiness?.status === "needs_review" ? "bg-amber-50 text-amber-900" : "bg-gray-100 text-gray-700"}`}
+              >
+                {readiness
+                  ? readinessLabels[readiness.status] || "Not checked"
+                  : row.issues?.[channel]
+                    ? "Not ready for delivery"
+                    : "Not checked"}
+              </span>
+              {readiness?.reasons?.map((reason) => (
+                <p key={reason} className="mt-1 max-w-sm text-xs text-gray-600">
+                  {reason}
+                </p>
+              ))}
+              {!readiness &&
+                row.issues?.[channel] &&
+                row.issues[channel] !== sourceIssue && (
+                  <p className="mt-1 max-w-sm text-xs text-gray-600">
+                    {row.issues[channel]}
+                  </p>
+                )}
+            </>
+          )}
         </td>
         <td className="p-3">
           {onFinalize &&
             channel === "post" &&
             view.reviewed &&
-            readiness?.status === "ready_for_preview" && (
+            (automatic || readiness?.status === "ready_for_preview") && (
               <button
                 className={`${button} mb-2 !border-emerald-700 text-emerald-800`}
                 disabled={reviewDisabled}
@@ -220,6 +235,20 @@ export default function LetterWorkspaceRow({
                         .join(", ") || "No lower society query"}
                     </p>
                   </>
+                )}
+                {automatic && readiness && readiness.status !== "unchecked" && (
+                  <div>
+                    <h4 className="font-semibold">Last optional NXT check</h4>
+                    <p>{readinessLabels[readiness.status]}</p>
+                    {readiness.reasons?.map((reason) => (
+                      <p key={reason}>{reason}</p>
+                    ))}
+                    <p>
+                      Saved results do not block document review. NXT is checked
+                      again before appeal updates; unresolved restrictions or
+                      prior acknowledgments will stop those updates.
+                    </p>
+                  </div>
                 )}
               </div>
               <div className="space-y-2 text-sm text-gray-600">

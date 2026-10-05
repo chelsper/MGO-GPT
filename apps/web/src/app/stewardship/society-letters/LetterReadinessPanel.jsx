@@ -238,6 +238,7 @@ export default function LetterReadinessPanel({
   blocked,
   act,
   onOpenSettings,
+  optional = false,
 }) {
   const [running, setRunning] = useState(false);
   const [, refreshClock] = useState(0);
@@ -269,6 +270,7 @@ export default function LetterReadinessPanel({
   const ids = rows
     .filter(
       (row) =>
+        (!optional || row.recipientReview?.status === "saved") &&
         !["ready_for_preview", "already_acknowledged"].includes(
           row.readiness?.[channel]?.status,
         ),
@@ -279,7 +281,7 @@ export default function LetterReadinessPanel({
     result[status] = (result[status] || 0) + 1;
     return result;
   }, {});
-  return (
+  const panel = (
     <section
       aria-labelledby="letter-readiness-title"
       className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6"
@@ -291,13 +293,14 @@ export default function LetterReadinessPanel({
             tabIndex={-1}
             className="text-lg font-bold"
           >
-            Check letter readiness
+            {optional ? "Optional NXT preflight" : "Check letter readiness"}
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
-            Check current NXT records for{" "}
-            {channel === "post" ? "postal letters" : "email letters"}, one
-            household at a time. Nothing is sent, marked acknowledged, or
-            written to NXT. Leaving this page pauses the check.
+            {optional
+              ? "You do not need to run this before preparing documents. It is available if you want to investigate NXT records in advance. The final check runs automatically before appeal updates."
+              : `Check current NXT records for ${channel === "post" ? "postal letters" : "email letters"}, one household at a time.`}{" "}
+            Nothing is sent, marked acknowledged, or written to NXT. Leaving
+            this page pauses this check.
           </p>
         </div>
         {!active && (
@@ -402,5 +405,15 @@ export default function LetterReadinessPanel({
         configured separately.
       </p>
     </section>
+  );
+  return optional ? (
+    <details className="rounded-xl border border-gray-200 bg-white">
+      <summary className="min-h-11 cursor-pointer px-5 py-3 text-sm font-semibold text-gray-600">
+        Optional NXT preflight{active ? " (unfinished check)" : ""}
+      </summary>
+      {panel}
+    </details>
+  ) : (
+    panel
   );
 }

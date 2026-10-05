@@ -58,8 +58,8 @@ export default function FinalPostalLetterDialog({
       </div>
       <p className="mt-4 text-sm text-gray-600">
         One Word letter, dated {row.letterDate}. Nothing is emailed or marked
-        mailed. NXT restrictions and prior appeals are checked again before
-        creation.
+        mailed. NXT restrictions and prior appeals are checked automatically
+        before creation; no separate delivery check is required.
       </p>
       <LetterBatchSummary
         items={[row]}

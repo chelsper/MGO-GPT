@@ -22,7 +22,12 @@ const hasText = (value) => typeof value === "string" && !!value.trim();
 
 // Review and delivery readiness are independent. These saved-data facets never
 // grant delivery permission or replace the server's eligibility checks.
-export function letterReviewView(row, channel, sourceIssue = null) {
+export function letterReviewView(
+  row,
+  channel,
+  sourceIssue = null,
+  automaticPostalChecks = false,
+) {
   const review = row.recipientReview;
   const reviewed = review?.status === "saved";
   const needsReview = !!review && !reviewed;
@@ -57,7 +62,8 @@ export function letterReviewView(row, channel, sourceIssue = null) {
   )
     attention.push("contacts");
   if (
-    row.readiness?.[channel]?.status === "needs_review" ||
+    (!(automaticPostalChecks && channel === "post") &&
+      row.readiness?.[channel]?.status === "needs_review") ||
     (!candidates &&
       row.issues?.[channel] &&
       row.issues[channel] !== sourceIssue)

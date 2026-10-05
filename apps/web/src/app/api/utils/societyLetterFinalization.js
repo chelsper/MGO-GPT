@@ -6,7 +6,6 @@ import { renderSocietyLetter } from "./societyLetterDocuments";
 import { readinessReader, letterRecordId } from "./societyLetterReadinessNxt";
 import {
   letterReadinessIssue,
-  letterReadinessForRow,
   evaluateLetterReadiness,
 } from "./societyLetterReadiness";
 import {
@@ -68,11 +67,6 @@ function currentAppeal(catalog, configured) {
 export function previewFinalPostalLetter(state, definitions, today, body) {
   const issue = letterReadinessIssue(state, definitions, today);
   if (issue) throw letterError(issue);
-  if (["running", "paused"].includes(state.readiness?.job?.status))
-    throw letterError(
-      "Finish or stop the readiness check before creating a final letter.",
-      409,
-    );
   const source = state.snapshot.rows.find(
     (r) => r.householdId === body.householdId,
   );
@@ -102,13 +96,8 @@ export function previewFinalPostalLetter(state, definitions, today, body) {
   const review = recipientReviewForRow(state, source, signature);
   if (review?.status !== "saved")
     throw letterError("Review and save the recipient choices first.");
-  if (
-    letterReadinessForRow(state, definitions, today, source, "post").status !==
-    "ready_for_preview"
-  )
-    throw letterError(
-      "Run the postal delivery checks for this recipient before creating the final letter.",
-    );
+  // Document review uses saved recipient choices. Fresh NXT checks still run
+  // immediately before any appeal writes, not as a separate whole-list prerequisite.
   const hierarchy = letterHierarchy(definitions, state.settings);
   const rank = hierarchy.findIndex((d) => d.key === source.societyKey);
   if (

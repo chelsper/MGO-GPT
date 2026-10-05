@@ -310,7 +310,8 @@ export default function PostalBatchApproval({
         />
         I approve these documents and authorize the listed society appeal,
         letter date, and creation note for every household member. Current NXT
-        restrictions and prior appeals will be checked again before updates.
+        restrictions and prior appeals will be checked automatically before
+        updates.
       </label>
       <div className="mt-4 flex flex-wrap gap-3">
         <button

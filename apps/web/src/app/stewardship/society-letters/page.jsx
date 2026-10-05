@@ -686,7 +686,7 @@ export default function SocietyLettersPage() {
   const views = new Map(
     matching.map((row) => [
       row.householdId,
-      letterReviewView(row, channel, data?.sourceIssue),
+      letterReviewView(row, channel, data?.sourceIssue, queryPostal),
     ]),
   );
   const counts = letterReviewCounts([...views.values()]);
@@ -709,6 +709,13 @@ export default function SocietyLettersPage() {
   const reviewingUnreviewed =
     reviewFilter === "all" && attentionFilter === "all";
   const reviewedView = reviewFilter === "reviewed";
+  const reviewedInView = filtered.filter(
+    (row) => row.recipientReview?.status === "saved",
+  ).length;
+  const showApprovalShortcut =
+    queryPostal &&
+    channel === "post" &&
+    (reviewedInView > 0 || !!data.postalDraft);
   function changeReviewFilter(value) {
     setReviewFilter(value);
     setAttentionFilter("all");
@@ -724,8 +731,7 @@ export default function SocietyLettersPage() {
     householdPreview
       ? queryPostal &&
         channel === "post" &&
-        row.recipientReview?.status === "saved" &&
-        row.readiness?.post?.status === "ready_for_preview"
+        row.recipientReview?.status === "saved"
       : !row.issues?.[channel] && (channel !== "email" || data.emailEnabled);
   const selectable = filtered.filter(canPrepare);
   // Selecting a recipient is only a local review choice, not delivery approval.
@@ -766,13 +772,9 @@ export default function SocietyLettersPage() {
                 : queryPostal && data.readiness?.issue
                   ? data.readiness.issue
                   : selected.length > deliveryBatchLimit
-                    ? `Document approval is limited to ${deliveryBatchLimit} households at a time. Choose fewer recipients or use Select ready households.`
+                    ? `Document approval is limited to ${deliveryBatchLimit} households at a time. Choose fewer recipients or use Select reviewed households.`
                     : !selectedRows.every(canPrepare)
-                      ? selectedRows.every(
-                          (row) => row.recipientReview?.status === "saved",
-                        )
-                        ? "Recipient review is complete. Resolve the delivery-check messages and run Check readiness before starting document approval. You do not need to review unchanged names and addresses again."
-                        : "Some selected recipients still need review or current delivery checks. Review their details, then run Check readiness before starting document approval."
+                      ? "Some selected recipients still need their names and addresses reviewed. Save their recipient choices before starting document approval. No separate delivery check is required."
                       : "";
   const reviewable = filtered.filter(
     (row) =>
@@ -1034,6 +1036,7 @@ export default function SocietyLettersPage() {
               />
               <LetterReadinessPanel
                 data={data}
+                optional={queryPostal && channel === "post"}
                 channel={channel}
                 rows={filtered}
                 busy={busy}
@@ -1053,7 +1056,7 @@ export default function SocietyLettersPage() {
                   <p>
                     {data.settings?.sourceMode === "society_queries" &&
                     data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
-                      ? "Review recipients and run postal delivery checks. Then select ready households to approve a small batch of saved documents and apply appeals to every household member. Email delivery is not enabled for these query lists."
+                      ? "Review recipients, then select reviewed households to prepare and approve their documents. NXT is checked automatically for the selected households before appeals are applied. No separate delivery check is required. Email delivery is not enabled for these query lists."
                       : data.sourceIssue}
                   </p>
                   {(!data.settings || !data.refreshedAt) && (
@@ -1190,22 +1193,32 @@ export default function SocietyLettersPage() {
                   </p>
                 )}
                 {(recovery.checkpoint ||
+                  showApprovalShortcut ||
                   matching.some((row) => row.recipientReview)) && (
                   <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    {reviewedView && filtered.length > 0 && (
+                    {((reviewedView && filtered.length > 0) ||
+                      showApprovalShortcut) && (
                       <div className="mb-4">
-                        <h3 className="font-bold">Recipient review complete</h3>
+                        <h3 className="font-bold">
+                          {reviewedView && filtered.length > 0
+                            ? "Recipient review complete"
+                            : data.postalDraft
+                              ? "Document approval in progress"
+                              : "Continue with reviewed recipients"}
+                        </h3>
                         <p className="mt-2 text-sm text-gray-700">
-                          These names and addresses are already reviewed. You do
-                          not need to save them again unless you want to make
-                          changes.
+                          {reviewedView && filtered.length > 0
+                            ? "These names and addresses are already reviewed. You do not need to save them again unless you want to make changes."
+                            : reviewedInView > 0
+                              ? `${reviewedInView} ${reviewedInView === 1 ? "recipient in this view is" : "recipients in this view are"} already reviewed.`
+                              : "Your saved document approval batch is still available, even when no recipients match these filters."}
                         </p>
-                        {queryPostal && channel === "post" && (
+                        {showApprovalShortcut && (
                           <>
                             <p className="mt-2 text-sm text-gray-700">
-                              Next, complete any outstanding delivery checks,
-                              then prepare and approve the final documents.
-                              Delivery checks do not reset recipient review.
+                              Next, prepare and approve the final documents. NXT
+                              is checked automatically before appeal updates;
+                              you do not need to run a separate delivery check.
                             </p>
                             <button
                               type="button"
@@ -1287,9 +1300,9 @@ export default function SocietyLettersPage() {
                     <p className="mt-2 text-sm text-gray-600">
                       Saved recipient reviews last 15 days. Routine refreshes
                       and letter-date changes do not reset them; changed
-                      recipient details still need review. NXT delivery checks
-                      remain separate and must be current before creating
-                      letters.
+                      recipient details still need review. For postal query
+                      letters, NXT checks run automatically before appeal
+                      updates.
                     </p>
                   </div>
                 )}
@@ -1326,7 +1339,7 @@ export default function SocietyLettersPage() {
                           draftId: data.postalDraft?.id || null,
                           title: "Use today's date for all uncreated letters?",
                           description:
-                            "Saved recipient reviews are kept for 15 days. Any existing approval draft with an older date will need its documents prepared and previewed again. Fresh delivery checks are still required. Created letters and NXT records stay unchanged.",
+                            "Saved recipient reviews are kept for 15 days. Any existing approval draft with an older date will need its documents prepared and previewed again. NXT checks run automatically before appeal updates. Created letters and NXT records stay unchanged.",
                         })
                       }
                     >
@@ -1351,51 +1364,47 @@ export default function SocietyLettersPage() {
                     <ol className="mt-2 list-inside list-decimal space-y-2 text-sm">
                       <li>
                         {reviewedView
-                          ? "Recipient review is complete. Run Check readiness above if delivery checks are missing or out of date."
-                          : "Save recipient names and addresses, then run Check readiness above."}
+                          ? "Recipient review is complete. You can prepare the documents now."
+                          : "Save recipient names and addresses. No separate delivery check is required."}
                       </li>
                       <li>
-                        Select up to {deliveryBatchLimit} ready households.
+                        Select up to {deliveryBatchLimit} reviewed households.
                         Prepare and approve each saved document.
                       </li>
                       <li>
-                        Approve the batch, then continue its appeal updates in
-                        Letter history. Download after every member is
-                        confirmed.
+                        Approve the batch, then continue in Letter history. NXT
+                        restrictions and prior appeals are checked automatically
+                        before updating each household. Download after every
+                        member is confirmed.
                       </li>
                     </ol>
                     <p className="mt-3 text-sm">
                       {selectable.length} ready for document approval in this
                       view. {filtered.length - selectable.length}{" "}
                       {reviewedView
-                        ? "need current postal checks or have a delivery hold."
-                        : "need recipient review or current postal checks."}
+                        ? "need updated recipient choices."
+                        : "need recipient review."}
                     </p>
                     {!selectable.length && filtered.length > 0 && (
                       <p role="status" className="mt-2 text-sm font-semibold">
-                        {reviewedView
-                          ? "No reviewed households have current delivery checks in this view. Resolve any delivery-check messages and run Check readiness. Saved recipient reviews are kept."
-                          : "No households are ready to create letters yet. Refresh membership if it is out of date, save recipient choices, and run Check readiness. Bulk recipient review remains available above."}
+                        Save recipient choices before preparing documents. Bulk
+                        recipient review remains available above.
                       </p>
                     )}
-                    {reviewedView &&
-                      data.readiness &&
-                      !selectable.length &&
-                      filtered.length > 0 && (
-                        <button
-                          type="button"
-                          className={`${button} mt-3`}
-                          onClick={() => {
-                            const target = document.getElementById(
-                              "letter-readiness-title",
-                            );
-                            target?.focus();
-                            target?.scrollIntoView?.({ block: "center" });
-                          }}
-                        >
-                          Go to delivery checks
-                        </button>
-                      )}
+                    {data.readiness?.issue && (
+                      <p role="status" className="mt-2 text-sm text-amber-900">
+                        {data.readiness.issue}
+                      </p>
+                    )}
+                    {data.readiness?.issue && (
+                      <button
+                        type="button"
+                        className={`${button} mt-3`}
+                        onClick={() => navigateSetup("appeals")}
+                      >
+                        Open appeal settings
+                      </button>
+                    )}
                     <label className="mt-3 block text-sm font-semibold">
                       Final letter format
                       <select
@@ -1445,8 +1454,8 @@ export default function SocietyLettersPage() {
                       className="text-sm text-gray-600"
                     >
                       {reviewedView
-                        ? "Checkboxes choose reviewed recipients for document approval or optional edits. Current delivery checks are required before approval."
-                        : "Checkboxes choose recipients for review, even if delivery checks are not finished."}{" "}
+                        ? "Checkboxes choose reviewed recipients for document approval or optional edits."
+                        : "Checkboxes choose recipients for review or document approval once their recipient choices are saved."}{" "}
                       Selecting someone does not send a letter or add an appeal
                       in NXT.
                     </p>
@@ -1511,7 +1520,7 @@ export default function SocietyLettersPage() {
                         }}
                       >
                         {queryPostal
-                          ? "Select ready households"
+                          ? "Select reviewed households"
                           : "Select eligible households"}{" "}
                         (up to {deliveryBatchLimit})
                       </button>
@@ -1621,7 +1630,9 @@ export default function SocietyLettersPage() {
                             "Select",
                             "Recipient & letter",
                             "Recipient review",
-                            "Delivery readiness",
+                            queryPostal && channel === "post"
+                              ? "Next step"
+                              : "Delivery readiness",
                             "Actions",
                           ].map((h) => (
                             <th key={h} scope="col" className="p-3">
@@ -1639,6 +1650,7 @@ export default function SocietyLettersPage() {
                             channel={channel}
                             definitions={data.definitions}
                             sourceIssue={data.sourceIssue}
+                            automaticPostalChecks={queryPostal}
                             onFinalize={
                               data.settings?.sourceMode === "society_queries"
                                 ? () =>
@@ -2212,7 +2224,7 @@ export default function SocietyLettersPage() {
               <p className="mt-2 text-sm text-gray-600">
                 Configure letter-sent and exclusion appeals here. Saving
                 settings does not assign an appeal or send a letter. Recipient
-                readiness checks remain in the holding list.
+                optional NXT preflight checks remain in the holding list.
               </p>
               {data.readiness && (
                 <ReadinessSettings

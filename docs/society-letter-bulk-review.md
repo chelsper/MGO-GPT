@@ -10,6 +10,62 @@ than asking staff to review them again. Specific review/issue filters include
 editable recipients in that view, including saved choices. Each editing session
 contains at most 50 households.
 
+## Approval Shortcut Discoverability (October 5, Not Yet Deployed)
+
+The follow-up fix makes **Continue to document approval** visible in All
+recipients and other filtered views whenever they contain saved recipient
+reviews for society-query postal letters. It reports the number already
+reviewed without suggesting the entire mixed list is complete. A saved approval
+batch remains reachable even if search hides all recipients.
+
+The shortcut preserves selected households and filters, only focuses the existing
+approval area, and never saves reviews or starts requests. Preview-only sources
+and email views do not offer postal approval. Existing readiness checks and
+document-approval limits remain unchanged.
+
+Verification: the new tests reproduced three missing-shortcut cases before the
+fix. All 203 stewardship tests passed afterward, including four new regression
+tests. Typecheck, production build, release guard, and diff check passed. A
+fictional, write-blocked browser check confirmed the shortcut in All recipients,
+preserved selection, and focused approval area. The live user tab was inspected
+without changing its three selections or triggering checks. No deployment or
+live record changes were made for this follow-up.
+
+## Automatic Postal Checks (October 5, Not Yet Deployed)
+
+This subsequent change removes the separate delivery-readiness prerequisite
+from society-query postal document preparation and approval. The workflow is
+now recipient review, **Select reviewed households**, document preview and
+approval, then explicit batch continuation in Letter history. The former
+whole-list checker is collapsed under **Optional NXT preflight** and never
+starts or resumes just by opening the page. Its cached results do not force
+another recipient review or prevent document approval; the **Next step** column
+shows **Prepare document** for saved reviews. Historical check reasons remain
+available in household details.
+
+The automatic fresh NXT check still runs for each selected household before
+any appeal writes. It validates both household members, restrictions, prior
+letters/exclusions, and appeal settings. A failed or uncertain check prevents
+writes and final downloads. Approval never itself calls NXT. Membership
+freshness, verified period-specific appeal settings, society hierarchy,
+exclusions, 15-day recipient review, exact-document approval, batch limits,
+durable receipts, and uncertain-write recovery remain enforced. Email and
+legacy grouped-source workflows are unchanged.
+
+This change supersedes the cached-readiness approval requirements in the
+historical release sections below. No schema migration or live data changes
+are required.
+
+Verification: 5,557 tests passed; 166 opt-in tests skipped. Typecheck,
+production build, release-worktree guard, and diff check passed. Existing
+PDF.js eval and mixed-import build warnings remain. Finalization/batch fixtures
+now start without manual preflight; regressions cover unfinished optional
+checks, both-member restrictions, prior letters, and NXT failure/rate limits
+preventing writes and downloads. Fictional, write-blocked browser QA confirmed
+collapsed optional controls, direct approval navigation, preserved selection,
+and selection of reviewed recipients without prior checks. No deployment,
+production letter, NXT write, email, or sandbox change was performed.
+
 ## Reviewed To Approval (Deployed October 5)
 
 JU deployment and verification are recorded in

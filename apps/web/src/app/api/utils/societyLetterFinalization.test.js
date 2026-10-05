@@ -211,15 +211,7 @@ async function fixture(single = false, society = "presidents") {
     store,
     7,
   );
-  await runLetterReadiness(
-    state,
-    definitions,
-    today,
-    { action: "check_readiness", channel: "post" },
-    store,
-    ctx,
-    reader,
-  );
+  // Production approval must work without a separate manual preflight.
   reader.member.mockClear();
   const client = {
     catalog: vi.fn(async () =>
@@ -371,6 +363,56 @@ async function draftFixture(format = "docx") {
 }
 
 describe("saved postal batch approvals", () => {
+  it.each(["running", "paused"])(
+    "does not let an optional %s preflight block document preparation or approval",
+    async (status) => {
+      const f = await draftFixture();
+      f.state.readiness.job = { status, id: "optional-check" };
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      expect(f.state.history).toHaveLength(1);
+      expect(f.reader.member).not.toHaveBeenCalled();
+      expect(f.client.create).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["restriction", "prior letter", "NXT unavailable", "rate limited"])(
+    "automatically blocks both members' appeal writes on %s even without manual preflight",
+    async (kind) => {
+      const f = await draftFixture();
+      expect(f.state.readiness.results).toEqual({});
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      expect(f.reader.member).not.toHaveBeenCalled();
+      if (kind === "restriction")
+        f.profiles["11"].preferences.push({ id: "do-not-mail" });
+      if (kind === "prior letter")
+        f.profiles["11"].appeals.push({ id: "a", appeal: { id: "100" } });
+      if (kind === "NXT unavailable" || kind === "rate limited")
+        f.reader.member.mockRejectedValueOnce(
+          Object.assign(new Error(kind), {
+            httpStatus: kind === "rate limited" ? 429 : 503,
+          }),
+        );
+      await continuePostalBatch(
+        f.state,
+        definitions,
+        today,
+        { batchId: f.id, confirm: true },
+        f.store,
+        ctx,
+        (...args) => syncLetterAppeals(...args, f.reader, f.client),
+        f.read,
+      );
+      expect(f.reader.member).toHaveBeenCalled();
+      expect(f.client.create).not.toHaveBeenCalled();
+      expect(f.state.history[0].letterAppeals.status).toBe("needs_review");
+      await expect(
+        postalBatchDownload(f.state.history, f.read),
+      ).rejects.toMatchObject({ status: 409 });
+    },
+  );
   it("enforces the PDF pilot limit on the server before saving or updating appeals", async () => {
     const f = await draftFixture("pdf");
     f.state.postalDraft = null;
@@ -918,6 +960,7 @@ describe("final postal letters and household appeal receipts", () => {
     "prior",
     "address",
     "inactive",
+    "deceased",
     "consent",
   ])("fresh %s check blocks BOTH writes", async (kind) => {
     const f = await fixture();
@@ -928,6 +971,7 @@ describe("final postal letters and household appeal receipts", () => {
       f.profiles["11"].appeals.push({ id: "a", appeal: { id: "100" } });
     if (kind === "address") f.profiles["10"].profile.address.do_not_mail = true;
     if (kind === "inactive") f.profiles["11"].profile.inactive = true;
+    if (kind === "deceased") f.profiles["11"].profile.deceased = true;
     if (kind === "consent") f.profiles["11"].consents.push({ id: "c" });
     await expect(f.finish()).rejects.toThrow();
     expect(f.store.reserve).not.toHaveBeenCalled();

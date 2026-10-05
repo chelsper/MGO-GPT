@@ -23,6 +23,34 @@ const saved = (values = choice) => ({
 });
 
 describe("saved-data letter workspace facets", () => {
+  it("keeps optional postal preflight results out of recipient review without changing email or legacy checks", () => {
+    const checked = {
+      ...saved(),
+      readiness: {
+        post: { status: "needs_review" },
+        email: { status: "needs_review" },
+      },
+    };
+    expect(letterReviewView(checked, "post", null, true).attention).toEqual([]);
+    expect(letterReviewView(checked, "post").attention).toEqual(["readiness"]);
+    expect(letterReviewView(checked, "email", null, true).attention).toEqual([
+      "readiness",
+    ]);
+    expect(
+      letterReviewView(
+        {
+          ...checked,
+          recipientReview: {
+            ...checked.recipientReview,
+            values: { ...choice, address: "" },
+          },
+        },
+        "post",
+        null,
+        true,
+      ).attention,
+    ).toEqual(["address"]);
+  });
   it("distinguishes an expired recipient review from changed recipient details", () => {
     const view = letterReviewView(
       {

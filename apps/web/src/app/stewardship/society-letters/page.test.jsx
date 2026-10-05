@@ -95,6 +95,110 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("offers approval from All recipients without clearing the selected reviewed households", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10", true), reviewRow("20")],
+      }),
+    );
+    render(<Page />);
+    const selected = await screen.findByRole("checkbox", {
+      name: "Select Household 10",
+    });
+    fireEvent.click(selected);
+    expect(
+      screen.getByText("1 recipient in this view is already reviewed."),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Recipient review complete"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to document approval" }),
+    );
+    expect(
+      screen.getByRole("heading", {
+        name: "Review → Approve → Create letters",
+      }),
+    ).toHaveFocus();
+    expect(selected).toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "All recipients 2" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "Start document approval" }),
+    ).toBeEnabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("shows the approval shortcut only for reviewed postal query recipients in the current filters", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10", true), reviewRow("20", true), reviewRow("30")],
+      }),
+    );
+    render(<Page />);
+    expect(
+      await screen.findByText(
+        "2 recipients in this view are already reviewed.",
+      ),
+    ).toBeVisible();
+    const shortcut = () =>
+      screen.queryByRole("button", { name: "Continue to document approval" });
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Find a household" }),
+      { target: { value: "Household 30" } },
+    );
+    expect(shortcut()).not.toBeInTheDocument();
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Find a household" }),
+      { target: { value: "Household 10" } },
+    );
+    expect(shortcut()).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Delivery method"), {
+      target: { value: "email" },
+    });
+    expect(shortcut()).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("keeps the saved approval shortcut available when search hides all recipients", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10", true)],
+        postalDraft: { id: "draft", format: "docx", entries: [] },
+      }),
+    );
+    render(<Page />);
+    fireEvent.change(
+      await screen.findByRole("searchbox", { name: "Find a household" }),
+      { target: { value: "No match" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue saved document approval" }),
+    );
+    expect(document.getElementById("letter-saved-approval")).toHaveFocus();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("does not offer final-document approval for preview-only constituent sources", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: { ...base.settings, sourceMode: "constituents" },
+        rows: [reviewRow("10", true)],
+      }),
+    );
+    render(<Page />);
+    await screen.findByRole("button", { name: "Reviewed 1" });
+    expect(
+      screen.queryByRole("button", { name: "Continue to document approval" }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("takes reviewed recipients to document approval without saving their review again", async () => {
     const row = {
       ...reviewRow("10", true),
@@ -112,7 +216,7 @@ describe("society letter workspace", () => {
     expect(
       screen.getByRole("button", { name: "Edit reviewed recipients" }),
     ).toBeVisible();
-    expect(screen.getByText("Delivery checks passed")).toBeVisible();
+    expect(screen.getByText("Prepare document")).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Continue to document approval" }),
     );
@@ -123,7 +227,7 @@ describe("society letter workspace", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Select ready households (up to 10)",
+        name: "Select reviewed households (up to 10)",
       }),
     );
     fireEvent.click(
@@ -139,7 +243,7 @@ describe("society letter workspace", () => {
     });
   });
   it.each(["unchecked", "needs_review", "already_acknowledged"])(
-    "keeps %s delivery checks separate from completed recipient review",
+    "does not require a separate delivery check for a reviewed recipient with a cached %s result",
     async (status) => {
       const row = {
         ...reviewRow("10", true),
@@ -164,27 +268,28 @@ describe("society letter workspace", () => {
       );
       expect(
         screen.getByText(
-          /You do not need to review unchanged names and addresses again/,
+          /You do not need to save them again unless you want to make changes/,
         ),
       ).toBeVisible();
       expect(screen.getByText("Recipient choices saved")).toBeVisible();
-      expect(screen.getByText("Current NXT check required.")).toBeVisible();
+      expect(screen.getByText("Prepare document")).toBeVisible();
       expect(
         screen.getByRole("button", { name: "Start document approval" }),
-      ).toBeDisabled();
+      ).toBeEnabled();
       expect(
         screen.getByRole("button", { name: "Edit selected recipients" }),
       ).toBeEnabled();
-      if (status === "needs_review") {
-        expect(
-          screen.getByText("Delivery checks need attention"),
-        ).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: "View delivery checks" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText("NXT is checked automatically before appeal updates."),
+      ).toBeVisible();
+      if (status !== "unchecked") {
         fireEvent.click(
-          screen.getByRole("button", { name: "View delivery checks" }),
+          screen.getByRole("button", { name: "Show details for Household 10" }),
         );
-        expect(
-          screen.getByRole("heading", { name: "Check letter readiness" }),
-        ).toHaveFocus();
+        expect(screen.getByText("Current NXT check required.")).toBeVisible();
       }
       expect(fetchMock).toHaveBeenCalledOnce();
     },
@@ -279,7 +384,7 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: "Start document approval" }),
     ).toBeDisabled();
     expect(
-      screen.getByText(/Some selected recipients still need review/),
+      screen.getByText(/Some selected recipients still need their names/),
     ).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Review selected recipients" }),
@@ -325,7 +430,7 @@ describe("society letter workspace", () => {
     expect(remaining).toBeEnabled();
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Select ready households (up to 10)",
+        name: "Select reviewed households (up to 10)",
       }),
     );
     expect(screen.getByText("10 selected")).toBeVisible();
@@ -373,7 +478,7 @@ describe("society letter workspace", () => {
     });
   });
   it.each([["needs_review"], ["unchecked"], ["already_acknowledged"]])(
-    "allows review, never document approval, for a %s readiness result",
+    "allows document approval without treating a cached %s result as authorization to send",
     async (status) => {
       fetchMock.mockImplementation(async () =>
         Response.json({
@@ -396,7 +501,7 @@ describe("society letter workspace", () => {
       ).toBeEnabled();
       expect(
         screen.getByRole("button", { name: "Start document approval" }),
-      ).toBeDisabled();
+      ).toBeEnabled();
       expect(fetchMock).toHaveBeenCalledOnce();
     },
   );
@@ -466,7 +571,7 @@ describe("society letter workspace", () => {
       screen.queryByRole("button", { name: "Start document approval" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/Some selected recipients still need review/),
+      screen.queryByText(/Some selected recipients still need their names/),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Review selected letters" }),
@@ -499,11 +604,11 @@ describe("society letter workspace", () => {
     render(<Page />);
     expect(
       await screen.findByRole("button", {
-        name: "Select ready households (up to 10)",
+        name: "Select reviewed households (up to 10)",
       }),
     ).toBeDisabled();
     expect(
-      screen.getByText(/No households are ready to create letters yet/),
+      screen.getByText(/Save recipient choices before preparing documents/),
     ).toBeVisible();
     expect(
       screen.getByRole("option", { name: /PDF.*private converter/ }),
@@ -514,10 +619,9 @@ describe("society letter workspace", () => {
     "selects only the configured %s batch limit and starts a draft, not delivery",
     async (format) => {
       const limit = format === "pdf" ? 3 : 10;
-      const rows = Array.from({ length: 12 }, (_, index) => ({
-        ...reviewRow(String(10 + index), true),
-        readiness: { post: { status: "ready_for_preview" } },
-      }));
+      const rows = Array.from({ length: 12 }, (_, index) =>
+        reviewRow(String(10 + index), true),
+      );
       const payload = {
         ...base,
         settings: societyQuerySettings(),
@@ -527,7 +631,7 @@ describe("society letter workspace", () => {
       fetchMock.mockImplementation(async () => Response.json(payload));
       render(<Page />);
       await screen.findByRole("button", {
-        name: "Select ready households (up to 10)",
+        name: "Select reviewed households (up to 10)",
       });
       if (format === "pdf")
         fireEvent.change(screen.getByLabelText("Final letter format"), {
@@ -535,7 +639,7 @@ describe("society letter workspace", () => {
         });
       fireEvent.click(
         await screen.findByRole("button", {
-          name: `Select ready households (up to ${limit})`,
+          name: `Select reviewed households (up to ${limit})`,
         }),
       );
       expect(screen.getByText(`${limit} selected`)).toBeVisible();
@@ -1211,7 +1315,7 @@ describe("society letter workspace", () => {
     ).toBeVisible();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
-  it("moves multiple-society appeal forms into setup while retaining daily readiness controls", async () => {
+  it("keeps appeal setup accessible while hiding optional preflight controls by default", async () => {
     fetchMock.mockResolvedValue(
       Response.json({
         ...base,
@@ -1224,7 +1328,19 @@ describe("society letter workspace", () => {
       }),
     );
     render(<Page />);
-    await screen.findByRole("heading", { name: "Check letter readiness" });
+    const approval = within(
+      await screen.findByRole("region", {
+        name: "From review to final letters",
+      }),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Optional NXT preflight" }),
+    ).not.toBeVisible();
+    expect(
+      screen
+        .getByText("Optional NXT preflight", { selector: "summary" })
+        .closest("details"),
+    ).not.toHaveAttribute("open");
     expect(
       screen.queryByText("Letter appeal settings for this period"),
     ).not.toBeInTheDocument();
@@ -1232,12 +1348,51 @@ describe("society letter workspace", () => {
       screen.queryByText("NXT exclusion appeal settings"),
     ).not.toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: "Open appeal settings" }),
+      approval.getByRole("button", { name: "Open appeal settings" }),
     );
     expect(
       screen.getByText("Letter appeal settings for this period"),
     ).toBeVisible();
     expect(screen.getByText("NXT exclusion appeal settings")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("allows approval with an unfinished optional preflight without resuming it automatically", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10", true)],
+        readiness: {
+          issue: null,
+          job: {
+            id: "check",
+            status: "paused",
+            channel: "post",
+            checked: 0,
+            total: 1,
+          },
+        },
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Household 10" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Start document approval" }),
+    ).toBeEnabled();
+    const details = screen
+      .getByText("Optional NXT preflight (unfinished check)", {
+        selector: "summary",
+      })
+      .closest("details");
+    expect(details).not.toHaveAttribute("open");
+    fireEvent.click(
+      within(details).getByText("Optional NXT preflight (unfinished check)"),
+    );
+    // jsdom does not perform the native summary toggle.
+    details.open = true;
+    expect(screen.getByRole("button", { name: "Stop check" })).toBeEnabled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
   it("reads saved Word fields and saves per-placeholder mappings without uploading a replacement", async () => {
