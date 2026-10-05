@@ -11,8 +11,8 @@ const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal";
 export const readinessLabels = {
   unchecked: "Not checked",
-  ready_for_preview: "Ready for preview",
-  needs_review: "Needs review",
+  ready_for_preview: "Delivery checks passed",
+  needs_review: "Delivery checks need attention",
   already_acknowledged: "Already acknowledged",
 };
 

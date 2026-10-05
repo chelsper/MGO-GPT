@@ -5,8 +5,38 @@
 Under Stewardship > Society Letter Creation > Letter workspace, use
 **Review recipients in bulk**. Search and society filters apply to the queue.
 The default All recipients view reviews recipients needing review. Selecting
-**Reviewed** or a specific review/issue filter includes editable recipients in
-that view, including saved choices. Each session contains at most 50 households.
+**Reviewed** offers **Edit reviewed recipients** as an optional action rather
+than asking staff to review them again. Specific review/issue filters include
+editable recipients in that view, including saved choices. Each editing session
+contains at most 50 households.
+
+## Reviewed To Approval (October 5, Not Yet Deployed)
+
+The Reviewed view states that recipient review is complete and provides
+**Continue to document approval** for society-query postal letters. This shortcut
+only focuses the existing approval area (or existing saved draft); it does not
+save recipient choices, select records, start NXT checks, or approve documents.
+The selection controls say **Select to edit** and **Edit selected recipients**
+when editing is optional. **Select ready households** and **Start document
+approval** retain their existing guards and explicit actions.
+
+Delivery status now says **Delivery checks passed** or **Delivery checks need
+attention**, rather than using the same Needs review label as recipient review.
+When all selected recipients are reviewed but not ready, guidance points to
+delivery checks, not another names/address review. Missing, expired, restricted,
+or already-acknowledged results still block document approval. Reasons remain
+visible; no server validation is changed.
+
+Saved recipient reviews still expire after 15 days or relevant recipient changes.
+Final-document approval remains separate and applies to the exact saved bytes.
+The document panel explains this distinction and labels prepared documents as
+**Awaiting document approval**. Merely being Reviewed never authorizes appeals.
+
+Verification: 465 focused UI/domain/API tests passed, plus typecheck, production
+build, release guard, and diff check. A fictional, write-blocked browser fixture
+confirmed the Reviewed shortcut, ready-only selection, and desktop/390px mobile
+layout. Existing PDF.js eval and mixed-import build warnings remain. No deployment,
+live recipient change, email, or NXT write was performed.
 
 The reviewer can preview the personalized Word letter, edit the addressee,
 salutation, mailing address, recipient/address-source record, and selected

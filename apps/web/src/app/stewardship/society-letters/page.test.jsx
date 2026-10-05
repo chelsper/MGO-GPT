@@ -95,6 +95,122 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("takes reviewed recipients to document approval without saving their review again", async () => {
+    const row = {
+      ...reviewRow("10", true),
+      readiness: { post: { status: "ready_for_preview" } },
+    };
+    fetchMock.mockImplementation(async () =>
+      Response.json({ ...base, settings: societyQuerySettings(), rows: [row] }),
+    );
+    render(<Page />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reviewed 1" }));
+    expect(screen.getByText("Recipient review complete")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Review recipients in bulk" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit reviewed recipients" }),
+    ).toBeVisible();
+    expect(screen.getByText("Delivery checks passed")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to document approval" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Approve letters" }),
+    ).toHaveFocus();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select ready households (up to 10)",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start document approval" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      action: "start_postal_draft",
+      householdIds: ["10"],
+      channel: "post",
+      format: "docx",
+      revision: 1,
+    });
+  });
+  it.each(["unchecked", "needs_review", "already_acknowledged"])(
+    "keeps %s delivery checks separate from completed recipient review",
+    async (status) => {
+      const row = {
+        ...reviewRow("10", true),
+        readiness: {
+          post: { status, reasons: ["Current NXT check required."] },
+        },
+      };
+      fetchMock.mockImplementation(async () =>
+        Response.json({
+          ...base,
+          settings: societyQuerySettings(),
+          rows: [row],
+          readiness: { issue: null, job: null },
+        }),
+      );
+      render(<Page />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Reviewed 1" }),
+      );
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: "Select Household 10" }),
+      );
+      expect(
+        screen.getByText(
+          /You do not need to review unchanged names and addresses again/,
+        ),
+      ).toBeVisible();
+      expect(screen.getByText("Recipient choices saved")).toBeVisible();
+      expect(screen.getByText("Current NXT check required.")).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: "Start document approval" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Edit selected recipients" }),
+      ).toBeEnabled();
+      if (status === "needs_review") {
+        expect(
+          screen.getByText("Delivery checks need attention"),
+        ).toBeVisible();
+        fireEvent.click(
+          screen.getByRole("button", { name: "View delivery checks" }),
+        );
+        expect(
+          screen.getByRole("heading", { name: "Check letter readiness" }),
+        ).toHaveFocus();
+      }
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+  it("returns reviewed recipients to an existing saved approval batch, not the recipient editor", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [reviewRow("10", true)],
+        postalDraft: { id: "draft", format: "docx", entries: [] },
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reviewed 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue saved document approval" }),
+    );
+    expect(
+      screen.getByRole("region", { name: "Approve saved letter batch" }),
+    ).toHaveFocus();
+    expect(
+      screen.getByText(/This step approves the exact saved documents/),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("confirms a global date update while keeping reviewed status, selection, and the current list", async () => {
     const workspace = {
       ...base,
@@ -949,7 +1065,7 @@ describe("society letter workspace", () => {
     expect(screen.getByLabelText("Focus on an issue")).toHaveValue("all");
     expect(screen.getByLabelText("Select Household 20")).toBeDisabled();
     fireEvent.click(
-      screen.getByRole("button", { name: "Review recipients in bulk" }),
+      screen.getByRole("button", { name: "Edit reviewed recipients" }),
     );
     expect(screen.getByText(/Recipient 1 of 3/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Close review" }));
@@ -1639,7 +1755,7 @@ describe("society letter workspace", () => {
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Reviewed 52" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Review recipients in bulk" }),
+      screen.getByRole("button", { name: "Edit reviewed recipients" }),
     );
     expect(screen.getByText(/Recipient 1 of 50/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Close review" }));
@@ -1647,7 +1763,7 @@ describe("society letter workspace", () => {
       target: { value: "Household 151" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Review recipients in bulk" }),
+      screen.getByRole("button", { name: "Edit reviewed recipients" }),
     );
     expect(screen.getByText(/Recipient 1 of 1/)).toBeVisible();
     expect(screen.getByLabelText("Addressee")).toHaveValue("Recipient 151");

@@ -212,11 +212,16 @@ export default function PostalBatchApproval({
       ref={panel}
       tabIndex={-1}
       aria-label="Approve saved letter batch"
+      id="letter-saved-approval"
       className="my-5 rounded-2xl border-2 border-emerald-700 bg-emerald-50/40 p-5"
     >
       <h2 className="text-xl font-bold">
         Approve your {draft.format === "pdf" ? "PDF" : "Word"} letters
       </h2>
+      <p className="mt-2 text-sm">
+        Recipient names and addresses are already reviewed. This step approves
+        the exact saved documents, not the recipient choices again.
+      </p>
       <p className="mt-2 text-sm">
         {prepared} of {draft.entries.length} documents prepared; {approved}{" "}
         approved. This draft is saved so you can leave and return. No NXT
@@ -264,7 +269,7 @@ export default function PostalBatchApproval({
               {e.reviewedHash
                 ? "Document approved"
                 : e.document
-                  ? "Ready for document review"
+                  ? "Awaiting document approval"
                   : "Document not prepared yet"}
             </p>
             <button
@@ -276,7 +281,7 @@ export default function PostalBatchApproval({
               }}
             >
               {e.reviewedHash
-                ? "Review approved document"
+                ? "View approved document"
                 : "Preview and approve document"}
             </button>
           </li>
