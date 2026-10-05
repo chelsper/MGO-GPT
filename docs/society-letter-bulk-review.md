@@ -10,7 +10,10 @@ than asking staff to review them again. Specific review/issue filters include
 editable recipients in that view, including saved choices. Each editing session
 contains at most 50 households.
 
-## Reviewed To Approval (October 5, Not Yet Deployed)
+## Reviewed To Approval (Deployed October 5)
+
+JU deployment and verification are recorded in
+[the reviewed-to-approval release note](ju-reviewed-approval-release-2026-10-05.md).
 
 The Reviewed view states that recipient review is complete and provides
 **Continue to document approval** for society-query postal letters. This shortcut
@@ -33,10 +36,12 @@ The document panel explains this distinction and labels prepared documents as
 **Awaiting document approval**. Merely being Reviewed never authorizes appeals.
 
 Verification: 465 focused UI/domain/API tests passed, plus typecheck, production
-build, release guard, and diff check. A fictional, write-blocked browser fixture
-confirmed the Reviewed shortcut, ready-only selection, and desktop/390px mobile
-layout. Existing PDF.js eval and mixed-import build warnings remain. No deployment,
-live recipient change, email, or NXT write was performed.
+build, release guard, and diff check. The release suite passed 5,544 tests with
+166 skipped. A fictional, write-blocked browser fixture confirmed the Reviewed
+shortcut, ready-only selection, and desktop/390px mobile layout. The deployed JU
+version and authenticated Reviewed shortcut were verified. Existing PDF.js eval
+and mixed-import build warnings remain. No live recipient change, letter approval,
+email, or NXT write was performed; the sandbox was not deployed.
 
 The reviewer can preview the personalized Word letter, edit the addressee,
 salutation, mailing address, recipient/address-source record, and selected
