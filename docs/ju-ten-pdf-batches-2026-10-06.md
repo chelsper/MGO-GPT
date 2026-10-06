@@ -58,3 +58,26 @@ local server output no longer contains the compatibility-package import.
 Four regression tests cover server router context, normal parameters,
 catch-all parameters, and static/already-wrapped pages. Subsequent candidates
 must pass their own version/homepage checks before promotion to the JU domain.
+
+## Verified Release
+
+JU production was successfully promoted on October 6, 2026:
+
+- Application commit: `aa45e9536caa69509f5e1b0a64de9df24f65eac4`.
+- Deployment: `dpl_HjdKWevMbnMB4ThNkrg2MTxRxBuv`, READY.
+- URL: <https://www.jumgogpt.app>.
+- Full suite after the routing fix: 5,565 passed, 166 skipped; 424 files passed,
+  12 skipped. All four router tests also passed with the final static-router
+  test fixture. Typecheck, build, release guard, and diff checks passed.
+- The candidate version and homepage checks passed before promotion. Live
+  version/HTML checks passed afterward; all three entry assets returned 200,
+  and unauthenticated society-letter API access returned 401.
+- In a fresh signed-in tab, selecting PDF displayed "Create up to 10 PDFs per
+  batch" and "Select reviewed households (up to 10)". No recipients were
+  selected and no draft, NXT update, template change, or letter was created.
+- Production configuration confirms `SOCIETY_PDF_MAX_BATCH_SIZE=10`.
+  The other PDF settings, five cron schedules, project root/build settings,
+  sandbox, converter metadata, and other app copy remained unchanged.
+
+Existing dependency/install-script, optional canvas, PDF.js eval, and mixed
+import build warnings remain. They did not block the verified final deployment.
