@@ -40,3 +40,21 @@ PDF capability of ten, and the selection UI without starting a real draft.
 Compare other projects and JU's five scheduled jobs with the pre-release
 snapshot. To restore the pilot ceiling, change the variable back to `3` and
 redeploy JU; preserve existing drafts, documents, and appeal receipts.
+
+## Startup Packaging Recovery
+
+The first hosted release (`dpl_58EgcWyhxCNtyDAaUxUT5yZSLz83`) built successfully
+but failed the live version check with `ERR_MODULE_NOT_FOUND` for
+`react-router-dom/dist/index.js`. JU was immediately rolled back to verified
+deployment `dpl_5evnxiwhxPXUdcD6zEt8b5KtADiT`; its version and homepage check
+passed. An uncached candidate (`dpl_A6KJ3ekVSobmhJhkCmuVbtqBxmyg`), built
+without promoting the JU domain, reproduced the same packaging error.
+
+The layout generator was the only remaining application producer of a
+`react-router-dom` import. It now imports `useParams` and `useLocation`
+directly from `react-router`, as the rest of this React Router 7 application
+does. No dependency versions or routing behavior were changed. The resulting
+local server output no longer contains the compatibility-package import.
+Four regression tests cover server router context, normal parameters,
+catch-all parameters, and static/already-wrapped pages. Subsequent candidates
+must pass their own version/homepage checks before promotion to the JU domain.
