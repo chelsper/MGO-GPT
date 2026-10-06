@@ -1,0 +1,24 @@
+.originator { margin-top: 16px; border: 1px solid #c9dfd9; border-radius: 12px; background: #fff; color: #173e35; }
+.toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; border: 0; padding: 14px 16px; background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; text-align: left; }
+.content { padding: 0 16px 16px; line-height: 1.5; }
+.content p { margin: 10px 0; }
+.content label { display: grid; gap: 6px; margin: 12px 0; font-weight: 700; }
+.content input, .content select { padding: 10px; min-height: 44px; width: 100%; box-sizing: border-box; background: #fff; color: #173e35; border: 1px solid #b3c9c3; border-radius: 8px; font: inherit; }
+.button, .primary { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; margin: 8px 8px 0 0; border: 1px solid #a4c1b8; border-radius: 10px; font: inherit; font-weight: 700; background: #fff; color: #075d49; cursor: pointer; }
+.primary { background: #007b5e; border-color: #007b5e; color: #fff; }
+.button:disabled, .primary:disabled { opacity: .55; cursor: default; }
+.button:focus-visible, .primary:focus-visible, .toggle:focus-visible { outline: 3px solid #217ce3; outline-offset: 3px; }
+.hint { color: #566c65; font-size: 13px; }
+.error { color: #a42a1c; }
+.success { color: #075d49; font-weight: 700; }
+.report { margin: 24px 0; padding: clamp(16px, 2vw, 24px); border: 1px solid #d1e1db; border-radius: 18px; background: linear-gradient(120deg, #f1faf5, #fff 70%); color: #193d33; }
+.report h2 { margin: 0; font-size: 23px; }
+.heading { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
+.heading p { max-width: 760px; line-height: 1.5; }
+.tableWrap { overflow-x: auto; }
+.report table { width: 100%; min-width: 660px; border-collapse: collapse; background: white; }
+.report th, .report td { text-align: right; padding: 14px 12px; border-bottom: 1px solid #dfebe5; }
+.report th { font-size: 12px; color: #526a62; }
+.report th:first-child, .report td:first-child { text-align: left; }
+.report details { margin-top: 16px; }
+.report summary { cursor: pointer; font-weight: 700; }

@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import DonorBriefing from "@/components/DonorBriefing";
+import RelationshipOriginator from "@/components/RelationshipOriginator";
 import {
   AnnualGivingSocietyBadge,
   formatBlackbaudCurrency,
@@ -26,6 +27,7 @@ export default function ProspectDetailSummary({
   opportunities,
   nextStep,
   draftScope,
+  readOnly = false,
 }) {
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
@@ -111,6 +113,7 @@ export default function ProspectDetailSummary({
             </div>
           </div>
 
+          {!readOnly && <RelationshipOriginator key={linkedBlackbaudConstituentId} constituentId={linkedBlackbaudConstituentId} />}
           <ActivePledgeNotice
             status={
               pledgeData?.byConstituentId?.[

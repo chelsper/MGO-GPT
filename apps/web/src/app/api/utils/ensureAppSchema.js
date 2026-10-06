@@ -6,6 +6,7 @@ import stewardshipReceiptsSchema from "./stewardshipReceiptsSchema";
 import stewardshipHistorySchema from "./stewardshipHistorySchema";
 import stewardshipStockSchema from "./stewardshipStockSchema";
 import prospectLifecycleSchema from "./prospectLifecycleSchema";
+import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
 
 let schemaReadyPromise;
 
@@ -37,6 +38,8 @@ export default async function ensureAppSchema() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
+
+    await relationshipOriginatorSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS standings_annual_goals (

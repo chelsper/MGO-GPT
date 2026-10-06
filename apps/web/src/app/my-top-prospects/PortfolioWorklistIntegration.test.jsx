@@ -93,6 +93,22 @@ afterEach(() => {
   window.history.replaceState({}, "", "/");
 });
 
+it("includes the shared originator control in My Portfolio without automatic NXT attribution reads", () => {
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.getAllByRole("button", { name: "Relationship originator" }).length).toBeGreaterThan(0);
+  expect(fetch.mock.calls.some(([url]) => String(url).includes("relationship-originator"))).toBe(false);
+});
+
+it("does not expose originator writes while an executive views another MGO's portfolio", () => {
+  state.profile.user.role = "executive";
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.queryByRole("button", { name: "Relationship originator" })).toBeNull();
+});
+
 it("uses configured portfolio labels without renaming NXT roles or adding requests", () => {
   vi.spyOn(window, "confirm").mockReturnValue(false);
   state.data["portfolio-categories"] = { categories: [], assignments: [] };

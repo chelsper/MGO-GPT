@@ -5323,6 +5323,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             }}
           >
           <ProspectDetailSummary
+            readOnly={readOnly}
             draftScope={draftScope}
             linkedBlackbaudConstituentId={linkedBlackbaudConstituentId}
             linkedBlackbaudConstituentProfileUrl={linkedBlackbaudConstituentProfileUrl}

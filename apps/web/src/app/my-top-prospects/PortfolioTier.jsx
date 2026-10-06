@@ -6,6 +6,7 @@ import PortfolioContactDetails from "@/components/PortfolioContactDetails";
 import PortfolioActivityDetails from "@/components/PortfolioActivityDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import DonorBriefing from "@/components/DonorBriefing";
+import RelationshipOriginator from "@/components/RelationshipOriginator";
 import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
@@ -218,6 +219,7 @@ export default function PortfolioTier({
               </div>
               <PortfolioContactDetails person={contactPerson} />
               <PortfolioActivityDetails activity={person.savedActivity} />
+              {!isReadOnly && allowNxtSummary && person.constituentId && <RelationshipOriginator key={person.constituentId} constituentId={person.constituentId} />}
               <CurrentFiscalYearGiving
                 giving={currentFiscalYearGiving}
                 yearLabel={currentFiscalYearLabel}
