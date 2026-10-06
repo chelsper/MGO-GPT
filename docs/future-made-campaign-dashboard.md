@@ -2,8 +2,10 @@
 
 ## Status
 
-Implemented locally on 2026-10-06. No production deployment, live query execution,
+Deployed to JU production on 2026-10-06. Signed-in first-load and navigation checks
+passed; the sandbox deployment is unchanged. No live query execution,
 query-definition change, or campaign data import was performed during this work.
+See `ju-campaign-priorities-release-2026-10-06.md` for release and recovery evidence.
 The screenshot identifies Gift query 27460, "FM Campaign Gifts - Same as Dashboard",
 with approximately 87,465 records. Its live output columns still need verification.
 
@@ -118,9 +120,9 @@ variable, those integration tests are skipped rather than using any existing dat
 
 ## Release Follow-Up
 
-Deploy to JU only using the established isolated-release workflow; do not push a shared
-branch that deploys the sandbox. Verify first-load access, saved-field mapping and one
-read-only query refresh before trusting live totals. Reconcile the first snapshot with
+JU-only deployment and signed-in first-load access are verified. Next, verify the
+saved-field mapping and one read-only query refresh before trusting live totals.
+Reconcile the first snapshot with
 the NXT query and inspect at least one genuine multi-fund gift. Assign funds, then test
 a reversible local-only exception on an approved allocation. None of these live steps
 have been performed yet.
