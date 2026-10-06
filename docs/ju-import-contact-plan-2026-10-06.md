@@ -39,3 +39,24 @@ Rollback target: application commit
 `dpl_DjwTBKV1P5PptBLibP4oQC9GAK6N`; the other app copy should remain at
 `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. No converter deployment is part of this
 release. Live acceptance of an import requires separate staff approval.
+
+## Verified Release
+
+Promoted to <https://www.jumgogpt.app> on October 6, 2026:
+
+- Application commit: `742399479fd3b9a5c249a9870e27519b88aa7b30`.
+- Deployment: `dpl_C9bgAksV7CECg2AmJ2BQLrHWiSKK`, READY.
+- Final release rerun: 5,655 tests passed, 166 skipped; 431 files passed,
+  12 skipped. Typecheck, local build, hosted build, release guard, and diff
+  checks passed. Existing dependency/build warnings remain.
+- Candidate version, homepage, import page, and three entry assets passed
+  before promotion. The served import bundle contained the new contact-plan
+  labels. Candidate checks used Vercel deployment-protection access.
+- Live version matched the expected commit and deployment. Homepage, import
+  page, and entry assets returned 200; import history and preview endpoints
+  rejected requests without an app session with 401.
+- JU root/build settings, PDF settings, and all five cron paths/schedules were
+  unchanged. Sandbox and the other app copy remained on their prior releases.
+  The PDF converter remained at `dpl_7rXAGQ6svuqwCh3ryqbtAxMRzYxL`.
+- No Git push, live import, or NXT write was performed. Unrelated local work
+  was not included in the clean release archive.
