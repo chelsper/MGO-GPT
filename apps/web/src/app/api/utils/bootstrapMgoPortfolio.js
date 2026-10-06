@@ -10,13 +10,7 @@ import {
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import { canUseMgoWorkspaceRole } from "@/utils/workspaceRoles";
-
-const ALLOWED_OPPORTUNITY_STATUSES = new Set([
-  "Identification",
-  "Cultivation",
-  "Solicitation",
-  "Solicitation - Verbal",
-]);
+import { hasLegacyOpportunityPurpose, isOpportunityEligibleForImport, opportunityCreatedOn } from "./opportunityImportEligibility";
 
 const STATUS_PRIORITY = {
   "Solicitation - Verbal": 0,
@@ -169,7 +163,8 @@ async function enrichOpportunityDetails({ userId, authUserId, origin, opportunit
         if (
           getOpportunityAskDate(opportunity) &&
           getOpportunityExpectedDate(opportunity) &&
-          (getOpportunityFundedAmount(opportunity) != null || getOpportunityFundedDate(opportunity))
+          (getOpportunityFundedAmount(opportunity) != null || getOpportunityFundedDate(opportunity)) &&
+          (hasLegacyOpportunityPurpose(opportunity) || opportunityCreatedOn(opportunity))
         ) {
           return opportunity;
         }
@@ -187,6 +182,11 @@ async function enrichOpportunityDetails({ userId, authUserId, origin, opportunit
               origin,
             },
           );
+
+          if (String(detailedOpportunity?.id || "") !== String(opportunity.id) ||
+              String(detailedOpportunity?.constituent_id || "") !== String(opportunity.constituent_id || "")) {
+            return opportunity;
+          }
 
           return {
             ...opportunity,
@@ -499,19 +499,9 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
     opportunities: assignedOpportunities,
   });
 
-  const qualifying = opportunities.filter((opportunity) => {
-    if (opportunity?.inactive) return false;
-    if (normalizeText(opportunity?.purpose) !== normalizeText("Future. Made. Campaign")) {
-      return false;
-    }
-    if (!ALLOWED_OPPORTUNITY_STATUSES.has(opportunity?.status)) {
-      return false;
-    }
-    if (!opportunity?.expected_date || !opportunity?.constituent_id) {
-      return false;
-    }
-    return true;
-  });
+  const importAsOf = new Date();
+  const qualifying = opportunities.filter((opportunity) => isOpportunityEligibleForImport(opportunity, importAsOf));
+  const qualifyingIds = new Set(qualifying.map((opportunity) => String(opportunity.id)));
 
   const groupedByConstituent = new Map();
   const allAssignedByConstituent = new Map();
@@ -674,6 +664,9 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
           AND blackbaud_opportunity_id = ${String(opportunity.id)}
         LIMIT 1
       `;
+      // An eligible donor can also have old, unrelated opportunities. Keep
+      // refreshing saved links, but never use donor membership to import them.
+      if (!beforeRows[0]?.id && !qualifyingIds.has(String(opportunity.id))) continue;
       await upsertProspectOpportunity({
         prospectId,
         constituentId: constituent?.id || null,
