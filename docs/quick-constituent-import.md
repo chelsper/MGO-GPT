@@ -2,7 +2,7 @@
 
 ## Reviewer Workflow
 
-1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. The existing 100-row file limit is unchanged.
+1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. Under **Review import**, use the contact plan to include emails/phones or explicitly leave them out of contact updates. **Include all mapped emails and phones** selects both kinds in one click. The existing 100-row file limit is unchanged.
 2. Load NXT table formats and optionally select a default addressee and salutation for new records. Selections are saved with the preview. Do not also enable custom text for the same format.
 3. Prepare and save the import, then select **Check and import new records**. The confirmation describes the approved scope. Merely uploading, previewing, or opening the page does not write to NXT.
 4. **Complete safe additions and verify automatically** is enabled by default. It creates only clear new records, loads current NXT details, adds eligible contacts/constituencies/education, and verifies the results in separate saved steps. It does not auto-update existing matched constituents. Uncheck it to retain the older identity-and-single-contact creation flow with separate review/send.
@@ -16,6 +16,16 @@ Old rows held solely by the former "Multiple contacts of one kind" restriction a
 The workflow stores its approval, exact source-input fingerprint, created system ID, remaining read scopes, and phase in the saved preview. Every addition still uses the existing compare-and-set row claim, fresh NXT identity check, and durable write checkpoints. A prior write attempt takes precedence over a stale phase: resume verifies, never blindly resends. Verification also reads the saved identity, including when no further writes were necessary. Failed or incomplete verification stays in review. No additional database migration is required.
 
 The client reloads the full run after every five processed records and at pause/completion, rather than after every row. Server checkpoints are still saved after every step and write. Malformed responses and lost connections pause with recovery guidance, not raw JSON errors. Earlier preview notes are collapsed; the current blocker distinguishes duplicate evidence, contact choices, and NXT check failures.
+
+## Contact Preparation
+
+The contact plan replaces the separate email/phone operation checkboxes hidden in field groups. It shows mapped nonblank contact values, affected rows, and explicit primary flags before any preview request. Every new upload starts with neither contact option selected, even when the CSV contains NXT IDs. Earlier file choices and type defaults do not carry into another upload.
+
+For each kind, choose import or explicit omission. Email values can still be used for matching without being written. Excluded phone values remain in the saved source, not the contact write plan. Matching and duplicate checks are otherwise unchanged; selecting import is not permission to create or send. A short explanation distinguishes update-only, new, and mixed workflows.
+
+Blank email or phone types can use a file-wide NXT type supplied once in the contact plan. It applies to both primary and secondary columns only where a type is blank; a file value always wins. Defaults and omission choices are persisted with the saved run. Blank primary flags stay unspecified, rather than silently authorizing a primary change.
+
+The server rejects unresolved contact choices before NXT lookups or import persistence: mapped nonblank values must either be enabled for import or explicitly excluded for their exact column mappings. Adding/changing a mapped contact column invalidates a previous omission choice. Invalid or conflicting primary flags and malformed default types also stop preparation. Missing types and other per-row contact issues are shown before preparation, while the existing record-review and creation safeguards remain in force. Existing saved imports do not acquire new contact writes or approvals; use their established review, retry, or contact-recovery controls.
 
 ## Comparing Suggested Matches
 

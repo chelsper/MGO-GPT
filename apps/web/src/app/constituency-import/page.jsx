@@ -20,6 +20,8 @@ import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
 import ImportCompletionNotice from "@/components/ImportCompletionNotice";
 import ImportContactRecovery from "@/components/ImportContactRecovery";
+import ImportContactPreflight from "@/components/ImportContactPreflight";
+import { importContactPreflight } from "@/utils/importContactPreflight";
 import { isImportVerificationComplete } from "@/utils/importCompletion";
 import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget, importErrorLabel, withFocusedImportRow } from "@/utils/importMatchReview";
 import { importMatchEvidence } from "@/utils/importMatchEvidence";
@@ -492,8 +494,6 @@ function getUploadedHeaderForField(fieldKey, availableHeaders) {
 
 const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "ethnicity", "birthDate", "suffix"];
 const NAME_FORMAT_FIELD_KEYS = ["addressee", "salutation"];
-const EMAIL_FIELD_KEYS = ["email", "email2"];
-const PHONE_FIELD_KEYS = ["phoneNumber", "phone2Number"];
 const ADDRESS_FIELD_KEYS = ["addressType", "addressValidFrom", "addressLine1", "addressLine2", "city", "state", "postalCode", "country"];
 
 function getDetectedHeaders(headerSet, fieldKeys) {
@@ -3497,6 +3497,7 @@ export default function ConstituencyImportPage() {
   const [salutationFormat, setSalutationFormat] = useState("dear-preferred");
   const [updateEmailFields, setUpdateEmailFields] = useState(false);
   const [updatePhoneFields, setUpdatePhoneFields] = useState(false);
+  const [contactImportDefaults, setContactImportDefaults] = useState({ contactMatchingOnly: {} });
   const [updateAddressFields, setUpdateAddressFields] = useState(false);
   const [contactDecisions, setContactDecisions] = useState({});
   const [contactDecisionsDirty, setContactDecisionsDirty] = useState(false);
@@ -3631,8 +3632,6 @@ export default function ConstituencyImportPage() {
   const individualProfileFieldsActive = Boolean(
     activeFields.title || activeFields.gender || activeFields.ethnicity || activeFields.birthDate || activeFields.suffix,
   );
-  const emailFieldsActive = Boolean(activeFields.email || activeFields.email2);
-  const phoneFieldsActive = Boolean(activeFields.phoneNumber || activeFields.phone2Number);
   const addressFieldsActive = Boolean(
     activeFields.addressType || activeFields.addressValidFrom || activeFields.addressLine1,
   );
@@ -3667,6 +3666,9 @@ export default function ConstituencyImportPage() {
     updatePhoneFields &&
       (hasUploadedHeader("phoneNumber") || hasUploadedHeader("phone2Number")),
   );
+  const contactPlan = importContactPreflight(rows, mappings, {
+    ...contactImportDefaults, updateEmailFields, updatePhoneFields,
+  });
   const mappedAddressUpdate = Boolean(
     updateAddressFields && hasUploadedHeader("addressLine1"),
   );
@@ -3728,8 +3730,10 @@ export default function ConstituencyImportPage() {
     rows.length > 0 &&
     identityRequirementMet &&
     hasImportOperation &&
-    mappedImportOperation;
+    mappedImportOperation &&
+    contactPlan.blockers.length === 0;
   const previewBlockers = [
+    ...contactPlan.blockers.slice(0, 5),
     rows.length === 0 ? "Add at least one CSV data row." : "",
     identityRequirementMet ? "" : identityRequirementCopy,
     hasImportOperation
@@ -3853,8 +3857,6 @@ export default function ConstituencyImportPage() {
       INDIVIDUAL_PROFILE_FIELD_KEYS,
     );
     const detectedNameFormatHeaders = getDetectedHeaders(parsedHeaderSet, NAME_FORMAT_FIELD_KEYS);
-    const detectedEmailHeaders = getDetectedHeaders(parsedHeaderSet, EMAIL_FIELD_KEYS);
-    const detectedPhoneHeaders = getDetectedHeaders(parsedHeaderSet, PHONE_FIELD_KEYS);
     const detectedAddressHeaders = getDetectedHeaders(parsedHeaderSet, ADDRESS_FIELD_KEYS);
     const hasDirectNxtIdentifier = Boolean(
       getUploadedHeaderForField("blackbaudConstituentId", parsed.headers),
@@ -3862,6 +3864,7 @@ export default function ConstituencyImportPage() {
     const detectedOperations = [];
     setRows(parsed.rows);
     setHeaders(parsed.headers);
+    setContactImportDefaults({ contactMatchingOnly: {} });
     setActiveFields((current) => {
       let changed = false;
       const next = { ...current };
@@ -3883,16 +3886,9 @@ export default function ConstituencyImportPage() {
       setUpdateNameFormatFields(true);
       detectedOperations.push("addressee and salutation updates");
     }
-    // Email, phone, and address can be used to find a record. Only select their update
-    // operations automatically when the same CSV has a direct NXT identifier.
-    if (hasDirectNxtIdentifier && detectedEmailHeaders.length) {
-      setUpdateEmailFields(true);
-      detectedOperations.push("email updates");
-    }
-    if (hasDirectNxtIdentifier && detectedPhoneHeaders.length) {
-      setUpdatePhoneFields(true);
-      detectedOperations.push("phone updates");
-    }
+    // A new upload must not inherit a previous file's contact-write choices.
+    setUpdateEmailFields(false);
+    setUpdatePhoneFields(false);
     if (hasDirectNxtIdentifier && detectedAddressHeaders.length) {
       setUpdateAddressFields(true);
       detectedOperations.push("address updates");
@@ -3999,6 +3995,16 @@ export default function ConstituencyImportPage() {
   function toggleField(key) {
     setActiveFields((current) => ({ ...current, [key]: !current[key] }));
     setPreview(null);
+  }
+
+  function chooseContactImport(group, mode) {
+    if (importBusy) return;
+    (group.key === "email" ? setUpdateEmailFields : setUpdatePhoneFields)(mode === "import");
+    setContactImportDefaults((current) => ({ ...current, contactMatchingOnly: {
+      ...current.contactMatchingOnly, [group.key]: mode === "matching" ? group.mappingKey : null,
+    } }));
+    setPreview(null);
+    setSaveMessage("");
   }
 
   function setContactFieldSetActive(group, active) {
@@ -4219,6 +4225,7 @@ export default function ConstituencyImportPage() {
   }
 
   function resetImportWorkspace({ completion = "", resetFieldConfiguration = false } = {}) {
+    setContactImportDefaults({ contactMatchingOnly: {} });
     fileReadVersionRef.current += 1;
     lastReadFileRef.current = null;
     hydratedDetailRowsRef.current.clear();
@@ -5922,6 +5929,7 @@ export default function ConstituencyImportPage() {
     const controller = new AbortController();
     previewAbortControllerRef.current = controller;
     const defaultsPayload = {
+      ...contactImportDefaults,
       importIntent,
       defaultAction: constituencyAction,
       educationRelationshipAction,
@@ -5937,6 +5945,11 @@ export default function ConstituencyImportPage() {
       updatePhoneFields,
       updateAddressFields,
     };
+    const contacts = importContactPreflight(inputRows, mappings, defaultsPayload);
+    if (contacts.blockers.length) {
+      setError(contacts.blockers.slice(0, 5).join(" "));
+      return null;
+    }
     // A saved run is required for multi-row reviews so each batch survives an
     // upstream NXT timeout or a page reload. No NXT writes occur here.
     const useBatchedPreview = inputRows.length > 1;
@@ -7131,106 +7144,8 @@ export default function ConstituencyImportPage() {
                           ) : null}
                         </div>
                       ) : null}
-                      {group === "Email fields" && emailFieldsActive ? (
-                        <div
-                          style={{
-                            border: "1px solid #BBF7D0",
-                            borderRadius: "16px",
-                            backgroundColor: "#F0FDF4",
-                            padding: "14px",
-                          }}
-                        >
-                          <label
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: "10px",
-                              color: "#111827",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              name="updateMatchedNxtEmailFields"
-                              checked={updateEmailFields}
-                              onChange={(event) => {
-                                setUpdateEmailFields(event.target.checked);
-                                setPreview(null);
-                              }}
-                              style={{ marginTop: "4px" }}
-                            />
-                            <span>
-                              <span style={{ display: "block", fontWeight: 900 }}>
-                                Review and import email addresses
-                              </span>
-                              <span
-                                style={{
-                                  display: "block",
-                                  marginTop: "4px",
-                                  color: "#166534",
-                                  fontSize: "14px",
-                                  lineHeight: 1.45,
-                                }}
-                              >
-                                A real NXT system ID or lookup ID allows automatic application.
-                                Without one, the import review can propose a match from name, email, and
-                                address evidence, but it stays in review until a person confirms it.
-                                Each import review will show the current NXT email addresses beside the
-                                CSV value. You can add a new address or replace one selected NXT
-                                address before the run is saved.
-                              </span>
-                            </span>
-                          </label>
-                        </div>
-                      ) : null}
-                      {group === "Phone fields" && phoneFieldsActive ? (
-                        <div
-                          style={{
-                            border: "1px solid #BBF7D0",
-                            borderRadius: "16px",
-                            backgroundColor: "#F0FDF4",
-                            padding: "14px",
-                          }}
-                        >
-                          <label
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: "10px",
-                              color: "#111827",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              name="updateMatchedNxtPhoneFields"
-                              checked={updatePhoneFields}
-                              onChange={(event) => {
-                                setUpdatePhoneFields(event.target.checked);
-                                setPreview(null);
-                              }}
-                              style={{ marginTop: "4px" }}
-                            />
-                            <span>
-                              <span style={{ display: "block", fontWeight: 900 }}>
-                                Review and import phone numbers
-                              </span>
-                              <span
-                                style={{
-                                  display: "block",
-                                  marginTop: "4px",
-                                  color: "#166534",
-                                  fontSize: "14px",
-                                  lineHeight: 1.45,
-                                }}
-                              >
-                                The import review compares each CSV phone number with current NXT phone
-                                numbers. Choose whether to add it or replace a selected NXT value
-                                before saving the run.
-                              </span>
-                            </span>
-                          </label>
-                        </div>
+                      {["Email fields", "Phone fields"].includes(group) ? (
+                        <p className="text-sm text-slate-600">Select the columns here, then choose whether to import these contacts in the contact plan under Review import.</p>
                       ) : null}
                       {group === "Address fields" && addressFieldsActive ? (
                         <div
@@ -7409,7 +7324,8 @@ export default function ConstituencyImportPage() {
                   ? "Import operation selected"
                   : "Select a constituent code, relationship, name, or email operation"}
               </Pill>
-              {mappedEmailUpdate ? <Pill tone="blue">Email: Add if new</Pill> : null}
+              {mappedEmailUpdate ? <Pill tone="blue">Email: Included for review</Pill> : null}
+              {mappedPhoneUpdate ? <Pill tone="blue">Phone: Included for review</Pill> : null}
               {mappedIndividualProfileUpdate ? (
                 <Pill tone="blue">Individual profile: Review and update</Pill>
               ) : null}
@@ -7520,6 +7436,14 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
+          <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
+            disabled={importBusy} onChoice={chooseContactImport}
+            onDefaultType={(key, value) => {
+              if (importBusy) return;
+              setContactImportDefaults((current) => ({ ...current, [key]: value }));
+              setPreview(null);
+              setSaveMessage("");
+            }} />
           {nxtAvailability?.paused ? (
             <div
               role="status"

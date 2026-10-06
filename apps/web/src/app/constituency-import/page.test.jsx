@@ -4,8 +4,10 @@ vi.mock("@/utils/useUser", () => ({ default: () => ({ data: { email: "reviewer@e
 import ConstituencyImportPage from "./page";
 
 let rows, matches;
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 const json = (payload) => ({ ok: true, json: async () => structuredClone(payload) });
 beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   matches = true;
   rows = [{ id: "9", rowNumber: 1, status: "Needs Review", appliedAt: "2026-09-11T15:00:00Z",
     createdBlackbaudConstituentId: "123", createdBlackbaudLookupId: "702300", confidence: 100,
@@ -31,7 +33,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request: ${url}`);
   }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); HTMLElement.prototype.scrollIntoView = originalScrollIntoView; window.history.replaceState({}, "", "/"); });
 async function openRun() {
   render(<ConstituencyImportPage />);
   fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
@@ -153,4 +155,52 @@ it("renders quick creation controls for a potential new row without an undefined
   render(<ConstituencyImportPage />);
   fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
   await screen.findByText(/Create clear nonmatches/);
+});
+
+describe("contact preparation from an uploaded file", () => {
+  const file = { name: "contacts.csv", text: async () => "First Name,Last Name,Email Address,Email Make Primary?,Phone Number,Phone Make Primary?,New Constituent Code\nAvery,Newcomer,avery@example.test,Yes,9045551212,Yes,Friend" };
+  async function upload() {
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("button", { name: /Run #42/ });
+    fireEvent.change(document.getElementById("constituency-import-file"), { target: { files: [file] } });
+    await screen.findByText("Loaded contacts.csv.");
+    return within(screen.getByRole("region", { name: "Contact import plan" }));
+  }
+  it("holds omitted contacts, allows one-click inclusion and sends the intended fields/defaults only for preview", async () => {
+    const baseFetch = fetch.getMockImplementation();
+    fetch.mockImplementation(async (url, options) => url === "/api/constituency-import/preview"
+      ? json({ previewOnly: true, rows: [], summary: {}, warnings: [] }) : baseFetch(url, options));
+    const plan = await upload();
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    expect(plan.getAllByRole("radio").every((input) => !input.checked)).toBe(true);
+    fireEvent.click(plan.getByRole("button", { name: "Include all mapped emails and phones" }));
+    fireEvent.change(plan.getByRole("textbox", { name: /Default email type/ }), { target: { value: "Personal" } });
+    fireEvent.change(plan.getByRole("textbox", { name: /Default phone type/ }), { target: { value: "Mobile" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review uploaded CSV" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/preview")).toBe(true));
+    const [, options] = fetch.mock.calls.find(([url]) => url === "/api/constituency-import/preview");
+    const body = JSON.parse(options.body);
+    expect(body.defaults).toMatchObject({ importIntent: "updates", updateEmailFields: true, updatePhoneFields: true, defaultEmailType: "Personal", defaultPhoneType: "Mobile" });
+    expect(body.mappings).toMatchObject({ email: "Email Address", emailMakePrimary: "Email Make Primary?", phoneNumber: "Phone Number", phoneMakePrimary: "Phone Make Primary?" });
+    expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => url)).toEqual(["/api/constituency-import/preview"]);
+    await waitFor(() => expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled());
+  });
+  it("permits explicit matching-only use but asks again for a new upload", async () => {
+    const plan = await upload();
+    fireEvent.click(plan.getByRole("radio", { name: "Use email addresses for matching only" }));
+    fireEvent.click(plan.getByRole("radio", { name: "Do not import phone numbers" }));
+    expect(plan.getAllByText(/will not be added or changed/)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Review uploaded CSV" })).toBeEnabled();
+    fireEvent.change(document.getElementById("constituency-import-file"), { target: { files: [{ ...file, name: "next.csv" }] } });
+    await screen.findByText("Loaded next.csv.");
+    expect(plan.getAllByRole("radio").every((input) => !input.checked)).toBe(true);
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+  });
+  it("does not inherit contact-write approval when a replacement file has direct NXT IDs", async () => {
+    const plan = await upload();
+    fireEvent.click(plan.getByRole("button", { name: "Include all mapped emails and phones" }));
+    fireEvent.change(document.getElementById("constituency-import-file"), { target: { files: [{ name: "identified.csv", text: async () => "NXT System ID,Email Address\n123,avery@example.test" }] } });
+    await screen.findByText("Loaded identified.csv.");
+    expect(plan.getAllByRole("radio").every((input) => !input.checked)).toBe(true);
+  });
 });

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { IMPORT_CONTACT_GROUPS, importContactMappingKey } from "@/utils/importContactPreflight";
+const emailMatchingOnly = (columns) => ({ email: importContactMappingKey(columns, IMPORT_CONTACT_GROUPS[0]) });
 
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
@@ -344,7 +346,7 @@ describe("constituency import preview route", () => {
           email: "Email",
           targetConstituency: "New Constituent Code",
         },
-        defaults: { defaultAction: "add", importIntent: "new" },
+        defaults: { defaultAction: "add", importIntent: "new", contactMatchingOnly: emailMatchingOnly({ email: "Email" }) },
       }),
     );
     const payload = await response.json();
@@ -1496,6 +1498,7 @@ describe("constituency import preview route", () => {
           blackbaudConstituentId: "",
           lookupId: "",
         },
+        defaults: { contactMatchingOnly: emailMatchingOnly(mappings) },
       }),
     );
     const payload = await response.json();
@@ -2516,13 +2519,53 @@ describe("constituency import preview route", () => {
     const response = await POST(makeRequest({
       rows: [{ first: "Avery", last: "Newcomer", email2: "second@example.com", address: "42 Main St", zip: "32211-1234" }],
       mappings: { firstName: "first", lastName: "last", email2: "email2", addressLine1: "address", postalCode: "zip" },
-      defaults: { importIntent: "new", newRecordNameFormats: { addressee: "5", salutation: "6" } },
+      defaults: { importIntent: "new", newRecordNameFormats: { addressee: "5", salutation: "6" }, contactMatchingOnly: emailMatchingOnly({ email2: "email2" }) },
     }));
     const payload = await response.json();
     expect(response.status).toBe(200);
     expect(payload.rows[0].input).toMatchObject({ duplicateCheckVersion: 1, email2: "second@example.com", addressLine1: "42 Main St", postalCode: "32211-1234", newRecordNameFormats: { addressee: "5", salutation: "6" } });
     expect(payload.rows[0].input).not.toHaveProperty("nameFormatUpdate");
     expect(payload.rows[0].input).not.toHaveProperty("addressUpdates");
+  });
+
+  it.each(["new", "mixed", "updates"])("rejects silent contact omission before NXT lookups or persistence in %s mode", async (importIntent) => {
+    const { POST } = await import("./route.js");
+    const response = await POST(makeRequest({ rows: [{ email: "avery@example.test", phone: "9045551212" }],
+      mappings: { email: "email", phoneNumber: "phone" }, defaults: { importIntent }, saveRun: true }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).contactPlan.blockers).toHaveLength(2);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(findBlackbaudConstituentByEmailMock).not.toHaveBeenCalled();
+    expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it("retains both contacts and primary flags for a new record, filling only blank types", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    const response = await POST(makeRequest({ rows: [{ first: "Avery", last: "Newcomer", email: "avery@example.test", type: "Personal", ep: "Yes", phone: "9045551212", pp: "1" }],
+      mappings: { firstName: "first", lastName: "last", email: "email", emailType: "type", emailMakePrimary: "ep", phoneNumber: "phone", phoneMakePrimary: "pp" },
+      defaults: { importIntent: "new", updateEmailFields: true, updatePhoneFields: true, defaultEmailType: "Business", defaultPhoneType: "Mobile" } }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.rows[0].input).toMatchObject({
+      emailUpdates: [{ address: "avery@example.test", type: "Personal", makePrimary: true }],
+      phoneUpdates: [{ number: "9045551212", type: "Mobile", makePrimary: true }],
+    });
+    expect(payload.rows[0].intentDisposition.allowApply).toBe(false);
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
+
+  it("does not reinterpret an invalid primary flag as an omitted flag", async () => {
+    const { POST } = await import("./route.js");
+    const response = await POST(makeRequest({ rows: [{ email: "avery@example.test", primary: "primary please" }],
+      mappings: { email: "email", emailMakePrimary: "primary" }, defaults: { updateEmailFields: true } }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("use Yes or No");
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("keeps the saved row ID when re-preparing untouched rows (batch: %s)", async (appendRun) => {
