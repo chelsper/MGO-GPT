@@ -2,7 +2,7 @@
 
 ## Scope
 
-Prepared locally for the JU constituency import workflow. Not deployed as part of this implementation. No production database, NXT constituent, sandbox, email, cron, or environment settings were changed.
+Deployed to JU on October 6, 2026. The additive setup schema is initialized through the existing application schema guard. No constituent import, NXT write, sandbox deployment, email, cron configuration, or environment setting change was performed for this release.
 
 - Personal, database-backed setups for active Admin and Advancement Services accounts.
 - Save, rename/update, remove, and explicitly load setups across browser sessions/devices.
@@ -26,7 +26,7 @@ The preview route validates setup-based mappings, required IDs, primary flag val
 - Desktop (1280px) and mobile (390px) controls checked in a headless browser with fictional CSV values, mocked fetch responses, and all external requests blocked. No browser errors or overflow in the added controls.
 - Coverage includes owner/role/active-account isolation, sanitized storage, revision conflicts, duplicate names, removals without history changes, exact column reuse, missing/renamed/duplicate headers, default type/primary checks, preparation-only confirmation, reset on new upload, and no NXT calls from setup operations.
 
-Tests do not claim a live database migration or an actual NXT import. On an authorized JU-only deployment, verify the new table and save/reload one configuration-only setup, then delete the test setup. Do not run a live constituent import as a deployment smoke test.
+Tests do not claim a production setup save/reload/delete round trip or an actual NXT import. A configuration-only round trip remains a follow-up check with explicit approval for a temporary setup. Do not run a live constituent import as a deployment smoke test.
 
 ## Release Procedure
 
@@ -35,3 +35,17 @@ Deploy a clean archive directly to JU project `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY`
 Rollback: application `92620e62a033c54242cadbcd9667095ac410ca43`, deployment `dpl_8F1NBrCL9qwCzbBZJ3R3x6JHcfnK`. The additive setup table can remain during rollback.
 
 Before this release, sandbox is `dpl_2ErmrZ5uFZvbG3kGYEEodi6k3Brs`; the other app copy is `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`. Preserve both, JU's five cron schedules, and its existing PDF configuration. Record verification below only after deployment completes.
+
+## Verified Release
+
+- Application commit: `1c966eb25036cb123f76e7400b99e592a22de687`.
+- JU deployment: `dpl_HHvrNmbdUZqg8eCkkuSaoAkJEwGS`, `https://mgo-996ni76yz-chelspers-projects.vercel.app`.
+- Live domain: `https://www.jumgogpt.app`. `/api/version` confirms the application commit and deployment above.
+- A clean Git archive matched all 1,131 tested web files. No Git push was used. The candidate was checked before promoting that exact deployment.
+- Candidate and live root/import pages and JavaScript assets returned 200. The served import bundle contains saved-setup, editable-mapping, and per-file confirmation controls.
+- Unauthenticated setup GET/POST/PUT/DELETE, saved-run GET, and preview POST requests returned 401. No authenticated import or NXT write was used.
+- Before/after Vercel snapshots confirm the sandbox and other app copy retained the exact deployment IDs above. JU's root, framework, build/install settings, Git linkage, five cron paths/schedules, and PDF environment identities/batch size were unchanged.
+- Signed-in browser verification was inconclusive: the browser continued receiving an older import-page bundle after ordinary and cache-ignoring reloads, while independent live requests served the new bundle. Browser settings and live saved setups were left untouched. Do not describe an authenticated save/reload/delete check as completed.
+- Build completed successfully. Vercel retained a non-blocking optional `canvas` resolution warning; this release adds no dependency on it.
+
+Release evidence is retained locally in `/tmp/ju-import-setups-deploy.log`, `/tmp/ju-import-setups-projects-before.json`, and `/tmp/ju-import-setups-projects-after.json`. These temporary files are not required for application operation.
