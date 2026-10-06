@@ -2545,6 +2545,18 @@ describe("constituency import preview route", () => {
     expect(sqlMock.mock.calls.some(([parts]) => parts.join(" ").includes("ON CONFLICT"))).toBe(true);
   });
 
+  it("cannot replace a contact correction with another uploaded file", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    sqlMock.mockResolvedValue([{ id: 42, workspace_user_id: 7, defaults: { contactRecoverySourceRunId: "40" } }]);
+    const response = await POST(makeRequest({ rows: [{ first: "Avery", last: "Newcomer" }],
+      mappings: { firstName: "first", lastName: "last" }, defaults: { importIntent: "new" },
+      saveRun: true, existingRunId: "42" }));
+    expect(response.ok).toBe(false);
+    expect((await response.json()).error).toContain("created IDs cannot be replaced");
+    expect(sqlMock.mock.calls.some(([parts]) => /DELETE|INSERT|UPDATE/.test(parts.join(" ")))).toBe(false);
+  });
+
   it("does not retain an out-of-range row from an earlier partial preview", async () => {
     const { POST } = await import("./route.js");
     searchBlackbaudConstituentsMock.mockResolvedValue([]);

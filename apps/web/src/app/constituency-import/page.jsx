@@ -19,6 +19,7 @@ import { importRecoveryState } from "@/utils/quickImportWorkflow";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
 import ImportCompletionNotice from "@/components/ImportCompletionNotice";
+import ImportContactRecovery from "@/components/ImportContactRecovery";
 import { isImportVerificationComplete } from "@/utils/importCompletion";
 import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget, importErrorLabel, withFocusedImportRow } from "@/utils/importMatchReview";
 import { importMatchEvidence } from "@/utils/importMatchEvidence";
@@ -8019,6 +8020,12 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
+          {isReviewer && preview?.savedRun ? (
+            <ImportContactRecovery key={`contact-recovery-${preview.savedRun.id}`}
+              run={preview.savedRun} rows={preview.rows}
+              disabled={Boolean(quickCreating || applyingRun || creatingRowId || previewing || savingRun || loadingRunId || hasDirtyReviewChoices || editingSavedRowId || savingCombinedReviewRowId || savingSavedRowCorrectionId)}
+              onOpen={loadSavedRun} />
+          ) : null}
           {preview?.savedRun && preview.rows.some((row) => ["ready_new", "potential_new", "created_new_record"].includes(row.intentDisposition?.key)) ? (
             <QuickNewConstituentImport
               key={preview.savedRun.id}

@@ -19,6 +19,9 @@ export async function verifyImportTargetIdentity({ request, user, row }) {
   if (!targetId || !saved || targetId !== saved.blackbaudConstituentId || preview.matchReview?.decision === "rejected") {
     return hold("missing_or_conflicting_saved_target");
   }
+  if (preview.contactRecovery && text(preview.contactRecovery.targetId) !== targetId) {
+    return hold("contact_recovery_target_changed");
+  }
 
   let payload;
   try {

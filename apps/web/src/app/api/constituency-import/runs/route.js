@@ -20,6 +20,7 @@ function serializeRun(row, { quotaPaused = false } = {}) {
     id: String(row.id),
     status: row.status,
     sourceFilename: row.source_filename || "",
+    contactRecoverySourceRunId: row.defaults?.contactRecoverySourceRunId || null,
     rowCount: Number(row.row_count || 0),
     readyCount: Number(row.ready_count || 0),
     needsReviewCount: Number(row.needs_review_count || 0),

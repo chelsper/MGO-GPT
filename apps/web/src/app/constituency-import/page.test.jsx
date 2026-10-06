@@ -39,6 +39,34 @@ async function openRun() {
 }
 
 describe("standard import completion flow", () => {
+  it("opens a contact correction from saved history without re-uploading, creating constituents, or sending updates", async () => {
+    const baseFetch = fetch.getMockImplementation();
+    fetch.mockImplementation(async (url, options) => {
+      if (url === "/api/constituency-import/runs/42/contact-recovery") return json(options?.method === "POST" ? { runId: "77" } : {
+        rows: [{ sourceRowId: "9", rowNumber: 1, targetId: "123", name: "Jane Dolphin", hasOmittedContacts: true, blockers: [], stagedKinds: [],
+          emailUpdates: [{ address: "jane@example.test", type: "Personal", makePrimary: true }], phoneUpdates: [] }],
+      });
+      if (url === "/api/constituency-import/runs?id=77") return json({ savedRun: { id: "77", contactRecoverySourceRunId: "42" }, warnings: [], summary: { total: 1, ready: 1 }, rows: [{
+        id: "19", rowNumber: 1, status: "Ready", importIntent: "updates", match: rows[0].match,
+        input: { firstName: "Jane", lastName: "Dolphin", constituentName: "Jane Dolphin", blackbaudConstituentId: "123", emailUpdates: [{ address: "jane@example.test", type: "Personal", makePrimary: true }] },
+        contactRecovery: { sourceRunId: "42", sourceRowId: "9", targetId: "123" },
+        contactSnapshotStatus: { emails: true, phones: true, addresses: true }, contactsSnapshotLoaded: true,
+        currentContacts: { emails: [], phones: [], addresses: [] },
+        contactReviewDecisions: { email: { 0: { mode: "add", makePrimary: true } } },
+        writePlan: [{ type: "email_address", action: "add", address: "jane@example.test", emailType: "Personal", makePrimary: true }], reasons: [],
+      }] });
+      return baseFetch(url, options);
+    });
+    await openRun();
+    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Prepare contact correction (1)" }));
+    expect(await screen.findByRole("button", { name: "Back to original import" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Confirm as new constituent/ })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => url)).toEqual(["/api/constituency-import/runs/42/contact-recovery"]);
+    fireEvent.click(screen.getByRole("button", { name: "Back to original import" }));
+    expect(await screen.findByRole("button", { name: "Complete missing contact information" })).toBeEnabled();
+  });
+
   it("opens the exact requested saved row only after a click, preserving the no-preload handoff", async () => {
     rows.push({ ...structuredClone(rows[0]), id: "10", rowNumber: 2, input: { firstName: "Requested", lastName: "Person" }, match: { blackbaudConstituentId: "124", name: "Requested Person" } });
     window.history.replaceState({}, "", "/constituency-import?queueRun=42&queueRow=10");

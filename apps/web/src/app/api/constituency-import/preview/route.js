@@ -2873,6 +2873,9 @@ async function savePreviewBatch({
     if (!run) {
       throw new Error("The saved import run could not be found.");
     }
+    if (run.defaults?.contactRecoverySourceRunId) {
+      throw new Error("Continue the saved contact correction. Its source and created IDs cannot be replaced with another file.");
+    }
     if (String(run.workspace_user_id || "") !== String(workspaceUser.id)) {
       throw new Error("You can only update your own saved import run.");
     }

@@ -87,6 +87,21 @@ NXT configured name formats use `primary_addressee` / `primary_salutation` with 
 
 These safeguards apply to the standard constituency import. Family Import is deferred and unchanged.
 
+### Recover Omitted Email And Phone Fields
+
+Open the original saved import from history and choose **Complete missing contact information**. The check reads saved upload values and saved created IDs only; it does not search or write to NXT. It works on older saved runs without re-uploading the CSV or copying the newly created IDs.
+
+1. Review the recovered email and phone values, including secondary contacts and primary flags. Where a type was blank, enter the NXT email/phone type once as a fallback; existing mapped types are retained. Blank primary flags do not authorize changing the current primary.
+2. Select the eligible records and choose **Prepare contact correction**. This creates a linked update-only batch in the app, not constituents or contacts in NXT. The original source, row results, and write audit remain unchanged. Its run metadata gains a link to each prepared correction.
+3. Review current contacts in the correction using the existing import review/send controls. Every send rechecks the exact target identity and current contacts; existing contact values are not duplicated. Names, constituency codes, and other originally successful work are not included in this correction.
+4. Repeated clicks or lost responses reopen the same saved correction. **Back to original import** and **Open saved correction** retain the navigation between batches. Rows not included in one correction can be recovered later in another.
+
+This first recovery path covers mapped emails and phones omitted from the original write plan, such as when contact-import switches were off. Contacts already staged or attempted remain in their original checkpointed resume, retry, or verification flow; **Review original row** opens that record. Active operations, unknown creation outcomes, uncertain prior writes, conflicting saved IDs, invalid values, and ambiguous primary flags are held. Recovery never infers a target from a name, email, or uploaded ID, clears duplicate history, or retries an uncertain POST.
+
+The correction target is fixed to the original created system ID and cannot be retargeted or re-prepared with another file. Preparing the source link, correction run, and rows uses one atomic SQL statement with source snapshot comparisons. No schema migration is required. Malformed or paginated contact reads are held instead of being treated as empty lists.
+
+Automated tests use fictional recipients and mocked NXT. The optional `contact-recovery/postgres.test.js` suite supports an isolated local PostgreSQL socket via `IMPORT_RECOVERY_TEST_SOCKET` (and `IMPORT_RECOVERY_TEST_PORT`), or an in-memory PGlite runtime via `IMPORT_RECOVERY_TEST_PGLITE` pointing to its `dist/index.js`. It checks transaction rollback, overlapping preparation requests, retained source history, and later corrections for other rows. Never point this test at an application database. The four database tests passed with in-memory PGlite on October 6, 2026; no production data or NXT calls were used.
+
 - Re-preparing an unsent run updates its existing row IDs rather than deleting them. A run with creation checks, write attempts, partial results, completed records, or an active send cannot have its preview replaced. Use its saved review/retry controls, or start a separate import for different source data. Removing source rows also requires a new run.
 - Standard staged NXT writes have no automatic transport retries. Each staged change is checkpointed before sending and after its outcome. A timeout, lost response, or uncertain server error stops that row; it is not evidence that NXT saved nothing. An interrupted request remains protected from resending or re-preview.
 - Retry failed NXT write is offered only for safely retryable failures. Previously successful changes are retained across all attempts and are not repeated. Legacy non-idempotent failures without a clear rejection are held for comparison, not guessed safe. Concurrent retries must match the exact saved audit as well as the target and write plan.

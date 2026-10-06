@@ -65,6 +65,7 @@ export function canChangeImportMatch(row) {
   if (!row || !["Ready", "Needs Review", "Conflict", "Skipped"].includes(row.status)) return false;
   const result = row.blackbaud_result || row.blackbaudResult || {};
   return !(
+    getPreview(row)?.contactRecovery ||
     row.applied_at || row.appliedAt ||
     row.created_blackbaud_constituent_id || row.createdBlackbaudConstituentId ||
     row.create_request_started_at || row.createRequestStartedAt ||
