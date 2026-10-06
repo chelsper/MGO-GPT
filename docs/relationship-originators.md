@@ -47,4 +47,4 @@ Before production acceptance, verify the JU category type/table values and one a
 - Full regression run: 444 test files and 5,854 tests passed; 174 tests skipped. After the final scoped-field validation and route tests were added, the focused service/route run passed all 26 tests.
 - Final production build, typecheck, release checks and `git diff --check` passed.
 - Four disposable PostgreSQL integration tests remain unverified: local `initdb` could not allocate shared memory on this machine. No production database was substituted.
-- No live NXT records were changed, and this feature has not been deployed. Verify the additive schema and the NXT prerequisites before production acceptance.
+- No live NXT records were changed during verification. The subsequent JU deployment is recorded in [the release notes](ju-relationship-originator-release-2026-10-06.md). Live NXT write acceptance and the disposable database tests remain outstanding.
