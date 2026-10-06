@@ -41,3 +41,27 @@ Other app copy: `dpl_29oY1mAgmUuZJGGHR9ySSakcJDKp`.
 Preserve JU's five cron paths/schedules and existing PDF settings. Keep unrelated
 local work out of the release archive. Record the final deployment and checks
 below only after verification.
+
+## Verified Release
+
+Promoted to <https://www.jumgogpt.app> on October 6, 2026.
+
+- Application commit: `92620e62a033c54242cadbcd9667095ac410ca43`.
+- Deployment: `dpl_8F1NBrCL9qwCzbBZJ3R3x6JHcfnK`, READY.
+- Release rerun: 5,684 tests passed, 166 skipped; 433 files passed, 12 skipped.
+  Typecheck, local and hosted builds, release guard, and diff checks passed.
+  Existing dependency/build warnings remain unchanged.
+- All archived web files matched the tested workspace. The upload excluded
+  local environment files, build output, untracked services, and unrelated
+  local edits. The effective manifest retained all five JU cron schedules.
+- Candidate and live version endpoints matched the expected application SHA
+  and deployment ID. Homepage, import page, entry assets, and the import bundle
+  returned 200. The served bundle contained the new overview and approval labels.
+- Import history and preview endpoints returned 401 without an app session.
+  Candidate checks used Vercel deployment-protection access, not app login.
+- JU project/root/build settings, PDF settings, Git linkage, and five cron
+  paths/schedules were unchanged. Sandbox and the other app copy remained on
+  the exact pre-release deployment IDs recorded above.
+- No Git push, PDF converter deployment, authenticated import, or NXT write
+  was performed. Promotion followed candidate verification; the live domain
+  remained on the prior application release until that promotion.
