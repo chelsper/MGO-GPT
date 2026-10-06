@@ -2,6 +2,7 @@ import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
 import { LIST_SCHEMA } from "@/utils/constituentLists";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
 import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
+import { CAMPAIGN_REPORT_KEY } from "@/utils/campaignPriorities";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -81,6 +82,23 @@ const CONFIGURABLE_REPORT_TYPE_KEYS = Object.freeze([
   REPORT_TYPES.QUERY_BASED,
   REPORT_TYPES.MGO_GPT,
 ]);
+
+const CAMPAIGN_REPORT_DEFINITION = Object.freeze({
+  key: CAMPAIGN_REPORT_KEY,
+  reportType: REPORT_TYPES.QUERY_BASED,
+  adapterKey: "campaign-priorities",
+  configurationSchema: "campaign-priorities-v1",
+  configurationSchemaVersion: 1,
+  href: "/reports/dashboards/future-made-campaign",
+  title: "Future. Made. Campaign",
+  description: "Campaign giving by priority, with fund assignments and auditable local gift-allocation adjustments.",
+  audienceMode: "shared_snapshot",
+  defaultVisibility: "specific_users",
+  dataConfigurationType: null,
+  configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+  presentationNote: "Select viewers here. Configure the saved Gift query, fund priorities and campaign-only adjustments inside the dashboard. Opening it never refreshes NXT.",
+  presentationNoteTone: "info",
+});
 
 export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
   Object.freeze({
@@ -165,6 +183,7 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
       "This dashboard uses saved NXT query snapshots. Standard report visits do not make a new NXT request.",
     presentationNoteTone: "info",
   }),
+  CAMPAIGN_REPORT_DEFINITION,
 ]);
 
 const STANDARD_REPORTS_BY_KEY = new Map(

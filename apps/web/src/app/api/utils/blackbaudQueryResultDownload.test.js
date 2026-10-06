@@ -168,6 +168,22 @@ describe("optional bounded metadata downloads", () => {
     await streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 150000 }, () => ({ write: chunk => sizes.push(chunk.length), finish: () => null }));
     expect(sizes).toEqual([65536, 65536, 18928]);
   });
+  it("awaits asynchronous batch writes and finish before reporting success", async () => {
+    streamedResponse([bytes("first"),bytes("second")]);
+    let active = false;
+    const events = [];
+    const result = await streamBlackbaudQueryResultWithMetadata(resultUrl,{ maxBytes: 100 },() => ({
+      async write(chunk) { expect(active).toBe(false); active = true; await Promise.resolve(); events.push(new TextDecoder().decode(chunk)); active = false; },
+      async finish() { expect(active).toBe(false); await Promise.resolve(); events.push("finished"); return { saved: true }; },
+    }));
+    expect(events).toEqual(["first","second","finished"]); expect(result.result).toEqual({ saved: true });
+  });
+  it("aborts the stream when an asynchronous storage write rejects", async () => {
+    const { reader } = streamedResponse([bytes("first"),bytes("unread")]);
+    const finish = vi.fn();
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl,{ maxBytes: 100 },() => ({ async write() { throw new Error("staging unavailable"); },finish }))).rejects.toThrow("staging unavailable");
+    expect(reader.cancel).toHaveBeenCalledOnce(); expect(finish).not.toHaveBeenCalled();
+  });
   it.each([{}, { "Content-Length": "1" }, { "Content-Length": "invalid" }])("cancels streamed overflows and never finishes the consumer: %s", async headers => {
     const { reader } = streamedResponse([bytes("12"), bytes("345"), bytes("unread")], headers);
     const consumer = { write: vi.fn(), finish: vi.fn() };

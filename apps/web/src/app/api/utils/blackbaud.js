@@ -1057,7 +1057,7 @@ async function readBoundedQueryResult(response, maxBytes, controller, onChunk) {
       }
       if (onChunk) {
         for (let offset = 0; offset < value.byteLength; offset += 65536) {
-          onChunk(value.subarray(offset, offset + 65536));
+          await onChunk(value.subarray(offset, offset + 65536));
         }
       }
       else chunks.push(value);
@@ -1187,7 +1187,7 @@ async function readBlackbaudQueryResultWithMetadata(
         throw error;
       }
       await readBoundedQueryResult(response, maxBytes, controller, (chunk) => consumer.write(chunk));
-      return { ...metadata, result: consumer.finish() };
+      return { ...metadata, result: await consumer.finish() };
     }
     // Diagnostics retain their original unbounded behavior unless opted in.
     let body;

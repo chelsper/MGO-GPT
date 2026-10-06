@@ -165,6 +165,13 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const [pageFeedback, setPageFeedback] = useState(null);
   const [newReport, setNewReport] = useState(null);
   const [importFocus, setImportFocus] = useState(0);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (initialConfigurations.some(report => report.key === params.get("report"))) {
+      setSelectedKey(params.get("report"));
+      if (TABS.includes(params.get("tab"))) setTab(params.get("tab"));
+    }
+  }, [initialConfigurations]);
   const allReports = newReport ? [...configurations, newReport] : configurations;
   const configuration = allReports.find((report) => report.key === selectedKey);
   const draft = drafts[selectedKey];

@@ -51,6 +51,15 @@ describe("report configuration save contracts", () => {
 });
 
 describe("single-report editor", () => {
+  it("opens the campaign access editor from its Manage viewers link without saving", () => {
+    window.history.replaceState({}, "", "/report-configurations?report=future-made-campaign&tab=Access");
+    try {
+      render(<ReportConfigurationEditor initialConfigurations={[builtin("portfolio-fy-giving"),builtin("future-made-campaign")]} users={users} />);
+      expect(screen.getByLabelText("Selected report")).toHaveValue("future-made-campaign");
+      expect(screen.getByRole("tab", { name: "Access" })).toHaveAttribute("aria-selected", "true");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { window.history.replaceState({}, "", "/"); }
+  });
   it("opens the requested A-Train setup as an unsaved, disabled report without NXT reads", async () => {
     const saved = { ...dashboard(), title: "The A-Train Campaign", key: "dashboard-train", specificUserIds: [] };
     fetch.mockResolvedValue(jsonResponse({ configuration: saved }));

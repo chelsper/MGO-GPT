@@ -2,6 +2,7 @@ export const DASHBOARDS_KEY = "dashboards";
 export const DASHBOARDS_HREF = "/reports/dashboards";
 export const isReportDashboard = (report) =>
   report?.key === "alumni-family-engagement" ||
+  report?.key === "future-made-campaign" ||
   report?.configurationSchema === "query-count-dashboard-v1";
 
 export function visibleDashboards(reports = []) {
