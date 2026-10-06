@@ -1424,10 +1424,11 @@ export default function SocietyLettersPage() {
                     </label>
                     {data.postalPdf?.enabled && postalFormat === "pdf" && (
                       <p className="mt-2 text-sm text-gray-600">
-                        PDF batches are limited to {deliveryBatchLimit}{" "}
-                        households for this initial rollout. Word batches still
-                        allow 10. Review each saved PDF before approving;
-                        preparing a document does not apply appeals.
+                        Create up to {deliveryBatchLimit} PDFs per batch, one
+                        letter per household or individual. Documents are
+                        prepared one at a time and progress is saved. Review
+                        each PDF before approving; preparing documents does not
+                        apply appeals.
                       </p>
                     )}
                     {!data.postalPdf?.enabled && (

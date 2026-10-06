@@ -413,7 +413,176 @@ describe("saved postal batch approvals", () => {
       ).rejects.toMatchObject({ status: 409 });
     },
   );
-  it("enforces the PDF pilot limit on the server before saving or updating appeals", async () => {
+  it("prepares ten PDFs resumably and applies each member's appeal only once after approval", async () => {
+    const f = await draftFixture("pdf");
+    vi.stubEnv("SOCIETY_PDF_MAX_BATCH_SIZE", "10");
+    f.state.postalDraft = null;
+    const ids = Array.from({ length: 10 }, (_, i) => String((i + 1) * 10));
+    for (const id of ids.slice(1)) {
+      const row = structuredClone(f.row);
+      const spouse = String(Number(id) + 1);
+      row.householdId = id;
+      row.members = [id, spouse];
+      row.memberNames.forEach((member, i) => {
+        member.constituentId = row.members[i];
+      });
+      row.recipientCandidates[0].constituentId = id;
+      f.state.snapshot.rows.push(row);
+      for (const [index, member] of row.members.entries()) {
+        const profile = structuredClone(f.profiles[index ? "11" : "10"]);
+        profile.profile.id = member;
+        profile.profile.spouse.id = row.members[1 - index];
+        profile.profile.address.id = `a${member}`;
+        profile.profile.address.constituent_id = member;
+        f.profiles[member] = profile;
+      }
+      await saveLetterRecipientReview(
+        f.state,
+        row,
+        f.state.snapshot.signature,
+        {
+          ...row.recipientCandidates[0],
+          confirm: true,
+          reviewToken: recipientReviewForRow(
+            f.state,
+            row,
+            f.state.snapshot.signature,
+          ).token,
+          recipientConstituentId: id,
+          addressConstituentId: id,
+        },
+        f.store,
+        ctx.user.id,
+      );
+    }
+    f.store.createPostalDraft.mockClear();
+    await expect(
+      startPostalDraft(
+        f.state,
+        definitions,
+        today,
+        {
+          householdIds: [...ids, "110"],
+          format: "pdf",
+        },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toThrow("Choose 1-10 distinct ready households");
+    expect(f.store.createPostalDraft).not.toHaveBeenCalled();
+    const draftId = await startPostalDraft(
+      f.state,
+      definitions,
+      today,
+      {
+        householdIds: ids,
+        format: "pdf",
+      },
+      f.store,
+      ctx,
+    );
+    const convert = vi.fn(async () => {
+      if (convert.mock.calls.length === 5)
+        throw new Error("Temporary conversion failure");
+      return Buffer.from(
+        `%PDF-1.7\nfictional ${convert.mock.calls.length}\n%%EOF`,
+      );
+    });
+    const prepare = (householdId) =>
+      preparePostalDocument(
+        f.state,
+        definitions,
+        today,
+        { draftId, householdId },
+        f.store,
+        convert,
+      );
+    for (const id of ids.slice(0, 4)) await prepare(id);
+    const saved = structuredClone(f.state.postalDraft.entries.slice(0, 4));
+    await expect(prepare(ids[4])).rejects.toThrow(
+      "Temporary conversion failure",
+    );
+    expect(f.documents.size).toBe(4);
+    expect(f.state.postalDraft.entries.slice(0, 4)).toEqual(saved);
+    expect(f.client.create).not.toHaveBeenCalled();
+
+    // Reopening the draft reuses saved documents instead of converting them again.
+    for (const id of ids) await prepare(id);
+    expect(convert).toHaveBeenCalledTimes(11);
+    expect(f.documents.size).toBe(10);
+    expect(f.state.postalDraft.entries.slice(0, 4)).toEqual(saved);
+    await expect(
+      approvePostalDraft(
+        f.state,
+        definitions,
+        today,
+        {
+          draftId,
+          confirm: true,
+        },
+        f.store,
+        ctx,
+        f.read,
+      ),
+    ).rejects.toThrow(/Preview and approve every document/);
+    for (const entry of f.state.postalDraft.entries) {
+      await reviewPostalDocument(
+        f.state,
+        definitions,
+        today,
+        {
+          draftId,
+          householdId: entry.householdId,
+          documentHash: entry.document.sha256,
+          confirm: true,
+        },
+        f.store,
+        ctx,
+      );
+    }
+    await approvePostalDraft(
+      f.state,
+      definitions,
+      today,
+      {
+        draftId,
+        confirm: true,
+      },
+      f.store,
+      ctx,
+      f.read,
+    );
+    expect(f.state.history).toHaveLength(10);
+    expect(f.client.create).not.toHaveBeenCalled();
+    const advance = () =>
+      continuePostalBatch(
+        f.state,
+        definitions,
+        today,
+        {
+          batchId: draftId,
+          confirm: true,
+        },
+        f.store,
+        ctx,
+        (...args) => syncLetterAppeals(...args, f.reader, f.client),
+        f.read,
+      );
+    for (let i = 0; i < 10; i++) {
+      await advance();
+      expect(f.client.create).toHaveBeenCalledTimes((i + 1) * 2);
+    }
+    await advance();
+    expect(f.client.create).toHaveBeenCalledTimes(20);
+    expect(new Set(f.client.create.mock.calls.map(([id]) => id)).size).toBe(20);
+    expect(
+      f.state.history.every((item) => item.letterAppeals.status === "complete"),
+    ).toBe(true);
+    expect(
+      (await postalBatchDownload(f.state.history, f.read)).length,
+    ).toBeGreaterThan(0);
+  });
+  it("enforces a lower configured PDF limit on the server before saving or updating appeals", async () => {
     const f = await draftFixture("pdf");
     f.state.postalDraft = null;
     f.store.createPostalDraft.mockClear();

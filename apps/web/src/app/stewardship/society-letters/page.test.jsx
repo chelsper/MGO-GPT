@@ -615,10 +615,13 @@ describe("society letter workspace", () => {
     ).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
-  it.each(["docx", "pdf"])(
-    "selects only the configured %s batch limit and starts a draft, not delivery",
-    async (format) => {
-      const limit = format === "pdf" ? 3 : 10;
+  it.each([
+    ["docx", 3, 10],
+    ["pdf", 3, 3],
+    ["pdf", 10, 10],
+  ])(
+    "selects the %s batch limit with PDF cap %i and starts a draft, not delivery",
+    async (format, pdfLimit, limit) => {
       const rows = Array.from({ length: 12 }, (_, index) =>
         reviewRow(String(10 + index), true),
       );
@@ -626,7 +629,7 @@ describe("society letter workspace", () => {
         ...base,
         settings: societyQuerySettings(),
         rows: [reviewRow("99"), ...rows],
-        postalPdf: { enabled: true, maxBatchSize: 3 },
+        postalPdf: { enabled: true, maxBatchSize: pdfLimit },
       };
       fetchMock.mockImplementation(async () => Response.json(payload));
       render(<Page />);
@@ -657,15 +660,16 @@ describe("society letter workspace", () => {
       });
     },
   );
-  it("uses the latest saved revision for each sequential document request", async () => {
+  it("prepares ten PDFs sequentially using the latest saved revision for each request", async () => {
+    const householdIds = Array.from({ length: 10 }, (_, i) => String(10 + i));
     const payload = {
       ...base,
       settings: societyQuerySettings(),
       postalDraft: {
         id: "draft",
-        format: "docx",
+        format: "pdf",
         status: "draft",
-        entries: ["10", "20"].map((id) => ({
+        entries: householdIds.map((id) => ({
           householdId: id,
           row: { name: `Example ${id}`, members: [id] },
           appeal: { id: "100", description: "Example appeal" },
@@ -691,12 +695,17 @@ describe("society letter workspace", () => {
         exact: true,
       }),
     );
-    await screen.findByText(/2 of 2 documents prepared; 0 approved/);
+    await screen.findByText(/10 of 10 documents prepared; 0 approved/);
     expect(
       fetchMock.mock.calls
         .filter(([, options]) => options?.method === "POST")
         .map(([, options]) => JSON.parse(options.body).revision),
-    ).toEqual([1, 2]);
+    ).toEqual(Array.from({ length: 10 }, (_, i) => i + 1));
+    expect(
+      fetchMock.mock.calls
+        .filter(([, options]) => options?.method === "POST")
+        .map(([, options]) => JSON.parse(options.body).householdId),
+    ).toEqual(householdIds);
   });
   it("goes back one workspace screen with filters and unsaved source settings intact", async () => {
     render(<Page />);

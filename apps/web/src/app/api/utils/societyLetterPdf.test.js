@@ -12,6 +12,14 @@ const env = {
 };
 const content = "%PDF-1.7\nfictional converter response\n%%EOF";
 describe("private letter PDF conversion", () => {
+  it.each([undefined, "10"])(
+    "supports ten PDFs with batch configuration %s without exposing credentials",
+    (limit) => {
+      expect(
+        postalPdfCapability({ ...env, SOCIETY_PDF_MAX_BATCH_SIZE: limit }),
+      ).toEqual({ enabled: true, maxBatchSize: 10 });
+    },
+  );
   it("keeps Vercel and converter authorization separate and exposes only the pilot limit", async () => {
     const config = {
       ...env,
