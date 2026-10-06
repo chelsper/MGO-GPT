@@ -27,6 +27,18 @@ Blank email or phone types can use a file-wide NXT type supplied once in the con
 
 The server rejects unresolved contact choices before NXT lookups or import persistence: mapped nonblank values must either be enabled for import or explicitly excluded for their exact column mappings. Adding/changing a mapped contact column invalidates a previous omission choice. Invalid or conflicting primary flags and malformed default types also stop preparation. Missing types and other per-row contact issues are shown before preparation, while the existing record-review and creation safeguards remain in force. Existing saved imports do not acquire new contact writes or approvals; use their established review, retry, or contact-recovery controls.
 
+## Import Review Overview
+
+**Your import at a glance** replaces the repeated progress summaries with five filterable groups: New records, Ready updates, Needs attention, Completed, and Skipped. Counts are derived from the loaded rows; verified completion is tracked separately from an accepted import. Opening a run starts at an exception when present, while links to a specific saved row retain that target.
+
+Use **Review exceptions** for individual decisions, or **Review ready updates together** to inspect prepared changes and select eligible existing-record updates. Selection starts empty and sending still requires explicit confirmation. New-record candidates, deferred checks, missing replacement targets, in-flight work, and prior write attempts are excluded from this bulk selection. The new-record creation workflow remains separately approved and checkpointed. No server write permissions or duplicate protections changed.
+
+Every record shows its requested or prepared changes near its heading, including contact types, primary changes, replacement targets, and complete address values. Matching-only email/address values are not presented as contact updates. Previous attempts appear as history, not a plan queued for resending. Use the established completion, recovery, and retry controls for those records. New-record values are labeled as requests until checks and approval pass.
+
+**Save and continue review** is the single entry point for saving an unsaved preview. Filters, navigation, and bulk approval are unavailable while row edits are unsaved or an operation is running. Viewing the whole ready group does not load NXT details across the batch; opening an individual row retains the existing bounded read behavior. There is no new automatic send, NXT query scan, or database migration.
+
+Regression coverage includes mixed-file group counts, exception-first focus, preserved saved-row links, read-only completion, explicit contact descriptions, empty initial batch selection, cancelled send confirmations, exact eligible row IDs, and unsaved-edit navigation locks. Desktop and 390px mobile browser checks use fictional records with external requests blocked. These checks do not perform a live import or verify a production deployment.
+
 ## Comparing Suggested Matches
 
 The review section displays saved **Suggested NXT matches** directly, including names, lookup IDs, available email/address details, and **Open NXT record**, **Use this match**, and **Not a match** controls. A selected record also appears beside the CSV identity. NXT links open the actual system record in a separate tab; no manual lookup is required.

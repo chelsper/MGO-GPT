@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: { email: "reviewer@example.test", role: "reviewer" }, loading: false }) }));
 import ConstituencyImportPage from "./page";
+import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
 
 let rows, matches;
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
@@ -114,8 +115,7 @@ describe("standard import completion flow", () => {
     await screen.findByText("The record stays in review. No changes were sent to NXT.");
     expect(screen.getByText("Needs review: Phone is not primary in NXT")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Verify in NXT and finish" })).toBeEnabled();
-    const verifiedLabel = screen.getByText("Verified", { exact: true });
-    expect(within(verifiedLabel.parentElement).getByText("0", { exact: true })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Import overview" })).getByText("Verified: 0 of 0 completed")).toBeInTheDocument();
     matches = true;
     fireEvent.click(screen.getByRole("button", { name: "Verify in NXT and finish" }));
     await screen.findByRole("heading", { name: "Import complete" });
@@ -157,6 +157,79 @@ it("renders quick creation controls for a potential new row without an undefined
   await screen.findByText(/Create clear nonmatches/);
 });
 
+describe("filterable import review", () => {
+  async function openMixedRun() {
+    const ready = { id: "11", rowNumber: 1, status: "Ready", importIntent: "mixed", confidence: 100,
+      input: { constituentName: "Ready Person", firstName: "Ready", lastName: "Person", blackbaudConstituentId: "201",
+        addressUpdates: [{ addressLine1: "1 Example St", city: "Jacksonville", state: "FL", postalCode: "32211", type: "Home", makePrimary: false }] },
+      match: { blackbaudConstituentId: "201", name: "Ready Person" }, intentDisposition: { key: "ready_update", allowApply: true },
+      matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION, matchSuggestionsCheckedAt: "2026-10-06T12:00:00Z",
+      contactsSnapshotLoaded: true, contactSnapshotStatus: { emails: true, phones: true, addresses: true },
+      currentContacts: { emails: [], phones: [], addresses: [] }, reasons: [],
+      writePlan: [{ type: "phone", action: "add", number: "9045551212", phoneType: "Mobile", makePrimary: true }] };
+    rows = [ready,
+      { id: "12", rowNumber: 2, status: "Needs Review", importIntent: "new", input: { firstName: "New", lastName: "Person" },
+        intentDisposition: { key: "potential_new" }, match: null, writePlan: [], reasons: [] },
+      { ...rows[0], id: "9", rowNumber: 3 },
+      { ...ready, id: "14", rowNumber: 4, status: "Applied", appliedAt: "2026-10-06", match: { blackbaudConstituentId: "204", name: "Finished Person" }, input: { constituentName: "Finished Person" } },
+      { ...ready, id: "15", rowNumber: 5, status: "Skipped", blackbaudResult: { type: "import_row_skipped" }, input: { constituentName: "Skipped Person" } },
+    ];
+    render(<ConstituencyImportPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
+    await screen.findByRole("region", { name: "Import overview" });
+    return within(screen.getByRole("region", { name: "Import overview" }));
+  }
+  it("starts at exceptions, shows separate counts, and filters without sending", async () => {
+    const overview = await openMixedRun();
+    for (const label of ["New records", "Ready updates", "Needs attention", "Completed", "Skipped"]) {
+      expect(overview.getByRole("button", { name: `${label} 1` })).toBeEnabled();
+    }
+    expect(overview.getByRole("button", { name: "Needs attention 1" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Verify in NXT and finish" })).toBeEnabled();
+    fireEvent.click(overview.getByRole("button", { name: "Completed 1" }));
+    expect(screen.getByRole("region", { name: "Record change summary" })).toHaveTextContent("Imported; not yet verified");
+    expect(screen.queryByRole("button", { name: "Verify in NXT and finish" })).not.toBeInTheDocument();
+    fireEvent.click(overview.getByRole("button", { name: "Skipped 1" }));
+    expect(screen.getByRole("region", { name: "Record change summary" })).toHaveTextContent("Skipped");
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+  });
+  it("requires explicit selection and confirmation and sends only eligible existing-record updates", async () => {
+    const overview = await openMixedRun();
+    const baseFetch = fetch.getMockImplementation();
+    fetch.mockImplementation(async (url, options) => url === "/api/constituency-import/runs/42/apply"
+      ? json({ savedRun: { id: "42", defaults: {} }, rows: rows.map((row) => row.id === "11" ? { ...row, status: "Applied" } : row),
+        summary: {}, warnings: [], applySummary: { applied: 1, manualRequired: 0, failed: 0 } }) : baseFetch(url, options));
+    fireEvent.click(overview.getByRole("button", { name: "Review ready updates together (1)" }));
+    expect(screen.getAllByRole("region", { name: "Record change summary" })).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "Record change summary" })).toHaveTextContent("Add phone: 9045551212 (Mobile); set as primary");
+    expect(screen.getByRole("button", { name: "Import selected rows to NXT" })).toBeDisabled();
+    expect(screen.getAllByRole("checkbox", { name: "Include in NXT batch" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Select all ready" }));
+    window.confirm.mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 row to NXT" }));
+    expect(fetch.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(0);
+    window.confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 row to NXT" }));
+    await screen.findByText("Applied import run #42.");
+    const writes = fetch.mock.calls.filter(([, options]) => options?.method === "POST");
+    expect(writes).toHaveLength(1);
+    expect(writes[0][0]).toBe("/api/constituency-import/runs/42/apply");
+    expect(JSON.parse(writes[0][1].body)).toEqual({ rowIds: ["11"] });
+    expect(screen.getByText("No records in this group. Choose another group above.")).toBeInTheDocument();
+  });
+  it("does not navigate away from unsaved row corrections or offer bulk approval", async () => {
+    const overview = await openMixedRun();
+    fireEvent.click(overview.getByRole("button", { name: "Ready updates 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Correct staged CSV values" }));
+    expect(overview.getAllByRole("button").every((button) => button.disabled)).toBe(true);
+    expect(screen.getByText("Save or cancel your current edits before changing groups or approving a batch.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use batch actions" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel correction" }));
+    expect(overview.getByRole("button", { name: "Needs attention 1" })).toBeEnabled();
+    expect(fetch.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(0);
+  });
+});
+
 describe("contact preparation from an uploaded file", () => {
   const file = { name: "contacts.csv", text: async () => "First Name,Last Name,Email Address,Email Make Primary?,Phone Number,Phone Make Primary?,New Constituent Code\nAvery,Newcomer,avery@example.test,Yes,9045551212,Yes,Friend" };
   async function upload() {
@@ -169,7 +242,9 @@ describe("contact preparation from an uploaded file", () => {
   it("holds omitted contacts, allows one-click inclusion and sends the intended fields/defaults only for preview", async () => {
     const baseFetch = fetch.getMockImplementation();
     fetch.mockImplementation(async (url, options) => url === "/api/constituency-import/preview"
-      ? json({ previewOnly: true, rows: [], summary: {}, warnings: [] }) : baseFetch(url, options));
+      ? json({ previewOnly: true, rows: [{ id: "preview-1", rowNumber: 1, status: "Needs Review", match: null,
+        input: { firstName: "Avery", lastName: "Newcomer", emailUpdates: [{ address: "avery@example.test", type: "Personal", makePrimary: true }],
+          phoneUpdates: [{ number: "9045551212", type: "Mobile", makePrimary: true }] }, reasons: [], writePlan: [] }], summary: {}, warnings: [] }) : baseFetch(url, options));
     const plan = await upload();
     expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
     expect(plan.getAllByRole("radio").every((input) => !input.checked)).toBe(true);
