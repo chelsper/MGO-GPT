@@ -21,6 +21,9 @@ import ImportNewRecordReview from "@/components/ImportNewRecordReview";
 import ImportCompletionNotice from "@/components/ImportCompletionNotice";
 import ImportContactRecovery from "@/components/ImportContactRecovery";
 import ImportContactPreflight from "@/components/ImportContactPreflight";
+import ImportSetupLibrary from "@/components/ImportSetupLibrary";
+import ImportColumnMapping from "@/components/ImportColumnMapping";
+import { importSetupActiveFields, importSetupFileBlockers } from "@/utils/importSetups";
 import ImportReviewOverview from "@/components/ImportReviewOverview";
 import ImportRowChangeSummary from "@/components/ImportRowChangeSummary";
 import { importReviewGroup, importReviewOverview, firstImportReviewRow, formatContactReviewChange } from "@/utils/importReviewOverview";
@@ -29,471 +32,7 @@ import { isImportVerificationComplete } from "@/utils/importCompletion";
 import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget, importErrorLabel, withFocusedImportRow } from "@/utils/importMatchReview";
 import { importMatchEvidence } from "@/utils/importMatchEvidence";
 
-const IMPORT_FIELDS = [
-  {
-    key: "blackbaudConstituentId",
-    header: "NXT System ID",
-    label: "NXT System ID",
-    group: "Match fields",
-    description: "Best match key when available. This is the internal Blackbaud record ID.",
-    recommended: true,
-  },
-  {
-    key: "lookupId",
-    header: "NXT Lookup ID",
-    label: "NXT Lookup ID",
-    group: "Match fields",
-    description:
-      "Strong match key commonly visible on the NXT constituent profile. For a reviewed new record with no match, the value is assigned as the new NXT lookup ID after the final duplicate check.",
-    recommended: true,
-  },
-  {
-    key: "externalConstituentId",
-    header: "External Constituent ID",
-    label: "External Constituent ID",
-    group: "Match fields",
-    description:
-      "An identifier from another system. It is retained in the import audit only and is never used as an NXT ID or written to NXT.",
-  },
-  {
-    key: "firstName",
-    header: "First Name",
-    label: "First Name",
-    group: "Name fields",
-    description: "Used for matching and, when selected below, to update the matched NXT first name.",
-    recommended: true,
-  },
-  {
-    key: "lastName",
-    header: "Last Name",
-    label: "Last Name",
-    group: "Name fields",
-    description: "Used for matching and, when selected below, to update the matched NXT last name.",
-    recommended: true,
-  },
-  {
-    key: "preferredName",
-    header: "Preferred Name",
-    label: "Preferred Name",
-    group: "Name fields",
-    description: "Optional, but can update the matched NXT preferred name when it differs from the current value.",
-  },
-  {
-    key: "title",
-    header: "Title",
-    label: "Title",
-    group: "Individual profile fields",
-    description: "Optional NXT title, such as Dr., Mr., Ms., or Rev.",
-  },
-  {
-    key: "gender",
-    header: "Gender",
-    label: "Gender",
-    group: "Individual profile fields",
-    description: "Optional NXT gender value. The CSV value is reviewed against the current record before import.",
-  },
-  {
-    key: "ethnicity",
-    header: "Ethnicity",
-    label: "Ethnicity",
-    group: "Individual profile fields",
-    description: "Optional NXT ethnicity value. The CSV value is reviewed against the current record before import.",
-  },
-  {
-    key: "birthDate",
-    header: "Birth Date",
-    label: "Birth Date",
-    group: "Individual profile fields",
-    description: "Optional full birth date in MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD format. Partial dates are not imported automatically.",
-  },
-  {
-    key: "suffix",
-    header: "Suffix",
-    label: "Suffix",
-    group: "Individual profile fields",
-    description: "Optional NXT suffix, such as Jr., Sr., III, or Ph.D.",
-  },
-  {
-    key: "addressee",
-    header: "Addressee",
-    label: "Addressee",
-    group: "Addressee and salutation fields",
-    description: "Optional custom primary NXT addressee. A file-wide builder can supply a default when this column is blank.",
-  },
-  {
-    key: "salutation",
-    header: "Salutation",
-    label: "Salutation",
-    group: "Addressee and salutation fields",
-    description: "Optional custom primary NXT salutation. A file-wide builder can supply a default when this column is blank.",
-  },
-  {
-    key: "email",
-    header: "Email Address",
-    label: "Email Address",
-    group: "Email fields",
-    description:
-      "Use for matching or, when selected below, to add an email address to the matched NXT record.",
-  },
-  {
-    key: "emailType",
-    header: "Email Type",
-    label: "Email Type",
-    group: "Email fields",
-    description: "Optional NXT email type, such as Home, Business, or Other.",
-  },
-  {
-    key: "emailMakePrimary",
-    header: "Email Make Primary?",
-    label: "Email Make Primary?",
-    group: "Email fields",
-    description: "Optional yes/no flag for whether this email should become primary.",
-  },
-  {
-    key: "email2",
-    header: "Email 2 Address",
-    label: "Email 2 Address",
-    group: "Email fields",
-    description: "Second email address to add or update.",
-    additionalSet: "secondEmail",
-  },
-  {
-    key: "email2Type",
-    header: "Email 2 Type",
-    label: "Email 2 Type",
-    group: "Email fields",
-    description: "NXT email type for the second email, such as Home, Business, or Other.",
-    additionalSet: "secondEmail",
-  },
-  {
-    key: "email2MakePrimary",
-    header: "Email 2 Make Primary?",
-    label: "Email 2 Make Primary?",
-    group: "Email fields",
-    description: "Optional yes/no flag for whether the second email should become primary.",
-    additionalSet: "secondEmail",
-  },
-  {
-    key: "phoneNumber",
-    header: "Phone Number",
-    label: "Phone Number",
-    group: "Phone fields",
-    description: "Phone number to add or update.",
-  },
-  {
-    key: "phoneType",
-    header: "Phone Type",
-    label: "Phone Type",
-    group: "Phone fields",
-    description: "Optional NXT phone type, such as Home, Mobile, Business, or Other.",
-  },
-  {
-    key: "phoneMakePrimary",
-    header: "Phone Make Primary?",
-    label: "Phone Make Primary?",
-    group: "Phone fields",
-    description: "Optional yes/no flag for whether this phone should become primary.",
-  },
-  {
-    key: "phone2Number",
-    header: "Phone 2 Number",
-    label: "Phone 2 Number",
-    group: "Phone fields",
-    description: "Second phone number to add or update.",
-    additionalSet: "secondPhone",
-  },
-  {
-    key: "phone2Type",
-    header: "Phone 2 Type",
-    label: "Phone 2 Type",
-    group: "Phone fields",
-    description: "NXT phone type for the second phone, such as Home, Mobile, Business, or Other.",
-    additionalSet: "secondPhone",
-  },
-  {
-    key: "phone2MakePrimary",
-    header: "Phone 2 Make Primary?",
-    label: "Phone 2 Make Primary?",
-    group: "Phone fields",
-    description: "Optional yes/no flag for whether the second phone should become primary.",
-    additionalSet: "secondPhone",
-  },
-  {
-    key: "addressType",
-    header: "Address Type",
-    label: "Address Type",
-    group: "Address fields",
-    description: "Optional NXT address type, such as Home, Business, Seasonal, or Other.",
-  },
-  {
-    key: "addressValidFrom",
-    header: "Address Valid From",
-    label: "Address Valid From",
-    group: "Address fields",
-    description: "Optional date this address becomes valid, in MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD format.",
-  },
-  {
-    key: "addressLine1",
-    header: "Address Line 1",
-    label: "Address Line 1",
-    group: "Address fields",
-    description: "Primary street address line.",
-  },
-  {
-    key: "addressLine2",
-    header: "Address Line 2",
-    label: "Address Line 2",
-    group: "Address fields",
-    description: "Apartment, suite, unit, or secondary address line.",
-  },
-  {
-    key: "city",
-    header: "City",
-    label: "City",
-    group: "Address fields",
-    description: "Address city.",
-  },
-  {
-    key: "state",
-    header: "State",
-    label: "State",
-    group: "Address fields",
-    description: "Address state or province.",
-  },
-  {
-    key: "postalCode",
-    header: "ZIP/Postal Code",
-    label: "ZIP/Postal Code",
-    group: "Address fields",
-    description: "Address ZIP or postal code.",
-  },
-  {
-    key: "country",
-    header: "Country",
-    label: "Country",
-    group: "Address fields",
-    description: "Address country. Can be blank when the import source already assumes United States.",
-  },
-  {
-    key: "addressMakePrimary",
-    header: "Address Make Primary?",
-    label: "Address Make Primary?",
-    group: "Address fields",
-    description: "Optional yes/no flag for whether this address should become primary.",
-  },
-  {
-    key: "sourceConstituency",
-    header: "Current Constituent Code",
-    label: "Current Constituent Code",
-    group: "Constituent code fields",
-    description: "Use when replacing or end-dating an existing constituent code.",
-  },
-  {
-    key: "targetConstituency",
-    header: "New Constituent Code",
-    label: "New Constituent Code",
-    group: "Constituent code fields",
-    description: "The constituent code to add or replace with. Choose the behavior below this field.",
-    recommended: true,
-  },
-  {
-    key: "startDate",
-    header: "New Constituent Code Start Date",
-    label: "New Constituent Code Start Date",
-    group: "Constituent code fields",
-    description:
-      "Optional start date for the new code. When replacing, the selected current code and its dates are removed; leave this blank to create the new code without a start date.",
-  },
-  {
-    key: "endDate",
-    header: "New Constituent Code End Date",
-    label: "New Constituent Code End Date",
-    group: "Constituent code fields",
-    description:
-      "Optional end date for the new code. When replacing, it applies only to the newly created code.",
-  },
-  {
-    key: "educationInstitution",
-    header: "Education Institution",
-    label: "Education Institution",
-    group: "Education relationship fields",
-    description: "School, college, or university name for an education relationship.",
-  },
-  {
-    key: "educationDegree",
-    header: "Education Degree",
-    label: "Education Degree",
-    group: "Education relationship fields",
-    description: "Degree name or credential, when available.",
-  },
-  {
-    key: "educationMajor",
-    header: "Education Major",
-    label: "Education Major",
-    group: "Education relationship fields",
-    description: "Major, program, or academic area, when available.",
-  },
-  {
-    key: "educationMinor",
-    header: "Education Minor",
-    label: "Education Minor",
-    group: "Education relationship fields",
-    description: "Minor or secondary academic area, when available.",
-  },
-  {
-    key: "educationSchoolType",
-    header: "Education School Type",
-    label: "Education School Type",
-    group: "Education relationship fields",
-    description: "Active NXT School type table entry, when available.",
-  },
-  {
-    key: "educationCampus",
-    header: "Education Campus",
-    label: "Education Campus",
-    group: "Education relationship fields",
-    description: "Campus name, when available.",
-  },
-  {
-    key: "educationFraternitySorority",
-    header: "Education Fraternity/Sorority",
-    label: "Education Fraternity/Sorority",
-    group: "Education relationship fields",
-    description: "Fraternity or sorority affiliation, when available.",
-  },
-  {
-    key: "educationGpa",
-    header: "Education GPA",
-    label: "Education GPA",
-    group: "Education relationship fields",
-    description: "Numeric GPA, when available.",
-  },
-  {
-    key: "educationClassYear",
-    header: "Education Class Year",
-    label: "Education Class Year",
-    group: "Education relationship fields",
-    description: "Graduation or class year, when available.",
-  },
-  {
-    key: "educationStatus",
-    header: "Education Status",
-    label: "Education Status",
-    group: "Education relationship fields",
-    description: "Active NXT education status table entry, when available.",
-  },
-  {
-    key: "educationDateGraduated",
-    header: "Education Date Graduated",
-    label: "Education Date Graduated",
-    group: "Education relationship fields",
-    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
-  },
-  {
-    key: "educationDateEntered",
-    header: "Education Date Entered",
-    label: "Education Date Entered",
-    group: "Education relationship fields",
-    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
-  },
-  {
-    key: "educationDateLeft",
-    header: "Education Date Left",
-    label: "Education Date Left",
-    group: "Education relationship fields",
-    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
-  },
-  {
-    key: "educationRelationshipMakePrimary",
-    header: "Education Relationship Make Primary?",
-    label: "Education Relationship Make Primary?",
-    group: "Education relationship fields",
-    description: "Optional yes/no flag for whether this education relationship should be primary.",
-  },
-  {
-    key: "organizationName",
-    header: "Organization Name",
-    label: "Organization Name",
-    group: "Organization relationship fields",
-    description: "Organization or employer name for an organization relationship.",
-  },
-  {
-    key: "organizationRelationshipType",
-    header: "Organization Relationship Type",
-    label: "Organization Relationship Type",
-    group: "Organization relationship fields",
-    description: "Relationship type, such as Employee, Board Member, Owner, or Other.",
-  },
-  {
-    key: "organizationTitle",
-    header: "Organization Title",
-    label: "Organization Title",
-    group: "Organization relationship fields",
-    description: "Title, role, or position at the organization.",
-  },
-  {
-    key: "organizationStartDate",
-    header: "Organization Relationship Start Date",
-    label: "Organization Relationship Start Date",
-    group: "Organization relationship fields",
-    description: "Optional start date for the organization relationship.",
-  },
-  {
-    key: "organizationEndDate",
-    header: "Organization Relationship End Date",
-    label: "Organization Relationship End Date",
-    group: "Organization relationship fields",
-    description: "Optional end date for the organization relationship.",
-  },
-  {
-    key: "organizationRelationshipMakePrimary",
-    header: "Organization Relationship Make Primary?",
-    label: "Organization Relationship Make Primary?",
-    group: "Organization relationship fields",
-    description: "Optional yes/no flag for whether this organization relationship should be primary.",
-  },
-];
-
-const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
-  acc[field.key] = field;
-  return acc;
-}, {});
-
-const IMPORT_HEADER_ALIASES = {
-  externalConstituentId: [
-    "External Constituent ID",
-    "Source Constituent ID",
-    "Source Constituent ID #",
-    "Constituent ID",
-    "Constituent ID #",
-    "Legacy Constituent ID",
-    "Legacy ID",
-  ],
-};
-
-function normalizeImportHeader(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
-function getUploadedHeaderForField(fieldKey, availableHeaders) {
-  const field = FIELD_BY_KEY[fieldKey];
-  if (!field) return "";
-
-  const headerByNormalizedValue = new Map(
-    (Array.isArray(availableHeaders) ? availableHeaders : [])
-      .map((header) => [normalizeImportHeader(header), String(header || "").trim()])
-      .filter(([normalizedHeader, header]) => normalizedHeader && header),
-  );
-  const candidates = [field.header, ...(IMPORT_HEADER_ALIASES[fieldKey] || [])];
-  for (const candidate of candidates) {
-    const matchedHeader = headerByNormalizedValue.get(normalizeImportHeader(candidate));
-    if (matchedHeader) return matchedHeader;
-  }
-  return "";
-}
+import { IMPORT_FIELDS, FIELD_BY_KEY, getUploadedHeaderForField } from "@/utils/importFieldDefinitions";
 
 const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "ethnicity", "birthDate", "suffix"];
 const NAME_FORMAT_FIELD_KEYS = ["addressee", "salutation"];
@@ -918,7 +457,9 @@ function parseCsv(text) {
       )
     : [];
   const headers = parsed.meta?.fields?.filter(Boolean) || [];
-  return { rows, headers, errors: parsed.errors || [] };
+  const rawHeaders = Papa.parse(text, { preview: 1 }).data?.[0]?.map((header) => String(header).trim()) || [];
+  const duplicateHeaders = new Set(rawHeaders).size !== rawHeaders.length;
+  return { rows, headers, errors: [...(parsed.errors || []), ...(duplicateHeaders ? [{ message: "Duplicate CSV column names" }] : [])] };
 }
 
 function statusTone(status) {
@@ -3450,6 +2991,12 @@ export default function ConstituencyImportPage() {
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
   const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
   const [importIntent, setImportIntent] = useState("updates");
+  const [selectedSetup, setSelectedSetup] = useState(null);
+  const [setupInUse, setSetupInUse] = useState(false);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupConfirmation, setSetupConfirmation] = useState("");
+  const [mappingOverrides, setMappingOverrides] = useState({});
+  const [readingFile, setReadingFile] = useState(false);
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(false);
@@ -3471,6 +3018,7 @@ export default function ConstituencyImportPage() {
   const [fieldDecisionsDirty, setFieldDecisionsDirty] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
+  const [csvWarningCount, setCsvWarningCount] = useState(0);
   const [sourceFilename, setSourceFilename] = useState("");
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
@@ -3534,7 +3082,7 @@ export default function ConstituencyImportPage() {
   const hasDirtyReviewChoices = contactDecisionsDirty || fieldDecisionsDirty;
   const unsavedImportDraft = Boolean(hasDirtyReviewChoices || editingSavedRowId ||
     editingPreviewRowNumber !== null || (rows.length && !preview?.savedRun));
-  const importBusy = Boolean(previewing || savingRun || loadingRunId || applyingRun || directSendingRowNumber ||
+  const importBusy = Boolean(setupBusy || readingFile || previewing || savingRun || loadingRunId || applyingRun || directSendingRowNumber ||
     creatingRowId || retryingRowId || reconcilingRun || quickCreating || savingSavedRowCorrectionId || savingCombinedReviewRowId);
   const reviewEditsPending = Boolean(hasDirtyReviewChoices || editingSavedRowId || editingPreviewRowNumber !== null);
   const reviewControlsBusy = Boolean(importBusy || skippingRowId || savingReviewOnlyRowId || selectingManualMatchRowId);
@@ -3555,21 +3103,23 @@ export default function ConstituencyImportPage() {
   const uploadedHeadersByField = useMemo(
     () =>
       IMPORT_FIELDS.reduce((acc, field) => {
-        acc[field.key] = getUploadedHeaderForField(field.key, headers);
+        acc[field.key] = Object.hasOwn(mappingOverrides, field.key)
+          ? (headers.includes(mappingOverrides[field.key]) ? mappingOverrides[field.key] : "")
+          : getUploadedHeaderForField(field.key, headers);
         return acc;
       }, {}),
-    [headers],
+    [headers, mappingOverrides],
   );
   const expectedHeaders = selectedFields.map(
-    (field) => uploadedHeadersByField[field.key] || field.header,
+    (field) => Object.hasOwn(mappingOverrides, field.key) ? mappingOverrides[field.key] : uploadedHeadersByField[field.key] || field.header,
   );
   const mappings = useMemo(
     () =>
       selectedFields.reduce((acc, field) => {
-        acc[field.key] = uploadedHeadersByField[field.key] || field.header;
+        acc[field.key] = Object.hasOwn(mappingOverrides, field.key) ? mappingOverrides[field.key] : uploadedHeadersByField[field.key] || field.header;
         return acc;
       }, {}),
-    [selectedFields, uploadedHeadersByField],
+    [selectedFields, uploadedHeadersByField, mappingOverrides],
   );
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
   const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
@@ -3637,6 +3187,16 @@ export default function ConstituencyImportPage() {
   const contactPlan = importContactPreflight(rows, mappings, {
     ...contactImportDefaults, updateEmailFields, updatePhoneFields,
   });
+  const importDefaults = {
+    ...contactImportDefaults, importIntent, defaultAction: constituencyAction, educationRelationshipAction,
+    useHierarchy, updateNameFields, updateIndividualProfileFields, updateNameFormatFields, buildNameFormats,
+    addresseeFormat, salutationFormat, newRecordNameFormats, updateEmailFields, updatePhoneFields, updateAddressFields,
+  };
+  const setupPlanKey = JSON.stringify({ rows, mappings, defaults: importDefaults });
+  const setupConfirmed = setupConfirmation === setupPlanKey;
+  const setupBlockers = importSetupFileBlockers(rows, mappings, { ...importDefaults, reusableSetup: setupInUse });
+  if (setupInUse && csvWarningCount) setupBlockers.push("Correct the CSV formatting warnings or duplicate column names, then upload the file again.");
+  if (setupInUse && !setupConfirmed) setupBlockers.push("Confirm this file's setup and primary-field plan below.");
   const mappedAddressUpdate = Boolean(
     updateAddressFields && hasUploadedHeader("addressLine1"),
   );
@@ -3699,8 +3259,9 @@ export default function ConstituencyImportPage() {
     identityRequirementMet &&
     hasImportOperation &&
     mappedImportOperation &&
-    contactPlan.blockers.length === 0;
+    contactPlan.blockers.length === 0 && setupBlockers.length === 0;
   const previewBlockers = [
+    ...setupBlockers.slice(0, 5),
     ...contactPlan.blockers.slice(0, 5),
     rows.length === 0 ? "Add at least one CSV data row." : "",
     identityRequirementMet ? "" : identityRequirementCopy,
@@ -3775,6 +3336,17 @@ export default function ConstituencyImportPage() {
 
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
+    setCsvWarningCount(parsed.errors.length);
+    setSetupConfirmation("");
+    if (selectedSetup) {
+      applySetupConfiguration(selectedSetup.configuration);
+      setRows(parsed.rows);
+      setHeaders(parsed.headers);
+      setParseMessage(`Parsed ${parsed.rows.length} rows using ${selectedSetup.configuration.name}. Review columns and confirm this file's plan below.${parsed.errors.length ? " The CSV has formatting warnings; correct the file before continuing." : ""}`);
+      return;
+    }
+    setMappingOverrides({});
+    setSetupInUse(false);
     const parsedHeaderSet = new Set(parsed.headers);
     const detectedIndividualProfileHeaders = getDetectedHeaders(
       parsedHeaderSet,
@@ -3885,6 +3457,48 @@ export default function ConstituencyImportPage() {
     setFieldDecisions({});
     setFieldDecisionsDirty(false);
     setSaveMessage("");
+  }
+
+  function applySetupConfiguration(configuration) {
+    const defaults = configuration.defaults;
+    setSetupInUse(true);
+    setSetupConfirmation("");
+    setActiveFields(importSetupActiveFields(configuration));
+    setOpenFieldGroups({});
+    setMappingOverrides(configuration.mappings);
+    setImportIntent(defaults.importIntent);
+    setConstituencyAction(defaults.defaultAction);
+    setEducationRelationshipAction(defaults.educationRelationshipAction);
+    setUseHierarchy(defaults.useHierarchy);
+    setUpdateNameFields(defaults.updateNameFields);
+    setUpdateIndividualProfileFields(defaults.updateIndividualProfileFields);
+    setUpdateNameFormatFields(defaults.updateNameFormatFields);
+    setBuildNameFormats(defaults.buildNameFormats);
+    setAddresseeFormat(defaults.addresseeFormat);
+    setSalutationFormat(defaults.salutationFormat);
+    setNewRecordNameFormats(defaults.newRecordNameFormats);
+    setUpdateEmailFields(defaults.updateEmailFields);
+    setUpdatePhoneFields(defaults.updatePhoneFields);
+    setUpdateAddressFields(defaults.updateAddressFields);
+    setContactImportDefaults({ defaultEmailType: defaults.defaultEmailType, defaultPhoneType: defaults.defaultPhoneType, contactMatchingOnly: defaults.contactMatchingOnly });
+    setContactDecisions({});
+    setFieldDecisions({});
+    setContactDecisionsDirty(false);
+    setFieldDecisionsDirty(false);
+    setSelectedApplyRowIds([]);
+    setPreview(null);
+    setSaveMessage("");
+  }
+
+  function selectSavedSetup(setup) {
+    if (importBusy || preview?.savedRun) return;
+    if (!setup) {
+      setSelectedSetup(null);
+      return;
+    }
+    if (rows.length && !window.confirm("Replace the current file's configuration with this setup? Unsaved review choices will be cleared. Nothing will be sent to NXT.")) return;
+    setSelectedSetup(setup);
+    applySetupConfiguration(setup.configuration);
   }
 
   function toggleField(key) {
@@ -4046,7 +3660,7 @@ export default function ConstituencyImportPage() {
   }
 
   function downloadTemplateCsv() {
-    const csv = makeTemplateRows(selectedFields);
+    const csv = makeTemplateRows(selectedFields.map((field) => ({ ...field, header: mappings[field.key] || field.header })));
     const templateName =
       importIntent === "new"
         ? "new-constituents-import-template.csv"
@@ -4099,6 +3713,7 @@ export default function ConstituencyImportPage() {
     setFieldDecisions({});
     setFieldDecisionsDirty(false);
     setSourceFilename(file.name || "");
+    setReadingFile(true);
     setFileReadStatus(`Reading ${file.name || "selected CSV"}...`);
     try {
       const csvText = await file.text();
@@ -4111,6 +3726,8 @@ export default function ConstituencyImportPage() {
       setHeaders([]);
       setFileReadStatus("");
       setError("The selected CSV could not be read. Please save it as a UTF-8 CSV and try again.");
+    } finally {
+      if (fileReadVersion === fileReadVersionRef.current) setReadingFile(false);
     }
   }
 
@@ -4119,6 +3736,10 @@ export default function ConstituencyImportPage() {
   }
 
   function resetImportWorkspace({ completion = "", resetFieldConfiguration = false } = {}) {
+    setSetupConfirmation("");
+    setSetupInUse(false);
+    setMappingOverrides({});
+    setReadingFile(false);
     setReviewFilter("all");
     setContactImportDefaults({ contactMatchingOnly: {} });
     fileReadVersionRef.current += 1;
@@ -4129,6 +3750,7 @@ export default function ConstituencyImportPage() {
     manualMatchHydrationSuppressionsRef.current.clear();
     setHydratingDetailRows({});
     if (resetFieldConfiguration) {
+      setSelectedSetup(null);
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
       setOpenFieldGroups(DEFAULT_OPEN_FIELD_GROUPS);
       setImportIntent("updates");
@@ -4148,6 +3770,7 @@ export default function ConstituencyImportPage() {
     }
     setRows([]);
     setHeaders([]);
+    setCsvWarningCount(0);
     setSourceFilename("");
     setFileReadStatus("");
     setParseMessage("");
@@ -4233,6 +3856,9 @@ export default function ConstituencyImportPage() {
           "",
       );
       const restoredDecisions = getSavedReviewDecisionState(payload);
+      setSelectedSetup(null);
+      setSetupInUse(false);
+      setSetupConfirmation("");
       setPreview(payload);
       if (payload.rows?.[0]?.importIntent) setImportIntent(payload.rows[0].importIntent);
       setNewRecordNameFormats(payload.rows?.[0]?.input?.newRecordNameFormats || { addressee: "", salutation: "" });
@@ -5826,23 +5452,11 @@ export default function ConstituencyImportPage() {
     previewAbortControllerRef.current?.abort();
     const controller = new AbortController();
     previewAbortControllerRef.current = controller;
-    const defaultsPayload = {
-      ...contactImportDefaults,
-      importIntent,
-      defaultAction: constituencyAction,
-      educationRelationshipAction,
-      useHierarchy,
-      updateNameFields,
-      updateIndividualProfileFields,
-      updateNameFormatFields,
-      buildNameFormats,
-      addresseeFormat,
-      salutationFormat,
-      newRecordNameFormats,
-      updateEmailFields,
-      updatePhoneFields,
-      updateAddressFields,
-    };
+    const defaultsPayload = { ...importDefaults, ...(setupInUse ? { reusableSetup: true, importSetupConfirmed: setupConfirmed } : {}) };
+    const currentSetupBlockers = importSetupFileBlockers(inputRows, mappings, defaultsPayload);
+    if (setupInUse && csvWarningCount) currentSetupBlockers.push("Correct the CSV formatting warnings or duplicate column names, then upload the file again.");
+    if (setupInUse && !setupConfirmed) currentSetupBlockers.push("Confirm this file's setup and primary-field plan before preparing the review.");
+    if (currentSetupBlockers.length) { setError(currentSetupBlockers.slice(0, 5).join(" ")); return null; }
     const contacts = importContactPreflight(inputRows, mappings, defaultsPayload);
     if (contacts.blockers.length) {
       setError(contacts.blockers.slice(0, 5).join(" "));
@@ -6159,6 +5773,12 @@ export default function ConstituencyImportPage() {
 
         <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loadedRowId={focusedRowId} loading={Boolean(loadingRunId)} />
 
+        <ImportSetupLibrary selected={selectedSetup} configuration={{ mappings, defaults: importDefaults }}
+          disabled={importBusy || reviewEditsPending || Boolean(preview?.savedRun)}
+          canSave={rows.length > 0 && selectedFields.length > 0 && !preview?.savedRun}
+          onSelect={selectSavedSetup} onBusyChange={setSetupBusy}
+          onSaved={(setup) => { setSelectedSetup(setup); setSetupConfirmation(""); if (setup) setSetupInUse(true); }} />
+
         <section
           style={{
             backgroundColor: "#ECFDF5",
@@ -6192,8 +5812,7 @@ export default function ConstituencyImportPage() {
                 1. Upload CSV
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                Start with the file. JUMGOGPT automatically maps recognized headers, then you can
-                confirm its purpose and adjust the selected fields.
+                Choose a saved setup above or start with the file. Review its columns and purpose before preparing the import.
               </p>
             </div>
             <label
@@ -6254,7 +5873,7 @@ export default function ConstituencyImportPage() {
               </div>
               <div style={{ marginTop: "4px", color: "#64748B", lineHeight: 1.4 }}>
                 {sourceFilename
-                  ? "Headers were mapped automatically. Review the highlighted fields below before checking the import."
+                  ? setupInUse ? "Configured columns applied. Review any missing columns and confirm this file's plan below." : "Headers were mapped automatically. Review the highlighted fields below before checking the import."
                   : "Choose one CSV file to begin the import review."}
               </div>
             </div>
@@ -7333,6 +6952,15 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
+          {!preview?.savedRun && <ImportColumnMapping fields={selectedFields} headers={headers} mappings={mappings} disabled={importBusy}
+            onChange={(key, value) => {
+              if (importBusy) return;
+              setSetupInUse(true);
+              setMappingOverrides((current) => ({ ...current, [key]: value }));
+              setSetupConfirmation("");
+              setPreview(null);
+              setSaveMessage("");
+            }} />}
           <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
             disabled={importBusy} onChoice={chooseContactImport}
             onDefaultType={(key, value) => {
@@ -7341,6 +6969,21 @@ export default function ConstituencyImportPage() {
               setPreview(null);
               setSaveMessage("");
             }} />
+          {setupInUse && rows.length > 0 && !preview?.savedRun && <section aria-label="Confirm saved setup" className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+            <h3 className="font-bold text-slate-900">Confirm this file's plan</h3>
+            <p className="mt-1 text-sm text-slate-700">{importIntent === "updates" ? "Update existing records only. Every row needs an NXT System ID or Lookup ID; no new constituents will be created."
+              : importIntent === "new" ? "Check potential new constituents. Possible duplicates still need review before creation."
+                : "Check new and existing records. Creation and existing-record updates require separate approvals."}</p>
+            <p className="mt-2 text-sm text-slate-700">Primary choices come only from this file, not previous imports. Blank flags do not request primary changes.</p>
+            <ul className="mt-2 list-inside list-disc text-sm text-slate-700">{selectedFields.filter((field) => /MakePrimary$/.test(field.key)).map((field) => {
+              const count = rows.filter((row) => ["yes", "true", "1", "y"].includes(String(row[mappings[field.key]] ?? "").trim().toLowerCase())).length;
+              return <li key={field.key}>{field.label.replace(" Make Primary?", "")}: {count} {count === 1 ? "row" : "rows"} marked primary</li>;
+            })}</ul>
+            <label className="mt-3 flex min-h-11 items-start gap-2 text-sm font-semibold text-slate-900">
+              <input type="checkbox" className="mt-1" checked={setupConfirmed} disabled={importBusy} onChange={(event) => setSetupConfirmation(event.target.checked ? setupPlanKey : "")} />
+              I checked the columns, import purpose, included contacts, and primary-field choices for this file. Continue to review; do not send anything yet.
+            </label>
+          </section>}
           {nxtAvailability?.paused ? (
             <div
               role="status"

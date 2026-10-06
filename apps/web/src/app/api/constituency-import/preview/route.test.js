@@ -93,6 +93,22 @@ describe("constituency import preview route", () => {
     });
   });
 
+  it.each([
+    { rows: [{ Record: "123", Email: "a@example.test" }], confirmed: false, message: /Confirm this file/ },
+    { rows: [{ Record: "", Email: "a@example.test" }], confirmed: true, message: /require an NXT System ID/ },
+    { rows: [{ Record: "123", Renamed: "a@example.test" }], confirmed: true, message: /expected Email/ },
+  ])("checks saved-setup files before any NXT reads or run persistence", async ({ rows, confirmed, message }) => {
+    const { POST } = await import("./route.js");
+    const response = await POST(makeRequest({ rows, mappings: { blackbaudConstituentId: "Record", email: "Email" },
+      defaults: { reusableSetup: true, importSetupConfirmed: confirmed, importIntent: "updates", updateEmailFields: true }, saveRun: true }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(message);
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+  });
+
   it("blocks non-reviewers", async () => {
     const { POST } = await import("./route.js");
     getWorkspaceUserMock.mockResolvedValue({

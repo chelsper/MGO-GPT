@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { importSetupFileBlockers } from "@/utils/importSetups";
 import { IMPORT_CONTACT_GROUPS, importContactPreflight, mappedImportContacts } from "@/utils/importContactPreflight";
 import { getImportMatchCandidates, isImportMatchRejected, rejectedImportMatchPreview, normalizeImportMatchCandidate } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
@@ -3106,6 +3107,9 @@ export async function POST(request) {
     const rowsToPreview = inputRows.slice(0, appendRun ? PREVIEW_BATCH_SIZE : MAX_PREVIEW_ROWS);
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
+    const setupBlockers = importSetupFileBlockers(rowsToPreview, mappings, defaults, rowNumberOffset);
+    if (defaults.reusableSetup && defaults.importSetupConfirmed !== true) setupBlockers.push("Confirm this file's saved setup and primary-field plan before preparing the review.");
+    if (setupBlockers.length) return Response.json({ error: setupBlockers.slice(0, 5).join(" ") }, { status: 400 });
     const contactPlan = importContactPreflight(rowsToPreview, mappings, defaults, rowNumberOffset);
     if (contactPlan.blockers.length) {
       return Response.json({ error: contactPlan.blockers.slice(0, 5).join(" "), contactPlan }, { status: 400 });

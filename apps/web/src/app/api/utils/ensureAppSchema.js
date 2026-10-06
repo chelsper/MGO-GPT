@@ -2067,6 +2067,18 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS constituency_import_setups (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        configuration JSONB NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS constituency_import_setup_name ON constituency_import_setups (user_id, lower(name))`;
+    await sql`
       CREATE TABLE IF NOT EXISTS constituency_import_runs (
         id BIGSERIAL PRIMARY KEY,
         created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
