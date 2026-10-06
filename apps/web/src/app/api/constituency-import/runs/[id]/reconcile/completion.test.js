@@ -96,6 +96,8 @@ describe("verify in NXT and finish an attempted standard import", () => {
     expect(row.blackbaud_error).toBeNull();
     expect(row.blackbaud_result.results).toEqual(original.results);
     expect(row.blackbaud_result.attempts).toEqual(original.attempts);
+    expect(row.blackbaud_result.reconciliation.scope).toBe("requested_fields_and_settings");
+    expect(row.blackbaud_result.reconciliation.attempts[0].scope).toBe("requested_fields_and_settings");
     expect(row.blackbaud_result.completion).toMatchObject({ method: "verified_existing_nxt", completedByUserId: 7,
       previousStatus: "Needs Review", previousError: expect.stringContaining("not confirmed"), nxtWritesSent: 0 });
     expect(isImportVerificationComplete(row)).toBe(true);
@@ -118,6 +120,18 @@ describe("verify in NXT and finish an attempted standard import", () => {
     expect(response.status).toBe(200);
     expect(row.status).toBe("Applied");
     expect(row.applied_at).toBeTruthy();
+    expectReadOnly();
+  });
+
+  it("fully checks contact settings on an Applied row when explicitly requested", async () => {
+    row.status = "Applied";
+    row.blackbaud_result.results[3].status = "applied";
+    live.phones.value[0].type = "Other";
+    const response = await send();
+    expect(response.status).toBe(200);
+    expect((await response.json()).reconciliationSummary).toMatchObject({ completedRows: 0, needsReview: 1 });
+    expect(row.blackbaud_result.reconciliation.scope).toBe("requested_fields_and_settings");
+    expect(row.blackbaud_result.completion).toBeUndefined();
     expectReadOnly();
   });
 

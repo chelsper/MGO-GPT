@@ -122,6 +122,18 @@ NXT configured name formats use `primary_addressee` / `primary_salutation` with 
 
 These safeguards apply to the standard constituency import. Family Import is deferred and unchanged.
 
+### Field-Level Import Results
+
+Open an attempted or created record in a saved import to see **What finished and what remains**. Constituent creation, individual name/profile fields, contact values, contact types, primary settings, and previous-primary changes have separate outcomes. A created system ID or an accepted send is not proof that all requested fields succeeded. The original import plan stays available in a collapsed history section.
+
+**Verified** requires matching saved verification evidence, not a run total or timestamp alone. Older contact checks may confirm a value and primary flag without checking its type or the previous primary; those settings remain **Awaiting verification**. New checks record their scope. Deliberately skipped values and fields with no planned change are distinguished from verified changes. A contact replacement or operation that preserves an existing type does not claim to have applied the requested type.
+
+The single next-action control routes to the existing read-only full NXT check, saved contact correction, omitted-contact recovery, approved quick-import progress controls, or original results. It never automatically creates, retries, approves, or sends a change. Unknown creation outcomes, mismatched target IDs or plans, active operations, and unsaved edits retain their existing holds. Linked corrections show **See correction**, not a guessed success result. Omitted-contact context uses exact saved mappings and returns only relevant email/phone fields to authorized reviewers, not the full raw upload.
+
+**Export import review CSV** includes created/target system IDs, per-field outcomes and saved check times, outstanding fields, the next action, and any linked correction batch ID alongside the original audit columns. Spreadsheet formula escaping applies to the export. These are saved outcomes, not a live NXT report.
+
+Implementation is read-only presentation plus verification-scope metadata in the existing audit. It adds no database schema, scheduled work, NXT write endpoint, or import authorization. Existing identity checks, compare-and-set saves, duplicate protection, and explicit send approval remain in force.
+
 ### Recover Omitted Email And Phone Fields
 
 Open the original saved import from history and choose **Complete missing contact information**. The check reads saved upload values and saved created IDs only; it does not search or write to NXT. It works on older saved runs without re-uploading the CSV or copying the newly created IDs.

@@ -18,7 +18,8 @@ import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import { importRecoveryState } from "@/utils/quickImportWorkflow";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
-import ImportCompletionNotice from "@/components/ImportCompletionNotice";
+import ImportFieldResults from "@/components/ImportFieldResults";
+import { importFieldResultExport } from "@/utils/importFieldResults";
 import ImportContactRecovery from "@/components/ImportContactRecovery";
 import ImportContactPreflight from "@/components/ImportContactPreflight";
 import ImportSetupLibrary from "@/components/ImportSetupLibrary";
@@ -5673,6 +5674,7 @@ export default function ConstituencyImportPage() {
       preview.rows.map((row) => ({
         rowNumber: row.rowNumber,
         status: row.status,
+        ...importFieldResultExport(row),
         confidence: row.confidence,
         matchMethod: row.matchMethod,
         firstName: row.input?.firstName || "",
@@ -5704,6 +5706,7 @@ export default function ConstituencyImportPage() {
         applyError: row.blackbaudError || "",
         reasons: (row.reasons || []).join(" | "),
       })),
+      { escapeFormulae: true },
     );
     downloadCsv(csv, `${importIntent}-constituency-import-review.csv`);
   }
@@ -7824,14 +7827,25 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
-                    <ImportRowChangeSummary row={row} formatWrite={formatWritePlanItem} dirty={reviewEditsPending} />
-
-                    {hasAttemptedWrites && preview?.savedRun ? (
-                      <ImportCompletionNotice row={row} reviewer={isReviewer}
-                        busy={Boolean(reconcilingRun || applyingRun || retryingRowId || creatingRowId)}
-                        onVerify={() => reconcileRows([row], { singleRecord: true, completeIfMatches: row.status !== "Applied" })}
+                    {preview?.savedRun && (hasAttemptedWrites || row.createdBlackbaudConstituentId || row.quickCreateStatus === "uncertain") ? (
+                      <ImportFieldResults row={row} dirty={reviewEditsPending}
+                        busy={Boolean(reviewControlsBusy || importBusy || reconcilingRun || retryingRowId)}
+                        onAction={(action) => {
+                          if (action.kind === "verify") return reconcileRows([row], { singleRecord: true, completeIfMatches: action.completeIfMatches });
+                          if (action.kind === "correction") return loadSavedRun(action.runId);
+                          if (action.kind === "review") return startRequiredReview(row, reviewTargetKey);
+                          const target = action.kind === "recover" ? "import-contact-recovery"
+                            : action.kind === "resume" ? "quick-constituent-import"
+                            : `import-saved-results-${row.id}`;
+                          const element = document.getElementById(target) || document.getElementById(`constituency-import-row-${row.id}-staged-writes`);
+                          if (element?.tagName === "DETAILS") element.open = true;
+                          element?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          element?.focus({ preventScroll: true });
+                        }}
                       />
                     ) : null}
+
+                    <ImportRowChangeSummary row={row} formatWrite={formatWritePlanItem} dirty={reviewEditsPending} />
 
                     <div id={`constituency-import-row-${row.id}-match-review`} tabIndex={-1}>
                     <ImportMatchReview
@@ -8618,6 +8632,8 @@ export default function ConstituencyImportPage() {
                     {Array.isArray(row.blackbaudResult?.results) &&
                       row.blackbaudResult.results.length ? (
                       <details
+                        id={`import-saved-results-${row.id}`}
+                        tabIndex={-1}
                         style={{
                           border: "1px solid #BAE6FD",
                           borderRadius: "12px",

@@ -4,6 +4,7 @@ vi.mock("@/utils/useUser", () => ({ default: () => ({ data: { email: "reviewer@e
 import ConstituencyImportPage from "./page";
 import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
 import { normalizeImportSetup } from "@/utils/importSetups";
+import Papa from "papaparse";
 
 let rows, matches;
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
@@ -29,7 +30,7 @@ beforeEach(() => {
     if (url === "/api/constituency-import/runs?id=42") return json({ savedRun: { id: "42", defaults: {} }, rows, summary: { total: rows.length, applied: rows.filter((r) => r.status === "Applied").length, needsReview: rows.filter((r) => r.status !== "Applied").length }, warnings: [] });
     if (url === "/api/constituency-import/runs/42/reconcile") {
       expect(JSON.parse(options.body)).toEqual({ rowIds: ["9"], completeIfMatches: true });
-      rows[0].blackbaudResult.reconciliation = { verifiedAt: "2026-09-11T16:00:00Z", results: [{ writeIndex: 0, type: "phone", status: matches ? "confirmed" : "needs_review", message: matches ? "Primary phone confirmed" : "Phone is not primary in NXT" }] };
+      rows[0].blackbaudResult.reconciliation = { scope: "requested_fields_and_settings", verifiedAt: "2026-09-11T16:00:00Z", results: [{ writeIndex: 0, type: "phone", status: matches ? "confirmed" : "needs_review", message: matches ? "Primary phone confirmed" : "Phone is not primary in NXT" }] };
       if (matches) rows[0].status = "Applied";
       return json({ rows: [{ id: "9", completed: matches }], reconciliationSummary: { message: matches ? "Verified in NXT and marked complete. No changes were sent to NXT." : "The record stays in review. No changes were sent to NXT." } });
     }
@@ -94,13 +95,46 @@ describe("standard import completion flow", () => {
     expect(screen.getByText("Original import plan (history)")).toBeInTheDocument();
     expect(screen.getByText("Original send results (history)")).toBeInTheDocument();
     expect(screen.getByText("Original send results (history)").closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText("Needs verification")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Saved field results" })).toHaveTextContent("Needs attention");
     expect(screen.queryByText("Current NXT constituencies")).not.toBeInTheDocument();
     expect(screen.queryByText("Contact change review")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open required review" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Confirm and send to NXT/ })).not.toBeInTheDocument();
     expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
     expect(fetch.mock.calls.some(([url]) => url.includes("/details"))).toBe(false);
+  });
+  it("opens the linked correction rather than preparing another batch or sending contacts", async () => {
+    rows[0].status = "Applied";
+    rows[0].blackbaudResult.reconciliation.results[0].status = "confirmed";
+    rows[0].blackbaudResult.reconciliation.results[0].type = "phone";
+    rows[0].blackbaudResult.reconciliation.scope = "requested_fields_and_settings";
+    rows[0].savedContactContext = { correctionRunId: "77", omissions: [{ kind: "email", value: "jane@example.test" }] };
+    const baseFetch = fetch.getMockImplementation();
+    fetch.mockImplementation(async (url, options) => url === "/api/constituency-import/runs?id=77"
+      ? json({ savedRun: { id: "77", contactRecoverySourceRunId: "42" }, rows: [], summary: {}, warnings: [] }) : baseFetch(url, options));
+    render(<ConstituencyImportPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open saved contact correction" }));
+    await screen.findByText("Saved import run #77");
+    expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/runs?id=77")).toBe(true);
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+  });
+  it("exports field outcomes and primary settings with spreadsheet formula escaping", async () => {
+    const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => "blob:test"); URL.revokeObjectURL = vi.fn();
+    const unparse = vi.spyOn(Papa, "unparse");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      await openRun();
+      fireEvent.click(screen.getByRole("button", { name: "Export import review CSV" }));
+      const [exported, options] = unparse.mock.calls.at(-1);
+      expect(options).toMatchObject({ escapeFormulae: true });
+      expect(exported[0]).toMatchObject({ resultSystemId: "123", createdSystemId: "123" });
+      expect(exported[0].fieldResults).toContain("Phone primary setting: Needs attention");
+      expect(exported[0].nextStep).toContain("Verify in NXT and finish");
+      expect(exported[0].applyAudit).toBeTruthy();
+      expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+    } finally { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; }
   });
   it("finishes without calling apply, reloads the saved run, and focuses the next unresolved row", async () => {
     rows.push({ ...structuredClone(rows[0]), id: "10", rowNumber: 2, input: { firstName: "Next", lastName: "Person" }, match: { blackbaudConstituentId: "124", name: "Next Person" } });
@@ -120,8 +154,8 @@ describe("standard import completion flow", () => {
     expect(within(screen.getByRole("region", { name: "Import overview" })).getByText("Verified: 0 of 0 completed")).toBeInTheDocument();
     matches = true;
     fireEvent.click(screen.getByRole("button", { name: "Verify in NXT and finish" }));
-    await screen.findByRole("heading", { name: "Import complete" });
-    expect(screen.getByText("The requested details were verified in NXT. Nothing more needs to be sent for this row.")).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Saved field results" })).getAllByText("Verified")).toHaveLength(3));
+    expect(screen.getByText("The record was created. That does not confirm its contacts or other requested fields.")).toBeInTheDocument();
   });
 });
 
@@ -189,7 +223,10 @@ describe("filterable import review", () => {
     expect(overview.getByRole("button", { name: "Needs attention 1" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Verify in NXT and finish" })).toBeEnabled();
     fireEvent.click(overview.getByRole("button", { name: "Completed 1" }));
-    expect(screen.getByRole("region", { name: "Record change summary" })).toHaveTextContent("Imported; not yet verified");
+    expect(screen.getByRole("region", { name: "Saved field results" })).toHaveTextContent("No saved result confirms this part of the import");
+    expect(screen.getByText("Original import plan (history)").closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "Review saved results" }));
+    expect(screen.getByText("Original import plan (history)").closest("details")).toHaveAttribute("open");
     expect(screen.queryByRole("button", { name: "Verify in NXT and finish" })).not.toBeInTheDocument();
     fireEvent.click(overview.getByRole("button", { name: "Skipped 1" }));
     expect(screen.getByRole("region", { name: "Record change summary" })).toHaveTextContent("Skipped");

@@ -10,9 +10,21 @@ export default function ImportRowChangeSummary({ row, formatWrite, dirty }) {
   const lines = requested.length
     ? requested
     : (row.writePlan || []).map(formatWrite).filter(Boolean);
+  if (history) return (
+    <details id={`constituency-import-row-${row.id}-staged-writes`} tabIndex={-1}
+      className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <summary className="cursor-pointer font-semibold">Original import plan (history)</summary>
+      <ul className="mt-3 list-disc space-y-1 pl-5 break-words">
+        {lines.map((line, index) => <li key={index}>{line}</li>)}
+      </ul>
+      {!lines.length && <p className="mt-3">No additional field changes are queued here. See the saved outcome above.</p>}
+      <p className="mt-3">Previous attempts are retained as history, not queued to send again.</p>
+    </details>
+  );
   return (
     <section
       id={`constituency-import-row-${row.id}-staged-writes`}
+      tabIndex={-1}
       aria-label="Record change summary"
       className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2"
     >

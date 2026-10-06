@@ -62,7 +62,7 @@ export default function ImportContactRecovery({ run, rows, disabled, onOpen }) {
     }
   }
 
-  return <section className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4" aria-label="Complete missing contact information">
+  return <section id="import-contact-recovery" tabIndex={-1} className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4" aria-label="Complete missing contact information">
     <h3 className="font-bold text-slate-900">{sourceRunId ? "Contact correction" : "Missing email addresses or phone numbers?"}</h3>
     <p className="text-sm text-slate-700">{sourceRunId
       ? `This update-only batch completes contacts omitted from import #${sourceRunId}. It uses the IDs already created, not a new constituent search. Review the contacts and primary settings below before sending.`

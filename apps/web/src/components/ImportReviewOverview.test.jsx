@@ -56,9 +56,10 @@ describe("import overview controls", () => {
         formatWrite={() => ""}
       />,
     );
+    fireEvent.click(screen.getByText("Original import plan (history)"));
     expect(
       screen.getByText(
-        "No additional field changes are queued here. See the saved outcome below.",
+        "No additional field changes are queued here. See the saved outcome above.",
       ),
     ).toBeVisible();
     expect(
@@ -85,6 +86,8 @@ describe("import overview controls", () => {
       />,
     );
     expect(screen.getByText("Original import plan (history)")).toBeVisible();
+    expect(screen.getByText(/not queued to send again/)).not.toBeVisible();
+    fireEvent.click(screen.getByText("Original import plan (history)"));
     expect(screen.getByText(/not queued to send again/)).toBeVisible();
   });
 });
