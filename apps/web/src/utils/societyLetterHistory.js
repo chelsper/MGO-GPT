@@ -1,3 +1,5 @@
+import { completeLetterAppealMembers } from "./societyLetterAppealMembers";
+
 export const LETTER_HISTORY_FILTERS = [
   ["all", "All batches"],
   ["ready_to_mail", "Ready to mail"],
@@ -17,8 +19,7 @@ export function isLetterReadyToMail(item) {
     item.channel === "post" &&
     (!receipts ||
       (receipts.status === "complete" &&
-        receipts.members?.length > 0 &&
-        receipts.members.every((member) => member.status === "verified")))
+        completeLetterAppealMembers(receipts.members)))
   );
 }
 

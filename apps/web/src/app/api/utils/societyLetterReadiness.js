@@ -315,7 +315,51 @@ export function evaluateLetterReadiness(
       add(
         "An active NXT solicit code needs staff review. No communication restriction is ignored automatically.",
       );
-    if (data.consents.length)
+    const fullSpouse =
+      expected.length === 1 &&
+      members[expected[0]]?.profile?.is_constituent === true &&
+      String(members[expected[0]].profile.spouse?.id) === id;
+    if (
+      profile.is_constituent === false &&
+      (!fullSpouse ||
+        profile.type !== "Individual" ||
+        spouseId !== expected[0] ||
+        channel !== "post")
+    )
+      add(
+        "A relationship-only record needs a verified full-constituent spouse for a joint postal letter.",
+      );
+    const supportedRelationship =
+      profile.is_constituent === false &&
+      fullSpouse &&
+      profile.type === "Individual" &&
+      spouseId === expected[0] &&
+      channel === "post";
+    if (
+      data.consents === null &&
+      !(
+        supportedRelationship && data.consentUnavailable === "relationship_only"
+      )
+    )
+      add("NXT consent records could not be verified for this household.");
+    // Email-only consent is not a postal-mail restriction. Unknown channels,
+    // malformed records, and every potentially postal instruction still need review.
+    if (
+      data.consents?.some(
+        (consent) =>
+          !(
+            channel === "post" &&
+            consent.channel === "Email" &&
+            consent.id &&
+            ["OptIn", "OptOut", "NoResponse"].includes(
+              consent.constituent_consent_response,
+            ) &&
+            date(consent.consent_date) &&
+            date(consent.consent_date) !== "invalid" &&
+            date(consent.consent_date) <= today
+          ),
+      )
+    )
       add(
         "NXT has consent instructions that need staff review before using this letter.",
       );

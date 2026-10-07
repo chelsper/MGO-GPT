@@ -31,8 +31,35 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
       maxRetries: 0,
     });
   }
-  async function collection(path, constituentId) {
-    const payload = await get(path);
+  async function collection(path, profile, label, requireOwner = true) {
+    const constituentId = String(profile.id);
+    const member = `${profile.name || "Constituent"} (ID ${constituentId})`;
+    let payload;
+    try {
+      payload = await get(path);
+    } catch (error) {
+      // A verified relationship-only profile is not a missing constituent.
+      // Keep this distinct from an empty consent list; household evaluation
+      // must confirm a reciprocal, full-constituent spouse before permitting it.
+      if (
+        !requireOwner &&
+        profile.is_constituent === false &&
+        error.httpStatus === 404 &&
+        error.blackbaudErrorName === "ResourceNotFound" &&
+        error.blackbaudErrorCode === 404
+      )
+        return null;
+      if (error.httpStatus === 404) {
+        const detail =
+          profile.is_constituent === false
+            ? "NXT identifies this person as a spouse or relationship-only record, not a full constituent. Review how this household should be recorded before continuing."
+            : "The constituent profile was found. Check this record and your access in NXT before trying again.";
+        throw letterError(
+          `NXT could not return ${label} for ${member}. ${detail}`,
+        );
+      }
+      throw error;
+    }
     // These single-constituent endpoints default to all records. Never infer
     // completeness from an empty/missing array or silently accept a partial page.
     if (
@@ -45,13 +72,18 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
       payload.continuation_token ||
       payload.value.some(
         (item) =>
-          !item || String(item.constituent_id) !== constituentId || !item.id,
+          !item ||
+          typeof item !== "object" ||
+          Array.isArray(item) ||
+          !item.id ||
+          ((requireOwner || Object.hasOwn(item, "constituent_id")) &&
+            String(item.constituent_id) !== constituentId),
       ) ||
       new Set(payload.value.map((item) => String(item.id))).size !==
         payload.count
     )
       throw letterError(
-        "NXT returned incomplete or conflicting records. Review this household in NXT before continuing.",
+        `NXT returned incomplete or conflicting ${label} for ${member}. Review this record in NXT before continuing.`,
       );
     return payload.value;
   }
@@ -102,16 +134,33 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
         throw letterError(
           "The current constituent identity could not be verified in NXT.",
         );
-      const appeals = await collection(`${base}/appeals`, id);
+      const appeals = await collection(
+        `${base}/appeals`,
+        profile,
+        "appeal records",
+      );
       const preferences = await collection(
         `/commpref/v1/constituents/${id}/constituentsolicitcodes`,
-        id,
+        profile,
+        "solicit-code records",
       );
+      // Consent rows are scoped by the requested constituent, and the official
+      // response does not repeat constituent_id. Reject it if present and wrong.
       const consents = await collection(
         `/commpref/v1/constituents/${id}/consents?most_recent_only=true`,
-        id,
+        profile,
+        "consent records",
+        false,
       );
-      return { profile, appeals, preferences, consents };
+      return {
+        profile,
+        appeals,
+        preferences,
+        consents,
+        ...(consents === null
+          ? { consentUnavailable: "relationship_only" }
+          : {}),
+      };
     },
   };
 }

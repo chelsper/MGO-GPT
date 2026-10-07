@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
+import {
+  relationshipOnlyReceipt,
+  settledLetterAppealMember,
+  completeLetterAppealMembers,
+} from "@/utils/societyLetterAppealMembers";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { recipientReviewForRow } from "./societyLetterRecipients";
 import { renderSocietyLetter } from "./societyLetterDocuments";
@@ -64,7 +69,13 @@ function currentAppeal(catalog, configured) {
     );
 }
 
-export function previewFinalPostalLetter(state, definitions, today, body) {
+export function previewFinalPostalLetter(
+  state,
+  definitions,
+  today,
+  body,
+  letterDate = today,
+) {
   const issue = letterReadinessIssue(state, definitions, today);
   if (issue) throw letterError(issue);
   const source = state.snapshot.rows.find(
@@ -134,10 +145,10 @@ export function previewFinalPostalLetter(state, definitions, today, body) {
     hierarchySignature: hierarchyKey,
     templateVersion: template.version,
     templateFilename: template.filename,
-    letterDate: today,
+    letterDate,
     channel: "post",
   };
-  renderSocietyLetter(template, row, today);
+  renderSocietyLetter(template, row, letterDate);
   const appeal = state.readiness.policy.appeals[source.societyKey];
   const selectionSummary = letterSelectionSummary(state, [row]);
   return {
@@ -174,6 +185,7 @@ function validateReceipt(item) {
 
 function reconcileMembers(receipt, histories) {
   for (const member of receipt.members) {
+    if (relationshipOnlyReceipt(member)) continue;
     const matches = matching(histories[member.id], receipt.appeal);
     if (matches.length > 1)
       throw letterError(
@@ -230,6 +242,30 @@ async function freshCheck(
   currentAppeal(await client.catalog(), receipt.appeal);
   const members = {};
   for (const id of item.members) members[id] = await reader.member(id);
+  // Preserve every household member for grouping/history. Only a confirmed
+  // relationship-only spouse has no separate appeal assignment; never erase
+  // an earlier submission when a record's constituent status changes.
+  for (const member of receipt.members) {
+    if (members[member.id].profile.is_constituent === false) {
+      if (
+        member.attemptedAt ||
+        member.assignmentId ||
+        member.status === "uncertain" ||
+        verified(member)
+      )
+        throw letterError(
+          "A previously submitted appeal belongs to a record whose constituent status changed. Verify NXT history before continuing.",
+        );
+    } else if (relationshipOnlyReceipt(member)) {
+      if (members[member.id].profile.is_constituent !== true)
+        throw letterError(
+          "NXT did not confirm this spouse's current constituent status. No new appeal was submitted.",
+        );
+      member.status = "pending";
+      delete member.reason;
+      delete member.checkedAt;
+    }
+  }
   if (recovery)
     reconcileMembers(
       receipt,
@@ -256,12 +292,19 @@ async function freshCheck(
   );
   if (result.status !== "ready_for_preview")
     throw letterError(result.reasons.join(" "));
+  for (const member of receipt.members) {
+    if (members[member.id].profile.is_constituent === false) {
+      member.status = "not_applicable";
+      member.reason = "relationship_only";
+      member.checkedAt = new Date().toISOString();
+    }
+  }
 }
 
 async function applyMembers(item, store, client) {
   const receipt = item.letterAppeals;
   for (const member of receipt.members) {
-    if (verified(member)) continue;
+    if (settledLetterAppealMember(member)) continue;
     if (member.status !== "pending")
       throw letterError(
         "Verify the uncertain submission first. It will not be sent again.",
@@ -305,7 +348,7 @@ function receiptStatus(item, error = null) {
   const receipt = item.letterAppeals;
   receipt.status = error
     ? "needs_review"
-    : receipt.members.every(verified)
+    : completeLetterAppealMembers(receipt.members)
       ? "complete"
       : "pending";
   receipt.message = error
@@ -313,7 +356,7 @@ function receiptStatus(item, error = null) {
       ? error.message
       : "NXT could not confirm this update. Verify status before continuing; uncertain submissions are never resent."
     : receipt.status === "complete"
-      ? "Letter created and appeal confirmed for every member. This does not mean it has been mailed."
+      ? "Letter created and appeal confirmed for every full constituent. Relationship-only spouses remain included in the household; no separate appeal is assigned to them. This does not mean it has been mailed."
       : "Saved submissions checked. Continue only the remaining member updates; no new letter will be created.";
   receipt.checkedAt = new Date().toISOString();
 }
@@ -370,7 +413,7 @@ export function reservePostalLetter(
     letterAppeals: {
       status: "pending",
       appeal: preview.appeal,
-      date: today,
+      date: preview.row.letterDate,
       periodKey: preview.row.period.key,
       hierarchy: preview.hierarchy,
       hierarchySignature: preview.row.hierarchySignature,
@@ -404,7 +447,8 @@ export async function syncLetterAppeals(
     if (verifyOnly) {
       const histories = {};
       for (const member of receipt.members)
-        histories[member.id] = await client.appeals(member.id);
+        if (!relationshipOnlyReceipt(member))
+          histories[member.id] = await client.appeals(member.id);
       reconcileMembers(receipt, histories);
     } else {
       await freshCheck(state, item, definitions, today, reader, client, true);
@@ -424,7 +468,7 @@ export function assertLetterAppealsComplete(items) {
       (item) =>
         item.letterAppeals &&
         (item.letterAppeals.status !== "complete" ||
-          !item.letterAppeals.members.every(verified)),
+          !completeLetterAppealMembers(item.letterAppeals.members)),
     )
   )
     throw letterError(

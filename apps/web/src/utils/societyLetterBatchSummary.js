@@ -1,4 +1,9 @@
 import { letterDisposition } from "./societyLetters";
+import {
+  completeLetterAppealMembers,
+  settledLetterAppealMember,
+  relationshipOnlyReceipt,
+} from "./societyLetterAppealMembers";
 
 const memberIds = (row) => [
   ...new Set((row.members || []).map(String).filter(Boolean)),
@@ -106,9 +111,10 @@ export function letterBatchSummary(items) {
       receipt?.status === "complete" &&
       members.length > 0 &&
       receipt.members?.length === members.length &&
+      completeLetterAppealMembers(receipt.members) &&
       members.every((id) =>
         receipt.members.some(
-          (m) => String(m.id) === id && m.status === "verified",
+          (m) => String(m.id) === id && settledLetterAppealMember(m),
         ),
       );
     if (item.status === "cancelled") counts.cancelled++;
@@ -147,7 +153,12 @@ export function letterBatchSummary(items) {
       confirmed: 0,
       total: 0,
     };
-    appeal.total += members.length;
+    appeal.total += members.filter(
+      (id) =>
+        !receipt.members?.some(
+          (m) => String(m.id) === id && relationshipOnlyReceipt(m),
+        ),
+    ).length;
     appeal.confirmed += members.filter((id) =>
       receipt.members?.some(
         (m) => String(m.id) === id && m.status === "verified",

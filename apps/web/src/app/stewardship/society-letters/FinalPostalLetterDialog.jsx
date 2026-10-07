@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import SavedLetterPreview from "./SavedLetterPreview";
 import LetterBatchSummary from "./LetterBatchSummary";
+import { relationshipOnlyReceipt } from "@/utils/societyLetterAppealMembers";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50";
@@ -17,7 +18,6 @@ export default function FinalPostalLetterDialog({
   const [confirmed, setConfirmed] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [previewReady, setPreviewReady] = useState(false);
   const [draft] = useState(() => ({
     name: preview.row.name,
     request: {
@@ -68,10 +68,7 @@ export default function FinalPostalLetterDialog({
       />
       <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
         <h3 className="font-semibold">
-          Appeal to apply to{" "}
-          {row.members.length === 2
-            ? "both household members"
-            : "this constituent"}
+          Appeal to apply to full constituent records
         </h3>
         <p className="mt-2 text-sm">
           {appeal.lookupId || `System ID ${appeal.id}`} / {appeal.description}
@@ -91,7 +88,9 @@ export default function FinalPostalLetterDialog({
         <p className="mt-3 text-sm">
           Only the highest qualifying society appeal will be applied. Lower-tier
           letters will be covered in the app for this period. Selecting one
-          mailing address does not remove a spouse.
+          mailing address does not remove a spouse. A spouse-only record stays
+          in the joint letter and household history, but does not receive a
+          separate appeal assignment.
         </p>
       </div>
       <div className="mt-4 text-sm">
@@ -103,7 +102,7 @@ export default function FinalPostalLetterDialog({
         disabled={busy || attempted}
         onClick={() => setShowPreview(true)}
       >
-        Preview this final letter
+        Preview letter (optional)
       </button>
       {showPreview && (
         <div className="mt-4">
@@ -114,7 +113,6 @@ export default function FinalPostalLetterDialog({
               filename: row.templateFilename,
             }}
             draft={draft}
-            onReady={() => setPreviewReady(true)}
             onClose={() => setShowPreview(false)}
           />
         </div>
@@ -124,11 +122,12 @@ export default function FinalPostalLetterDialog({
           className="mt-1"
           type="checkbox"
           checked={confirmed}
-          disabled={busy || attempted || !previewReady}
+          disabled={busy || attempted}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        I reviewed this letter and authorize its creation and the appeal update
-        for every member listed above.
+        Use my saved recipient review to create this letter and apply the appeal
+        to each full constituent listed above. Spouse-only records remain in the
+        household.
       </label>
       <p className="mt-3 text-xs text-gray-600">
         If an update is interrupted, use Letter history to verify and finish the
@@ -150,7 +149,7 @@ export default function FinalPostalLetterDialog({
       )}
       <button
         className={`${button} mt-5 w-full !border-emerald-700 !bg-emerald-700 !text-white`}
-        disabled={!confirmed || !previewReady || busy || attempted}
+        disabled={!confirmed || busy || attempted}
         onClick={() => {
           setAttempted(true);
           onConfirm();
@@ -176,7 +175,7 @@ export function LetterAppealStatus({ item, busy, onVerify, onContinue }) {
     >
       <p className="font-semibold">
         {complete
-          ? "Appeal confirmed for every member"
+          ? "Appeal confirmed for every full constituent"
           : "Finish this letter's appeal updates"}
       </p>
       <p className="mt-1">
@@ -193,9 +192,11 @@ export function LetterAppealStatus({ item, busy, onVerify, onContinue }) {
             Constituent {m.id}:{" "}
             {m.status === "verified"
               ? "Confirmed"
-              : m.status === "uncertain"
-                ? "Needs verification; will not be resubmitted"
-                : "Pending"}
+              : relationshipOnlyReceipt(m)
+                ? "Spouse-only record: included in joint letter; no separate appeal"
+                : m.status === "uncertain"
+                  ? "Needs verification; will not be resubmitted"
+                  : "Pending"}
           </li>
         ))}
       </ul>

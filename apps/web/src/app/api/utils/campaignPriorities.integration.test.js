@@ -89,6 +89,40 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     expect((await read()).effectiveCents).toBe(10000);
     expect((await db`SELECT * FROM campaign_priority_events`)).toHaveLength(4);
   });
+  it("groups the entire snapshot by JU fiscal year, independently of gift detail filters", async () => {
+    await db`UPDATE campaign_priority_rows SET gift_date=CASE WHEN item_key='10:1' THEN '6/30/2026' ELSE '2026-07-01' END WHERE run_id=${run}::uuid`;
+    const saved = await campaignRead(new URLSearchParams({ fund: "4" }), true, db);
+    expect(saved.rows).toHaveLength(1);
+    expect(saved.segments.fiscalYearStartMonth).toBe(7);
+    expect(saved.segments.fiscalYears).toEqual([
+      { fiscal_year: 2027, allocations: 1, original_cents: 4000, effective_cents: 4000 },
+      { fiscal_year: 2026, allocations: 1, original_cents: 6000, effective_cents: 6000 },
+    ]);
+    expect(saved.segments.committed).toEqual({ status: "definition_needed", cents: null });
+    expect(saved.segments.received).toEqual({ status: "source_needed", cents: null });
+  });
+  it("fiscal-year recognition includes local exceptions but does not rewrite original amounts", async () => {
+    await edit("override", { itemKey: "10:1", priority: "scholarships", amount: "50", reason: "Approved recognition" });
+    const saved = await read();
+    expect(saved.segments.fiscalYears).toEqual([{ fiscal_year: 2027, allocations: 2, original_cents: 10000, effective_cents: 9000 }]);
+    expect(saved.segments.fiscalYears.reduce((sum, year) => sum+year.effective_cents, 0)).toBe(saved.effectiveCents);
+  });
+  it("keeps missing and invalid dates visible without normalizing impossible days into another year", async () => {
+    await db`DELETE FROM campaign_priority_rows WHERE run_id=${run}::uuid`;
+    const dates = ["", "not a date", "2026-02-29", "02/30/2024", "2026-13-01", "2026-00-01", "2026-01-00", "0000-01-01", "9999-12-31", "2026-07-01junk", "2026-06-31", "2024-02-29", " 2/29/2024 "];
+    await stage(dates.map((date, i) => ({ ...row(i+1,100), giftDate: date })));
+    const saved = await read();
+    expect(saved.segments.fiscalYears).toEqual([
+      { fiscal_year: 2024, allocations: 2, original_cents: 200, effective_cents: 200 },
+      { fiscal_year: null, allocations: 11, original_cents: 1100, effective_cents: 1100 },
+    ]);
+    expect(saved.segments.fiscalYears.reduce((sum, year) => sum+year.effective_cents, 0)).toBe(saved.effectiveCents);
+  });
+  it("returns an empty year list for an empty snapshot and read-only viewers see the same totals", async () => {
+    expect((await campaignRead(new URLSearchParams(), false, db)).segments).toEqual((await read()).segments);
+    await db`DELETE FROM campaign_priority_rows WHERE run_id=${run}::uuid`;
+    expect((await read()).segments.fiscalYears).toEqual([]);
+  });
   it("never lets a stale version one behind authorize any write or audit", async () => {
     await edit("funds", { fundIds: ["4"], priority: "scholarships" });
     await expect(edit("funds", { fundIds: ["4"], priority: "campus-planning" }, 1)).rejects.toMatchObject({ status: 409 });

@@ -434,6 +434,7 @@ export default function SocietyLettersPage() {
   const [setupNavigation, setSetupNavigation] = useState(0);
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
+  const [approvedPostalStart, setApprovedPostalStart] = useState(null);
   const inFlight = useRef(false);
   const setupOpen = ["setup", "templates", "settings", "appeals"].includes(tab);
   function navigateSetup(destination) {
@@ -1339,7 +1340,7 @@ export default function SocietyLettersPage() {
                           draftId: data.postalDraft?.id || null,
                           title: "Use today's date for all uncreated letters?",
                           description:
-                            "Saved recipient reviews are kept for 15 days. Any existing approval draft with an older date will need its documents prepared and previewed again. NXT checks run automatically before appeal updates. Created letters and NXT records stay unchanged.",
+                            "Saved recipient reviews are kept for 15 days. Older draft documents will be regenerated with today's date and included in one batch approval; reopening every preview is optional. NXT checks run automatically before appeal updates. Created letters and NXT records stay unchanged.",
                         })
                       }
                     >
@@ -1369,13 +1370,14 @@ export default function SocietyLettersPage() {
                       </li>
                       <li>
                         Select up to {deliveryBatchLimit} reviewed households.
-                        Prepare and approve each saved document.
+                        Prepare the documents; preview any you want to check.
                       </li>
                       <li>
-                        Approve the batch, then continue in Letter history. NXT
+                        Approve once to create the letters. NXT
                         restrictions and prior appeals are checked automatically
                         before updating each household. Download after every
-                        member is confirmed.
+                        full constituent is confirmed. Spouse-only records stay
+                        in the joint letter without a separate appeal assignment.
                       </li>
                     </ol>
                     <p className="mt-3 text-sm">
@@ -1426,9 +1428,9 @@ export default function SocietyLettersPage() {
                       <p className="mt-2 text-sm text-gray-600">
                         Create up to {deliveryBatchLimit} PDFs per batch, one
                         letter per household or individual. Documents are
-                        prepared one at a time and progress is saved. Review
-                        each PDF before approving; preparing documents does not
-                        apply appeals.
+                        prepared one at a time and progress is saved. Preview
+                        is optional. One batch approval starts the checks and
+                        appeal updates; preparing documents alone does not.
                       </p>
                     )}
                     {!data.postalPdf?.enabled && (
@@ -1597,7 +1599,10 @@ export default function SocietyLettersPage() {
                     revision={data.revision}
                     busy={busy || refreshing || !!sendingBatch}
                     act={act}
-                    onApproved={showNewBatch}
+                    onApproved={(batchId) => {
+                      setApprovedPostalStart(batchId);
+                      showNewBatch();
+                    }}
                   />
                 )}
                 <p className="mb-4 text-sm text-gray-500">
@@ -1656,8 +1661,9 @@ export default function SocietyLettersPage() {
                               data.settings?.sourceMode === "society_queries"
                                 ? () =>
                                     act({
-                                      action: "preview_final_postal",
-                                      householdId: row.householdId,
+                                      action: "start_postal_draft",
+                                      householdIds: [row.householdId],
+                                      format: postalFormat,
                                     })
                                 : undefined
                             }
@@ -1946,9 +1952,12 @@ export default function SocietyLettersPage() {
                   </div>
                   {batch.items.every((i) => i.postalApproval) && (
                     <PostalBatchRunner
+                      key={batch.id}
                       batch={batch}
                       busy={busy || refreshing || !!sendingBatch}
                       act={act}
+                      autoStart={approvedPostalStart === batch.id}
+                      onAutoStartConsumed={() => setApprovedPostalStart(null)}
                     />
                   )}
                   <LetterBatchSummary items={batch.items} />

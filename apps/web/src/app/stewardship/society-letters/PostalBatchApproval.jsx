@@ -219,8 +219,9 @@ export default function PostalBatchApproval({
         Approve your {draft.format === "pdf" ? "PDF" : "Word"} letters
       </h2>
       <p className="mt-2 text-sm">
-        Recipient names and addresses are already reviewed. This step approves
-        the exact saved documents, not the recipient choices again.
+        Your saved recipient review is kept. Preview any letter if you want to;
+        you do not need to open each letter again. One approval below covers the
+        prepared documents and their NXT appeal updates.
       </p>
       <p className="mt-2 text-sm">
         {prepared} of {draft.entries.length} documents prepared; {approved}{" "}
@@ -228,9 +229,11 @@ export default function PostalBatchApproval({
         appeals have been applied by this draft.
       </p>
       <p className="mt-2 text-sm">
-        The highest qualifying appeal goes to every member listed below.
-        Lower-tier letters are covered in the app. Nothing is emailed, uploaded
-        to NXT as an attachment, or marked mailed.
+        The highest qualifying appeal goes to each full constituent listed
+        below. Spouse-only records remain in the joint letter and household
+        history, without a separate appeal assignment. Lower-tier letters are
+        covered in the app. Nothing is emailed, uploaded to NXT as an
+        attachment, or marked mailed.
       </p>
       {prepared < draft.entries.length && (
         <button
@@ -269,7 +272,7 @@ export default function PostalBatchApproval({
               {e.reviewedHash
                 ? "Document approved"
                 : e.document
-                  ? "Awaiting document approval"
+                  ? "Ready for batch approval"
                   : "Document not prepared yet"}
             </p>
             <button
@@ -282,7 +285,7 @@ export default function PostalBatchApproval({
             >
               {e.reviewedHash
                 ? "View approved document"
-                : "Preview and approve document"}
+                : "Preview document (optional)"}
             </button>
           </li>
         ))}
@@ -305,31 +308,32 @@ export default function PostalBatchApproval({
         <input
           type="checkbox"
           checked={confirmed}
-          disabled={busy || running || approved !== draft.entries.length}
+          disabled={busy || running || prepared !== draft.entries.length}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
         I approve these documents and authorize the listed society appeal,
-        letter date, and creation note for every household member. Current NXT
-        restrictions and prior appeals will be checked automatically before
-        updates.
+        letter date, and creation note for each full constituent. Spouse-only
+        records remain included in the household. Current NXT restrictions and
+        prior appeals will be checked automatically before updates.
       </label>
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           className={`${button} !bg-emerald-700 !text-white`}
           disabled={
-            busy || running || !confirmed || approved !== draft.entries.length
+            busy || running || !confirmed || prepared !== draft.entries.length
           }
           onClick={async () => {
             const result = await act({
               action: "approve_postal_draft",
               draftId: draft.id,
               confirm: true,
+              approvePreparedDocuments: true,
             });
             setConfirmed(false);
             if (result) onApproved(result.batchId);
           }}
         >
-          Approve batch and queue appeal updates
+          Approve letters and continue
         </button>
         <button
           className={button}
@@ -364,10 +368,17 @@ export default function PostalBatchApproval({
   );
 }
 
-export function PostalBatchRunner({ batch, busy, act }) {
+export function PostalBatchRunner({
+  batch,
+  busy,
+  act,
+  autoStart = false,
+  onAutoStartConsumed,
+}) {
   const run = useRef(false);
+  const startedFromApproval = useRef(false);
   const [running, setRunning] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
+  const [stopped, setStopped] = useState(false);
   useEffect(
     () => () => {
       run.current = false;
@@ -383,25 +394,41 @@ export function PostalBatchRunner({ batch, busy, act }) {
   const paused = batch.items.some(
     (i) => i.letterAppeals?.status === "needs_review",
   );
+  useEffect(() => {
+    // Only an approval click in this page session starts processing. Reloading
+    // saved history never writes to NXT, and a consumed approval never retries.
+    if (autoStart && !busy && !startedFromApproval.current) {
+      startedFromApproval.current = true;
+      onAutoStartConsumed?.();
+      if (!uncertain && !paused && completed < batch.items.length) start();
+    }
+  }, [autoStart, busy]);
   async function start() {
     if (run.current) return;
     run.current = true;
     setRunning(true);
-    setConfirmed(false);
+    setStopped(false);
     for (let count = 0; run.current && count < batch.items.length; count++) {
       const result = await act({
         action: "continue_postal_batch",
         batchId: batch.id,
         confirm: true,
       });
-      if (!result) break;
+      if (!result) {
+        setStopped(true);
+        break;
+      }
       const items = result.history.filter((i) => i.batchId === batch.id);
       if (
         !items.length ||
         items.every((i) => i.letterAppeals?.status === "complete") ||
         items.some((i) => i.letterAppeals?.status === "needs_review")
-      )
+      ) {
+        setStopped(
+          items.some((i) => i.letterAppeals?.status === "needs_review"),
+        );
         break;
+      }
     }
     run.current = false;
     setRunning(false);
@@ -422,6 +449,12 @@ export function PostalBatchRunner({ batch, busy, act }) {
       </p>
       {completed < batch.items.length && (
         <>
+          {stopped && (
+            <p role="status" className="mt-2 text-sm">
+              Processing stopped. Reload saved status before continuing; your
+              approved letters are kept.
+            </p>
+          )}
           {(uncertain || paused) && (
             <p className="mt-2 text-sm text-amber-900">
               This batch needs attention. Review the member receipts below; use
@@ -429,19 +462,13 @@ export function PostalBatchRunner({ batch, busy, act }) {
               sent.
             </p>
           )}
-          <label className="mt-3 flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              disabled={busy || running || uncertain}
-              onChange={(e) => setConfirmed(e.target.checked)}
-            />
-            Continue the approved appeal updates for all remaining households in
-            this batch.
-          </label>
+          <p className="mt-3 text-sm">
+            Your approval is saved. Continue this same batch without reviewing
+            the letters again.
+          </p>
           <button
             className={`${button} mt-3`}
-            disabled={busy || running || uncertain || !confirmed}
+            disabled={busy || running || uncertain || stopped}
             onClick={start}
           >
             {running

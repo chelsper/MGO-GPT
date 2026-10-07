@@ -1,7 +1,11 @@
 import { randomUUID, createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import PizZip from "pizzip";
-import { letterError, normalizeLetterAddress } from "@/utils/societyLetters";
+import {
+  letterError,
+  normalizeLetterAddress,
+  normalizeLetterMergeSettings,
+} from "@/utils/societyLetters";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import { renderSocietyLetter } from "./societyLetterDocuments";
 import {
@@ -32,6 +36,17 @@ const fingerprint = (state, preview) =>
     state.readiness.policy,
     state.readiness.exclusionPolicy,
   ]);
+const stableFingerprint = (state, preview) =>
+  hash([
+    preview.row,
+    preview.appeal,
+    preview.hierarchy,
+    state.settings,
+    state.snapshot.signature,
+    state.templates[preview.row.templateVersion],
+    state.readiness.policy,
+    state.readiness.exclusionPolicy,
+  ]);
 const comparableRow = (row) => ({
   ...normalizeLetterAddress(row, false),
   ...(row.recipientCandidates
@@ -58,10 +73,38 @@ function draftFor(state, id) {
 }
 
 function currentEntry(state, definitions, today, entry) {
-  const preview = previewFinalPostalLetter(state, definitions, today, {
-    householdId: entry.householdId,
-  });
-  if (fingerprint(state, preview) !== entry.fingerprint)
+  const preview = previewFinalPostalLetter(
+    state,
+    definitions,
+    today,
+    {
+      householdId: entry.householdId,
+    },
+    entry.row.letterDate,
+  );
+  const template = state.templates[preview.row.templateVersion];
+  // Template versions address the content/settings, unlike DOCX byte hashes:
+  // ZIP timestamps can change on re-render even when every letter value is identical.
+  const sameTemplateContent =
+    template.version ===
+    hash([
+      template.content,
+      template.subject,
+      template.emailBody,
+      normalizeLetterMergeSettings(template.mergeSettings),
+    ]);
+  const matches =
+    entry.fingerprintVersion === 2
+      ? stableFingerprint(state, preview) === entry.fingerprint
+      : fingerprint(state, preview) === entry.fingerprint ||
+        (isDeepStrictEqual(
+          comparableRow(preview.row),
+          comparableRow(entry.row),
+        ) &&
+          isDeepStrictEqual(preview.appeal, entry.appeal) &&
+          entry.document?.sourceHash &&
+          sameTemplateContent);
+  if (!matches)
     throw letterError(
       "Recipient, template, membership, date, or appeal settings changed. Discard this draft and review a new batch. No new appeals were applied.",
       409,
@@ -116,7 +159,8 @@ export async function startPostalDraft(
     }
     return {
       householdId,
-      fingerprint: fingerprint(state, preview),
+      fingerprint: stableFingerprint(state, preview),
+      fingerprintVersion: 2,
       row: preview.row,
       appeal: preview.appeal,
     };
@@ -246,12 +290,23 @@ export async function approvePostalDraft(
   const draft = structuredClone(draftFor(state, body.draftId));
   const items = [];
   for (const entry of draft.entries) {
-    if (!entry.document || entry.reviewedHash !== entry.document.sha256)
+    if (
+      !entry.document ||
+      (entry.reviewedHash !== entry.document.sha256 &&
+        body.approvePreparedDocuments !== true)
+    )
       throw letterError(
         "Preview and approve every document before creating the batch.",
       );
     const preview = currentEntry(state, definitions, today, entry);
     await savedPostalDocument(entry.document, read);
+    // One explicit batch approval covers the exact prepared documents. Opening
+    // each preview again is optional, not a second approval requirement.
+    if (entry.reviewedHash !== entry.document.sha256) {
+      entry.reviewedHash = entry.document.sha256;
+      entry.reviewedBy = ctx.user.id;
+      entry.reviewedAt = new Date().toISOString();
+    }
     const item = reservePostalLetter(preview, state, today, ctx, draft.id);
     item.postalDocument = entry.document;
     item.postalApproval = {
@@ -320,7 +375,8 @@ export async function updateLetterDates(
       );
     return {
       householdId: entry.householdId,
-      fingerprint: fingerprint(state, preview),
+      fingerprint: stableFingerprint(state, preview),
+      fingerprintVersion: 2,
       row: preview.row,
       appeal: preview.appeal,
     };

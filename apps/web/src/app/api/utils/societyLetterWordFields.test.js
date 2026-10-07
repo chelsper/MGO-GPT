@@ -152,6 +152,7 @@ describe("Word field mappings", () => {
   });
   it("merges the original OOD layout using the full reviewed address and saved greeting mapping", () => {
     const saved = template();
+    const originalContent = saved.content;
     const rendered = renderSocietyLetter(saved, row, "2026-09-25");
     const result = xml(rendered);
     for (const value of [
@@ -170,7 +171,7 @@ describe("Word field mappings", () => {
     expect(
       new PizZip(rendered.document).file("word/media/logo.png").asText(),
     ).toBe("logo preserved");
-    expect(saved.content).toBe(ood());
+    expect(saved.content).toBe(originalContent);
     expect(saved.usedFields).toContain("address");
     expect(saved.usedFields).not.toContain("city");
     expect(rendered.text).toContain("Alex and Pat"); // Word mapping does not change email tags.

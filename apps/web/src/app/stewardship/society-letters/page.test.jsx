@@ -312,9 +312,103 @@ describe("society letter workspace", () => {
       screen.getByRole("region", { name: "Approve saved letter batch" }),
     ).toHaveFocus();
     expect(
-      screen.getByText(/This step approves the exact saved documents/),
+      screen.getByText(/Your saved recipient review is kept/),
     ).toBeVisible();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("hands one batch approval directly to processing, without reopening documents or a second confirmation", async () => {
+    const row = reviewRow("10", true);
+    const workspace = {
+      ...base,
+      settings: societyQuerySettings(),
+      rows: [row],
+      postalDraft: {
+        id: "draft",
+        format: "docx",
+        entries: [
+          {
+            householdId: "10",
+            row: { ...row, letterDate: "2026-10-07" },
+            appeal: { id: "100", description: "Example appeal" },
+            document: { id: "document", sha256: "hash" },
+          },
+        ],
+      },
+    };
+    const item = {
+      ...row,
+      id: "letter",
+      batchId: "draft",
+      status: "prepared",
+      channel: "post",
+      coveredKeys: ["presidents_society"],
+      period: base.period,
+      postalApproval: { index: 0 },
+      letterAppeals: {
+        status: "pending",
+        appeal: { id: "100", description: "Example appeal" },
+        members: [{ id: "10", status: "pending" }],
+      },
+    };
+    const approved = {
+      ...workspace,
+      postalDraft: null,
+      history: [item],
+      revision: 2,
+      batchId: "draft",
+    };
+    fetchMock.mockImplementation(async (_url, options) => {
+      const body = options?.body ? JSON.parse(options.body) : null;
+      if (body?.action === "approve_postal_draft")
+        return Response.json(approved);
+      if (body?.action === "continue_postal_batch")
+        return Response.json({
+          ...approved,
+          revision: 3,
+          history: [
+            {
+              ...item,
+              letterAppeals: {
+                ...item.letterAppeals,
+                status: "complete",
+                members: [{ id: "10", status: "verified" }],
+              },
+            },
+          ],
+        });
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("checkbox", {
+        name: /I approve these documents/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Approve letters and continue" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText("1 of 1 letters created with appeals confirmed"),
+      ).toBeVisible(),
+    );
+    const actions = fetchMock.mock.calls
+      .filter(([, options]) => options?.body)
+      .map(([, options]) => JSON.parse(options.body));
+    expect(actions.map((body) => body.action)).toEqual([
+      "approve_postal_draft",
+      "continue_postal_batch",
+    ]);
+    expect(actions[0]).toMatchObject({
+      approvePreparedDocuments: true,
+      confirm: true,
+      revision: 1,
+    });
+    expect(actions[1]).toMatchObject({
+      batchId: "draft",
+      confirm: true,
+      revision: 2,
+    });
   });
   it("confirms a global date update while keeping reviewed status, selection, and the current list", async () => {
     const workspace = {

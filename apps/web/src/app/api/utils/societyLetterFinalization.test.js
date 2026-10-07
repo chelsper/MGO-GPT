@@ -19,7 +19,12 @@ import {
   runLetterReadiness,
   saveReadinessPolicy,
 } from "./societyLetterReadiness";
-import { letterPeriod, letterDisposition } from "@/utils/societyLetters";
+import {
+  letterPeriod,
+  letterDisposition,
+  normalizeLetterMergeSettings,
+} from "@/utils/societyLetters";
+import { readinessReader } from "./societyLetterReadinessNxt";
 import {
   previewFinalPostalLetter,
   finalizePostalLetter,
@@ -838,30 +843,122 @@ describe("saved postal batch approvals", () => {
     ).rejects.toThrow(/Confirm/);
     expect(f.store.approvePostalDraft).not.toHaveBeenCalled();
   });
-  it.each(["wording", "date", "template", "membership", "policy", "exclusion"])(
-    "blocks stale %s approvals without writes",
-    async (kind) => {
+  it.each([
+    "wording",
+    "template",
+    "template-content",
+    "membership",
+    "policy",
+    "exclusion",
+  ])("blocks stale %s approvals without writes", async (kind) => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    let day = today;
+    if (kind === "wording")
+      Object.values(f.state.recipient_reviews)[0].values.salutation = "Changed";
+    if (kind === "template") f.state.templates.v1.version = "v2";
+    if (kind === "template-content")
+      f.state.templates.v1.content = "Changed bytes";
+    if (kind === "membership")
+      f.state.snapshot.rows[0].memberNames[1].lastName = "Changed";
+    if (kind === "policy")
+      f.state.readiness.policy.appeals.presidents.description = "Changed";
+    if (kind === "exclusion")
+      f.state.exclusions = [{ members: ["10"], period: f.row.period }];
+    await expect(
+      approvePostalDraft(
+        f.state,
+        definitions,
+        day,
+        { draftId: f.id, confirm: true },
+        f.store,
+        ctx,
+        f.read,
+      ),
+    ).rejects.toThrow();
+    expect(f.store.approvePostalDraft).not.toHaveBeenCalled();
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it.each([false, true])(
+    "keeps exact document approval after a routine refresh and a new day (legacy: %s)",
+    async (legacy) => {
       const f = await draftFixture();
       await f.prepare();
       await f.review();
-      let day = today;
-      if (kind === "wording")
-        Object.values(f.state.recipient_reviews)[0].values.salutation =
-          "Changed";
-      if (kind === "date") day = "2026-09-26";
-      if (kind === "template") f.state.templates.v1.version = "v2";
-      if (kind === "membership")
-        f.state.snapshot.generatedAt = "2026-09-25T14:59:59Z";
-      if (kind === "policy")
-        f.state.readiness.policy.appeals.presidents.description = "Changed";
-      if (kind === "exclusion")
-        f.state.exclusions = [{ members: ["10"], period: f.row.period }];
+      const entry = f.state.postalDraft.entries[0];
+      if (legacy) {
+        delete entry.fingerprintVersion;
+        entry.fingerprint = "old-generatedAt-based-fingerprint";
+        const template = {
+          ...f.state.templates.v1,
+          content: "fictional bytes",
+          subject: "",
+          emailBody: "",
+        };
+        template.version = hash([
+          template.content,
+          template.subject,
+          template.emailBody,
+          normalizeLetterMergeSettings(template.mergeSettings),
+        ]);
+        f.state.templates = { [template.version]: template };
+        entry.row.templateVersion = template.version;
+      }
+      const savedDocument = structuredClone(entry.document);
+      const reviewedAt = entry.reviewedAt;
+      vi.setSystemTime(new Date("2026-09-26T15:00:00Z"));
+      f.state.snapshot.generatedAt = new Date().toISOString();
+      await approvePostalDraft(
+        f.state,
+        definitions,
+        "2026-09-26",
+        { draftId: f.id, confirm: true },
+        f.store,
+        ctx,
+        f.read,
+      );
+      expect(f.state.history[0].postalDocument).toEqual(savedDocument);
+      expect(f.state.history[0].postalApproval.reviewedAt).toBe(reviewedAt);
+      expect(f.state.history[0].letterDate).toBe(today);
+      expect(f.state.history[0].letterAppeals.date).toBe(today);
+      expect(f.client.create).not.toHaveBeenCalled();
+    },
+  );
+  it("allows one explicit approval of all prepared documents without opening them again", async () => {
+    const f = await draftFixture("pdf");
+    await f.prepare();
+    await approvePostalDraft(
+      f.state,
+      definitions,
+      today,
+      { draftId: f.id, confirm: true, approvePreparedDocuments: true },
+      f.store,
+      ctx,
+      f.read,
+    );
+    expect(f.state.history[0].postalApproval).toMatchObject({
+      reviewedBy: 7,
+      approvedBy: 7,
+    });
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it.each(["missing", "corrupted", "expired-review"])(
+    "bulk approval still blocks %s documents",
+    async (kind) => {
+      const f = await draftFixture();
+      if (kind !== "missing") await f.prepare();
+      if (kind === "corrupted")
+        f.documents.values().next().value.content = "corrupt";
+      if (kind === "expired-review")
+        Object.values(f.state.recipient_reviews)[0].savedAt =
+          "2026-09-01T00:00:00Z";
       await expect(
         approvePostalDraft(
           f.state,
           definitions,
-          day,
-          { draftId: f.id, confirm: true },
+          today,
+          { draftId: f.id, confirm: true, approvePreparedDocuments: true },
           f.store,
           ctx,
           f.read,
@@ -1064,6 +1161,70 @@ describe("final postal letters and household appeal receipts", () => {
     expect(f.client.create.mock.calls[0][1].id).toBe("101");
     expect(f.item().letterAppeals.members.map((m) => m.id)).toEqual(["10"]);
   });
+  it("keeps both names and suppression IDs but assigns only the full constituent, resumably", async () => {
+    const f = await fixture();
+    f.profiles["10"].profile.is_constituent = true;
+    f.profiles["11"].profile.is_constituent = false;
+    f.profiles["11"].consents = null;
+    f.profiles["11"].consentUnavailable = "relationship_only";
+    f.profiles["10"].consents = [
+      {
+        id: "15",
+        channel: "Email",
+        constituent_consent_response: "OptIn",
+        consent_date: "2026-09-01T00:00:00Z",
+      },
+    ];
+    await f.finish();
+    const item = f.item();
+    expect(item.members).toEqual(["10", "11"]);
+    expect(item.addressee).toBe("Alex & Pat Sample");
+    expect(item.letterAppeals.status).toBe("complete");
+    expect(item.letterAppeals.members[1]).toMatchObject({
+      id: "11",
+      status: "not_applicable",
+      reason: "relationship_only",
+    });
+    expect(f.client.create).toHaveBeenCalledTimes(1);
+    expect(f.client.create.mock.calls[0][0]).toBe("10");
+    expect(() => assertLetterAppealsComplete([item])).not.toThrow();
+    await f.recover();
+    expect(f.client.create).toHaveBeenCalledTimes(1);
+    expect(
+      letterDisposition(
+        { ...f.row, householdId: "11", members: ["11"] },
+        [item],
+        [],
+      ).status,
+    ).toBe("held");
+    expect(
+      letterDisposition(
+        { ...f.row, householdId: "11", members: ["11"] },
+        [{ ...item, status: "mailed" }],
+        [],
+      ).status,
+    ).toBe("covered");
+  });
+  it.each(["both-relationship", "unlinked", "restricted", "unknown-partner"])(
+    "does not skip spouse safety for %s",
+    async (kind) => {
+      const f = await fixture();
+      f.profiles["10"].profile.is_constituent = true;
+      f.profiles["11"].profile.is_constituent = false;
+      f.profiles["11"].consents = null;
+      f.profiles["11"].consentUnavailable = "relationship_only";
+      if (kind === "both-relationship")
+        f.profiles["10"].profile.is_constituent = false;
+      if (kind === "unknown-partner")
+        delete f.profiles["10"].profile.is_constituent;
+      if (kind === "unlinked") f.profiles["11"].profile.spouse.id = "99";
+      if (kind === "restricted")
+        f.profiles["11"].preferences = [{ solicit_code: "Do not mail" }];
+      await expect(f.finish()).rejects.toThrow();
+      expect(f.store.reserve).not.toHaveBeenCalled();
+      expect(f.client.create).not.toHaveBeenCalled();
+    },
+  );
   it("freezes final-letter selection counts and ignores client-supplied summary values", async () => {
     const f = await fixture();
     f.state.snapshot.rows.push({
@@ -1155,6 +1316,50 @@ describe("final postal letters and household appeal receipts", () => {
     await expect(f.finish()).rejects.toThrow(/not unique/);
     expect(f.client.create).not.toHaveBeenCalled();
   });
+  it.each(["consent", "unavailable-spouse"])(
+    "real reader keeps %s review ahead of both appeal writes",
+    async (scenario) => {
+      const f = await fixture();
+      const fetcher = vi.fn(async (path) => {
+        const id = path.match(/constituents\/(\d+)/)[1];
+        if (path.includes("/consents?")) {
+          if (scenario === "unavailable-spouse" && id === "11")
+            throw Object.assign(new Error("provider body"), {
+              httpStatus: 404,
+            });
+          const value =
+            scenario === "consent" && id === "10"
+              ? [
+                  {
+                    id: "15",
+                    channel: "Email",
+                    constituent_consent_response: "OptIn",
+                  },
+                ]
+              : [];
+          return { count: value.length, value };
+        }
+        if (
+          path.endsWith("/appeals") ||
+          path.endsWith("/constituentsolicitcodes")
+        )
+          return { count: 0, value: [] };
+        return { ...f.profiles[id].profile, is_constituent: id === "10" };
+      });
+      f.reader.member = readinessReader(ctx, fetcher).member;
+      await expect(f.finish()).rejects.toThrow(
+        scenario === "consent"
+          ? /consent instructions/
+          : /not a full constituent/,
+      );
+      expect(f.store.reserve).not.toHaveBeenCalled();
+      expect(f.client.create).not.toHaveBeenCalled();
+      expect(f.state.history).toEqual([]);
+      expect(
+        fetcher.mock.calls.every(([, options]) => options.method === "GET"),
+      ).toBe(true);
+    },
+  );
   it("does not write if reservation or durable member intent cannot be saved", async () => {
     const f = await fixture();
     f.store.reserve.mockRejectedValueOnce(new Error("db down"));

@@ -834,6 +834,142 @@ describe("readiness NXT reader", () => {
         maxRetries: 0,
       });
   });
+  it("accepts request-scoped consent rows without a repeated constituent ID", async () => {
+    const consent = {
+      id: "15",
+      channel: "Email",
+      constituent_consent_response: "OptIn",
+      consent_date: "2026-09-01T00:00:00Z",
+    };
+    const responses = payloads();
+    responses[3] = { count: 1, value: [consent] };
+    const fetcher = vi.fn(async () => responses.shift());
+    expect((await readinessReader(ctx, fetcher).member("10")).consents).toEqual(
+      [consent],
+    );
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+  it("distinguishes the known relationship-only consent 404 from an empty consent list", async () => {
+    const responses = payloads();
+    responses[0].is_constituent = false;
+    const fetcher = vi.fn(async (path) => {
+      if (path.includes("/consents?"))
+        throw Object.assign(new Error("provider body"), {
+          httpStatus: 404,
+          blackbaudErrorCode: 404,
+          blackbaudErrorName: "ResourceNotFound",
+        });
+      return responses.shift();
+    });
+    expect(await readinessReader(ctx, fetcher).member("10")).toMatchObject({
+      consents: null,
+      consentUnavailable: "relationship_only",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+  it.each([true, undefined])(
+    "never treats ResourceNotFound as empty for full or unknown constituent status %s",
+    async (isConstituent) => {
+      const responses = payloads();
+      responses[0].is_constituent = isConstituent;
+      const fetcher = vi.fn(async (path) => {
+        if (path.includes("/consents?"))
+          throw Object.assign(new Error("provider body"), {
+            httpStatus: 404,
+            blackbaudErrorCode: 404,
+            blackbaudErrorName: "ResourceNotFound",
+          });
+        return responses.shift();
+      });
+      await expect(readinessReader(ctx, fetcher).member("10")).rejects.toThrow(
+        /consent records/,
+      );
+    },
+  );
+  it.each([
+    {},
+    { value: [] },
+    { count: 1, value: [] },
+    { count: 0, value: [], next_link: "https://evil.test" },
+    { count: 0, value: [], nextLink: "/next" },
+    { count: 0, value: [], continuation_token: "next" },
+    { count: 1, value: [null] },
+    { count: 1, value: [{}] },
+    { count: 1, value: [{ id: "15", constituent_id: "11" }] },
+    { count: 1, value: [{ id: "15", constituent_id: null }] },
+    { count: 2, value: [{ id: "15" }, { id: "15" }] },
+  ])(
+    "still rejects malformed, partial, or conflicting consent rows %j",
+    async (invalid) => {
+      const responses = payloads();
+      responses[3] = invalid;
+      const fetcher = vi.fn(async () => responses.shift());
+      await expect(readinessReader(ctx, fetcher).member("10")).rejects.toThrow(
+        /incomplete or conflicting consent records.*ID 10/,
+      );
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    },
+  );
+  it.each([1, 2])(
+    "still requires constituent ownership on collection %s",
+    async (index) => {
+      const responses = payloads();
+      responses[index] = { count: 1, value: [{ id: "15" }] };
+      await expect(
+        readinessReader(
+          ctx,
+          vi.fn(async () => responses.shift()),
+        ).member("10"),
+      ).rejects.toThrow(/incomplete or conflicting/);
+    },
+  );
+  it.each([true, false])(
+    "explains a consent 404 for a found profile (full constituent: %s), never treating it as empty",
+    async (isConstituent) => {
+      const responses = payloads();
+      Object.assign(responses[0], {
+        name: "Alex Sample",
+        is_constituent: isConstituent,
+      });
+      const providerError = Object.assign(
+        new Error("private provider details"),
+        { httpStatus: 404 },
+      );
+      const fetcher = vi.fn(async (path) => {
+        if (path.includes("/consents?")) throw providerError;
+        return responses.shift();
+      });
+      const error = await readinessReader(ctx, fetcher)
+        .member("10")
+        .catch((error) => error);
+      expect(error.status).toBe(422);
+      expect(error.message).toContain(
+        "consent records for Alex Sample (ID 10)",
+      );
+      expect(error.message).toContain(
+        isConstituent ? "profile was found" : "not a full constituent",
+      );
+      expect(error.message).not.toContain("private provider details");
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    },
+  );
+  it.each([401, 403, 429, 500])(
+    "preserves consent HTTP %s for connection/cooldown handling",
+    async (httpStatus) => {
+      const responses = payloads();
+      const providerError = Object.assign(new Error("unavailable"), {
+        httpStatus,
+      });
+      const fetcher = vi.fn(async (path) => {
+        if (path.includes("/consents?")) throw providerError;
+        return responses.shift();
+      });
+      await expect(readinessReader(ctx, fetcher).member("10")).rejects.toBe(
+        providerError,
+      );
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    },
+  );
   it.each([
     {},
     { value: [] },

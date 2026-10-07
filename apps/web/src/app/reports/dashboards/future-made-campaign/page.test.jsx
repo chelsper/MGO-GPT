@@ -14,7 +14,7 @@ beforeEach(() => { current = structuredClone(saved); calls = []; vi.stubGlobal("
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 it("shows five priorities and saved totals, without starting an NXT query on open", async () => {
   render(<Page />); await screen.findByText("Campaign priorities");
-  expect(within(screen.getByRole("region",{ name: "Five campaign priorities" })).getAllByRole("button")).toHaveLength(5);
+  expect(within(screen.getByRole("group",{ name: "Five campaign priorities" })).getAllByRole("button")).toHaveLength(5);
   expect(screen.getByText("Unassigned: $100.00")).toBeInTheDocument();
   expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
 });
@@ -72,4 +72,58 @@ it("shows split verification as resumable work, not a new refresh, without start
   fireEvent.click(screen.getByRole("button",{name:"Continue refresh"}));
   await waitFor(() => expect(calls.some(call => call.options?.method === "POST")).toBe(true));
   expect(JSON.parse(calls.find(call => call.options?.method === "POST").options.body)).toMatchObject({operation:"continue"});
+});
+it("saves fund assignments against the current dataset and moves them only after reloading saved data", async () => {
+  fetch.mockImplementation(async (_url, options) => {
+    if (options?.method === "POST") {
+      const body = JSON.parse(options.body); calls.push(body);
+      current = { ...current, version: 8, funds: current.funds.map(f => ({ ...f, fund_priority: body.input.priority })) };
+      return json({ version: 8 });
+    }
+    return json(current);
+  });
+  render(<Page />); fireEvent.click(await screen.findByRole("button", { name: "Assign funds to priorities" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Scholarship Fund" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save 1 fund" }));
+  expect(await screen.findByRole("status")).toHaveTextContent("1 fund assigned to Scholarships");
+  expect(screen.getByRole("button", { name: "Assigned (1)" })).toBeInTheDocument();
+  expect(screen.queryByRole("checkbox", { name: "Select Scholarship Fund" })).not.toBeInTheDocument();
+  expect(calls).toEqual([{ operation: "funds", version: 7, runId: "run-a", input: { fundIds: ["4"], priority: "scholarships" } }]);
+});
+it("does not announce assignment success if the saved data cannot be reloaded", async () => {
+  let savedPost = false;
+  fetch.mockImplementation(async (_url, options) => {
+    if (options?.method === "POST") { savedPost = true; return json({ version: 8 }); }
+    return savedPost ? json({ error: "Saved data unavailable. Reload before retrying." }, 503) : json(current);
+  });
+  render(<Page />); fireEvent.click(await screen.findByRole("button", { name: "Assign funds to priorities" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Scholarship Fund" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save 1 fund" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Saved data unavailable");
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select Scholarship Fund" })).toBeEnabled());
+  expect(screen.getByRole("checkbox", { name: "Select Scholarship Fund" })).toBeChecked();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+it("clears fund selections when a new dataset is loaded", async () => {
+  render(<Page />); fireEvent.click(await screen.findByRole("button", { name: "Assign funds to priorities" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Scholarship Fund" }));
+  current = { ...current, runId: "run-b", version: 20 };
+  fireEvent.change(screen.getByLabelText("Find a donor, gift ID or fund"), { target: { value: "Donor" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search", exact: true }));
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select Scholarship Fund" })).not.toBeChecked());
+  expect(screen.getByRole("button", { name: "Save selected funds" })).toBeDisabled();
+});
+it("orders the campaign overview, fiscal years, pillars, and gift detail as independent sections", async () => {
+  render(<Page />); await screen.findByText("Campaign priorities");
+  const navigation = screen.getByRole("navigation", { name: "Campaign sections" });
+  expect(within(navigation).getAllByRole("link").map(link => link.getAttribute("href"))).toEqual([
+    "#campaign-overview", "#campaign-fiscal-years", "#campaign-pillars", "#campaign-gifts",
+  ]);
+  expect(Array.from(document.querySelectorAll("section[id]")).map(section => section.id)).toEqual([
+    "campaign-overview", "campaign-fiscal-years", "campaign-pillars", "campaign-gifts",
+  ]);
+  expect(screen.getByText(/Filters below apply to gift detail only/)).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("group", { name: "Five campaign priorities" })).getByRole("button", { name: /Scholarships/ }));
+  await waitFor(() => expect(calls.some(call => call.url.includes("priority=scholarships"))).toBe(true));
+  expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
 });

@@ -46,7 +46,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("final letter confirmation", () => {
-  it("requires a loaded preview and explicit approval, shows both IDs, and prevents a repeat submit", () => {
+  it("allows saved review without a repeat preview, requires approval and prevents repeat submit", () => {
     const onConfirm = vi.fn();
     render(
       <FinalPostalLetterDialog
@@ -62,9 +62,9 @@ describe("final letter confirmation", () => {
       name: "Create letter and apply appeal",
     });
     expect(submit.disabled).toBe(true);
-    expect(screen.getByRole("checkbox").disabled).toBe(true);
+    expect(screen.getByRole("checkbox").disabled).toBe(false);
     fireEvent.click(
-      screen.getByRole("button", { name: "Preview this final letter" }),
+      screen.getByRole("button", { name: "Preview letter (optional)" }),
     );
     const loader = screen.getByRole("button", {
       name: "Finish loading preview",
@@ -75,7 +75,6 @@ describe("final letter confirmation", () => {
       householdId: "10",
       previewToken: "safe-token",
     });
-    fireEvent.click(loader);
     expect(submit.disabled).toBe(true);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(submit);
@@ -148,7 +147,9 @@ describe("final letter confirmation", () => {
         }}
       />,
     );
-    expect(screen.getByText("Appeal confirmed for every member")).toBeTruthy();
+    expect(
+      screen.getByText("Appeal confirmed for every full constituent"),
+    ).toBeTruthy();
     expect(screen.getByText("Letter created; not mailed.")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });

@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { CAMPAIGN_REPORT_KEY, CAMPAIGN_PRIORITIES, campaignMoney, priorityLabel } from "@/utils/campaignPriorities";
 import CampaignSourceEditor from "./CampaignSourceEditor";
+import CampaignFundAssignments from "./CampaignFundAssignments";
+import CampaignOverview from "./CampaignOverview";
+import CampaignFiscalYears from "./CampaignFiscalYears";
+import CampaignPillars from "./CampaignPillars";
 import styles from "./campaign.module.css";
 
 const API = "/api/reports/campaign-priorities";
@@ -14,23 +18,6 @@ async function readJson(url, options) {
 }
 const priorityOptions = <>{CAMPAIGN_PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}<option value="unassigned">Unassigned</option></>;
 const readCampaignFields = queryId => readJson(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "fields", input: { queryId } }) });
-
-function FundAssignments({ data, command, pending }) {
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState([]);
-  const [priority, setPriority] = useState(CAMPAIGN_PRIORITIES[0].key);
-  useEffect(() => { setSelected([]); }, [data.runId]);
-  const visible = data.funds.filter(f => `${f.fund_name} ${f.fund_id}`.toLowerCase().includes(search.toLowerCase())).slice(0, 100);
-  return <section className={styles.card} aria-label="Fund priority assignments">
-    <h2>Give each fund a home</h2><p>These are the funds in your last complete query result. Gift exceptions take precedence over a fund's default priority.</p>
-    <div className={styles.toolbar}><label>Find a fund<input type="search" value={search} onChange={e => setSearch(e.target.value)} /></label><label>Assign selected funds to<select value={priority} onChange={e => setPriority(e.target.value)}>{priorityOptions}</select></label>
-      <button className={styles.primary} disabled={pending || !selected.length || data.sourceChanged} onClick={async () => { if (await command("funds", { fundIds: selected, priority })) setSelected([]); }}>Assign {selected.length || "selected"} funds</button></div>
-    <div className={styles.tableWrap}><table><thead><tr><th>Select</th><th>Fund</th><th>Priority</th><th>Original amount</th></tr></thead><tbody>{visible.map(f => <tr key={f.fund_id}>
-      <td><input type="checkbox" aria-label={`Select ${f.fund_name}`} checked={selected.includes(f.fund_id)} disabled={pending || (!selected.includes(f.fund_id) && selected.length >= 100)} onChange={e => setSelected(current => e.target.checked ? [...current, f.fund_id] : current.filter(id => id !== f.fund_id))} /></td>
-      <td>{f.fund_name}<small>Fund {f.fund_id}</small></td><td>{priorityLabel(f.fund_priority)}</td><td>{campaignMoney(f.original_cents)}</td></tr>)}</tbody></table></div>
-    <p className={styles.muted}>Showing up to 100 matching funds. Search to find others. Changes apply to this campaign only.</p>
-  </section>;
-}
 
 function GiftEditor({ row, command, pending, onClose, saveError }) {
   const [priority, setPriority] = useState(row.override_priority || "inherit");
@@ -80,6 +67,7 @@ export default function CampaignPrioritiesPage() {
     try {
       const result = await readJson(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation, version: snapshot?._version ?? data.version, runId: snapshot?._runId ?? data.runId, input }) });
       const latest = await load();
+      if (!latest) { setAutoContinue(false); return false; }
       if (result.stage === "failed" || latest?.job?.stage === "failed") { setAutoContinue(false); return false; }
       return true;
     } catch (e) { setAutoContinue(false); setError(e.message); return false; } finally { setPending(false); }
@@ -90,19 +78,15 @@ export default function CampaignPrioritiesPage() {
     return () => clearTimeout(timer);
   }, [autoContinue, pending, data]);
   const ready = Boolean(data?.runId);
-  const total = data?.effectiveCents || 0;
-  const original = data?.originalCents || 0;
   const reviewCount = data?.priorities.reduce((sum, p) => sum + p.needs_review, 0) || 0;
   const active = ["starting", "waiting", "downloading", "resolving"].includes(data?.job?.stage);
   const setupOpen = setup ?? !data?.config?.sourceKey;
   return <main className={styles.page}><div className={styles.content}>
-    <SharedReportHeader activeReportKey={CAMPAIGN_REPORT_KEY} reportSection="dashboards" title={data?.title || "Future. Made. Campaign"} description="One campaign. Five priorities. A clear view of the giving behind them." />
+    <SharedReportHeader activeReportKey={CAMPAIGN_REPORT_KEY} reportSection="dashboards" title={data?.title || "Future. Made. Campaign"} description="The whole campaign, year by year, and the five priorities it supports." />
     {error && <div className={styles.error} role="alert">{error} <button onClick={load} disabled={pending}>Reload saved data</button></div>}
     {!data ? <p role="status">{error ? "Campaign unavailable." : "Loading saved campaign..."}</p> : <>
-      <section className={styles.hero} aria-label="Campaign totals"><div><p className={styles.eyebrow}>CAMPAIGN RECOGNITION</p><h2>{campaignMoney(ready ? total : null)}</h2><p>After campaign-only adjustments</p></div><div className={styles.reconciliation}><span>Original allocation total <strong>{campaignMoney(ready ? original : null)}</strong></span><span>Local adjustments <strong>{campaignMoney(ready ? total-original : null)}</strong></span><small>{ready ? `${data.uniqueRows.toLocaleString()} unique allocations from ${data.rawRows.toLocaleString()} query rows` : "Connect the query to build the first complete snapshot."}</small></div></section>
-      <div className={styles.sectionHead}><div><h2>Campaign priorities</h2><p className={styles.muted}>{data.updatedAt ? `Last refreshed ${new Date(data.updatedAt).toLocaleString()}` : "No saved campaign data yet."}</p></div>{data.canManage && <div className={styles.toolbar}><button onClick={() => setFunds(!funds)} disabled={!ready || pending}>{funds ? "Hide fund assignments" : "Assign funds to priorities"}</button><button onClick={() => setSetup(!setupOpen)} disabled={pending}>{setupOpen ? "Hide source setup" : "Source & refresh"}</button><a href={`/report-configurations?report=${CAMPAIGN_REPORT_KEY}&tab=Access`}>Manage viewers</a></div>}</div>
-      <section className={styles.priorities} aria-label="Five campaign priorities">{CAMPAIGN_PRIORITIES.map(priority => { const bucket = data.priorities.find(p => p.priority === priority.key); return <button key={priority.key} className={styles.priority} onClick={() => setFilter(f => ({ ...f, priority: f.priority === priority.key ? "" : priority.key, page: 1 }))} aria-pressed={filter.priority === priority.key}><span>{priority.label}</span><strong>{campaignMoney(ready ? bucket?.effective_cents || 0 : null)}</strong><small>{ready ? `${bucket?.allocations || 0} allocations` : "Awaiting first refresh"}</small></button>; })}</section>
-      {ready && <div className={styles.unassigned}><span><strong>Unassigned: {campaignMoney(data.priorities.find(p => p.priority === "unassigned")?.effective_cents || 0)}</strong> · Included in the campaign total, not hidden.</span><button onClick={() => setFilter(f => ({ ...f, priority: "unassigned", page: 1 }))}>Review unassigned</button></div>}
+      <nav className={styles.segmentNav} aria-label="Campaign sections"><a href="#campaign-overview">Overview</a><a href="#campaign-fiscal-years">Fiscal years</a><a href="#campaign-pillars">Five pillars</a><a href="#campaign-gifts">Gift detail</a></nav>
+      <div className={styles.sectionHead}><p className={styles.muted}>{data.updatedAt ? `Last refreshed ${new Date(data.updatedAt).toLocaleString()}` : "No saved campaign data yet."}</p>{data.canManage && <div className={styles.toolbar}><button onClick={() => setFunds(!funds)} disabled={!ready || pending}>{funds ? "Hide fund assignments" : "Assign funds to priorities"}</button><button onClick={() => setSetup(!setupOpen)} disabled={pending}>{setupOpen ? "Hide source setup" : "Source & refresh"}</button><a href={`/report-configurations?report=${CAMPAIGN_REPORT_KEY}&tab=Access`}>Manage viewers</a></div>}</div>
       {data.sourceChanged && <p className={styles.notice}>Source settings changed. These are the previous complete results; finish a refresh before making assignments or exceptions.</p>}
       {reviewCount > 0 && <p className={styles.notice}>{reviewCount} exceptions need review because their source amount or fund changed. Those exceptions are not applied to totals.</p>}
       {data.orphaned > 0 && <p className={styles.muted}>{data.orphaned} saved exceptions belong to allocations no longer in this query. They are retained in history but excluded from totals.</p>}
@@ -112,8 +96,11 @@ export default function CampaignPrioritiesPage() {
         {active ? <><p role="status">{pending ? "Loading campaign data..." : data.job.stage === "waiting" ? "NXT is preparing the campaign query." : data.job.stage === "resolving" ? "Checking split gifts against their NXT fund allocations." : "Campaign refresh is in progress."} {autoContinue ? "This page will continue automatically." : "Resume when you are ready."}</p><div className={styles.toolbar}><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(true); await command("continue"); }}>Continue refresh</button><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(false); await command("cancel"); }}>Cancel this refresh</button><button disabled={pending} onClick={load}>Reload saved status</button></div></>
           : <><label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />This query defines our campaign. I reviewed the mapped gift IDs, funds, and amount basis.</label><button className={styles.primary} disabled={pending || data.busy || !confirmed} onClick={async () => { setAutoContinue(true); await command("start", { confirmed: true }); }}>Refresh campaign</button></>}
       </details></section>}
-      {funds && data.canManage && ready && <FundAssignments data={data} command={command} pending={pending} />}
-      {ready && <section className={styles.card} aria-label="Campaign gifts"><h2>Gifts behind the priorities</h2><form className={styles.toolbar} onSubmit={e => { e.preventDefault(); setFilter(f => ({ ...f, search, page: 1 })); }}>
+      {funds && data.canManage && ready && <CampaignFundAssignments key={data.runId} data={data} command={command} pending={pending} />}
+      <CampaignOverview data={data} />
+      <CampaignFiscalYears data={data} />
+      <CampaignPillars data={data} selectedPriority={filter.priority} onSelect={priority => setFilter(f => ({ ...f, priority, page: 1 }))} />
+      {ready && <section id="campaign-gifts" className={styles.card} aria-label="Campaign gifts"><h2>Gifts behind the priorities</h2><p className={styles.muted}>Filters below apply to gift detail only. The overview, fiscal years, and pillars always show the whole campaign.</p><form className={styles.toolbar} onSubmit={e => { e.preventDefault(); setFilter(f => ({ ...f, search, page: 1 })); }}>
         <label>Find a donor, gift ID or fund<input type="search" value={search} onChange={e => setSearch(e.target.value)} /></label><button type="submit" disabled={pending}>Search</button><label>Priority<select value={filter.priority} onChange={e => setFilter(f => ({ ...f, priority: e.target.value, page: 1 }))}><option value="">All priorities</option>{priorityOptions}</select></label><label>Fund<select value={filter.fund} onChange={e => setFilter(f => ({ ...f, fund: e.target.value, page: 1 }))}><option value="">All funds</option>{data.funds.map(f => <option key={f.fund_id} value={f.fund_id}>{f.fund_name}</option>)}</select></label></form>
         <p className={styles.muted}>{data.total.toLocaleString()} allocations across {data.gifts.toLocaleString()} gifts match these filters. Split gifts may appear in multiple priorities; amounts, not gift counts, reconcile.</p>
         <div className={styles.tableWrap}><table><thead><tr><th>Gift / donor</th><th>Fund</th><th>Priority</th><th>Original</th><th>Campaign amount</th>{data.canManage && <th>Exception</th>}</tr></thead><tbody>{data.rows.map(row => <tr key={row.item_key}>

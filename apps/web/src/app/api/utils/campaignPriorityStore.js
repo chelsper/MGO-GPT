@@ -3,6 +3,8 @@ import sql from "./sql";
 import { campaignError, validPriority, validateCampaignOverride } from "@/utils/campaignPriorities";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { describeLegacyCampaignFailure } from "./campaignPriorityDiagnostics";
+import { campaignFiscalYearQuery } from "./campaignPrioritySegments";
+import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy";
 
 export function assertCampaignEditor(actor) {
   if (!actor?.id || actor.active === false || !canManageWorkspaceRole(actor.role))
@@ -42,6 +44,7 @@ export async function campaignRead(filters, canManage, db = sql) {
     db`SELECT COUNT(*)::int AS orphaned FROM campaign_priority_overrides o JOIN campaign_priority_state s ON s.id=1
       JOIN campaign_priority_runs r ON r.id=s.published_run AND r.source_key=o.source_key
       WHERE NOT EXISTS(SELECT 1 FROM campaign_priority_rows g WHERE g.run_id=r.id AND g.item_key=o.item_key)`,
+    campaignFiscalYearQuery(db),
   ], { isolationLevel: "RepeatableRead", readOnly: true });
   const [state] = results[0];
   const job = state.job && { stage: state.job.stage, error: state.job.error || null, nextCheckAt: state.job.nextCheckAt || null };
@@ -61,6 +64,10 @@ export async function campaignRead(filters, canManage, db = sql) {
     updatedAt: state.completed_at, rawRows: state.raw_rows, uniqueRows: state.unique_rows,
     priorities: numeric(results[1]), funds: numeric(results[2]), rows: numeric(results[3]),
     originalCents: Number(sums[0]), effectiveCents: Number(sums[1]),
+    segments: { fiscalYearStartMonth: ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth,
+      fiscalYears: numeric(results[6]),
+      committed: { status: "definition_needed", cents: null },
+      received: { status: "source_needed", cents: null } },
     total: results[4][0]?.total || 0, gifts: results[4][0]?.gifts || 0, orphaned: results[5][0]?.orphaned || 0, page };
 }
 

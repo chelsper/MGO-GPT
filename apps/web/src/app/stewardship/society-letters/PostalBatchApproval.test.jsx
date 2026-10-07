@@ -51,14 +51,14 @@ describe("saved postal approval UX", () => {
     );
     expect(act).not.toHaveBeenCalled();
     fireEvent.click(
-      screen.getByRole("button", { name: "Preview and approve document" }),
+      screen.getByRole("button", { name: "Preview document (optional)" }),
     );
     expect(
       screen.getByRole("button", { name: "Approve this document" }),
     ).toBeDisabled();
     expect(
       screen.getByRole("button", {
-        name: "Approve batch and queue appeal updates",
+        name: "Approve letters and continue",
       }),
     ).toBeDisabled();
     fireEvent.click(
@@ -95,7 +95,7 @@ describe("saved postal approval UX", () => {
       />,
     );
     const approve = screen.getByRole("button", {
-      name: "Approve batch and queue appeal updates",
+      name: "Approve letters and continue",
     });
     expect(approve).toBeDisabled();
     fireEvent.click(
@@ -107,6 +107,7 @@ describe("saved postal approval UX", () => {
       action: "approve_postal_draft",
       draftId: "draft",
       confirm: true,
+      approvePreparedDocuments: true,
     });
   });
   it("prepares sequential saved documents and stops on failure without approving", async () => {
@@ -146,7 +147,6 @@ describe("saved postal approval UX", () => {
     const act = vi.fn().mockResolvedValue({ history: items });
     render(<PostalBatchRunner batch={batch()} busy={false} act={act} />);
     expect(act).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Create approved letters and apply appeals",
@@ -174,7 +174,6 @@ describe("saved postal approval UX", () => {
       .mockResolvedValueOnce({ history: partial })
       .mockResolvedValueOnce({ history: batch("complete").items });
     render(<PostalBatchRunner batch={batch()} busy={false} act={act} />);
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Create approved letters and apply appeals",
@@ -187,8 +186,76 @@ describe("saved postal approval UX", () => {
     render(
       <PostalBatchRunner batch={batch("uncertain")} busy={false} act={act} />,
     );
-    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    ).toBeDisabled();
     expect(screen.getByText(/Verify NXT status/)).toBeVisible();
     expect(act).not.toHaveBeenCalled();
+  });
+  it("approves prepared letters in one step without reopening previews", async () => {
+    const act = vi.fn().mockResolvedValue({ batchId: "saved" });
+    render(
+      <PostalBatchApproval
+        draft={draft([entry("10"), entry("20")])}
+        revision={3}
+        busy={false}
+        act={act}
+        onApproved={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /I approve these documents/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Approve letters and continue" }),
+    );
+    await waitFor(() => expect(act).toHaveBeenCalledOnce());
+    expect(act).toHaveBeenCalledWith({
+      action: "approve_postal_draft",
+      draftId: "draft",
+      confirm: true,
+      approvePreparedDocuments: true,
+    });
+    expect(
+      screen.queryByRole("button", { name: "Finish rendering test document" }),
+    ).toBeNull();
+  });
+  it("continues once from a fresh approval click, but never retries it on rerender", async () => {
+    const act = vi.fn().mockResolvedValue({ history: batch("complete").items });
+    const consumed = vi.fn();
+    const view = render(
+      <PostalBatchRunner
+        batch={batch()}
+        busy={true}
+        act={act}
+        autoStart
+        onAutoStartConsumed={consumed}
+      />,
+    );
+    expect(act).not.toHaveBeenCalled();
+    view.rerender(
+      <PostalBatchRunner
+        batch={batch()}
+        busy={false}
+        act={act}
+        autoStart
+        onAutoStartConsumed={consumed}
+      />,
+    );
+    await waitFor(() => expect(act).toHaveBeenCalledOnce());
+    view.rerender(
+      <PostalBatchRunner
+        batch={batch()}
+        busy={false}
+        act={act}
+        autoStart
+        onAutoStartConsumed={consumed}
+      />,
+    );
+    expect(consumed).toHaveBeenCalledOnce();
+    expect(act).toHaveBeenCalledOnce();
   });
 });
