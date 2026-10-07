@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
-import { CAMPAIGN_REPORT_KEY, CAMPAIGN_PRIORITIES, CAMPAIGN_FIELDS, campaignMoney, priorityLabel } from "@/utils/campaignPriorities";
+import { CAMPAIGN_REPORT_KEY, CAMPAIGN_PRIORITIES, campaignMoney, priorityLabel } from "@/utils/campaignPriorities";
+import CampaignSourceEditor from "./CampaignSourceEditor";
 import styles from "./campaign.module.css";
 
 const API = "/api/reports/campaign-priorities";
@@ -11,45 +12,8 @@ async function readJson(url, options) {
   if (!response.ok) throw new Error(data.error || "Could not load the campaign. Try again.");
   return data;
 }
-const blankSource = { queryId: "27460", queryName: "", mode: "split", columns: {}, confirmed: false };
 const priorityOptions = <>{CAMPAIGN_PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}<option value="unassigned">Unassigned</option></>;
-
-function SourceEditor({ data, pending, command, onClose }) {
-  const saved = data.config?.sourceKey ? data.config : blankSource;
-  const [source, setSource] = useState({ queryId: saved.queryId, queryName: saved.queryName, mode: saved.mode, columns: saved.columns, confirmed: false });
-  const [fields, setFields] = useState([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  async function loadFields() {
-    setLoading(true); setError("");
-    try {
-      const result = await readJson(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "fields", input: { queryId: source.queryId } }) });
-      setFields(result.fields); setSource(current => ({ ...current, queryName: result.queryName, confirmed: false }));
-    } catch (e) { setError(e.message); } finally { setLoading(false); }
-  }
-  const update = (key, value) => setSource(current => ({ ...current, [key]: value, confirmed: key === "confirmed" ? value : false }));
-  return <section className={styles.card} aria-label="Campaign source setup">
-    <div className={styles.sectionHead}><div><h2>Connect your campaign query</h2><p>The query decides what counts. Map the amount for each fund split, not the whole gift repeated on every split.</p></div><button onClick={onClose} disabled={pending}>Close setup</button></div>
-    <div className={styles.formGrid}>
-      <label>Saved Gift query system ID<input value={source.queryId} onChange={e => { update("queryId", e.target.value); setFields([]); }} inputMode="numeric" /></label>
-      <div className={styles.fieldAction}><button disabled={loading || pending} onClick={loadFields}>{loading ? "Loading fields..." : "Load query fields"}</button><small>Reads the definition only. Does not execute or change the query.</small></div>
-    </div>
-    {source.queryName && <p><strong>{source.queryName}</strong></p>}
-    <label className={styles.basis}>Amount basis<select value={source.mode} onChange={e => setSource(current => ({ ...current, mode: e.target.value, columns: { ...current.columns, splitId: "" }, confirmed: false }))}>
-      <option value="split">One campaign-countable amount per fund split (recommended)</option><option value="gift">One amount and one fund per gift</option>
-    </select></label>
-    {source.mode === "gift" && <p className={styles.notice}>Use this only if every gift has one campaign fund. Conflicting rows for the same gift will stop the import instead of counting its full amount twice.</p>}
-    <div className={styles.formGrid}>{Object.entries(CAMPAIGN_FIELDS).filter(([key]) => key !== "splitId" || source.mode === "split").map(([key, label]) => <label key={key}>{label}<select value={source.columns[key] || ""} onChange={e => { setSource(current => ({ ...current, columns: { ...current.columns, [key]: e.target.value }, confirmed: false })); }}>
-      <option value="">Choose an output field</option>{source.columns[key] && !fields.includes(source.columns[key]) && <option value={source.columns[key]}>{source.columns[key]} (saved mapping)</option>}
-      {fields.map(field => <option key={field} value={field}>{field}</option>)}
-    </select></label>)}</div>
-    <p className={styles.muted}>Use system record IDs, not lookup codes or donor IDs. Select the primary donor name, not repeating soft-credit or relationship names. Amounts must be USD; the app does not recalculate campaign eligibility or pledge credit.</p>
-    <label className={styles.check}><input type="checkbox" checked={source.confirmed} onChange={e => update("confirmed", e.target.checked)} />I verified that these are the correct gift/fund/split IDs and campaign-countable amounts. The query includes all campaign gifts visible to our shared reporting account.</label>
-    {data.runId && <p className={styles.muted}>Changing the source or mappings keeps the previous dataset visible until a complete refresh. Assignments and exceptions do not transfer automatically to a different source.</p>}
-    {error && <p role="alert" className={styles.error}>{error}</p>}
-    <button className={styles.primary} disabled={pending || loading || !source.confirmed} onClick={async () => { if (await command("source", source)) onClose(); }}>Save source settings</button>
-  </section>;
-}
+const readCampaignFields = queryId => readJson(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "fields", input: { queryId } }) });
 
 function FundAssignments({ data, command, pending }) {
   const [search, setSearch] = useState("");
@@ -97,7 +61,7 @@ function GiftEditor({ row, command, pending, onClose, saveError }) {
 
 export default function CampaignPrioritiesPage() {
   const [data, setData] = useState(null), [error, setError] = useState("");
-  const [pending, setPending] = useState(false), [setup, setSetup] = useState(false), [funds, setFunds] = useState(false), [edit, setEdit] = useState(null);
+  const [pending, setPending] = useState(false), [setup, setSetup] = useState(null), [funds, setFunds] = useState(false), [edit, setEdit] = useState(null);
   const [search, setSearch] = useState(""), [filter, setFilter] = useState({ search: "", fund: "", priority: "", page: 1 });
   const [autoContinue, setAutoContinue] = useState(false), [confirmed, setConfirmed] = useState(false);
   const requestId = useRef(0);
@@ -130,18 +94,19 @@ export default function CampaignPrioritiesPage() {
   const original = data?.originalCents || 0;
   const reviewCount = data?.priorities.reduce((sum, p) => sum + p.needs_review, 0) || 0;
   const active = ["starting", "waiting", "downloading"].includes(data?.job?.stage);
+  const setupOpen = setup ?? !data?.config?.sourceKey;
   return <main className={styles.page}><div className={styles.content}>
     <SharedReportHeader activeReportKey={CAMPAIGN_REPORT_KEY} reportSection="dashboards" title={data?.title || "Future. Made. Campaign"} description="One campaign. Five priorities. A clear view of the giving behind them." />
     {error && <div className={styles.error} role="alert">{error} <button onClick={load} disabled={pending}>Reload saved data</button></div>}
     {!data ? <p role="status">{error ? "Campaign unavailable." : "Loading saved campaign..."}</p> : <>
       <section className={styles.hero} aria-label="Campaign totals"><div><p className={styles.eyebrow}>CAMPAIGN RECOGNITION</p><h2>{campaignMoney(ready ? total : null)}</h2><p>After campaign-only adjustments</p></div><div className={styles.reconciliation}><span>Original query total <strong>{campaignMoney(ready ? original : null)}</strong></span><span>Local adjustments <strong>{campaignMoney(ready ? total-original : null)}</strong></span><small>{ready ? `${data.uniqueRows.toLocaleString()} unique allocations from ${data.rawRows.toLocaleString()} query rows` : "Connect the query to build the first complete snapshot."}</small></div></section>
-      <div className={styles.sectionHead}><div><h2>Campaign priorities</h2><p className={styles.muted}>{data.updatedAt ? `Last refreshed ${new Date(data.updatedAt).toLocaleString()}` : "No saved campaign data yet."}</p></div>{data.canManage && <div className={styles.toolbar}><button onClick={() => setFunds(!funds)} disabled={!ready || pending}>{funds ? "Hide fund assignments" : "Assign funds to priorities"}</button><button onClick={() => setSetup(!setup)} disabled={pending}>{setup ? "Hide source setup" : "Source & refresh"}</button><a href={`/report-configurations?report=${CAMPAIGN_REPORT_KEY}&tab=Access`}>Manage viewers</a></div>}</div>
+      <div className={styles.sectionHead}><div><h2>Campaign priorities</h2><p className={styles.muted}>{data.updatedAt ? `Last refreshed ${new Date(data.updatedAt).toLocaleString()}` : "No saved campaign data yet."}</p></div>{data.canManage && <div className={styles.toolbar}><button onClick={() => setFunds(!funds)} disabled={!ready || pending}>{funds ? "Hide fund assignments" : "Assign funds to priorities"}</button><button onClick={() => setSetup(!setupOpen)} disabled={pending}>{setupOpen ? "Hide source setup" : "Source & refresh"}</button><a href={`/report-configurations?report=${CAMPAIGN_REPORT_KEY}&tab=Access`}>Manage viewers</a></div>}</div>
       <section className={styles.priorities} aria-label="Five campaign priorities">{CAMPAIGN_PRIORITIES.map(priority => { const bucket = data.priorities.find(p => p.priority === priority.key); return <button key={priority.key} className={styles.priority} onClick={() => setFilter(f => ({ ...f, priority: f.priority === priority.key ? "" : priority.key, page: 1 }))} aria-pressed={filter.priority === priority.key}><span>{priority.label}</span><strong>{campaignMoney(ready ? bucket?.effective_cents || 0 : null)}</strong><small>{ready ? `${bucket?.allocations || 0} allocations` : "Awaiting first refresh"}</small></button>; })}</section>
       {ready && <div className={styles.unassigned}><span><strong>Unassigned: {campaignMoney(data.priorities.find(p => p.priority === "unassigned")?.effective_cents || 0)}</strong> · Included in the campaign total, not hidden.</span><button onClick={() => setFilter(f => ({ ...f, priority: "unassigned", page: 1 }))}>Review unassigned</button></div>}
       {data.sourceChanged && <p className={styles.notice}>Source settings changed. These are the previous complete results; finish a refresh before making assignments or exceptions.</p>}
       {reviewCount > 0 && <p className={styles.notice}>{reviewCount} exceptions need review because their source amount or fund changed. Those exceptions are not applied to totals.</p>}
       {data.orphaned > 0 && <p className={styles.muted}>{data.orphaned} saved exceptions belong to allocations no longer in this query. They are retained in history but excluded from totals.</p>}
-      {data.canManage && (setup || !data.config?.sourceKey) && <SourceEditor data={data} pending={pending} command={command} onClose={() => setSetup(false)} />}
+      {data.canManage && setupOpen && <CampaignSourceEditor data={data} pending={pending} command={command} readFields={readCampaignFields} onClose={() => setSetup(false)} />}
       {data.canManage && data.config?.sourceKey && <section className={styles.refresh} aria-label="Campaign refresh"><details open={setup || active || Boolean(data.job?.error)}><summary>Refresh campaign data</summary><p>Run the saved Gift query using the shared reporting account. Last complete results stay visible while it runs. No gifts, funds, or query settings in NXT are changed.</p>
         {data.job?.error && <p role="alert" className={styles.error}>{data.job.error}</p>}
         {active ? <><p role="status">{pending ? "Loading campaign data..." : data.job.stage === "waiting" ? "NXT is preparing the campaign query." : "Campaign refresh is in progress."} {autoContinue ? "This page will continue automatically." : "Resume when you are ready."}</p><div className={styles.toolbar}><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(true); await command("continue"); }}>Continue refresh</button><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(false); await command("cancel"); }}>Cancel this refresh</button><button disabled={pending} onClick={load}>Reload saved status</button></div></>

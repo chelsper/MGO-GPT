@@ -4,6 +4,7 @@ import { blackbaudApiFetch, createBlackbaudQueryJob, getBlackbaudQueryJob, getBl
 import { getReportRefreshUser } from "./reportRefresh";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { campaignError, campaignId, campaignRow } from "@/utils/campaignPriorities";
+import { campaignMappingIssues } from "@/utils/campaignSourceMapping";
 import { createResultCsvVisitor, createResultTextDecoder } from "./dashboardQueryResults";
 import { pledgeQueryResultUrl } from "./pledgeQuerySource";
 
@@ -32,6 +33,10 @@ export function inspectCampaignQuery(query, queryId, config) {
   if (!fields.length || fields.length > 25 || new Set(fields).size !== fields.length) throw campaignError("Use 1-25 uniquely named output columns in the Gift query.");
   if (config && (config.queryName !== query.name || Object.values(config.columns).filter(Boolean).some(name => !fields.includes(name))))
     throw campaignError("The query name or mapped output fields changed. Review and save the source settings before refreshing.", 409);
+  if (config) {
+    const issues = campaignMappingIssues(config, fields, true);
+    if (issues.length) throw campaignError(issues[0].message, 409);
+  }
   return { queryId: String(queryId), queryName: String(query.name || ""), fields };
 }
 

@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.clearAllMocks(); mocks.auth.mockResolvedValue({ user: { email: "fictional@example.org" } }); mocks.user.mockResolvedValue({ id: 1, role: "admin", active: true });
   mocks.access.mockResolvedValue({ canView: true }); mocks.read.mockResolvedValue({ version: 1 }); mocks.edit.mockResolvedValue(2); mocks.save.mockResolvedValue(2); mocks.advance.mockResolvedValue({ stage: "waiting" });
   mocks.transport.mockResolvedValue({ connectionKey: "fixture-connection", metadata: mocks.metadata });
-  mocks.metadata.mockResolvedValue({ id: "27460", name: "Campaign", type: "Gift", select_fields: ["Gift","Fund ID","Fund","Amount"].map(name => ({ query_field: { selected_field_name: name } })) });
+  mocks.metadata.mockResolvedValue({ id: "27460", name: "Campaign", type: "Gift", select_fields: ["Gift","Fund System Record ID","Fund","Amount"].map(name => ({ query_field: { selected_field_name: name } })) });
 });
 describe("campaign dashboard authorization and read/write boundaries", () => {
   it("authenticates before database or NXT access", async () => {
@@ -52,12 +52,18 @@ describe("campaign dashboard authorization and read/write boundaries", () => {
     expect(mocks.edit).not.toHaveBeenCalled(); expect(mocks.transport).not.toHaveBeenCalled();
   });
   it("binds verified source settings to the shared connection", async () => {
-    const response = await POST(request({ operation: "source",version: 1,input: { queryId: "27460",queryName: "Campaign",mode: "gift",columns: { giftId: "Gift",fundId: "Fund ID",fundName: "Fund",amount: "Amount" },confirmed: true } }));
+    const response = await POST(request({ operation: "source",version: 1,input: { queryId: "27460",queryName: "Campaign",mode: "gift",columns: { giftId: "Gift",fundId: "Fund System Record ID",fundName: "Fund",amount: "Amount" },confirmed: true } }));
     expect(response.status).toBe(200); expect(mocks.save.mock.calls[0][2]).toMatchObject({ connectionKey: "fixture-connection",sourceKey: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(mocks.advance).not.toHaveBeenCalled();
   });
   it("requires explicit confirmation to run the campaign query", async () => {
     expect((await POST(request({ operation: "start",version: 1 }))).status).toBe(400); expect(mocks.advance).not.toHaveBeenCalled();
+  });
+  it("rejects a known lookup ID even if submitted directly past the mapping UI", async () => {
+    mocks.metadata.mockResolvedValue({ id: "27460", name: "Campaign", type: "Gift", select_fields: ["Gift ID", "Fund System Record ID", "Fund", "Gift Amount"].map(name => ({ query_field: { selected_field_name: name } })) });
+    const response = await POST(request({ operation: "source", version: 1, input: { queryId: "27460", queryName: "Campaign", mode: "gift", columns: { giftId: "Gift ID", fundId: "Fund System Record ID", fundName: "Fund", amount: "Gift Amount" }, confirmed: true } }));
+    expect(response.status).toBe(409); expect(await response.text()).toContain("lookup");
+    expect(mocks.save).not.toHaveBeenCalled(); expect(mocks.advance).not.toHaveBeenCalled();
   });
   it("does not leak unexpected database or NXT details", async () => {
     mocks.read.mockRejectedValue(new Error("secret signed URL or private SQL")); const result = await GET(new Request(url));

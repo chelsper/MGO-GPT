@@ -24,6 +24,15 @@ it("hides editing and query controls from read-only viewers", async () => {
   expect(screen.queryByRole("button",{ name: "Source & refresh" })).not.toBeInTheDocument();
   expect(screen.queryByText("Refresh campaign data")).not.toBeInTheDocument();
 });
+it("can close and reopen first-time setup without losing the dashboard or running NXT", async () => {
+  current.config = {}; current.runId = null;
+  render(<Page />); expect(await screen.findByRole("region", { name: "Campaign source setup" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close setup" }));
+  expect(screen.queryByRole("region", { name: "Campaign source setup" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Source & refresh" }));
+  expect(screen.getByRole("region", { name: "Campaign source setup" })).toBeInTheDocument();
+  expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
+});
 it("saves only the selected split, preserving deliberate zero and requiring a reason", async () => {
   render(<Page />); fireEvent.click(await screen.findByRole("button",{ name: "Adjust allocation" }));
   const dialog = screen.getByRole("dialog"); expect(within(dialog).getByRole("button",{ name: "Save campaign exception" })).toBeDisabled();

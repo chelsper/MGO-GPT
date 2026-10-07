@@ -7,7 +7,53 @@ passed; the sandbox deployment is unchanged. No live query execution,
 query-definition change, or campaign data import was performed during this work.
 See `ju-campaign-priorities-release-2026-10-06.md` for release and recovery evidence.
 The screenshot identifies Gift query 27460, "FM Campaign Gifts - Same as Dashboard",
-with approximately 87,465 records. Its live output columns still need verification.
+with approximately 87,465 records. Its live output columns were verified read-only
+on 2026-10-07; the single-fund mapping below is prepared but not yet saved.
+
+### Guided Mapping Follow-Up (2026-10-07, Not Yet Deployed)
+
+The setup editor now separates loading fields, matching columns, and confirming the
+save. Unique explicit labels receive suggestions without replacing saved choices;
+ambiguous system IDs still need staff selection. Missing/removed fields and unsafe
+lookup-code or balance mappings explain why saving is unavailable. Server-side
+preflight also rejects known unsafe mappings. Changing the query or amount basis
+clears the relevant choices and confirmation; stale field-loading responses cannot
+overwrite a different query. Saving settings never runs the query.
+
+JU confirmed these campaign gifts should have one fund each. For query 27460 use:
+
+| App setting | Returned query field |
+| --- | --- |
+| Amount basis | One amount and one fund per gift |
+| Gift system record ID | System Record ID |
+| Fund system record ID | Fund System Record ID |
+| Fund name | Fund Description |
+| Campaign-countable amount | Gift Amount |
+| Gift date | Gift Date |
+| Gift type | Gift Type |
+| Donor name | Not included (not returned) |
+
+The NXT Output tree was inspected to verify System Record ID under Gift Information,
+not the constituent node. Gift ID and Gift Import ID are not substitutes. A gift
+split ID is not required in this explicit single-fund mode. Identical repeated gift
+rows count once; a gift appearing under different funds stops publication and keeps
+the last complete snapshot. No live gift rows have been imported or reconciled yet.
+
+The query also returns Fund ID, Fund Type, Fund Category, and Gift Pledge Balance.
+These are not imported by the current dashboard. Pledge balance is reserved for the
+requested future received-versus-committed view; it must not replace or be added to
+campaign credit. Define gift-type/payment linkage, write-offs, and recognition rules
+before calculating cash received. The current query's criteria include pledges but
+not Pledge Payment or Matching Gift Pledge Payment, so received reporting may need a
+separate source. That future work has not been implemented.
+
+Follow-up validation: 61 focused tests passed, including 17 isolated SQL integration
+tests. The full release suite passed 5,945 tests with 174 existing opt-in tests skipped.
+Typecheck, production build, release-worktree guard, and whitespace checks passed.
+Desktop and 390px mobile checks
+used fictional data and the actual page component; the mobile layout had no horizontal
+overflow. Live inspection read only query metadata and the query editor; no NXT
+definition, constituent, gift, or fund was modified.
 
 ## Staff Workflow
 
@@ -122,8 +168,9 @@ variable, those integration tests are skipped rather than using any existing dat
 
 JU-only deployment and signed-in first-load access are verified. Next, verify the
 saved-field mapping and one read-only query refresh before trusting live totals.
-Reconcile the first snapshot with
-the NXT query and inspect at least one genuine multi-fund gift. Assign funds, then test
+Reconcile the first snapshot with the NXT query and confirm one fund per gift for
+JU's selected mode. If multi-fund gifts are later introduced, verify split-level
+output and mappings before switching modes. Assign funds, then test
 a reversible local-only exception on an approved allocation. None of these live steps
 have been performed yet.
 

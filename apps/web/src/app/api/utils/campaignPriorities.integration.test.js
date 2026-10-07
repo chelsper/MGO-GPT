@@ -7,6 +7,7 @@ import { campaignRead, editCampaign, saveCampaignConfig } from "./campaignPriori
 import { advanceCampaignRefresh, stageCampaignRows } from "./campaignPriorityRefresh";
 import { campaignHash } from "./campaignPriorityQuery";
 import { BlackbaudQuotaExceededError } from "./blackbaud";
+import { campaignRow } from "@/utils/campaignPriorities";
 
 // Optional local PostgreSQL WASM runtime, never a DATABASE_URL or production connection.
 const modulePath = process.env.CAMPAIGN_PGLITE_MODULE;
@@ -14,7 +15,7 @@ const suite = modulePath ? describe : describe.skip;
 suite("campaign SQL integration in isolated PostgreSQL", () => {
   let pg, db, run;
   const actor = { id: 1, role: "admin", name: "Test Admin" };
-  const config = { queryId: "27460", queryName: "Campaign", mode: "split", columns: { giftId: "Gift", splitId: "Split", fundId: "Fund ID", fundName: "Fund", amount: "Amount" }, sourceKey: "source-a", connectionKey: "connection-a" };
+  const config = { queryId: "27460", queryName: "Campaign", mode: "split", columns: { giftId: "Gift", splitId: "Split", fundId: "Fund System Record ID", fundName: "Fund", amount: "Amount" }, sourceKey: "source-a", connectionKey: "connection-a" };
   const metadata = { id: "27460", name: "Campaign", type: "Gift", select_fields: Object.values(config.columns).map(name => ({ query_field: { selected_field_name: name } })) };
   function row(split, amount = 6000, fund = "4") {
     const value = { itemKey: `10:${split}`, giftId: "10", splitId: String(split), fundId: fund, fundName: `Fund ${fund}`, amountCents: amount, donorName: "Fictional Donor", giftDate: "2026-10-06", giftType: "Gift" };
@@ -107,6 +108,25 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
     const data = await read(); expect(data.runId).not.toBe(run); expect(data.job.stage).toBe("complete");
     expect(data.rawRows).toBe(3); expect(data.uniqueRows).toBe(2); expect(data.effectiveCents).toBe(10000);
+  });
+  it.each([false, true])("one-fund mode deduplicates gifts and blocks unexpected multiple funds: conflict=%s", async conflict => {
+    const giftConfig = { ...config, mode: "gift", columns: { ...config.columns, splitId: "" } };
+    const headers = Object.values(giftConfig.columns).filter(Boolean);
+    const makeGift = fund => {
+      const values = { Gift: "10", "Fund System Record ID": fund, Fund: `Fund ${fund}`, Amount: "100.00" };
+      const value = campaignRow(headers.map(header => values[header]), headers, giftConfig);
+      return { ...value, rowHash: campaignHash(value), baseHash: campaignHash([value.giftId, value.splitId, value.fundId, value.amountCents]) };
+    };
+    await saveCampaignConfig(actor, 1, giftConfig, db);
+    const t = transport([makeGift("4"), makeGift(conflict ? "5" : "4")]); await start(t);
+    await advanceCampaignRefresh(actor, (await read()).version, "continue", t, db);
+    const data = await read();
+    if (conflict) {
+      expect(data.job.stage).toBe("failed"); expect(data.runId).toBe(run); expect(data.effectiveCents).toBe(10000);
+    } else {
+      expect(data.job.stage).toBe("complete"); expect(data.runId).not.toBe(run);
+      expect(data.uniqueRows).toBe(1); expect(data.effectiveCents).toBe(10000); expect(data.rows[0].split_id).toBeNull();
+    }
   });
   it("marks changed source allocations for review rather than reapplying old exceptions", async () => {
     await edit("override", { itemKey: "10:1", priority: "campus-planning", amount: "50", reason: "Exception" });
