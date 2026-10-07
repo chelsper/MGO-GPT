@@ -26,8 +26,8 @@ clears the relevant choices and confirmation; stale field-loading responses cann
 overwrite a different query. Saving settings never runs the query.
 
 JU initially selected one fund per gift. Staff saved this mapping for query 27460;
-the split-gift support described below must be deployed before the first complete
-import can publish:
+split-gift support is now deployed to JU. A fresh refresh with the existing mapping
+is required before the first complete import can publish:
 
 | App setting | Returned query field |
 | --- | --- |
@@ -44,7 +44,7 @@ The NXT Output tree was inspected to verify System Record ID under Gift Informat
 not the constituent node. Gift ID and Gift Import ID are not substitutes. A gift
 split ID is not required in whole-gift mode. At the guided-mapping release, repeated
 identical gift rows counted once and a gift under different funds stopped publication.
-The local split-gift follow-up replaces that limitation with bounded, read-only
+The deployed split-gift follow-up replaces that limitation with bounded, read-only
 allocation verification. No live campaign totals have yet been published.
 
 ### First Import Diagnosis (2026-10-07)
@@ -73,7 +73,11 @@ definition changed; the read-only API diagnostic sent no request because its
 existing token was unavailable, and the gift details were verified in the user's
 signed-in NXT browser instead. No refresh or deployment was performed for this fix.
 
-### Verified Split Gifts (Local Follow-Up, Not Yet Deployed)
+### Verified Split Gifts (Deployed 2026-10-07)
+
+JU-only release, signed-in page checks, sandbox isolation, and rollback evidence
+are recorded in `ju-campaign-split-release-2026-10-07.md`. Deployment did not run a
+campaign refresh; the previous failed import still needs a fresh run.
 
 Staff approved treating the two split gifts as four campaign rows: $50 for Haskell
 Public Policy Institute Fund, $50 for JU's Greatest Needs, $26.50 for JU's Greatest
@@ -103,8 +107,8 @@ The only schema addition is an index on staged run/gift ID. Allocation replaceme
 are atomic and lease-guarded; publication still waits for the whole dataset. The old
 failed run cannot be repaired from its retained first rows because it discarded the
 second fund rows. After deployment, start a fresh refresh with the existing saved
-mapping. No mapping change, NXT query edit, gift write, production import, or
-deployment has been performed for this follow-up.
+mapping. No mapping change, NXT query edit, gift write, or production import was
+performed during this deployment.
 
 Local verification: 5,988 tests passed, 174 existing opt-in tests skipped. The final
 focused pass passed all 110 campaign tests, including 29 isolated PostgreSQL tests:
@@ -248,7 +252,7 @@ variable, those integration tests are skipped rather than using any existing dat
 
 JU-only deployment and signed-in first-load access are verified. Next, verify the
 saved-field mapping and one read-only query refresh before trusting live totals.
-Deploy the local allocation follow-up first, refresh the existing saved source, and
+The allocation follow-up is deployed. Refresh the existing saved source and
 verify the two real split gifts appear as four allocations totaling $153. Reconcile
 the full first snapshot against NXT, using fund allocations rather than summing
 repeated whole-gift output. Assign funds, then test
