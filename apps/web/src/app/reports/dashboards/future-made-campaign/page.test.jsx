@@ -11,7 +11,7 @@ let current, calls;
 beforeEach(() => { current = structuredClone(saved); calls = []; vi.stubGlobal("fetch",vi.fn(async (url,options) => {
   calls.push({ url,options }); return json(options?.method === "POST" ? { version: 8 } : current);
 })); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 it("shows five priorities and saved totals, without starting an NXT query on open", async () => {
   render(<Page />); await screen.findByText("Campaign priorities");
   expect(within(screen.getByRole("region",{ name: "Five campaign priorities" })).getAllByRole("button")).toHaveLength(5);
@@ -61,4 +61,15 @@ it("does not silently rebase an open edit onto a newer dataset version", async (
   fireEvent.click(within(dialog).getByRole("button",{ name: "Save campaign exception" }));
   await waitFor(() => expect(calls.some(call => call.options?.method === "POST")).toBe(true));
   expect(JSON.parse(calls.find(call => call.options?.method === "POST").options.body)).toMatchObject({ version: 7,runId: "run-a" });
+});
+it("shows split verification as resumable work, not a new refresh, without starting on page open", async () => {
+  current.job = {stage:"resolving",nextCheckAt:null};
+  render(<Page />);
+  expect(await screen.findByText(/Checking split gifts against their NXT fund allocations/)).toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"Continue refresh"})).toBeEnabled();
+  expect(screen.queryByRole("button",{name:"Refresh campaign",exact:true})).not.toBeInTheDocument();
+  expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
+  fireEvent.click(screen.getByRole("button",{name:"Continue refresh"}));
+  await waitFor(() => expect(calls.some(call => call.options?.method === "POST")).toBe(true));
+  expect(JSON.parse(calls.find(call => call.options?.method === "POST").options.body)).toMatchObject({operation:"continue"});
 });

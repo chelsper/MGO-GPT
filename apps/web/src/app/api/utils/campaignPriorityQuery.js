@@ -21,6 +21,10 @@ export async function campaignTransport(origin) {
     metadata: queryId => blackbaudApiFetch(`/query/queries/${queryId}`, { ...options, searchParams: { product: "RE", module: "None" } }),
     create: queryId => createBlackbaudQueryJob({ ...options, queryId }),
     poll: jobId => getBlackbaudQueryJob({ ...options, jobId }),
+    gift: giftId => {
+      if (!campaignId(giftId)) throw campaignError("A valid gift system record ID is required.");
+      return blackbaudApiFetch(`/gift/v1/gifts/${giftId}`, { ...options, method: "GET" });
+    },
     read: (url, config, expected, saveBatch) => readCampaignQuery(url, options, config, expected, saveBatch),
   };
 }

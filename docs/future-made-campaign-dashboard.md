@@ -8,13 +8,14 @@ query-definition change, or campaign data import was performed during this work.
 See `ju-campaign-priorities-release-2026-10-06.md` for release and recovery evidence.
 The screenshot identifies Gift query 27460, "FM Campaign Gifts - Same as Dashboard",
 with approximately 87,465 records. Its live output columns were verified read-only
-on 2026-10-07; the single-fund mapping below is prepared but not yet saved.
+on 2026-10-07. Staff later saved the single-fund mapping, but the first import was
+blocked by two genuine split gifts; see First Import Diagnosis below.
 
 ### Guided Mapping Follow-Up (Deployed 2026-10-07)
 
 The guided setup is deployed to JU only. Release evidence and recovery details are
-in `ju-campaign-mapping-release-2026-10-07.md`. The live query mapping remains an
-unsaved draft; deployment did not authorize or run a campaign import.
+in `ju-campaign-mapping-release-2026-10-07.md`. At deployment, the live query mapping
+was an unsaved draft; deployment did not authorize or run a campaign import.
 
 The setup editor now separates loading fields, matching columns, and confirming the
 save. Unique explicit labels receive suggestions without replacing saved choices;
@@ -24,11 +25,13 @@ preflight also rejects known unsafe mappings. Changing the query or amount basis
 clears the relevant choices and confirmation; stale field-loading responses cannot
 overwrite a different query. Saving settings never runs the query.
 
-JU confirmed these campaign gifts should have one fund each. For query 27460 use:
+JU initially selected one fund per gift. Staff saved this mapping for query 27460;
+the split-gift support described below must be deployed before the first complete
+import can publish:
 
 | App setting | Returned query field |
 | --- | --- |
-| Amount basis | One amount and one fund per gift |
+| Amount basis | Whole gift amount (saved `gift` mode) |
 | Gift system record ID | System Record ID |
 | Fund system record ID | Fund System Record ID |
 | Fund name | Fund Description |
@@ -39,9 +42,78 @@ JU confirmed these campaign gifts should have one fund each. For query 27460 use
 
 The NXT Output tree was inspected to verify System Record ID under Gift Information,
 not the constituent node. Gift ID and Gift Import ID are not substitutes. A gift
-split ID is not required in this explicit single-fund mode. Identical repeated gift
-rows count once; a gift appearing under different funds stops publication and keeps
-the last complete snapshot. No live gift rows have been imported or reconciled yet.
+split ID is not required in whole-gift mode. At the guided-mapping release, repeated
+identical gift rows counted once and a gift under different funds stopped publication.
+The local split-gift follow-up replaces that limitation with bounded, read-only
+allocation verification. No live campaign totals have yet been published.
+
+### First Import Diagnosis (2026-10-07)
+
+Staff subsequently saved this mapping and started the first refresh. A database-
+enforced read-only inspection found 87,463 staged gift IDs, 476 distinct funds,
+two conflicting gifts, and no published run. Read-only NXT gift-page inspection
+confirmed that both exceptions are actual two-fund gifts in the campaign. The
+single-fund assumption is therefore not true for the entire dataset. The import
+must remain unpublished until actual fund allocations can be represented without
+repeating or discarding whole-gift amounts. Do not switch modes without verified
+split identifiers and amounts, infer a 50/50 rule, silently exclude the two gifts,
+or overwrite staging rows to force publication.
+
+The local diagnostic fix separates duplicate conflicts, fund-count limits, and
+row-count validation errors. Manager-only messages include the actual conflict
+count, up to five gift system IDs, and the actual fund count. Already-failed legacy
+runs are diagnosed using SELECT-only reads; no query restart is needed to explain
+the failure after deployment. Ordinary viewers receive no job diagnostics. The
+diagnostic change alone does not resolve split allocations or publish the failed run.
+
+Validation: 5,953 tests passed, 174 existing opt-in tests skipped; all 19 isolated
+campaign SQL integration tests passed. Typecheck, production build, release guard,
+and whitespace checks passed. No production records, configuration, or query
+definition changed; the read-only API diagnostic sent no request because its
+existing token was unavailable, and the gift details were verified in the user's
+signed-in NXT browser instead. No refresh or deployment was performed for this fix.
+
+### Verified Split Gifts (Local Follow-Up, Not Yet Deployed)
+
+Staff approved treating the two split gifts as four campaign rows: $50 for Haskell
+Public Policy Institute Fund, $50 for JU's Greatest Needs, $26.50 for JU's Greatest
+Needs, and $26.50 for JU Scholarship Fund. These total $153, retain the two original
+gift IDs, and do not create four new gifts in NXT.
+
+Whole-gift mode now stages each distinct gift/fund pair. Identical repeated rows
+collapse; conflicting values for the same gift/fund still block publication. If a
+gift has multiple returned funds, a separate resumable phase reads that exact gift
+through the existing shared reporting connection. It requires actual NXT split IDs
+and amounts, exactly one split per returned fund, an exact match to the query's fund
+set, and a split sum equal to the whole-gift amount on every query row. Missing,
+additional, repeated, changed, negative, or unreconciled allocations fail closed.
+Nothing is guessed, divided equally, or appended from outside the query.
+
+These checks use GET Gift (read-only); see the primary
+[Blackbaud Gift and Gift Split entities](https://developer.blackbaud.com/skyapi/renxt/gift/entities).
+Only multi-fund gifts trigger detail reads: up to 100 gifts per refresh, 20 funds
+per gift, and 10 sequential requests per continuation, with existing shared cooldown
+handling and no automatic retries. Larger or more complex split datasets require
+explicit split-ID/split-amount query outputs. After a cooldown, the completed gifts
+are retained without rerunning or redownloading the query. Ordinary single-fund
+gifts retain their existing keys and need no extra NXT calls. Split allocations use
+real `giftId:splitId` keys, so local overrides remain allocation-specific.
+
+The only schema addition is an index on staged run/gift ID. Allocation replacements
+are atomic and lease-guarded; publication still waits for the whole dataset. The old
+failed run cannot be repaired from its retained first rows because it discarded the
+second fund rows. After deployment, start a fresh refresh with the existing saved
+mapping. No mapping change, NXT query edit, gift write, production import, or
+deployment has been performed for this follow-up.
+
+Local verification: 5,988 tests passed, 174 existing opt-in tests skipped. The final
+focused pass passed all 110 campaign tests, including 29 isolated PostgreSQL tests:
+four allocations totaling $153; unequal allocations; cross-batch deduplication;
+unchanged single-gift keys and overrides; missing/extra IDs and funds; amount
+reconciliation; ten-request batches; the 100-gift cap; saved cooldown checkpoints;
+connection changes; cancellation; lease expiry; and preservation of the prior
+published dataset. Typecheck and the production build passed. Release-worktree and
+whitespace checks passed. Live import validation remains a post-deployment step.
 
 The query also returns Fund ID, Fund Type, Fund Category, and Gift Pledge Balance.
 These are not imported by the current dashboard. Pledge balance is reserved for the
@@ -72,10 +144,11 @@ dataset, not a view filtered by each viewer's individual NXT permissions.
 2. Map gift system record ID, fund system record ID, fund name, gift split system
    record ID, and the campaign-countable split amount. Optional fields are primary
    donor name, gift date, and gift type. Use a distinct output column for each value.
-3. If every gift has exactly one campaign fund, explicitly select the single-fund
-   gift mode instead. Never map a whole-gift amount repeated on each fund split.
-   If split IDs or split amounts are missing, add/verify the necessary query outputs
-   before using split mode. IDs are not inferred from names, row order, or lookup codes.
+3. For mostly single-fund gifts, choose Whole gift amount and return every fund for
+   every gift. Occasional multi-fund gifts are reconciled to NXT's real split amounts
+   before publishing. Do not map a whole-gift amount as a split amount. For complex
+   splits, use verified split-ID/split-amount query outputs instead. IDs are never
+   inferred from names, row order, or lookup codes.
 4. Confirm and save the source mapping. Run Refresh campaign explicitly. The query
    uses the configured shared reporting account. This tab polls after a user starts
    or resumes the refresh; reopening the dashboard alone never runs NXT requests.
@@ -93,11 +166,14 @@ cash received, soft credit, or campaign eligibility. Amounts are USD only.
 
 ## Accounting And Recovery
 
-- Original query total plus local adjustments equals the campaign recognition total.
+- Original allocation total plus local adjustments equals the campaign recognition total.
   Five priorities plus Unassigned equal that same total. Distinct gift counts in
   different priorities should not be summed because a gift may have multiple splits.
 - Identical repeated gift/split rows count once. Conflicting rows for the same key
   stop publication rather than guessing or summing repeated whole-gift amounts.
+- In whole-gift mode, the original total uses verified split amounts for multi-fund
+  gifts, not the sum of repeated whole-gift values. Four allocations can belong to
+  two NXT gifts; gift counts and allocation counts are intentionally different.
 - CSV ingestion streams into disposable staging tables in batches of at most 500.
   Limits are 300,000 raw rows, 128 MiB, 25 uniquely named output columns, and 2,000 funds.
   Completed NXT job row counts must agree with the downloaded CSV before publication.
@@ -172,9 +248,10 @@ variable, those integration tests are skipped rather than using any existing dat
 
 JU-only deployment and signed-in first-load access are verified. Next, verify the
 saved-field mapping and one read-only query refresh before trusting live totals.
-Reconcile the first snapshot with the NXT query and confirm one fund per gift for
-JU's selected mode. If multi-fund gifts are later introduced, verify split-level
-output and mappings before switching modes. Assign funds, then test
+Deploy the local allocation follow-up first, refresh the existing saved source, and
+verify the two real split gifts appear as four allocations totaling $153. Reconcile
+the full first snapshot against NXT, using fund allocations rather than summing
+repeated whole-gift output. Assign funds, then test
 a reversible local-only exception on an approved allocation. None of these live steps
 have been performed yet.
 

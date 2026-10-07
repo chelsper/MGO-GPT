@@ -68,9 +68,9 @@ export default function CampaignSourceEditor({ data, pending, command, onClose, 
       <p role="status" className={styles.mappingSummary}><strong>{source.queryName}</strong><span>{fields.length} fields loaded. {complete} of {required.length} required fields matched. Suggestions are not saved yet.</span></p>
       <h3>2. Match fields to the campaign</h3>
       <label className={styles.basis}>Amount basis<select value={source.mode} disabled={pending || loading} onChange={e => changeMode(e.target.value)}>
-        <option value="split">One campaign-countable amount per fund split (recommended)</option><option value="gift">One amount and one fund per gift</option>
+        <option value="split">One campaign-countable amount per fund split (recommended)</option><option value="gift">Whole gift amount (verify occasional fund splits in NXT)</option>
       </select></label>
-      <p className={styles.fieldHelp}>{source.mode === "split" ? "Keep this selected when gifts can support multiple funds. Each allocation needs its own ID and amount." : "Use this when every gift belongs to one campaign fund. If a gift appears under different funds, the import stops for review rather than counting it twice."}</p>
+      <p className={styles.fieldHelp}>{source.mode === "split" ? "Keep this selected when gifts can support multiple funds. Each allocation needs its own ID and amount." : "Use the whole Gift Amount and return every fund for each gift. Most gifts import directly. For occasional multi-fund gifts, the app reads their actual NXT split IDs and amounts and checks that they reconcile before counting them. It never assumes an equal split or changes NXT."}</p>
       {issues.length > 0 && <div className={styles.notice} aria-label="Mapping still needed"><strong>Before you can save</strong><ul>{[...new Set(issues.map(issue => issue.message))].map(message => <li key={message}>{message}</li>)}</ul><p>If a required field is not available in NXT, leave it unresolved. We need to verify the source rather than guess or divide gift amounts.</p></div>}
       <div className={styles.formGrid}>{required.map(fieldControl)}</div>
       <h3>Optional display fields</h3><p className={styles.fieldHelp}>These add context. They do not change campaign credit.</p>

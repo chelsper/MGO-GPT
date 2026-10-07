@@ -21,6 +21,7 @@ export default async function campaignPrioritiesSchema(db) {
       conflict BOOLEAN NOT NULL DEFAULT FALSE, PRIMARY KEY(run_id,item_key)
     );
     CREATE INDEX IF NOT EXISTS campaign_priority_row_fund ON campaign_priority_rows(run_id,fund_id);
+    CREATE INDEX IF NOT EXISTS campaign_priority_row_gift ON campaign_priority_rows(run_id,gift_id);
     CREATE TABLE IF NOT EXISTS campaign_priority_funds (
       source_key TEXT NOT NULL, fund_id TEXT NOT NULL, priority TEXT NOT NULL,
       PRIMARY KEY(source_key,fund_id)

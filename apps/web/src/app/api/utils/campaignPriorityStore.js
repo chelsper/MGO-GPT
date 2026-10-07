@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { campaignError, validPriority, validateCampaignOverride } from "@/utils/campaignPriorities";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
+import { describeLegacyCampaignFailure } from "./campaignPriorityDiagnostics";
 
 export function assertCampaignEditor(actor) {
   if (!actor?.id || actor.active === false || !canManageWorkspaceRole(actor.role))
@@ -44,6 +45,7 @@ export async function campaignRead(filters, canManage, db = sql) {
   ], { isolationLevel: "RepeatableRead", readOnly: true });
   const [state] = results[0];
   const job = state.job && { stage: state.job.stage, error: state.job.error || null, nextCheckAt: state.job.nextCheckAt || null };
+  if (canManage && job) job.error = await describeLegacyCampaignFailure(state.job, state.config.mode, db).catch(() => state.job.error) || null;
   const numeric = rows => rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => {
     if (!key.endsWith("_cents") || value === null) return [key, value];
     const amount = Number(value);

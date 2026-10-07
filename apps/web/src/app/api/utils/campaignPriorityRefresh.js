@@ -3,6 +3,8 @@ import sql from "./sql";
 import { campaignError } from "@/utils/campaignPriorities";
 import { inspectCampaignQuery } from "./campaignPriorityQuery";
 import { assertCampaignEditor } from "./campaignPriorityStore";
+import { campaignConflictGiftIds, campaignImportIssue } from "./campaignPriorityDiagnostics";
+import { campaignGiftStagingKey, pendingCampaignSplits, resolveCampaignSplits, finishCampaignGiftKeys } from "./campaignPrioritySplits";
 import { isBlackbaudQuotaExceededError } from "./blackbaud";
 import { getQueryJobId, getQueryJobStatus, getQueryJobMetadataRowCount, getQueryResultUrl } from "./savedQueryExecution";
 
@@ -15,7 +17,8 @@ async function saveJob(state, job, db) {
 
 export async function stageCampaignRows(state, rows, db) {
   const unique = new Map();
-  for (const row of rows) {
+  for (const input of rows) {
+    const row = state.config?.mode === "gift" ? { ...input, itemKey: campaignGiftStagingKey(input) } : input;
     const before = unique.get(row.itemKey);
     unique.set(row.itemKey, before ? { ...before, conflict: before.conflict || before.rowHash !== row.rowHash } : { ...row, conflict: false });
   }
@@ -61,27 +64,49 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
       job = { ...job, stage: "waiting", queryJobId, nextCheckAt: new Date(Date.now()+15000).toISOString() };
       return await saveJob(state, job, db);
     }
-    if (!job || !["waiting", "downloading"].includes(job.stage) || !job.queryJobId) throw campaignError("There is no resumable query. Start a fresh refresh; saved totals remain available.", 409);
+    if (!job || !["waiting", "downloading", "resolving"].includes(job.stage) || !job.queryJobId) throw campaignError("There is no resumable query. Start a fresh refresh; saved totals remain available.", 409);
     if (Date.now()-Date.parse(job.startedAt)>2*60*60*1000) throw campaignError("This query job expired. Start a fresh refresh; saved totals remain available.");
     if (Date.now()<Date.parse(job.nextCheckAt || "")) return await saveJob(state, job, db);
-    const result = await transport.poll(job.queryJobId);
-    if (getQueryJobId(result) !== job.queryJobId) throw campaignError("NXT returned a different query job. Saved results are unchanged.");
-    const status = getQueryJobStatus(result);
-    if (/fail|cancel|error|declin/i.test(status)) throw campaignError("NXT could not complete this query. Saved results are unchanged.");
-    if (!/^(completed|complete|success|succeeded)$/i.test(status)) {
-      if (!/^(pending|queued|running|inprogress|notstarted)$/i.test(status)) throw campaignError("NXT returned an unknown query status.");
-      return await saveJob(state, { ...job, nextCheckAt: new Date(Date.now()+15000).toISOString() }, db);
+    let rawRows = job.rawRows;
+    if (job.stage !== "resolving") {
+      const result = await transport.poll(job.queryJobId);
+      if (getQueryJobId(result) !== job.queryJobId) throw campaignError("NXT returned a different query job. Saved results are unchanged.");
+      const status = getQueryJobStatus(result);
+      if (/fail|cancel|error|declin/i.test(status)) throw campaignError("NXT could not complete this query. Saved results are unchanged.");
+      if (!/^(completed|complete|success|succeeded)$/i.test(status)) {
+        if (!/^(pending|queued|running|inprogress|notstarted)$/i.test(status)) throw campaignError("NXT returned an unknown query status.");
+        return await saveJob(state, { ...job, nextCheckAt: new Date(Date.now()+15000).toISOString() }, db);
+      }
+      job = { ...job, stage: "downloading", nextCheckAt: null };
+      state.job = job;
+      await db`UPDATE campaign_priority_state SET job=${JSON.stringify(job)}::jsonb WHERE id=1 AND lease=${lease}::uuid`;
+      // A resumed download starts from the query result, not partly resolved data.
+      await db`DELETE FROM campaign_priority_rows WHERE run_id=${job.runId}::uuid
+        AND EXISTS(SELECT 1 FROM campaign_priority_state WHERE id=1 AND lease=${lease}::uuid AND lease_until>NOW())`;
+      ({ rawRows } = await transport.read(getQueryResultUrl(result), state.config, getQueryJobMetadataRowCount(result), rows => stageCampaignRows(state, rows, db)));
+      if (state.config.mode === "gift") {
+        const [invalid] = await db`SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE conflict)::int AS conflicts,COUNT(DISTINCT fund_id)::int AS funds
+          FROM campaign_priority_rows WHERE run_id=${job.runId}::uuid`;
+        const issue = campaignImportIssue(invalid, invalid.conflicts ? await campaignConflictGiftIds(job.runId, db) : [], "gift", rawRows);
+        if (issue) throw campaignError(issue);
+        if ((await pendingCampaignSplits(job.runId, db)).length) {
+          // Use a fresh request budget for rare split checks after the large CSV download.
+          return await saveJob(state, { ...job, stage: "resolving", rawRows, error: null, nextCheckAt: null }, db);
+        }
+      }
+    } else {
+      if (state.config.mode !== "gift" || !Number.isSafeInteger(rawRows) || rawRows < 0) throw campaignError("The saved allocation checkpoint is invalid. Start a fresh refresh.");
+      if (!await resolveCampaignSplits(state, transport, db)) return await saveJob(state, { ...job, error: null, nextCheckAt: null }, db);
     }
-    job = { ...job, stage: "downloading", nextCheckAt: null };
-    state.job = job;
-    await db`UPDATE campaign_priority_state SET job=${JSON.stringify(job)}::jsonb WHERE id=1 AND lease=${lease}::uuid`;
-    const { rawRows } = await transport.read(getQueryResultUrl(result), state.config, getQueryJobMetadataRowCount(result), rows => stageCampaignRows(state, rows, db));
+    if (state.config.mode === "gift") await finishCampaignGiftKeys(state, db);
     const [counts] = await db`SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE conflict)::int AS conflicts,
       COUNT(DISTINCT fund_id)::int AS funds,
       COALESCE(SUM(ABS(amount_cents::numeric)+ABS(effective_cents::numeric)),0)::text AS absolute_cents
       FROM campaign_priority_effective WHERE run_id=${job.runId}::uuid`;
     if (BigInt(counts.absolute_cents)>BigInt(Number.MAX_SAFE_INTEGER)) throw campaignError("The query exceeds the campaign's exact-amount limit. The previous dataset is unchanged.");
-    if (counts.conflicts || counts.funds > 2000 || counts.total > rawRows) throw campaignError("The query has conflicting duplicate gift allocations or more than 2,000 funds. Check its output fields; the previous dataset is unchanged.");
+    const conflictIds = counts.conflicts > 0 ? await campaignConflictGiftIds(job.runId, db) : [];
+    const issue = campaignImportIssue(counts, conflictIds, state.config.mode, rawRows);
+    if (issue) throw campaignError(issue);
     // One atomic publication pointer makes partial downloads invisible. The
     // guarded run update and publication/audit either all commit or all roll back.
     const published = await db`WITH eligible AS MATERIALIZED (
@@ -109,7 +134,7 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
   } catch (error) {
     const pause = error.httpStatus === 429 || isBlackbaudQuotaExceededError(error) || (error.httpStatus === 403 && error.retryAfterMs > 0);
     const message = error.campaignSafe ? error.message : pause ? "Blackbaud paused this refresh. Saved results remain available; continue after the cooldown." : "The campaign query could not be completed. Check its fields and permissions; saved results are unchanged.";
-    const updatedJob = { ...job, stage: pause && job?.queryJobId ? "waiting" : "failed", error: message,
+    const updatedJob = { ...job, stage: pause && job?.queryJobId ? (job.stage === "resolving" ? "resolving" : "waiting") : "failed", error: message,
       nextCheckAt: pause ? new Date(Date.now()+Math.max(15000, Number(error.retryAfterMs)||60000)).toISOString() : null };
     return await saveJob(state, updatedJob, db);
   }
