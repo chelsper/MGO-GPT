@@ -10,7 +10,11 @@ The screenshot identifies Gift query 27460, "FM Campaign Gifts - Same as Dashboa
 with approximately 87,465 records. Its live output columns were verified read-only
 on 2026-10-07; the single-fund mapping below is prepared but not yet saved.
 
-### Guided Mapping Follow-Up (2026-10-07, Not Yet Deployed)
+### Guided Mapping Follow-Up (Deployed 2026-10-07)
+
+The guided setup is deployed to JU only. Release evidence and recovery details are
+in `ju-campaign-mapping-release-2026-10-07.md`. The live query mapping remains an
+unsaved draft; deployment did not authorize or run a campaign import.
 
 The setup editor now separates loading fields, matching columns, and confirming the
 save. Unique explicit labels receive suggestions without replacing saved choices;
