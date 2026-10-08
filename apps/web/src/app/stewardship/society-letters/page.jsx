@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useLetterNavigation from "./useLetterNavigation";
+import useAutomaticAppealVerification from "./useAutomaticAppealVerification";
 import { letterViewHref } from "@/utils/societyLetterNavigation";
 import {
   LETTER_BATCH_LIMIT,
@@ -453,7 +454,7 @@ export default function SocietyLettersPage() {
       : setupContent.current;
     target?.focus();
   }, [setupNavigation, navigation.view, Boolean(data)]);
-  function accept(payload) {
+  function accept(payload, keepForm = false) {
     latestData.current = payload;
     const nextScope = reviewScope(payload);
     if (
@@ -468,12 +469,13 @@ export default function SocietyLettersPage() {
     }
     loadedScope.current = nextScope;
     setData(payload);
-    setSettings(
-      payload.settings || {
-        ...defaults,
-        societyKeys: payload.definitions.map((d) => d.key),
-      },
-    );
+    if (!keepForm)
+      setSettings(
+        payload.settings || {
+          ...defaults,
+          societyKeys: payload.definitions.map((d) => d.key),
+        },
+      );
   }
   async function load() {
     try {
@@ -513,7 +515,12 @@ export default function SocietyLettersPage() {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    setError("");
+    const automatic =
+      body.automatic === true &&
+      ["verify_letter_appeals", "verify_exclusion_appeal"].includes(
+        body.action,
+      );
+    if (!automatic) setError("");
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -536,15 +543,19 @@ export default function SocietyLettersPage() {
       if (payload.finalPreview) setFinalPreview(payload.finalPreview);
       else if (payload.preview) setPreview(payload.preview);
       else {
-        accept(payload);
-        setPreview(null);
-        if (body.action !== "update_letter_dates") setSelected([]);
+        accept(payload, automatic);
+        if (!automatic) {
+          setPreview(null);
+          if (body.action !== "update_letter_dates") setSelected([]);
+        }
       }
       return payload;
     } catch (err) {
-      setError(err.message);
-      setRefreshing(false);
-      setSendingBatch(null);
+      if (!automatic) {
+        setError(err.message);
+        setRefreshing(false);
+        setSendingBatch(null);
+      }
       return null;
     } finally {
       inFlight.current = false;
@@ -669,6 +680,22 @@ export default function SocietyLettersPage() {
     data?.settings &&
     JSON.stringify(settings) !== JSON.stringify(data.settings),
   );
+  const verificationNotice = useAutomaticAppealVerification({
+    data,
+    paused:
+      busy ||
+      refreshing ||
+      !!sendingBatch ||
+      setupOpen ||
+      sourceDirty ||
+      !!preview ||
+      !!confirmation ||
+      !!finalPreview ||
+      !!excluding ||
+      !!reviewingRecipient ||
+      !!reviewQueue,
+    verify: act,
+  });
   const householdPreview = isLetterPreviewSource(data?.settings);
   const queryPostal = data?.settings?.sourceMode === "society_queries";
   const selectionLimit = LETTER_BATCH_LIMIT;
@@ -906,6 +933,11 @@ export default function SocietyLettersPage() {
           </button>
         )}
       </header>
+      {verificationNotice && (
+        <p role="status" className="text-sm text-gray-600">
+          {verificationNotice}
+        </p>
+      )}
       {error && (
         <div
           role="alert"
@@ -1373,11 +1405,11 @@ export default function SocietyLettersPage() {
                         Prepare the documents; preview any you want to check.
                       </li>
                       <li>
-                        Approve once to create the letters. NXT
-                        restrictions and prior appeals are checked automatically
-                        before updating each household. Download after every
-                        full constituent is confirmed. Spouse-only records stay
-                        in the joint letter without a separate appeal assignment.
+                        Approve once to create the letters. NXT restrictions and
+                        prior appeals are checked automatically before updating
+                        each household. Download after every full constituent is
+                        confirmed. Spouse-only records stay in the joint letter
+                        without a separate appeal assignment.
                       </li>
                     </ol>
                     <p className="mt-3 text-sm">
@@ -1428,8 +1460,8 @@ export default function SocietyLettersPage() {
                       <p className="mt-2 text-sm text-gray-600">
                         Create up to {deliveryBatchLimit} PDFs per batch, one
                         letter per household or individual. Documents are
-                        prepared one at a time and progress is saved. Preview
-                        is optional. One batch approval starts the checks and
+                        prepared one at a time and progress is saved. Preview is
+                        optional. One batch approval starts the checks and
                         appeal updates; preparing documents alone does not.
                       </p>
                     )}
@@ -1988,6 +2020,7 @@ export default function SocietyLettersPage() {
                           </p>
                           <LetterAppealStatus
                             item={item}
+                            automatic
                             busy={busy}
                             onVerify={() =>
                               act({
@@ -2208,6 +2241,7 @@ export default function SocietyLettersPage() {
                     </p>
                     <ExclusionSyncStatus
                       item={item}
+                      automatic
                       busy={busy || refreshing || !!sendingBatch}
                       act={act}
                     />

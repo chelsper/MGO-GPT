@@ -38,6 +38,38 @@ const batch = (status = "pending") => ({
 });
 
 describe("saved postal approval UX", () => {
+  it("unlocks continuation after automatic read-only confirmation, without starting any writes", async () => {
+    const pending = batch();
+    const unresolved = batch();
+    unresolved.items[0].letterAppeals.status = "needs_review";
+    unresolved.items[0].letterAppeals.members[0].status = "uncertain";
+    const act = vi.fn().mockResolvedValue({ history: unresolved.items });
+    const { rerender } = render(
+      <PostalBatchRunner batch={pending} busy={false} act={act} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    );
+    await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
+    rerender(<PostalBatchRunner batch={unresolved} busy={false} act={act} />);
+    expect(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    ).toBeDisabled();
+    const confirmed = structuredClone(unresolved);
+    confirmed.items[0].letterAppeals.status = "complete";
+    confirmed.items[0].letterAppeals.members[0].status = "verified";
+    rerender(<PostalBatchRunner batch={confirmed} busy={false} act={act} />);
+    expect(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    ).toBeEnabled();
+    expect(act).toHaveBeenCalledTimes(1);
+  });
   it("does not prepare or submit on mount and requires rendered document approval", async () => {
     const act = vi.fn().mockResolvedValue({});
     render(
@@ -192,7 +224,9 @@ describe("saved postal approval UX", () => {
         name: "Create approved letters and apply appeals",
       }),
     ).toBeDisabled();
-    expect(screen.getByText(/Verify NXT status/)).toBeVisible();
+    expect(
+      screen.getByText(/Saved submissions are checked automatically/),
+    ).toBeVisible();
     expect(act).not.toHaveBeenCalled();
   });
   it("approves prepared letters in one step without reopening previews", async () => {

@@ -348,6 +348,13 @@ export async function POST(request) {
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
+    if (
+      body.automatic === true &&
+      !["verify_letter_appeals", "verify_exclusion_appeal"].includes(
+        body.action,
+      )
+    )
+      throw letterError("Automatic checks must be read-only.");
     store = await acquireSocietyLetters(ctx.user.id, body.revision);
     const state = await readSocietyLetterState();
     let batchId;
@@ -519,6 +526,7 @@ export async function POST(request) {
           ctx,
           undefined,
           body.action === "verify_exclusion_appeal",
+          body.action === "verify_exclusion_appeal" && body.automatic === true,
         );
         break;
       }

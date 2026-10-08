@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AppealVerificationStatus from "./AppealVerificationStatus";
 import AppealPicker, {
   AppealChoicesLoader,
   useAppealChoices,
@@ -151,7 +152,7 @@ export default function ExclusionAppealSettings({ data, busy, act }) {
   );
 }
 
-export function ExclusionSyncStatus({ item, busy, act }) {
+export function ExclusionSyncStatus({ item, busy, act, automatic = false }) {
   const [confirm, setConfirm] = useState(false);
   const nxt = item.nxt;
   if (!nxt)
@@ -206,15 +207,14 @@ export function ExclusionSyncStatus({ item, busy, act }) {
       )}
       {!complete && (
         <>
-          <button
-            className={button}
-            disabled={busy}
-            onClick={() =>
+          <AppealVerificationStatus
+            receipt={nxt}
+            automatic={automatic}
+            busy={busy}
+            onVerify={() =>
               act({ action: "verify_exclusion_appeal", exclusionId: item.id })
             }
-          >
-            Verify NXT status (read only)
-          </button>
+          />
           {!uncertain && (
             <>
               <label className="flex items-start gap-2">

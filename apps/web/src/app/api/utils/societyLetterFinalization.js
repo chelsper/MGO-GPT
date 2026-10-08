@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import {
+  beginAutomaticAppealCheck,
+  finishAutomaticAppealCheck,
+} from "@/utils/societyLetterVerification";
+import {
   relationshipOnlyReceipt,
   settledLetterAppealMember,
   completeLetterAppealMembers,
@@ -346,6 +350,8 @@ async function applyMembers(item, store, client) {
 
 function receiptStatus(item, error = null) {
   const receipt = item.letterAppeals;
+  if (error) receipt.verificationFailure = exclusionFailureDiagnostic(error);
+  else delete receipt.verificationFailure;
   receipt.status = error
     ? "needs_review"
     : completeLetterAppealMembers(receipt.members)
@@ -439,10 +445,18 @@ export async function syncLetterAppeals(
   const item = state.history.find((i) => i.id === body.deliveryId);
   const receipt = validateReceipt(item);
   const verifyOnly = body.action === "verify_letter_appeals";
+  if (body.automatic === true && !verifyOnly)
+    throw letterError("Automatic checks must be read-only.");
+  const automatic = verifyOnly && body.automatic === true;
+  if (automatic) {
+    if (!beginAutomaticAppealCheck(receipt)) return;
+    await store.saveLetterAppeals(item);
+  }
   if (!verifyOnly && body.confirm !== true)
     throw letterError(
       "Confirm applying the saved appeal only to remaining members.",
     );
+  let verificationError;
   try {
     if (verifyOnly) {
       const histories = {};
@@ -457,8 +471,10 @@ export async function syncLetterAppeals(
     }
     receiptStatus(item);
   } catch (error) {
+    verificationError = error;
     receiptStatus(item, error);
   }
+  if (automatic) finishAutomaticAppealCheck(receipt, verificationError);
   await store.saveLetterAppeals(item);
 }
 

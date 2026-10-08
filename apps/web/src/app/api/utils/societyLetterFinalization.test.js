@@ -258,13 +258,13 @@ async function fixture(single = false, society = "presidents") {
       client,
     );
   const item = () => structuredClone([...persisted.values()][0]);
-  const recover = (action = "verify_letter_appeals") => {
+  const recover = (action = "verify_letter_appeals", extra = {}) => {
     state.history = [item()];
     return syncLetterAppeals(
       state,
       definitions,
       today,
-      { action, deliveryId: state.history[0].id, confirm: true },
+      { action, deliveryId: state.history[0].id, confirm: true, ...extra },
       store,
       ctx,
       reader,
@@ -1413,6 +1413,85 @@ describe("final postal letters and household appeal receipts", () => {
       expect(f.client.create).toHaveBeenCalledTimes(1);
       expect(f.item().letterAppeals.status).toBe("needs_review");
     }
+  });
+  it("automatically reconciles a saved uncertain letter using only GETs, with intent persisted first", async () => {
+    const f = await fixture();
+    const create = f.client.create.getMockImplementation();
+    f.client.create.mockImplementationOnce(async (...args) => {
+      await create(...args);
+      throw new Error("lost response");
+    });
+    await f.finish();
+    f.client.create.mockClear();
+    f.client.appeals.mockClear();
+    f.reader.member.mockClear();
+    await f.recover("verify_letter_appeals", { automatic: true });
+    expect(f.client.appeals).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(5000);
+    const read = f.client.appeals.getMockImplementation();
+    f.client.appeals.mockImplementation(async (id) => {
+      expect(f.item().letterAppeals.verification).toMatchObject({
+        attempts: 1,
+        status: "checking",
+      });
+      return read(id);
+    });
+    await f.recover("verify_letter_appeals", { automatic: true });
+    expect(f.item().letterAppeals.members.map((m) => m.status)).toEqual([
+      "verified",
+      "pending",
+    ]);
+    expect(f.item().letterAppeals.verification.status).toBe("complete");
+    expect(f.client.create).not.toHaveBeenCalled();
+    expect(f.reader.member).not.toHaveBeenCalled();
+    expect(f.store.reserve).toHaveBeenCalledTimes(1);
+  });
+  it("stops automatically verifying an unresolved letter after three persisted checks", async () => {
+    const f = await fixture(true);
+    f.client.create.mockRejectedValueOnce(new Error("lost response"));
+    await f.finish();
+    f.client.create.mockClear();
+    f.client.appeals.mockClear();
+    vi.advanceTimersByTime(5000);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await f.recover("verify_letter_appeals", { automatic: true });
+      const check = f.item().letterAppeals.verification;
+      expect(check.attempts).toBe(attempt);
+      if (check.nextCheckAt) vi.setSystemTime(new Date(check.nextCheckAt));
+    }
+    expect(f.item().letterAppeals.verification.status).toBe("needs_review");
+    const reads = f.client.appeals.mock.calls.length;
+    vi.advanceTimersByTime(86400000);
+    await f.recover("verify_letter_appeals", { automatic: true });
+    expect(f.client.appeals).toHaveBeenCalledTimes(reads);
+    expect(f.client.create).not.toHaveBeenCalled();
+    expect(f.item().letterAppeals.members[0].status).toBe("uncertain");
+  });
+  it("honors a read cooldown, never writes, and blocks an automatic write action", async () => {
+    const f = await fixture(true);
+    f.client.create.mockRejectedValueOnce(new Error("lost response"));
+    await f.finish();
+    f.client.create.mockClear();
+    f.client.appeals.mockClear();
+    vi.advanceTimersByTime(5000);
+    f.client.appeals.mockRejectedValueOnce(
+      Object.assign(new Error("cooldown"), {
+        httpStatus: 429,
+        retryAfterMs: 300000,
+      }),
+    );
+    await f.recover("verify_letter_appeals", { automatic: true });
+    expect(f.item().letterAppeals.verificationFailure).toMatchObject({
+      httpStatus: 429,
+      retryAfterMs: 300000,
+    });
+    vi.advanceTimersByTime(299999);
+    await f.recover("verify_letter_appeals", { automatic: true });
+    expect(f.client.appeals).toHaveBeenCalledTimes(1);
+    await expect(
+      f.recover("continue_letter_appeals", { automatic: true }),
+    ).rejects.toThrow("read-only");
+    expect(f.client.create).not.toHaveBeenCalled();
   });
   it("requires explicit continuation after a definite rejection and rechecks history", async () => {
     const f = await fixture();

@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { blackbaudApiFetch } from "./blackbaud";
 import { letterRecordId } from "./societyLetterReadinessNxt";
 import {
+  beginAutomaticAppealCheck,
+  finishAutomaticAppealCheck,
+} from "@/utils/societyLetterVerification";
+import {
   completeAppealCatalog,
   appealByLookupCode,
 } from "./societyLetterAppealCatalog";
@@ -329,10 +333,17 @@ export async function syncExclusionAppeal(
   ctx,
   client = exclusionAppealClient(ctx),
   verifyOnly = false,
+  automatic = false,
 ) {
   if (!item || item.restoredAt || !item.nxt)
     throw letterError("Choose an active NXT-linked exclusion.");
   const nxt = item.nxt;
+  if (automatic) {
+    if (!verifyOnly) throw letterError("Automatic checks must be read-only.");
+    if (!beginAutomaticAppealCheck(nxt)) return;
+    await store.save(state);
+  }
+  let verificationError;
   try {
     const found = resolveAppeal(await client.catalog(), nxt.appeal);
     if (found.id !== nxt.appeal.id)
@@ -442,6 +453,7 @@ export async function syncExclusionAppeal(
         await store.save(state);
       }
     nxt.status = nxt.members.every(finished) ? "complete" : "pending";
+    delete nxt.verificationFailure;
     const rejected = nxt.members.find((m) => !finished(m) && m.rejectedAt);
     nxt.message =
       nxt.status === "complete"
@@ -450,12 +462,15 @@ export async function syncExclusionAppeal(
           ? rejectionMessage(rejected)
           : "Existing submissions checked. Continue to apply the appeal only to remaining members.";
   } catch (error) {
+    verificationError = error;
+    nxt.verificationFailure = exclusionFailureDiagnostic(error);
     nxt.status = "needs_review";
     nxt.message = error.status
       ? error.message
       : "NXT could not finish this update. The household remains excluded. Verify NXT status before continuing; uncertain submissions are never resent.";
   }
   nxt.checkedAt = new Date().toISOString();
+  if (automatic) finishAutomaticAppealCheck(nxt, verificationError);
   await store.save(state);
 }
 

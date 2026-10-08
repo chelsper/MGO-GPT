@@ -394,6 +394,12 @@ export function PostalBatchRunner({
   const paused = batch.items.some(
     (i) => i.letterAppeals?.status === "needs_review",
   );
+  const wasUncertain = useRef(uncertain);
+  useEffect(() => {
+    // A read-only reconciliation can unlock Continue, but never starts writes.
+    if (wasUncertain.current && !uncertain && !paused) setStopped(false);
+    wasUncertain.current = uncertain;
+  }, [uncertain, paused]);
   useEffect(() => {
     // Only an approval click in this page session starts processing. Reloading
     // saved history never writes to NXT, and a consumed approval never retries.
@@ -449,7 +455,7 @@ export function PostalBatchRunner({
       </p>
       {completed < batch.items.length && (
         <>
-          {stopped && (
+          {stopped && !uncertain && (
             <p role="status" className="mt-2 text-sm">
               Processing stopped. Reload saved status before continuing; your
               approved letters are kept.
@@ -457,9 +463,9 @@ export function PostalBatchRunner({
           )}
           {(uncertain || paused) && (
             <p className="mt-2 text-sm text-amber-900">
-              This batch needs attention. Review the member receipts below; use
-              Verify NXT status for an uncertain result. No duplicate will be
-              sent.
+              {uncertain
+                ? "Appeal confirmation is pending. Saved submissions are checked automatically; see each letter's status below. No uncertain submission is resent."
+                : "This batch needs attention. Review the member receipts below. Your approved letters are kept."}
             </p>
           )}
           <p className="mt-3 text-sm">

@@ -107,7 +107,9 @@ vi.mock("@/app/api/utils/societyLetterExclusionAppeals", () => ({
 }));
 vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
-  letterTemplateFile: vi.fn((template) => Buffer.from(template.content, "base64")),
+  letterTemplateFile: vi.fn((template) =>
+    Buffer.from(template.content, "base64"),
+  ),
   renderSocietyLetter: vi.fn(),
   validateLetterTemplate: mocks.validateTemplate,
   inspectLetterTemplate: mocks.inspectTemplate,
@@ -751,6 +753,43 @@ describe("stewardship API authorization and delivery boundaries", () => {
     ).toBe(200);
     expect(mocks.exclusionSync.mock.calls[0][5]).toBe(true);
   });
+  it("routes automatic exclusion checks through the read-only branch under the workspace lease", async () => {
+    const response = await POST(
+      request({
+        action: "verify_exclusion_appeal",
+        revision: 3,
+        automatic: true,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.exclusionSync.mock.calls[0].slice(5)).toEqual([true, true]);
+    expect(mocks.acquire).toHaveBeenCalled();
+  });
+  it.each([
+    "sync_exclusion_appeal",
+    "continue_letter_appeals",
+    "continue_postal_batch",
+    "approve_postal_draft",
+  ])(
+    "rejects automatic %s before acquiring a lease or writing",
+    async (action) => {
+      const response = await POST(
+        request({
+          action,
+          revision: 3,
+          automatic: true,
+          confirm: true,
+          confirmNxt: true,
+        }),
+      );
+      expect(response.status).toBe(422);
+      expect(mocks.acquire).not.toHaveBeenCalled();
+      expect(mocks.exclusionSync).not.toHaveBeenCalled();
+      expect(mocks.letterSync).not.toHaveBeenCalled();
+      expect(mocks.postalContinue).not.toHaveBeenCalled();
+      expect(mocks.postalApprove).not.toHaveBeenCalled();
+    },
+  );
   it("blocks local restoration while NXT exclusion remains", async () => {
     mocks.exclusionRemoval.mockRejectedValueOnce(
       Object.assign(new Error("Remove in NXT first"), { status: 422 }),

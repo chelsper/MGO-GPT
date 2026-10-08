@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./blackbaud", () => ({
   blackbaudApiFetch: vi.fn(),
   isBlackbaudQuotaExceededError: () => false,
@@ -159,6 +159,97 @@ async function setup(single = false) {
   );
   return { state, row, item, body, store, client, assigned, saved };
 }
+
+describe("automatic exclusion reconciliation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-25T15:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+  it("checks only existing submissions and preserves the local exclusion", async () => {
+    const f = await setup();
+    const create = f.client.create.getMockImplementation();
+    f.client.create.mockImplementationOnce(async (...args) => {
+      await create(...args);
+      throw new Error("lost response");
+    });
+    await syncExclusionAppeal(f.state, f.item, f.store, ctx, f.client);
+    f.client.create.mockClear();
+    f.client.catalog.mockClear();
+    await syncExclusionAppeal(
+      f.state,
+      f.item,
+      f.store,
+      ctx,
+      f.client,
+      true,
+      true,
+    );
+    expect(f.client.catalog).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(5000);
+    const read = f.client.catalog.getMockImplementation();
+    f.client.catalog.mockImplementation(async () => {
+      expect(f.saved.at(-1).exclusions[0].nxt.verification).toMatchObject({
+        status: "checking",
+        attempts: 1,
+      });
+      return read();
+    });
+    await syncExclusionAppeal(
+      f.state,
+      f.item,
+      f.store,
+      ctx,
+      f.client,
+      true,
+      true,
+    );
+    expect(f.item.nxt.members.map((m) => m.status)).toEqual([
+      "verified",
+      "pending",
+    ]);
+    expect(f.item.nxt.verification.status).toBe("complete");
+    expect(f.item.restoredAt).toBeUndefined();
+    expect(f.client.create).not.toHaveBeenCalled();
+    expect(f.state.history).toEqual([]);
+  });
+  it("does not run automatic writes and stops checking after a permission failure", async () => {
+    const f = await setup(true);
+    f.client.create.mockRejectedValueOnce(new Error("lost response"));
+    await syncExclusionAppeal(f.state, f.item, f.store, ctx, f.client);
+    f.client.create.mockClear();
+    f.client.catalog.mockClear();
+    await expect(
+      syncExclusionAppeal(f.state, f.item, f.store, ctx, f.client, false, true),
+    ).rejects.toThrow("read-only");
+    vi.advanceTimersByTime(5000);
+    f.client.catalog.mockRejectedValueOnce(
+      Object.assign(new Error("forbidden"), { httpStatus: 403 }),
+    );
+    await syncExclusionAppeal(
+      f.state,
+      f.item,
+      f.store,
+      ctx,
+      f.client,
+      true,
+      true,
+    );
+    expect(f.item.nxt.verification.status).toBe("needs_review");
+    vi.advanceTimersByTime(86400000);
+    await syncExclusionAppeal(
+      f.state,
+      f.item,
+      f.store,
+      ctx,
+      f.client,
+      true,
+      true,
+    );
+    expect(f.client.catalog).toHaveBeenCalledTimes(1);
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
+});
 
 describe("society exclusion appeal policy", () => {
   it("resolves lookup codes to immutable IDs and selects the highest qualifying tier", async () => {

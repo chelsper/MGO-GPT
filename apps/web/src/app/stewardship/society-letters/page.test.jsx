@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fireEvent,
+  act as reactAct,
   render,
   screen,
   waitFor,
@@ -63,7 +64,10 @@ beforeEach(() => {
     .spyOn(globalThis, "fetch")
     .mockImplementation(async () => Response.json(base));
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 function reviewRow(id, saved = false) {
   const values = {
     recipientConstituentId: id,
@@ -95,6 +99,74 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("automatically checks uncertain NXT receipts without clearing household selections or saved approvals", async () => {
+    vi.useFakeTimers();
+    const data = {
+      ...base,
+      settings: societyQuerySettings(),
+      rows: [reviewRow("10", true)],
+      history: [
+        {
+          id: "letter",
+          batchId: "batch",
+          status: "prepared",
+          channel: "post",
+          period: base.period,
+          name: "Fictional household",
+          approvedAt: "2026-10-07T12:00:00Z",
+          letterAppeals: {
+            status: "needs_review",
+            checkedAt: new Date().toISOString(),
+            appeal: { id: "100", description: "Example sent appeal" },
+            members: [
+              {
+                id: "20",
+                status: "uncertain",
+                attemptedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const confirmed = structuredClone(data);
+    confirmed.revision = 2;
+    confirmed.history[0].letterAppeals.status = "complete";
+    confirmed.history[0].letterAppeals.members[0].status = "verified";
+    fetchMock.mockImplementation(async (_url, options) =>
+      Response.json(options?.method === "POST" ? confirmed : data),
+    );
+    await reactAct(async () => {
+      render(<Page />);
+    });
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Select Household 10",
+    });
+    fireEvent.click(checkbox);
+    await reactAct(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    const posts = fetchMock.mock.calls.filter(
+      ([, options]) => options?.method === "POST",
+    );
+    expect(posts.map(([, options]) => JSON.parse(options.body))).toEqual([
+      {
+        action: "verify_letter_appeals",
+        deliveryId: "letter",
+        automatic: true,
+        revision: 1,
+      },
+    ]);
+    expect(checkbox).toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "Continue to document approval" }),
+    ).toBeEnabled();
+    await reactAct(async () => {
+      await vi.advanceTimersByTimeAsync(600000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(confirmed.history[0].approvedAt).toBe(data.history[0].approvedAt);
+  });
   it("offers approval from All recipients without clearing the selected reviewed households", async () => {
     fetchMock.mockImplementation(async () =>
       Response.json({

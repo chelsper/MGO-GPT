@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import SavedLetterPreview from "./SavedLetterPreview";
 import LetterBatchSummary from "./LetterBatchSummary";
 import { relationshipOnlyReceipt } from "@/utils/societyLetterAppealMembers";
+import AppealVerificationStatus from "./AppealVerificationStatus";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50";
@@ -163,7 +164,13 @@ export default function FinalPostalLetterDialog({
   );
 }
 
-export function LetterAppealStatus({ item, busy, onVerify, onContinue }) {
+export function LetterAppealStatus({
+  item,
+  busy,
+  onVerify,
+  onContinue,
+  automatic = false,
+}) {
   const [confirmed, setConfirmed] = useState(false);
   const receipt = item.letterAppeals;
   if (!receipt) return null;
@@ -202,13 +209,12 @@ export function LetterAppealStatus({ item, busy, onVerify, onContinue }) {
       </ul>
       {!complete && item.status === "prepared" && (
         <>
-          <button
-            className={`${button} mt-3`}
-            disabled={busy}
-            onClick={onVerify}
-          >
-            Verify NXT status (read only)
-          </button>
+          <AppealVerificationStatus
+            receipt={receipt}
+            automatic={automatic}
+            busy={busy}
+            onVerify={onVerify}
+          />
           {!receipt.members.some((m) => m.status === "uncertain") && (
             <>
               <label className="mt-3 flex items-start gap-2">
