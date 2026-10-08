@@ -1,6 +1,6 @@
 # Society letter print ready PDF
 
-Implemented locally on October 8, 2026. Not deployed.
+Deployed and verified on JU production on October 8, 2026. Sandbox unchanged.
 
 ## Staff workflow
 
@@ -30,3 +30,16 @@ Regression coverage includes reversed history order, multi-page letters, ten-let
 Fictional local QA combined three letters into four pages, including embedded Carlito fonts, a letterhead image, and a two-page letter. All four combined page renders matched their source page renders pixel-for-pixel at 100 DPI. Desktop and 390-pixel mobile controls were visually checked. No production recipients, NXT writes, live converter calls, emails, or physical printing were used for these checks.
 
 Local evidence: `/tmp/ju-print-pdf-full-tests.log`, `/tmp/ju-print-pdf-typecheck.log`, `/tmp/ju-print-pdf-build.log`, and `/tmp/ju-print-pdf-qa/`. Focused regressions are in `societyLetterPrintPdf.test.js`, the society-letters API `route.test.js`, `LetterBatchCard.test.jsx`, and the society-letters `page.test.jsx`.
+
+## Production release
+
+- Application SHA: `369ad8eff2e6e12def61fc3e626f18984cc79b26`.
+- JU deployment: `dpl_BHQ1AB7TteurAkeY2YQs49v7i1Ln`, candidate `https://mgo-9ejmyu3i5-chelspers-projects.vercel.app`, live `https://www.jumgogpt.app`.
+- Release rerun: 6,088 tests passed, 207 opt-in tests skipped; typecheck, build, release guard, and whitespace checks passed.
+- Packaged a clean Git archive matching all 1,196 tracked web files. Dry upload contained all ten changed application files, 1,314 total files, and no real environment files. Only the intended feature and its notes were committed; no Git push was used.
+- Candidate and live checks confirmed the exact application SHA and deployment ID, eight page shells, six JavaScript assets including the PDF download control, and authenticated access boundaries. The combined-PDF GET endpoint correctly rejected an unauthenticated request. No real household PDF downloads, approvals, query refreshes, sends, or NXT writes were performed during deployment verification.
+- Vercel production build retained the existing optional `canvas` resolution and install-script policy warnings; the build completed successfully.
+- The sandbox remains `dpl_H5mHhcYkDbkCZvteAeSSoqkaT2fs`. Project comparison confirmed no other deployment, Git link, build/root setting, cron schedule, or PDF environment setting changed.
+- Rollback target: previous JU deployment `dpl_HBzGwMMtSE2TAUEnRqCNxo5HcxRf`, application SHA `899afcb72627967e282c5e640258e0704abf1a80`. This release contains no schema or data migration.
+
+Release evidence: `/tmp/ju-print-pdf-release-tests.log`, `/tmp/ju-print-pdf-release-typecheck.log`, `/tmp/ju-print-pdf-release-build.log`, `/tmp/ju-print-pdf-release.json`, `/tmp/ju-print-pdf-dry.json`, `/tmp/ju-print-pdf-deploy.log`, `/tmp/ju-print-pdf-candidate-smoke.log`, `/tmp/ju-print-pdf-promote.log`, `/tmp/ju-print-pdf-live-smoke.log`, and `/tmp/ju-print-pdf-projects-after-check.log`.
