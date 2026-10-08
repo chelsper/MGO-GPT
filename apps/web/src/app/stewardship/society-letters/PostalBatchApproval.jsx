@@ -228,16 +228,9 @@ export default function PostalBatchApproval({
         approved. This draft is saved so you can leave and return. No NXT
         appeals have been applied by this draft.
       </p>
-      <p className="mt-2 text-sm">
-        The highest qualifying appeal goes to each full constituent listed
-        below. Spouse-only records remain in the joint letter and household
-        history, without a separate appeal assignment. Lower-tier letters are
-        covered in the app. Nothing is emailed, uploaded to NXT as an
-        attachment, or marked mailed.
-      </p>
       {prepared < draft.entries.length && (
         <button
-          className={`${button} mt-4`}
+          className={`${button} mt-4 !bg-emerald-700 !text-white`}
           disabled={busy || running || !!opened}
           onClick={prepare}
         >
@@ -260,14 +253,19 @@ export default function PostalBatchApproval({
             <p className="font-semibold">
               {e.row.name} / {e.row.societyName}
             </p>
-            <p className="text-sm">
-              Appeal: {e.appeal.lookupId || e.appeal.id} /{" "}
-              {e.appeal.description}
-            </p>
-            <p className="text-sm">
-              Member record IDs: {e.row.members.join(", ")}. Letter date:{" "}
-              {e.row.letterDate}.
-            </p>
+            <details className="mt-2 text-sm">
+              <summary className="cursor-pointer font-semibold text-gray-600">
+                Appeal and record details
+              </summary>
+              <p className="mt-2">
+                Appeal: {e.appeal.lookupId || e.appeal.id} /{" "}
+                {e.appeal.description}
+              </p>
+              <p className="text-sm">
+                Member record IDs: {e.row.members.join(", ")}. Letter date:{" "}
+                {e.row.letterDate}.
+              </p>
+            </details>
             <p className="mt-1 text-sm">
               {e.reviewedHash
                 ? "Document approved"
@@ -318,7 +316,7 @@ export default function PostalBatchApproval({
       </label>
       <div className="mt-4 flex flex-wrap gap-3">
         <button
-          className={`${button} !bg-emerald-700 !text-white`}
+          className={`${button} ${prepared === draft.entries.length ? "!bg-emerald-700 !text-white" : ""}`}
           disabled={
             busy || running || !confirmed || prepared !== draft.entries.length
           }
@@ -448,13 +446,12 @@ export function PostalBatchRunner({
         {completed} of {batch.items.length} letters created with appeals
         confirmed
       </p>
-      <p className="mt-1 text-sm">
-        Saved documents are fixed. Each household is checked and updated
-        separately. Leaving pauses after the current request; resume this same
-        batch here, not a new copy.
-      </p>
       {completed < batch.items.length && (
         <>
+          <p className="mt-2 text-sm">
+            Keep this page open to finish. If you leave, progress is saved;
+            continue this same batch when you return.
+          </p>
           {stopped && !uncertain && (
             <p role="status" className="mt-2 text-sm">
               Processing stopped. Reload saved status before continuing; your
@@ -473,7 +470,7 @@ export function PostalBatchRunner({
             the letters again.
           </p>
           <button
-            className={`${button} mt-3`}
+            className={`${button} mt-3 !bg-emerald-700 !text-white`}
             disabled={busy || running || uncertain || stopped}
             onClick={start}
           >

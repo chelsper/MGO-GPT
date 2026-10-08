@@ -1,0 +1,293 @@
+import { PostalBatchRunner } from "./PostalBatchApproval";
+import LetterBatchSummary from "./LetterBatchSummary";
+import { LetterAppealStatus } from "./FinalPostalLetterDialog";
+
+const button =
+  "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
+const primary = `${button} !border-emerald-700 !bg-emerald-700 !text-white`;
+const input =
+  "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal text-gray-900";
+const card = "rounded-2xl border border-gray-200 bg-white p-5 sm:p-6";
+const labels = {
+  prepared: "Prepared for postal mail",
+  pending_email: "Email queued, not sent",
+  sending: "Submission started: verify before any retry",
+  emailed: "Email accepted",
+  delivered: "Email delivered",
+  mailed: "Marked mailed",
+  needs_review: "Delivery needs review",
+  cancelled: "Cancelled before sending",
+};
+
+export default function LetterBatchCard({
+  batch,
+  guided = false,
+  busy,
+  sendingBatch,
+  emailEnabled,
+  definitions,
+  downloadBatch,
+  setConfirmation,
+  act,
+  autoStart,
+  onAutoStartConsumed,
+  historySearch = "",
+  receiptIds,
+  setReceiptIds,
+}) {
+  return (
+    <article className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold">
+            {batch.items.length} {batch.channel === "post" ? "postal" : "email"}{" "}
+            {batch.items.length === 1 ? "letter" : "letters"}
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Prepared {new Date(batch.date).toLocaleString()}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {batch.channel === "post" &&
+            batch.items.some((i) => i.status !== "cancelled") && (
+              <button
+                className={
+                  guided &&
+                  batch.items.every(
+                    (item) => item.letterAppeals?.status === "complete",
+                  )
+                    ? primary
+                    : button
+                }
+                disabled={
+                  busy ||
+                  batch.items.some(
+                    (i) =>
+                      i.letterAppeals && i.letterAppeals.status !== "complete",
+                  )
+                }
+                onClick={() => downloadBatch(batch.id)}
+              >
+                Download{" "}
+                {batch.items.every((i) => i.postalDocument?.format === "pdf")
+                  ? "PDF"
+                  : "Word"}{" "}
+                letters (.zip)
+              </button>
+            )}
+          {batch.channel === "post" &&
+            batch.items.some((i) => i.status === "prepared") && (
+              <button
+                className={guided ? button : primary}
+                disabled={
+                  busy ||
+                  batch.items.some(
+                    (i) =>
+                      i.letterAppeals && i.letterAppeals.status !== "complete",
+                  )
+                }
+                onClick={() =>
+                  setConfirmation({
+                    action: "mailed",
+                    batchId: batch.id,
+                    title: "Confirm these letters have been mailed",
+                    description:
+                      "This records the prepared postal letters as mailed and covers their lower society tiers for the same period.",
+                  })
+                }
+              >
+                Mark batch mailed
+              </button>
+            )}
+          {batch.items.some((i) => i.status === "pending_email") && (
+            <button
+              className={primary}
+              disabled={busy || !!sendingBatch || !emailEnabled}
+              onClick={() =>
+                setConfirmation({
+                  action: "send",
+                  batchId: batch.id,
+                  title: "Send the remaining queued emails?",
+                  description:
+                    "This sends the prepared letters to the listed households, three at a time. Already submitted emails will not be sent again.",
+                })
+              }
+            >
+              {sendingBatch === batch.id ? "Sending..." : "Send queued emails"}
+            </button>
+          )}
+          {!batch.items.some((i) => i.letterAppeals) &&
+            batch.items.some((i) =>
+              ["prepared", "pending_email"].includes(i.status),
+            ) && (
+              <button
+                className={button}
+                disabled={busy || !!sendingBatch}
+                onClick={() =>
+                  setConfirmation({
+                    action: "cancel",
+                    batchId: batch.id,
+                    title: "Cancel the remaining unsent letters?",
+                    description:
+                      "Confirm the queued or prepared letters have not been sent or mailed. Only their reservations will be released. Submitted and uncertain emails remain protected, and history is retained.",
+                  })
+                }
+              >
+                Cancel unsent letters
+              </button>
+            )}
+        </div>
+      </div>
+      {batch.items.every((i) => i.postalApproval) && (
+        <PostalBatchRunner
+          key={batch.id}
+          batch={batch}
+          busy={busy || !!sendingBatch}
+          act={act}
+          autoStart={autoStart}
+          onAutoStartConsumed={onAutoStartConsumed}
+        />
+      )}
+      <LetterBatchSummary items={batch.items} />
+      <details
+        className="mt-4"
+        open={
+          !!historySearch.trim() ||
+          batch.items.some((i) =>
+            guided
+              ? i.letterAppeals?.status === "needs_review" ||
+                i.letterAppeals?.members?.some(
+                  (member) => member.status === "uncertain",
+                )
+              : i.letterAppeals && i.letterAppeals.status !== "complete",
+          ) ||
+          undefined
+        }
+      >
+        <summary className="cursor-pointer text-sm font-semibold">
+          Recipients and acknowledgment coverage
+        </summary>
+        <ul className="mt-3 space-y-3">
+          {batch.items.map((item) => (
+            <li key={item.id} className="border-t pt-3 text-sm">
+              <p>
+                <strong>{item.name}</strong> / {item.societyName} /{" "}
+                {item.letterAppeals && item.letterAppeals.status !== "complete"
+                  ? item.letterAppeals.status === "needs_review"
+                    ? "Reserved: appeal updates need attention"
+                    : "Reserved: appeal updates pending"
+                  : labels[item.status]}
+              </p>
+              <LetterAppealStatus
+                item={item}
+                automatic
+                busy={busy}
+                onVerify={() =>
+                  act({
+                    action: "verify_letter_appeals",
+                    deliveryId: item.id,
+                  })
+                }
+                onContinue={() =>
+                  act({
+                    action: "continue_letter_appeals",
+                    deliveryId: item.id,
+                    confirm: true,
+                  })
+                }
+              />
+              <p className="mt-1 text-gray-500">
+                {item.period.start} through {item.period.end}.{" "}
+                {item.channel === "email" ? item.email : item.addressee}
+              </p>
+              {item.updatedAt && (
+                <p className="mt-1 text-gray-500">
+                  Status recorded {new Date(item.updatedAt).toLocaleString()}
+                </p>
+              )}
+              <p className="mt-1 text-gray-500">
+                Lower-tier letters covered after sending:{" "}
+                {item.coveredKeys
+                  .slice(1)
+                  .map((k) => definitions.find((d) => d.key === k)?.name || k)
+                  .join(", ") || "None"}
+                . No extra letters sent.
+              </p>
+              {item.providerId &&
+                ["emailed", "needs_review"].includes(item.status) && (
+                  <button
+                    className={`${button} mt-2`}
+                    disabled={busy}
+                    onClick={() =>
+                      act({ action: "verify", deliveryId: item.id })
+                    }
+                  >
+                    Check email delivery
+                  </button>
+                )}
+              {item.channel === "post" && item.status !== "cancelled" && (
+                <button
+                  className={`${button} mt-2`}
+                  disabled={
+                    busy ||
+                    (!!item.letterAppeals &&
+                      item.letterAppeals.status !== "complete")
+                  }
+                  onClick={() =>
+                    downloadBatch(
+                      batch.id,
+                      item.id,
+                      item.postalDocument?.format || "docx",
+                    )
+                  }
+                >
+                  Download this{" "}
+                  {item.postalDocument?.format === "pdf" ? "PDF" : "Word"}{" "}
+                  letter
+                </button>
+              )}
+              {item.channel === "email" &&
+                !item.providerId &&
+                ["sending", "needs_review"].includes(item.status) && (
+                  <form
+                    className="mt-3 max-w-lg"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      act({
+                        action: "verify",
+                        deliveryId: item.id,
+                        providerId: receiptIds[item.id] || "",
+                      });
+                    }}
+                  >
+                    <p className="text-amber-900">
+                      Check the sender's Resend log for this letter.
+                      Verification will match its recipient and saved letter
+                      tag; no email is resent.
+                    </p>
+                    <label className="mt-2 block font-semibold">
+                      Existing Resend email ID
+                      <input
+                        className={input}
+                        value={receiptIds[item.id] || ""}
+                        onChange={(e) =>
+                          setReceiptIds({
+                            ...receiptIds,
+                            [item.id]: e.target.value,
+                          })
+                        }
+                        required
+                      />
+                    </label>
+                    <button className={`${button} mt-2`} disabled={busy}>
+                      Verify existing email
+                    </button>
+                  </form>
+                )}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </article>
+  );
+}

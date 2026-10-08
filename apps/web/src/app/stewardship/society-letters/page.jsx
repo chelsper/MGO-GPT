@@ -30,10 +30,10 @@ import LetterReadinessPanel, {
 } from "./LetterReadinessPanel";
 import LetterWorkspaceFilters from "./LetterWorkspaceFilters";
 import LetterWorkspaceRow from "./LetterWorkspaceRow";
+import LetterBatchCard from "./LetterBatchCard";
 import LetterBatchSummary from "./LetterBatchSummary";
-import FinalPostalLetterDialog, {
-  LetterAppealStatus,
-} from "./FinalPostalLetterDialog";
+import LetterWorkflow from "./LetterWorkflow";
+import FinalPostalLetterDialog from "./FinalPostalLetterDialog";
 import {
   ATTENTION_FILTERS,
   letterReviewCounts,
@@ -42,7 +42,7 @@ import {
 } from "./letterWorkspaceView";
 import QueryColumnMapper from "./QueryColumnMapper";
 import LetterSetupChecklist from "./LetterSetupChecklist";
-import PostalBatchApproval, { PostalBatchRunner } from "./PostalBatchApproval";
+import PostalBatchApproval from "./PostalBatchApproval";
 import LetterHistoryFilters from "./LetterHistoryFilters";
 import {
   matchesLetterHistory,
@@ -56,16 +56,6 @@ const primary = `${button} !border-emerald-700 !bg-emerald-700 !text-white`;
 const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal text-gray-900";
 const card = "rounded-2xl border border-gray-200 bg-white p-5 sm:p-6";
-const labels = {
-  prepared: "Prepared for postal mail",
-  pending_email: "Email queued, not sent",
-  sending: "Submission started: verify before any retry",
-  emailed: "Email accepted",
-  delivered: "Email delivered",
-  mailed: "Marked mailed",
-  needs_review: "Delivery needs review",
-  cancelled: "Cancelled before sending",
-};
 const defaults = {
   sourceMode: "constituents",
   queryId: "",
@@ -436,6 +426,10 @@ export default function SocietyLettersPage() {
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const [approvedPostalStart, setApprovedPostalStart] = useState(null);
+  // Undefined restores an unfinished batch for display only, never for submission.
+  const [workspaceBatchId, setWorkspaceBatchId] = useState(undefined);
+  const [showRecipients, setShowRecipients] = useState(false);
+  const activeBatchPanel = useRef(null);
   const inFlight = useRef(false);
   const setupOpen = ["setup", "templates", "settings", "appeals"].includes(tab);
   function navigateSetup(destination) {
@@ -466,6 +460,9 @@ export default function SocietyLettersPage() {
       setReviewConflict(false);
       setSelected([]);
       setPreview(null);
+      setWorkspaceBatchId(undefined);
+      setApprovedPostalStart(null);
+      setShowRecipients(false);
     }
     loadedScope.current = nextScope;
     setData(payload);
@@ -740,10 +737,6 @@ export default function SocietyLettersPage() {
   const reviewedInView = filtered.filter(
     (row) => row.recipientReview?.status === "saved",
   ).length;
-  const showApprovalShortcut =
-    queryPostal &&
-    channel === "post" &&
-    (reviewedInView > 0 || !!data.postalDraft);
   function changeReviewFilter(value) {
     setReviewFilter(value);
     setAttentionFilter("all");
@@ -825,6 +818,108 @@ export default function SocietyLettersPage() {
       matchesLetterHistory(batch, navigation.historyFilter) &&
       searchLetterHistory(batch, historySearch),
   );
+  const workspaceBatch =
+    workspaceBatchId === null
+      ? null
+      : batches.find((batch) =>
+          workspaceBatchId
+            ? batch.id === workspaceBatchId
+            : batch.items.every((item) => item.postalApproval) &&
+              batch.items.some(
+                (item) => item.letterAppeals?.status !== "complete",
+              ),
+        );
+  const activeWork = Boolean(data?.postalDraft || workspaceBatch);
+  const guidedPostal = queryPostal && (channel === "post" || activeWork);
+  const batchComplete = Boolean(
+    workspaceBatch?.items.every(
+      (item) => item.letterAppeals?.status === "complete",
+    ),
+  );
+  const recipientChoicesSaved = selected.length
+    ? selectedRows.length === selected.length && selectedRows.every(canPrepare)
+    : selectable.length > 0 && selectable.length === filtered.length;
+  const workflowStage = data?.postalDraft
+    ? "approve"
+    : workspaceBatch
+      ? batchComplete
+        ? "download"
+        : "create"
+      : recipientChoicesSaved
+        ? "approve"
+        : "review";
+  useEffect(() => {
+    // Keep a restored batch on screen when its final receipt is confirmed.
+    // Selecting a saved batch is display-only; only a new approval auto-starts.
+    if (workspaceBatchId === undefined && workspaceBatch)
+      setWorkspaceBatchId(workspaceBatch.id);
+  }, [workspaceBatchId, workspaceBatch?.id]);
+  useEffect(() => {
+    if (workspaceBatchId && tab === "ready") {
+      activeBatchPanel.current?.focus();
+      activeBatchPanel.current?.scrollIntoView?.({ block: "start" });
+    }
+  }, [workspaceBatchId, tab]);
+  function renderCurrentBatch() {
+    if (data?.postalDraft)
+      return (
+        <PostalBatchApproval
+          key={`${data.postalDraft.id}-${data.postalDraft.dateUpdatedAt || ""}`}
+          draft={data.postalDraft}
+          revision={data.revision}
+          busy={busy || refreshing || !!sendingBatch}
+          act={act}
+          onApproved={(batchId) => {
+            setApprovedPostalStart(batchId);
+            setWorkspaceBatchId(batchId);
+            setShowRecipients(false);
+          }}
+        />
+      );
+    if (!workspaceBatch) return null;
+    return (
+      <section
+        ref={activeBatchPanel}
+        tabIndex={-1}
+        aria-label="Current letter batch"
+        className="scroll-mt-24 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700"
+      >
+        {renderBatch(workspaceBatch, true)}
+        <button
+          className={`${button} mt-3`}
+          disabled={selectionBusy}
+          onClick={() => {
+            setWorkspaceBatchId(null);
+            setSelected([]);
+            setShowRecipients(false);
+          }}
+        >
+          {batchComplete ? "Start another batch" : "Back to recipient list"}
+        </button>
+      </section>
+    );
+  }
+  function renderBatch(batch, guided = false) {
+    return (
+      <LetterBatchCard
+        key={batch.id}
+        batch={batch}
+        guided={guided}
+        busy={busy || refreshing}
+        sendingBatch={sendingBatch}
+        emailEnabled={data.emailEnabled}
+        definitions={data.definitions}
+        downloadBatch={downloadBatch}
+        setConfirmation={setConfirmation}
+        act={act}
+        autoStart={approvedPostalStart === batch.id}
+        onAutoStartConsumed={() => setApprovedPostalStart(null)}
+        historySearch={guided ? "" : historySearch}
+        receiptIds={receiptIds}
+        setReceiptIds={setReceiptIds}
+      />
+    );
+  }
   const tabs = [
     ["ready", "Letter workspace"],
     ["excluded", `Excluded (${data?.exclusions?.length || 0})`],
@@ -1060,48 +1155,120 @@ export default function SocietyLettersPage() {
           )}
           {tab === "ready" && (
             <>
-              <LetterSetupChecklist
-                compact
-                data={data}
-                viewed={sampleViews}
-                onNavigate={navigateSetup}
-                busy={busy || refreshing || !!sendingBatch}
-              />
-              <LetterReadinessPanel
-                data={data}
-                optional={queryPostal && channel === "post"}
-                channel={channel}
-                rows={filtered}
-                busy={busy}
-                blocked={
-                  refreshing ||
-                  !!sendingBatch ||
-                  !!reviewingRecipient ||
-                  !!reviewQueue ||
-                  !!excluding ||
-                  !!confirmation
-                }
-                act={act}
-                onOpenSettings={() => navigateSetup("appeals")}
-              />
-              {data.sourceIssue && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p>
-                    {data.settings?.sourceMode === "society_queries" &&
-                    data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
-                      ? "Review recipients, then select reviewed households to prepare and approve their documents. NXT is checked automatically for the selected households before appeals are applied. No separate delivery check is required. Email delivery is not enabled for these query lists."
-                      : data.sourceIssue}
-                  </p>
-                  {(!data.settings || !data.refreshedAt) && (
-                    <button
-                      className={`${button} mt-3`}
-                      onClick={() => setTab("settings")}
-                    >
-                      Set up membership source
-                    </button>
+              {guidedPostal && (
+                <LetterWorkflow stage={workflowStage}>
+                  {data.postalDraft ? (
+                    <p>
+                      Your recipient choices are saved. Prepare the documents,
+                      then approve this batch once.
+                    </p>
+                  ) : workspaceBatch ? (
+                    <p>
+                      {batchComplete
+                        ? "Your letters and NXT appeal updates are complete. Download the files, then mark the batch mailed after dispatch."
+                        : "Your approval is saved. NXT checks and appeal updates run here; you do not need to review these letters again."}
+                    </p>
+                  ) : (
+                    <p>
+                      {recipientChoicesSaved
+                        ? "Recipient choices are saved. Select reviewed households to prepare and approve their letters."
+                        : "Review names and addresses, select reviewed households, then approve their letters. Nothing is sent just by reviewing."}
+                    </p>
                   )}
-                </div>
+
+                  {!data.postalDraft &&
+                    batches.some((batch) =>
+                      batch.items.every((item) => item.postalApproval),
+                    ) && (
+                      <label className="mt-4 block max-w-lg text-sm font-semibold">
+                        Open a saved batch
+                        <select
+                          className={input}
+                          value={workspaceBatch?.id || ""}
+                          disabled={selectionBusy}
+                          onChange={(event) => {
+                            setWorkspaceBatchId(event.target.value || null);
+                            setShowRecipients(false);
+                          }}
+                        >
+                          <option value="">Recipient list</option>
+                          {batches
+                            .filter((batch) =>
+                              batch.items.every((item) => item.postalApproval),
+                            )
+                            .map((batch) => (
+                              <option key={batch.id} value={batch.id}>
+                                {batch.items.length} letters ·{" "}
+                                {new Date(batch.date).toLocaleString()} ·{" "}
+                                {batch.items.every(
+                                  (item) =>
+                                    item.letterAppeals?.status === "complete",
+                                )
+                                  ? "Created"
+                                  : "In progress"}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    )}
+                </LetterWorkflow>
               )}
+              <details
+                open={!guidedPostal || undefined}
+                className="rounded-xl border border-gray-200 bg-white p-4"
+              >
+                <summary className="cursor-pointer text-sm font-semibold text-gray-600">
+                  Setup and checks
+                </summary>
+                <div className="mt-4 space-y-3">
+                  <LetterSetupChecklist
+                    compact
+                    data={data}
+                    viewed={sampleViews}
+                    onNavigate={navigateSetup}
+                    busy={busy || refreshing || !!sendingBatch}
+                  />
+                  <LetterReadinessPanel
+                    data={data}
+                    optional={queryPostal && channel === "post"}
+                    channel={channel}
+                    rows={filtered}
+                    busy={busy}
+                    blocked={
+                      refreshing ||
+                      !!sendingBatch ||
+                      !!reviewingRecipient ||
+                      !!reviewQueue ||
+                      !!excluding ||
+                      !!confirmation
+                    }
+                    act={act}
+                    onOpenSettings={() => navigateSetup("appeals")}
+                  />
+                </div>
+              </details>
+              {data.sourceIssue &&
+                !(
+                  guidedPostal &&
+                  data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
+                ) && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p>
+                      {data.settings?.sourceMode === "society_queries" &&
+                      data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
+                        ? "Review recipients, then select reviewed households to prepare and approve their documents. NXT is checked automatically for the selected households before appeals are applied. No separate delivery check is required. Email delivery is not enabled for these query lists."
+                        : data.sourceIssue}
+                    </p>
+                    {(!data.settings || !data.refreshedAt) && (
+                      <button
+                        className={`${button} mt-3`}
+                        onClick={() => setTab("settings")}
+                      >
+                        Set up membership source
+                      </button>
+                    )}
+                  </div>
+                )}
               {data.job && data.job.status !== "complete" && (
                 <div className="space-y-2">
                   <p role="status" className="text-sm text-gray-600">
@@ -1127,182 +1294,152 @@ export default function SocietyLettersPage() {
                   )}
                 </div>
               )}
-              <section className={card} aria-labelledby="letter-holding-title">
-                <h2 id="letter-holding-title" className="text-lg font-bold">
-                  Your letter holding list
-                </h2>
-                <p className="mb-5 mt-1 text-sm text-gray-600">
-                  Review recipients at your pace. Nothing is sent when you open
-                  this list or save recipient choices. Exclude someone for this
-                  period when needed; find them again in Excluded.
-                </p>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <label className="text-sm font-semibold">
-                    Find a household
-                    <input
-                      className={input}
-                      type="search"
-                      value={search}
-                      onChange={(e) => {
-                        setSearch(e.target.value);
-                        setSelected([]);
-                        setPreview(null);
-                      }}
-                    />
-                  </label>
-                  <label className="text-sm font-semibold">
-                    Society letter
-                    <select
-                      className={input}
-                      value={societyFilter}
-                      onChange={(e) => {
-                        setSocietyFilter(e.target.value);
-                        setSelected([]);
-                        setPreview(null);
-                      }}
-                    >
-                      <option value="">All societies</option>
-                      {data.definitions.map((d) => (
-                        <option key={d.key} value={d.key}>
-                          {d.name}
+              {renderCurrentBatch()}
+              {activeWork && (
+                <button
+                  className={button}
+                  aria-expanded={showRecipients}
+                  onClick={() => setShowRecipients((value) => !value)}
+                >
+                  {showRecipients
+                    ? "Hide recipient list"
+                    : "Show recipient list"}
+                </button>
+              )}
+              {(!activeWork || showRecipients) && (
+                <section
+                  className={card}
+                  aria-labelledby="letter-holding-title"
+                >
+                  <h2 id="letter-holding-title" className="text-lg font-bold">
+                    Your letter holding list
+                  </h2>
+                  <p className="mb-5 mt-1 text-sm text-gray-600">
+                    Review recipients at your pace. Nothing is sent when you
+                    open this list or save recipient choices. Exclude someone
+                    for this period when needed; find them again in Excluded.
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <label className="text-sm font-semibold">
+                      Find a household
+                      <input
+                        className={input}
+                        type="search"
+                        value={search}
+                        onChange={(e) => {
+                          setSearch(e.target.value);
+                          setSelected([]);
+                          setPreview(null);
+                        }}
+                      />
+                    </label>
+                    <label className="text-sm font-semibold">
+                      Society letter
+                      <select
+                        className={input}
+                        value={societyFilter}
+                        onChange={(e) => {
+                          setSocietyFilter(e.target.value);
+                          setSelected([]);
+                          setPreview(null);
+                        }}
+                      >
+                        <option value="">All societies</option>
+                        {data.definitions.map((d) => (
+                          <option key={d.key} value={d.key}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm font-semibold">
+                      Delivery method
+                      <select
+                        className={input}
+                        value={channel}
+                        onChange={(e) => {
+                          setChannel(e.target.value);
+                          setAttentionFilter("all");
+                          setSelected([]);
+                          setPreview(null);
+                        }}
+                      >
+                        <option value="post">Postal letters</option>
+                        <option value="email">
+                          Email with letter attachment
                         </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-semibold">
-                    Delivery method
-                    <select
-                      className={input}
-                      value={channel}
-                      onChange={(e) => {
-                        setChannel(e.target.value);
-                        setAttentionFilter("all");
-                        setSelected([]);
-                        setPreview(null);
-                      }}
-                    >
-                      <option value="post">Postal letters</option>
-                      <option value="email">
-                        Email with letter attachment
-                      </option>
-                    </select>
-                  </label>
-                </div>
-                <LetterWorkspaceFilters
-                  value={reviewFilter}
-                  onChange={changeReviewFilter}
-                  counts={counts}
-                  attention={attentionFilter}
-                  onAttentionChange={changeAttentionFilter}
-                  attentionCounts={attentionCounts}
-                  channel={channel}
-                />
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <p role="status">
-                    Showing {filtered.length} of {matching.length} matching
-                    recipients
-                  </p>
-                  {(reviewFilter !== "all" ||
-                    attentionFilter !== "all" ||
-                    search ||
-                    societyFilter) && (
-                    <button
-                      className="min-h-11 font-semibold text-emerald-800 underline underline-offset-4"
-                      onClick={() => {
-                        changeReviewFilter("all");
-                        setSearch("");
-                        setSocietyFilter("");
-                      }}
-                    >
-                      Clear filters
-                    </button>
-                  )}
-                </div>
-                {channel === "email" && !data.emailEnabled && (
-                  <p className="mt-3 text-sm text-amber-900">
-                    Email delivery is off for this environment until the
-                    household source and templates are verified. Postal
-                    preparation is available after setup.
-                  </p>
-                )}
-                {(recovery.checkpoint ||
-                  showApprovalShortcut ||
-                  matching.some((row) => row.recipientReview)) && (
-                  <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    {((reviewedView && filtered.length > 0) ||
-                      showApprovalShortcut) && (
-                      <div className="mb-4">
-                        <h3 className="font-bold">
-                          {reviewedView && filtered.length > 0
-                            ? "Recipient review complete"
-                            : data.postalDraft
-                              ? "Document approval in progress"
-                              : "Continue with reviewed recipients"}
-                        </h3>
-                        <p className="mt-2 text-sm text-gray-700">
-                          {reviewedView && filtered.length > 0
-                            ? "These names and addresses are already reviewed. You do not need to save them again unless you want to make changes."
-                            : reviewedInView > 0
-                              ? `${reviewedInView} ${reviewedInView === 1 ? "recipient in this view is" : "recipients in this view are"} already reviewed.`
-                              : "Your saved document approval batch is still available, even when no recipients match these filters."}
-                        </p>
-                        {showApprovalShortcut && (
-                          <>
-                            <p className="mt-2 text-sm text-gray-700">
-                              Next, prepare and approve the final documents. NXT
-                              is checked automatically before appeal updates;
-                              you do not need to run a separate delivery check.
-                            </p>
-                            <button
-                              type="button"
-                              className={`${primary} mt-3`}
-                              onClick={() => {
-                                const target = document.getElementById(
-                                  data.postalDraft
-                                    ? "letter-saved-approval"
-                                    : "letter-approval-title",
-                                );
-                                target?.focus();
-                                target?.scrollIntoView?.({ block: "center" });
-                              }}
-                            >
-                              {data.postalDraft
-                                ? "Continue saved document approval"
-                                : "Continue to document approval"}
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      </select>
+                    </label>
+                  </div>
+                  <LetterWorkspaceFilters
+                    value={reviewFilter}
+                    onChange={changeReviewFilter}
+                    counts={counts}
+                    attention={attentionFilter}
+                    onAttentionChange={changeAttentionFilter}
+                    attentionCounts={attentionCounts}
+                    channel={channel}
+                  />
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <p role="status">
+                      Showing {filtered.length} of {matching.length} matching
+                      recipients
+                    </p>
+                    {(reviewFilter !== "all" ||
+                      attentionFilter !== "all" ||
+                      search ||
+                      societyFilter) && (
+                      <button
+                        className="min-h-11 font-semibold text-emerald-800 underline underline-offset-4"
+                        onClick={() => {
+                          changeReviewFilter("all");
+                          setSearch("");
+                          setSocietyFilter("");
+                        }}
+                      >
+                        Clear filters
+                      </button>
                     )}
-                    {recovery.checkpoint && (
-                      <div className="mb-4 border-b border-emerald-200 pb-4">
-                        <p className="font-semibold">Continue your review</p>
-                        <p className="mt-1 text-sm text-gray-600">
-                          Resume your last unfinished recipient, even if it is
-                          outside the current filters. The tab remembers your
-                          position for 24 hours; unsaved wording lasts only
-                          while this page stays open.
+                  </div>
+                  {channel === "email" && !data.emailEnabled && (
+                    <p className="mt-3 text-sm text-amber-900">
+                      Email delivery is off for this environment until the
+                      household source and templates are verified. Postal
+                      preparation is available after setup.
+                    </p>
+                  )}
+                  {(recovery.checkpoint ||
+                    matching.some((row) => row.recipientReview)) && (
+                    <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4">
+                      {reviewedInView > 0 && (
+                        <p className="w-full text-sm text-gray-600">
+                          {reviewedView ? "Recipient review complete. " : ""}
+                          {reviewedInView}{" "}
+                          {reviewedInView === 1
+                            ? "recipient in this view is"
+                            : "recipients in this view are"}{" "}
+                          already reviewed. You do not need to save them again
+                          unless you want to make changes.
                         </p>
+                      )}
+                      {recovery.checkpoint && (
                         <button
                           type="button"
-                          className={`${button} mt-3`}
-                          disabled={busy || refreshing || !!sendingBatch}
+                          className={button}
+                          disabled={selectionBusy}
                           onClick={resumeReview}
                         >
                           Resume review
                         </button>
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-end gap-3">
+                      )}
                       <button
                         type="button"
-                        className={reviewedView ? button : primary}
-                        disabled={
-                          busy ||
-                          refreshing ||
-                          !!sendingBatch ||
-                          !reviewable.length
+                        className={
+                          !activeWork && !selected.length && !selectable.length
+                            ? primary
+                            : button
                         }
+                        disabled={selectionBusy || !reviewable.length}
                         onClick={() => {
                           setError("");
                           setReviewConflict(false);
@@ -1317,7 +1454,7 @@ export default function SocietyLettersPage() {
                           ? "Edit reviewed recipients"
                           : "Review recipients in bulk"}
                       </button>
-                      <span className="pb-3 text-sm text-emerald-900">
+                      <span className="text-sm text-gray-500">
                         {reviewable.length}{" "}
                         {reviewingUnreviewed
                           ? "unreviewed recipients"
@@ -1325,446 +1462,404 @@ export default function SocietyLettersPage() {
                         in this view
                       </span>
                     </div>
-                    <p className="mt-3 text-sm text-gray-600">
-                      {reviewedView
-                        ? "Editing is optional. Use it only to change saved names, addresses, or wording. Saving edits is not final-document approval."
-                        : `Review up to ${LETTER_BATCH_LIMIT} recipients at a time. Preview each personalized letter, make individual edits, and save before moving to the next. Nothing is sent or marked ready for delivery.`}
-                    </p>
-                    <p className="mt-2 text-sm text-gray-600">
-                      Saved recipient reviews last 15 days. Routine refreshes
-                      and letter-date changes do not reset them; changed
-                      recipient details still need review. For postal query
-                      letters, NXT checks run automatically before appeal
-                      updates.
-                    </p>
-                  </div>
-                )}
-                {reviewNotice && (
-                  <p
-                    role="status"
-                    className="my-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
-                  >
-                    {reviewNotice}
-                  </p>
-                )}
-                {queryPostal && (
-                  <section
-                    aria-label="Letter date"
-                    className="my-5 rounded-xl border border-gray-200 bg-white p-4"
-                  >
-                    <h3 className="font-bold">Letter date</h3>
-                    <p className="mt-2 text-sm">
-                      New previews and letters use today's date in your
-                      organization's time zone: {data.today}.
-                    </p>
-                    <p className="mt-2 text-sm text-gray-600">
-                      Update all uncreated letters together, even if you
-                      reviewed recipients earlier. Created letters and NXT
-                      history are not changed.
-                    </p>
-                    <button
-                      type="button"
-                      className={`${button} mt-3`}
-                      disabled={busy || refreshing || !!sendingBatch}
-                      onClick={() =>
-                        setConfirmation({
-                          action: "update_letter_dates",
-                          draftId: data.postalDraft?.id || null,
-                          title: "Use today's date for all uncreated letters?",
-                          description:
-                            "Saved recipient reviews are kept for 15 days. Older draft documents will be regenerated with today's date and included in one batch approval; reopening every preview is optional. NXT checks run automatically before appeal updates. Created letters and NXT records stay unchanged.",
-                        })
-                      }
-                    >
-                      Use today's date for all letters
-                    </button>
-                  </section>
-                )}
-                {queryPostal && (
-                  <section
-                    aria-label="From review to final letters"
-                    className="my-5 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4"
-                  >
-                    <h3
-                      id="letter-approval-title"
-                      tabIndex={-1}
-                      className="font-bold"
-                    >
-                      {reviewedView
-                        ? "Approve letters"
-                        : "Review → Approve → Create letters"}
-                    </h3>
-                    <ol className="mt-2 list-inside list-decimal space-y-2 text-sm">
-                      <li>
-                        {reviewedView
-                          ? "Recipient review is complete. You can prepare the documents now."
-                          : "Save recipient names and addresses. No separate delivery check is required."}
-                      </li>
-                      <li>
-                        Select up to {deliveryBatchLimit} reviewed households.
-                        Prepare the documents; preview any you want to check.
-                      </li>
-                      <li>
-                        Approve once to create the letters. NXT restrictions and
-                        prior appeals are checked automatically before updating
-                        each household. Download after every full constituent is
-                        confirmed. Spouse-only records stay in the joint letter
-                        without a separate appeal assignment.
-                      </li>
-                    </ol>
-                    <p className="mt-3 text-sm">
-                      {selectable.length} ready for document approval in this
-                      view. {filtered.length - selectable.length}{" "}
-                      {reviewedView
-                        ? "need updated recipient choices."
-                        : "need recipient review."}
-                    </p>
-                    {!selectable.length && filtered.length > 0 && (
-                      <p role="status" className="mt-2 text-sm font-semibold">
-                        Save recipient choices before preparing documents. Bulk
-                        recipient review remains available above.
-                      </p>
-                    )}
-                    {data.readiness?.issue && (
-                      <p role="status" className="mt-2 text-sm text-amber-900">
-                        {data.readiness.issue}
-                      </p>
-                    )}
-                    {data.readiness?.issue && (
-                      <button
-                        type="button"
-                        className={`${button} mt-3`}
-                        onClick={() => navigateSetup("appeals")}
-                      >
-                        Open appeal settings
-                      </button>
-                    )}
-                    <label className="mt-3 block text-sm font-semibold">
-                      Final letter format
-                      <select
-                        className={input}
-                        value={postalFormat}
-                        disabled={busy || !!data.postalDraft}
-                        onChange={(e) => setPostalFormat(e.target.value)}
-                      >
-                        <option value="docx">Word (.docx)</option>
-                        <option value="pdf" disabled={!data.postalPdf?.enabled}>
-                          PDF
-                          {data.postalPdf?.enabled
-                            ? ""
-                            : " (private converter not configured)"}
-                        </option>
-                      </select>
-                    </label>
-                    {data.postalPdf?.enabled && postalFormat === "pdf" && (
-                      <p className="mt-2 text-sm text-gray-600">
-                        Create up to {deliveryBatchLimit} PDFs per batch, one
-                        letter per household or individual. Documents are
-                        prepared one at a time and progress is saved. Preview is
-                        optional. One batch approval starts the checks and
-                        appeal updates; preparing documents alone does not.
-                      </p>
-                    )}
-                    {!data.postalPdf?.enabled && (
-                      <p className="mt-2 text-sm text-gray-600">
-                        Automatic PDFs require private conversion setup. Word
-                        letters can be approved now and exported to PDF in Word.
-                        Donor documents are not sent to a public conversion
-                        service.
-                      </p>
-                    )}
-                  </section>
-                )}
-                {householdPreview && !queryPostal && (
-                  <p className="my-4 text-sm">
-                    These query results support recipient review only. Configure
-                    one query per society in Setup to enable postal approval and
-                    appeal updates.
-                  </p>
-                )}
-                <div className="my-4 space-y-3">
-                  {householdPreview && (
+                  )}
+                  {reviewNotice && (
                     <p
-                      id="letter-selection-help"
-                      className="text-sm text-gray-600"
+                      role="status"
+                      className="my-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
                     >
-                      {reviewedView
-                        ? "Checkboxes choose reviewed recipients for document approval or optional edits."
-                        : "Checkboxes choose recipients for review or document approval once their recipient choices are saved."}{" "}
-                      Selecting someone does not send a letter or add an appeal
-                      in NXT.
+                      {reviewNotice}
                     </p>
                   )}
-                  <div className="flex flex-wrap items-center gap-3">
+                  {queryPostal && (
+                    <section
+                      aria-label="From review to final letters"
+                      className="my-4"
+                    >
+                      {data.readiness?.issue && (
+                        <div
+                          role="status"
+                          className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
+                        >
+                          <p>{data.readiness.issue}</p>
+                          <button
+                            type="button"
+                            className={`${button} mt-2`}
+                            onClick={() => navigateSetup("appeals")}
+                          >
+                            Open appeal settings
+                          </button>
+                        </div>
+                      )}
+                      <details className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <summary className="cursor-pointer text-sm font-semibold">
+                          Letter options:{" "}
+                          {postalFormat === "pdf" ? "PDF" : "Word"}
+                          {data.today ? ` · ${data.today}` : ""}
+                        </summary>
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          <label className="text-sm font-semibold">
+                            Final letter format
+                            <select
+                              className={input}
+                              value={postalFormat}
+                              disabled={busy || !!data.postalDraft}
+                              onChange={(e) => setPostalFormat(e.target.value)}
+                            >
+                              <option value="docx">Word (.docx)</option>
+                              <option
+                                value="pdf"
+                                disabled={!data.postalPdf?.enabled}
+                              >
+                                PDF
+                                {data.postalPdf?.enabled
+                                  ? ""
+                                  : " (private converter not configured)"}
+                              </option>
+                            </select>
+                          </label>
+                          <section aria-label="Letter date" className="text-sm">
+                            <p>
+                              New letters use {data.today || "today's date"}.
+                              Saved recipient reviews last 15 days.
+                            </p>
+                            <button
+                              type="button"
+                              className={`${button} mt-2`}
+                              disabled={selectionBusy}
+                              onClick={() =>
+                                setConfirmation({
+                                  action: "update_letter_dates",
+                                  draftId: data.postalDraft?.id || null,
+                                  title:
+                                    "Use today's date for all uncreated letters?",
+                                  description:
+                                    "Saved recipient reviews are kept for 15 days. Older draft documents will be regenerated with today's date and included in one batch approval; reopening every preview is optional. NXT checks run automatically before appeal updates. Created letters and NXT records stay unchanged.",
+                                })
+                              }
+                            >
+                              Use today's date for all letters
+                            </button>
+                          </section>
+                        </div>
+                        <p className="mt-3 text-sm text-gray-600">
+                          Up to {deliveryBatchLimit} documents per batch. Each
+                          household or individual receives one letter. A higher
+                          society letter covers lower tiers without extra
+                          letters.
+                        </p>
+                      </details>
+                    </section>
+                  )}
+                  {queryPostal && !selectable.length && filtered.length > 0 && (
+                    <p role="status" className="my-3 text-sm text-gray-600">
+                      Save recipient choices before preparing documents.
+                    </p>
+                  )}
+                  {householdPreview && !queryPostal && (
+                    <p className="my-4 text-sm">
+                      These query results support recipient review only.
+                      Configure one query per society in Setup to enable postal
+                      approval and appeal updates.
+                    </p>
+                  )}
+                  <div className="my-4 space-y-3">
                     {householdPreview && (
-                      <>
+                      <p
+                        id="letter-selection-help"
+                        className="text-sm text-gray-600"
+                      >
+                        {reviewedView
+                          ? "Checkboxes choose reviewed recipients for document approval or optional edits."
+                          : "Checkboxes choose recipients for review or document approval once their recipient choices are saved."}{" "}
+                        Selecting someone does not send a letter or add an
+                        appeal in NXT.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {householdPreview && (
+                        <>
+                          <button
+                            className={button}
+                            disabled={
+                              selectionBusy || !filtered.some(canReview)
+                            }
+                            onClick={() => {
+                              setSelected(
+                                filtered
+                                  .filter(canReview)
+                                  .slice(0, selectionLimit)
+                                  .map((row) => row.householdId),
+                              );
+                              setPreview(null);
+                            }}
+                          >
+                            {reviewedView
+                              ? "Select to edit"
+                              : "Select for review"}{" "}
+                            (up to {selectionLimit})
+                          </button>
+                          <button
+                            className={
+                              !activeWork &&
+                              selected.length > 0 &&
+                              !selectedRows.every(canPrepare)
+                                ? primary
+                                : button
+                            }
+                            disabled={
+                              selectionBusy ||
+                              !selected.length ||
+                              selectedReviewable.length !== selected.length
+                            }
+                            onClick={() => {
+                              setError("");
+                              setReviewConflict(false);
+                              setQueueStart(0);
+                              setReviewNotice("");
+                              setReviewQueue(selectedReviewable);
+                            }}
+                          >
+                            {reviewedView
+                              ? "Edit selected recipients"
+                              : "Review selected recipients"}
+                          </button>
+                        </>
+                      )}
+                      {(!householdPreview || queryPostal) && (
                         <button
-                          className={button}
-                          disabled={selectionBusy || !filtered.some(canReview)}
+                          className={
+                            !activeWork && !selected.length && selectable.length
+                              ? primary
+                              : button
+                          }
+                          disabled={
+                            selectionBusy ||
+                            !selectable.length ||
+                            (queryPostal && !!data.postalDraft)
+                          }
                           onClick={() => {
                             setSelected(
-                              filtered
-                                .filter(canReview)
-                                .slice(0, selectionLimit)
-                                .map((row) => row.householdId),
+                              selectable
+                                .slice(0, deliveryBatchLimit)
+                                .map((r) => r.householdId),
                             );
                             setPreview(null);
                           }}
                         >
-                          {reviewedView
-                            ? "Select to edit"
-                            : "Select for review"}{" "}
-                          (up to {selectionLimit})
+                          {queryPostal
+                            ? "Select reviewed households"
+                            : "Select eligible households"}{" "}
+                          (up to {deliveryBatchLimit})
                         </button>
-                        <button
-                          className={button}
-                          disabled={
-                            selectionBusy ||
-                            !selected.length ||
-                            selectedReviewable.length !== selected.length
-                          }
-                          onClick={() => {
-                            setError("");
-                            setReviewConflict(false);
-                            setQueueStart(0);
-                            setReviewNotice("");
-                            setReviewQueue(selectedReviewable);
-                          }}
-                        >
-                          {reviewedView
-                            ? "Edit selected recipients"
-                            : "Review selected recipients"}
-                        </button>
-                      </>
-                    )}
-                    {(!householdPreview || queryPostal) && (
+                      )}
                       <button
                         className={button}
-                        disabled={
-                          selectionBusy ||
-                          !selectable.length ||
-                          (queryPostal && !!data.postalDraft)
-                        }
+                        disabled={!selected.length || selectionBusy}
                         onClick={() => {
-                          setSelected(
-                            selectable
-                              .slice(0, deliveryBatchLimit)
-                              .map((r) => r.householdId),
-                          );
+                          setSelected([]);
                           setPreview(null);
                         }}
                       >
-                        {queryPostal
-                          ? "Select reviewed households"
-                          : "Select eligible households"}{" "}
-                        (up to {deliveryBatchLimit})
+                        Clear selection
                       </button>
-                    )}
-                    <button
-                      className={button}
-                      disabled={!selected.length || selectionBusy}
-                      onClick={() => {
-                        setSelected([]);
-                        setPreview(null);
-                      }}
-                    >
-                      Clear selection
-                    </button>
-                    <span className="text-sm">{selected.length} selected</span>
-                    {(!householdPreview || queryPostal) && (
-                      <button
-                        className={primary}
-                        aria-describedby={
-                          preparationIssue
-                            ? "letter-preparation-help"
-                            : undefined
-                        }
-                        disabled={
-                          selectionBusy ||
-                          !selected.length ||
-                          !!preparationIssue ||
-                          (queryPostal && !!data.postalDraft)
-                        }
-                        onClick={() => {
-                          if (
+                      <span className="text-sm">
+                        {selected.length} selected
+                      </span>
+                      {(!householdPreview || queryPostal) && (
+                        <button
+                          className={
+                            !activeWork &&
+                            selected.length > 0 &&
+                            !preparationIssue
+                              ? primary
+                              : button
+                          }
+                          aria-describedby={
+                            preparationIssue
+                              ? "letter-preparation-help"
+                              : undefined
+                          }
+                          disabled={
                             selectionBusy ||
-                            preparationIssue ||
-                            !selected.length
-                          )
-                            return;
-                          act({
-                            action: queryPostal
-                              ? "start_postal_draft"
-                              : "preview",
-                            ...(queryPostal ? { format: postalFormat } : {}),
-                            channel,
-                            householdIds: selected,
-                          });
-                        }}
+                            !selected.length ||
+                            !!preparationIssue ||
+                            (queryPostal && !!data.postalDraft)
+                          }
+                          onClick={() => {
+                            if (
+                              selectionBusy ||
+                              preparationIssue ||
+                              !selected.length
+                            )
+                              return;
+                            act({
+                              action: queryPostal
+                                ? "start_postal_draft"
+                                : "preview",
+                              ...(queryPostal ? { format: postalFormat } : {}),
+                              channel,
+                              householdIds: selected,
+                            });
+                          }}
+                        >
+                          {queryPostal
+                            ? "Start document approval"
+                            : "Review selected letters"}
+                        </button>
+                      )}
+                    </div>
+                    {preparationIssue && (
+                      <p
+                        id="letter-preparation-help"
+                        role="status"
+                        className="text-sm text-amber-900"
                       >
-                        {queryPostal
-                          ? "Start document approval"
-                          : "Review selected letters"}
-                      </button>
+                        {preparationIssue}
+                      </p>
                     )}
                   </div>
-                  {preparationIssue && (
-                    <p
-                      id="letter-preparation-help"
-                      role="status"
-                      className="text-sm text-amber-900"
-                    >
-                      {preparationIssue}
+                  {!householdPreview && !selectable.length && (
+                    <p role="status" className="mb-3 text-sm">
+                      No eligible households in this view. Review the delivery
+                      readiness messages below before selecting a batch.
                     </p>
                   )}
-                </div>
-                {!householdPreview && !selectable.length && (
-                  <p role="status" className="mb-3 text-sm">
-                    No eligible households in this view. Review the delivery
-                    readiness messages below before selecting a batch.
+                  <p className="mb-4 text-sm text-gray-500">
+                    Small batches protect against timeouts. Sending a higher
+                    letter covers the lower tiers; those lower letters are not
+                    sent.
                   </p>
-                )}
-                {data.postalDraft && (
-                  <PostalBatchApproval
-                    key={`${data.postalDraft.id}-${data.postalDraft.dateUpdatedAt || ""}`}
-                    draft={data.postalDraft}
-                    revision={data.revision}
-                    busy={busy || refreshing || !!sendingBatch}
-                    act={act}
-                    onApproved={(batchId) => {
-                      setApprovedPostalStart(batchId);
-                      showNewBatch();
-                    }}
-                  />
-                )}
-                <p className="mb-4 text-sm text-gray-500">
-                  Small batches protect against timeouts. Sending a higher
-                  letter covers the lower tiers; those lower letters are not
-                  sent.
-                </p>
-                {!filtered.length ? (
-                  <p className="py-8 text-gray-600">
-                    {data.refreshedAt
-                      ? "No recipients match these filters. Clear filters to see the holding list; completed acknowledgments are in Letter history."
-                      : "Configure and refresh your household query to see eligible recipients."}
-                  </p>
-                ) : (
-                  <div
-                    className="max-h-[600px] overflow-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700"
-                    role="region"
-                    aria-label="Scrollable letter recipients"
-                    tabIndex={0}
-                  >
-                    <p className="sticky left-0 mb-2 max-w-full text-xs text-gray-500 md:hidden">
-                      Scroll across to see review status and recipient actions.
+                  {!filtered.length ? (
+                    <p className="py-8 text-gray-600">
+                      {data.refreshedAt
+                        ? "No recipients match these filters. Clear filters to see the holding list; completed acknowledgments are in Letter history."
+                        : "Configure and refresh your household query to see eligible recipients."}
                     </p>
-                    <table
-                      className="w-full min-w-[760px] text-left text-sm"
-                      aria-label="Letter recipients"
+                  ) : (
+                    <div
+                      className="max-h-[600px] overflow-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700"
+                      role="region"
+                      aria-label="Scrollable letter recipients"
+                      tabIndex={0}
                     >
-                      <thead className="sticky top-0 z-10 bg-gray-50">
-                        <tr>
-                          {[
-                            "Select",
-                            "Recipient & letter",
-                            "Recipient review",
-                            queryPostal && channel === "post"
-                              ? "Next step"
-                              : "Delivery readiness",
-                            "Actions",
-                          ].map((h) => (
-                            <th key={h} scope="col" className="p-3">
-                              {h}
-                            </th>
+                      <p className="sticky left-0 mb-2 max-w-full text-xs text-gray-500 md:hidden">
+                        Scroll across to see review status and recipient
+                        actions.
+                      </p>
+                      <table
+                        className="w-full min-w-[760px] text-left text-sm"
+                        aria-label="Letter recipients"
+                      >
+                        <thead className="sticky top-0 z-10 bg-gray-50">
+                          <tr>
+                            {[
+                              "Select",
+                              "Recipient & letter",
+                              "Recipient review",
+                              queryPostal && channel === "post"
+                                ? "Next step"
+                                : "Delivery readiness",
+                              "Actions",
+                            ].map((h) => (
+                              <th key={h} scope="col" className="p-3">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((row) => (
+                            <LetterWorkspaceRow
+                              key={row.householdId}
+                              row={row}
+                              view={views.get(row.householdId)}
+                              channel={channel}
+                              definitions={data.definitions}
+                              sourceIssue={data.sourceIssue}
+                              automaticPostalChecks={queryPostal}
+                              onFinalize={
+                                data.settings?.sourceMode === "society_queries"
+                                  ? () =>
+                                      act({
+                                        action: "start_postal_draft",
+                                        householdIds: [row.householdId],
+                                        format: postalFormat,
+                                      })
+                                  : undefined
+                              }
+                              checked={selected.includes(row.householdId)}
+                              selectionDisabled={!!selectionReason(row)}
+                              selectionReason={selectionReason(row)}
+                              selectionHelpId={
+                                householdPreview
+                                  ? "letter-selection-help"
+                                  : undefined
+                              }
+                              reviewDisabled={
+                                busy ||
+                                refreshing ||
+                                !!sendingBatch ||
+                                !row.recipientReview?.editable
+                              }
+                              excludeDisabled={
+                                busy || refreshing || !!sendingBatch
+                              }
+                              onSelect={(checked) => {
+                                if (selectionReason(row)) return;
+                                setPreview(null);
+                                setSelected((current) =>
+                                  checked
+                                    ? [
+                                        ...new Set([
+                                          ...current,
+                                          row.householdId,
+                                        ]),
+                                      ]
+                                    : current.filter(
+                                        (id) => id !== row.householdId,
+                                      ),
+                                );
+                              }}
+                              onReview={(field) => {
+                                setError("");
+                                setReviewFocus(field);
+                                setReviewingRecipient(row);
+                                setReviewConflict(false);
+                                recovery.remember({
+                                  ids: [row.householdId],
+                                  currentId: row.householdId,
+                                  channel,
+                                });
+                              }}
+                              onReadiness={
+                                data.readiness
+                                  ? () => {
+                                      const heading = document.getElementById(
+                                        "letter-readiness-title",
+                                      );
+                                      heading?.focus();
+                                      heading?.scrollIntoView?.({
+                                        block: "center",
+                                      });
+                                    }
+                                  : undefined
+                              }
+                              onExclude={() => {
+                                setError("");
+                                setExcluding({
+                                  ...row,
+                                  period: row.period || data.period,
+                                });
+                              }}
+                            />
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map((row) => (
-                          <LetterWorkspaceRow
-                            key={row.householdId}
-                            row={row}
-                            view={views.get(row.householdId)}
-                            channel={channel}
-                            definitions={data.definitions}
-                            sourceIssue={data.sourceIssue}
-                            automaticPostalChecks={queryPostal}
-                            onFinalize={
-                              data.settings?.sourceMode === "society_queries"
-                                ? () =>
-                                    act({
-                                      action: "start_postal_draft",
-                                      householdIds: [row.householdId],
-                                      format: postalFormat,
-                                    })
-                                : undefined
-                            }
-                            checked={selected.includes(row.householdId)}
-                            selectionDisabled={!!selectionReason(row)}
-                            selectionReason={selectionReason(row)}
-                            selectionHelpId={
-                              householdPreview
-                                ? "letter-selection-help"
-                                : undefined
-                            }
-                            reviewDisabled={
-                              busy ||
-                              refreshing ||
-                              !!sendingBatch ||
-                              !row.recipientReview?.editable
-                            }
-                            excludeDisabled={
-                              busy || refreshing || !!sendingBatch
-                            }
-                            onSelect={(checked) => {
-                              if (selectionReason(row)) return;
-                              setPreview(null);
-                              setSelected((current) =>
-                                checked
-                                  ? [...new Set([...current, row.householdId])]
-                                  : current.filter(
-                                      (id) => id !== row.householdId,
-                                    ),
-                              );
-                            }}
-                            onReview={(field) => {
-                              setError("");
-                              setReviewFocus(field);
-                              setReviewingRecipient(row);
-                              setReviewConflict(false);
-                              recovery.remember({
-                                ids: [row.householdId],
-                                currentId: row.householdId,
-                                channel,
-                              });
-                            }}
-                            onReadiness={
-                              data.readiness
-                                ? () => {
-                                    const heading = document.getElementById(
-                                      "letter-readiness-title",
-                                    );
-                                    heading?.focus();
-                                    heading?.scrollIntoView?.({
-                                      block: "center",
-                                    });
-                                  }
-                                : undefined
-                            }
-                            onExclude={() => {
-                              setError("");
-                              setExcluding({
-                                ...row,
-                                period: row.period || data.period,
-                              });
-                            }}
-                          />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              )}
               {preview && (
                 <section
                   className="rounded-2xl border-2 border-emerald-700 bg-white p-6"
@@ -1875,278 +1970,7 @@ export default function SocietyLettersPage() {
                   your search.
                 </div>
               )}
-              {visibleBatches.map((batch) => (
-                <article className={card} key={batch.id}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-lg font-bold">
-                        {batch.items.length}{" "}
-                        {batch.channel === "post" ? "postal" : "email"}{" "}
-                        {batch.items.length === 1 ? "letter" : "letters"}
-                      </h2>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Prepared {new Date(batch.date).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {batch.channel === "post" &&
-                        batch.items.some((i) => i.status !== "cancelled") && (
-                          <button
-                            className={button}
-                            disabled={
-                              busy ||
-                              batch.items.some(
-                                (i) =>
-                                  i.letterAppeals &&
-                                  i.letterAppeals.status !== "complete",
-                              )
-                            }
-                            onClick={() => downloadBatch(batch.id)}
-                          >
-                            Download{" "}
-                            {batch.items.every(
-                              (i) => i.postalDocument?.format === "pdf",
-                            )
-                              ? "PDF"
-                              : "Word"}{" "}
-                            letters (.zip)
-                          </button>
-                        )}
-                      {batch.channel === "post" &&
-                        batch.items.some((i) => i.status === "prepared") && (
-                          <button
-                            className={primary}
-                            disabled={
-                              busy ||
-                              batch.items.some(
-                                (i) =>
-                                  i.letterAppeals &&
-                                  i.letterAppeals.status !== "complete",
-                              )
-                            }
-                            onClick={() =>
-                              setConfirmation({
-                                action: "mailed",
-                                batchId: batch.id,
-                                title: "Confirm these letters have been mailed",
-                                description:
-                                  "This records the prepared postal letters as mailed and covers their lower society tiers for the same period.",
-                              })
-                            }
-                          >
-                            Mark batch mailed
-                          </button>
-                        )}
-                      {batch.items.some(
-                        (i) => i.status === "pending_email",
-                      ) && (
-                        <button
-                          className={primary}
-                          disabled={
-                            busy || !!sendingBatch || !data.emailEnabled
-                          }
-                          onClick={() =>
-                            setConfirmation({
-                              action: "send",
-                              batchId: batch.id,
-                              title: "Send the remaining queued emails?",
-                              description:
-                                "This sends the prepared letters to the listed households, three at a time. Already submitted emails will not be sent again.",
-                            })
-                          }
-                        >
-                          {sendingBatch === batch.id
-                            ? "Sending..."
-                            : "Send queued emails"}
-                        </button>
-                      )}
-                      {!batch.items.some((i) => i.letterAppeals) &&
-                        batch.items.some((i) =>
-                          ["prepared", "pending_email"].includes(i.status),
-                        ) && (
-                          <button
-                            className={button}
-                            disabled={busy || !!sendingBatch}
-                            onClick={() =>
-                              setConfirmation({
-                                action: "cancel",
-                                batchId: batch.id,
-                                title: "Cancel the remaining unsent letters?",
-                                description:
-                                  "Confirm the queued or prepared letters have not been sent or mailed. Only their reservations will be released. Submitted and uncertain emails remain protected, and history is retained.",
-                              })
-                            }
-                          >
-                            Cancel unsent letters
-                          </button>
-                        )}
-                    </div>
-                  </div>
-                  {batch.items.every((i) => i.postalApproval) && (
-                    <PostalBatchRunner
-                      key={batch.id}
-                      batch={batch}
-                      busy={busy || refreshing || !!sendingBatch}
-                      act={act}
-                      autoStart={approvedPostalStart === batch.id}
-                      onAutoStartConsumed={() => setApprovedPostalStart(null)}
-                    />
-                  )}
-                  <LetterBatchSummary items={batch.items} />
-                  <details
-                    className="mt-4"
-                    open={
-                      !!historySearch.trim() ||
-                      batch.items.some(
-                        (i) =>
-                          i.letterAppeals &&
-                          i.letterAppeals.status !== "complete",
-                      ) ||
-                      undefined
-                    }
-                  >
-                    <summary className="cursor-pointer text-sm font-semibold">
-                      Recipients and acknowledgment coverage
-                    </summary>
-                    <ul className="mt-3 space-y-3">
-                      {batch.items.map((item) => (
-                        <li key={item.id} className="border-t pt-3 text-sm">
-                          <p>
-                            <strong>{item.name}</strong> / {item.societyName} /{" "}
-                            {item.letterAppeals &&
-                            item.letterAppeals.status !== "complete"
-                              ? "Reserved: appeal updates need attention"
-                              : labels[item.status]}
-                          </p>
-                          <LetterAppealStatus
-                            item={item}
-                            automatic
-                            busy={busy}
-                            onVerify={() =>
-                              act({
-                                action: "verify_letter_appeals",
-                                deliveryId: item.id,
-                              })
-                            }
-                            onContinue={() =>
-                              act({
-                                action: "continue_letter_appeals",
-                                deliveryId: item.id,
-                                confirm: true,
-                              })
-                            }
-                          />
-                          <p className="mt-1 text-gray-500">
-                            {item.period.start} through {item.period.end}.{" "}
-                            {item.channel === "email"
-                              ? item.email
-                              : item.addressee}
-                          </p>
-                          {item.updatedAt && (
-                            <p className="mt-1 text-gray-500">
-                              Status recorded{" "}
-                              {new Date(item.updatedAt).toLocaleString()}
-                            </p>
-                          )}
-                          <p className="mt-1 text-gray-500">
-                            Lower-tier letters covered after sending:{" "}
-                            {item.coveredKeys
-                              .slice(1)
-                              .map(
-                                (k) =>
-                                  data.definitions.find((d) => d.key === k)
-                                    ?.name || k,
-                              )
-                              .join(", ") || "None"}
-                            . No extra letters sent.
-                          </p>
-                          {item.providerId &&
-                            ["emailed", "needs_review"].includes(
-                              item.status,
-                            ) && (
-                              <button
-                                className={`${button} mt-2`}
-                                disabled={busy}
-                                onClick={() =>
-                                  act({ action: "verify", deliveryId: item.id })
-                                }
-                              >
-                                Check email delivery
-                              </button>
-                            )}
-                          {item.channel === "post" &&
-                            item.status !== "cancelled" && (
-                              <button
-                                className={`${button} mt-2`}
-                                disabled={
-                                  busy ||
-                                  (!!item.letterAppeals &&
-                                    item.letterAppeals.status !== "complete")
-                                }
-                                onClick={() =>
-                                  downloadBatch(
-                                    batch.id,
-                                    item.id,
-                                    item.postalDocument?.format || "docx",
-                                  )
-                                }
-                              >
-                                Download this{" "}
-                                {item.postalDocument?.format === "pdf"
-                                  ? "PDF"
-                                  : "Word"}{" "}
-                                letter
-                              </button>
-                            )}
-                          {item.channel === "email" &&
-                            !item.providerId &&
-                            ["sending", "needs_review"].includes(
-                              item.status,
-                            ) && (
-                              <form
-                                className="mt-3 max-w-lg"
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  act({
-                                    action: "verify",
-                                    deliveryId: item.id,
-                                    providerId: receiptIds[item.id] || "",
-                                  });
-                                }}
-                              >
-                                <p className="text-amber-900">
-                                  Check the sender's Resend log for this letter.
-                                  Verification will match its recipient and
-                                  saved letter tag; no email is resent.
-                                </p>
-                                <label className="mt-2 block font-semibold">
-                                  Existing Resend email ID
-                                  <input
-                                    className={input}
-                                    value={receiptIds[item.id] || ""}
-                                    onChange={(e) =>
-                                      setReceiptIds({
-                                        ...receiptIds,
-                                        [item.id]: e.target.value,
-                                      })
-                                    }
-                                    required
-                                  />
-                                </label>
-                                <button
-                                  className={`${button} mt-2`}
-                                  disabled={busy}
-                                >
-                                  Verify existing email
-                                </button>
-                              </form>
-                            )}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                </article>
-              ))}
+              {visibleBatches.map((batch) => renderBatch(batch))}
             </section>
           )}
           {tab === "templates" && (
