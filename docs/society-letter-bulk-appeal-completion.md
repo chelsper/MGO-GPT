@@ -1,6 +1,6 @@
 # Bulk completion of saved society-letter appeals
 
-Status: implemented and locally verified on 2026-10-08; not deployed.
+Status: deployed to JU and verified on 2026-10-08. Sandbox unchanged.
 
 ## Staff workflow
 
@@ -28,3 +28,20 @@ Record-specific conflicts appear under **Needs attention**, while other selected
 - No production constituent records, appeals, letters, email, settings, or sandbox deployments were changed during testing.
 
 This extends recovery for existing letters only. The document-generation batch limit and combined-PDF batch scope are unchanged.
+
+## JU production release
+
+- App commit: `6faec69006e5b2de0edd3809e853d66ac102d10c`.
+- JU project: `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY` (`mgo-gpt`), root `apps/web`.
+- Deployment: `dpl_C4J7rnmijkr2n6rW74FUdeyi4VTX`.
+- Candidate: `https://mgo-qxxan75v9-chelspers-projects.vercel.app`.
+- Live: `https://www.jumgogpt.app`.
+- Rollback deployment: `dpl_BHQ1AB7TteurAkeY2YQs49v7i1Ln`, app commit `369ad8eff2e6e12def61fc3e626f18984cc79b26`.
+- Sandbox before and after: `dpl_8AEQhpBHwgFJvQ7zaeYd9qcATSff`. All other project deployment identities, Git links, cron definitions, and PDF setting metadata compared unchanged.
+- Fresh release checks: 6,128 tests passed, 207 existing tests skipped; typecheck, build, release-worktree check, and whitespace checks passed.
+- Deployment used a clean Git archive with all 1,201 tracked web files byte-compared to the tested workspace. Unrelated local edits and untracked files were excluded. No Git push was used.
+- The candidate was built without assigning the JU public domain, smoke-tested, and explicitly promoted. Both candidate and live checks verified the exact app SHA/deployment identity, eight page shells, boot/letter assets containing the new bulk action and existing print-ready PDF action, and authentication rejection for letter/campaign APIs and PDF downloads.
+- No authenticated query refresh, letter approval, send, or NXT write was performed by release verification. No data migration, new hosting service, or environment-setting change was required.
+- The existing optional `canvas` dependency warning remains non-blocking; the Vercel build completed successfully.
+
+Local release evidence is saved under `/tmp/ju-bulk-appeals-*`, including test/build logs, package inventory, dry-run inventory, candidate/live smoke results, promotion output, and project comparisons.
