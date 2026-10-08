@@ -38,6 +38,10 @@ const mocks = vi.hoisted(() => ({
   letterDates: vi.fn(),
   postalContinue: vi.fn(),
   postalDocument: vi.fn(),
+  printPdf: vi.fn(),
+}));
+vi.mock("@/app/api/utils/societyLetterPrintPdf", () => ({
+  postalBatchPrintPdf: mocks.printPdf,
 }));
 vi.mock("@/app/api/utils/societyLetterPostalBatches", () => ({
   startPostalDraft: mocks.postalStart,
@@ -370,6 +374,81 @@ describe("stewardship API authorization and delivery boundaries", () => {
     );
     expect(mocks.letterSync).not.toHaveBeenCalled();
   });
+  it("downloads one PDF read-only, scoped to the requested non-cancelled postal batch", async () => {
+    const item = {
+      id: "one",
+      batchId: "batch",
+      channel: "post",
+      status: "prepared",
+      letterAppeals: {
+        status: "complete",
+        members: [{ id: "10", status: "verified" }],
+      },
+    };
+    mocks.read.mockResolvedValue({
+      history: [
+        item,
+        { ...item, id: "cancelled", status: "cancelled" },
+        { ...item, id: "other", batchId: "other" },
+        { ...item, id: "email", channel: "email" },
+      ],
+    });
+    mocks.printPdf.mockResolvedValue(Buffer.from("combined saved PDFs"));
+    const response = await GET(
+      new Request(`${url}?download=batch&format=combined-pdf`),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toContain(
+      'filename="society-letters-print-ready.pdf"',
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.text()).toBe("combined saved PDFs");
+    expect(mocks.printPdf).toHaveBeenCalledExactlyOnceWith([item]);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+    expect(
+      (
+        await GET(
+          new Request(
+            `${url}?download=batch&format=combined-pdf&deliveryId=one`,
+          ),
+        )
+      ).status,
+    ).toBe(422);
+    expect(
+      (await GET(new Request(`${url}?download=missing&format=combined-pdf`)))
+        .status,
+    ).toBe(404);
+    item.letterAppeals.members[0].status = "pending";
+    expect(
+      (await GET(new Request(`${url}?download=batch&format=combined-pdf`)))
+        .status,
+    ).toBe(409);
+    expect(mocks.printPdf).toHaveBeenCalledOnce();
+  });
+  it.each(["anonymous", "mgo", "inactive"])(
+    "protects combined PDF downloads from %s users",
+    async (kind) => {
+      if (kind === "anonymous") mocks.auth.mockResolvedValue(null);
+      else
+        mocks.workspace.mockResolvedValue({
+          sessionUser: {
+            id: 1,
+            role: kind === "mgo" ? "mgo" : "admin",
+            active: kind !== "inactive",
+          },
+        });
+      const response = await GET(
+        new Request(`${url}?download=batch&format=combined-pdf`),
+      );
+      expect(response.status).toBe(kind === "anonymous" ? 401 : 403);
+      expect(mocks.printPdf).not.toHaveBeenCalled();
+      expect(mocks.read).not.toHaveBeenCalled();
+    },
+  );
   it.each(["admin", "advancement_services"])(
     "lets %s load choices without a revision, state read, or mutation lease",
     async (role) => {

@@ -490,13 +490,19 @@ export default function SocietyLettersPage() {
     try {
       const params = new URLSearchParams({ download: batchId });
       if (deliveryId) params.set("deliveryId", deliveryId);
+      if (!deliveryId && format === "combined-pdf")
+        params.set("format", "combined-pdf");
       const response = await fetch(`${endpoint}?${params}`, {
         cache: "no-store",
       });
       if (!response.ok) throw new Error((await response.json()).error);
       saveBlob(
         await response.blob(),
-        deliveryId ? `society-letter.${format}` : "society-letters.zip",
+        deliveryId
+          ? `society-letter.${format}`
+          : format === "combined-pdf"
+            ? "society-letters-print-ready.pdf"
+            : "society-letters.zip",
       );
     } catch (err) {
       setError(

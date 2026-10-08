@@ -66,6 +66,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 function reviewRow(id, saved = false) {
@@ -208,6 +209,49 @@ describe("society letter workspace", () => {
     ).toBeDisabled();
     expect(screen.getByText(/Appeal confirmation is pending/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("downloads a combined PDF with the correct filename without a mutation or status change", async () => {
+    vi.stubGlobal(
+      "URL",
+      Object.assign(class extends URL {}, {
+        createObjectURL: vi.fn(() => "blob:fictional-pdf"),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    fetchMock.mockImplementation(async (url) =>
+      String(url).includes("format=combined-pdf")
+        ? new Response("saved PDF pages", {
+            headers: { "content-type": "application/pdf" },
+          })
+        : Response.json(savedBatch("complete")),
+    );
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function () {
+        expect(this.download).toBe("society-letters-print-ready.pdf");
+      });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Letter history",
+        exact: true,
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Download print-ready PDF" }),
+    );
+    await waitFor(() => expect(click).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]).toEqual([
+      "/api/stewardship/society-letters?download=saved-batch&format=combined-pdf",
+      { cache: "no-store" },
+    ]);
+    expect(
+      screen.getByRole("button", { name: "Mark batch mailed" }),
+    ).toBeEnabled();
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledOnce(), {
+      timeout: 1500,
+    });
   });
   it("leaves a failed approved batch available without replaying it or reopening recipient review", async () => {
     fetchMock.mockImplementation(async (_url, options) =>

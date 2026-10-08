@@ -54,6 +54,14 @@ describe("shared letter batch actions", () => {
     const props = fixture();
     render(<LetterBatchCard {...props} guided />);
     fireEvent.click(
+      screen.getByRole("button", { name: "Download print-ready PDF" }),
+    );
+    expect(props.downloadBatch).toHaveBeenCalledWith(
+      "batch",
+      undefined,
+      "combined-pdf",
+    );
+    fireEvent.click(
       screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
     );
     expect(props.downloadBatch).toHaveBeenCalledWith("batch");
@@ -82,6 +90,9 @@ describe("shared letter batch actions", () => {
     });
     expect(download).toBeDisabled();
     expect(
+      screen.getByRole("button", { name: "Download print-ready PDF" }),
+    ).toBeDisabled();
+    expect(
       screen.getByRole("button", { name: "Mark batch mailed" }),
     ).toBeDisabled();
     const details = screen.getByText("Recipients and acknowledgment coverage");
@@ -109,4 +120,23 @@ describe("shared letter batch actions", () => {
     );
     expect(props.act).not.toHaveBeenCalled();
   });
+  it.each(["word", "mixed", "unapproved", "email", "cancelled"])(
+    "does not offer a print-ready PDF for %s letters",
+    (kind) => {
+      const props = fixture("complete", kind === "email" ? "email" : "post");
+      if (kind === "word") props.batch.items[0].postalDocument.format = "docx";
+      if (kind === "mixed")
+        props.batch.items.push({
+          ...props.batch.items[0],
+          id: "word",
+          postalDocument: { format: "docx" },
+        });
+      if (kind === "unapproved") delete props.batch.items[0].postalApproval;
+      if (kind === "cancelled") props.batch.items[0].status = "cancelled";
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", { name: "Download print-ready PDF" }),
+      ).not.toBeInTheDocument();
+    },
+  );
 });

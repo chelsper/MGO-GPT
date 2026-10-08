@@ -35,6 +35,15 @@ export default function LetterBatchCard({
   receiptIds,
   setReceiptIds,
 }) {
+  const printableItems = batch.items.filter(
+    (item) => item.status !== "cancelled",
+  );
+  const printReadyPdf =
+    batch.channel === "post" &&
+    printableItems.length > 0 &&
+    printableItems.every(
+      (item) => item.postalApproval && item.postalDocument?.format === "pdf",
+    );
   return (
     <article className={card}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -48,11 +57,26 @@ export default function LetterBatchCard({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {printReadyPdf && (
+            <button
+              className={primary}
+              disabled={
+                busy ||
+                printableItems.some(
+                  (item) => item.letterAppeals?.status !== "complete",
+                )
+              }
+              onClick={() => downloadBatch(batch.id, undefined, "combined-pdf")}
+            >
+              Download print-ready PDF
+            </button>
+          )}
           {batch.channel === "post" &&
             batch.items.some((i) => i.status !== "cancelled") && (
               <button
                 className={
                   guided &&
+                  !printReadyPdf &&
                   batch.items.every(
                     (item) => item.letterAppeals?.status === "complete",
                   )
@@ -138,6 +162,13 @@ export default function LetterBatchCard({
             )}
         </div>
       </div>
+      {printReadyPdf && (
+        <p className="mt-3 text-sm text-gray-600">
+          One PDF in approved order, using the saved letters without changing
+          their layout or dates. Print single-sided at actual size. Downloading
+          does not update NXT or mark letters mailed.
+        </p>
+      )}
       {batch.items.every((i) => i.postalApproval) && (
         <PostalBatchRunner
           key={batch.id}

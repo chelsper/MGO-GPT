@@ -50,6 +50,7 @@ import {
   verifyExclusionRemoval,
 } from "@/app/api/utils/societyLetterExclusionAppeals";
 import { postalPdfCapability } from "@/app/api/utils/societyLetterPdf";
+import { postalBatchPrintPdf } from "@/app/api/utils/societyLetterPrintPdf";
 import {
   startPostalDraft,
   preparePostalDocument,
@@ -145,6 +146,19 @@ export async function GET(request) {
       if (!items.length)
         throw letterError("Prepared postal batch not found.", 404);
       const deliveryId = new URL(request.url).searchParams.get("deliveryId");
+      if (params.get("format") === "combined-pdf") {
+        if (deliveryId)
+          throw letterError("Choose the whole batch for a print-ready PDF.");
+        assertLetterAppealsComplete(items);
+        return new Response(await postalBatchPrintPdf(items), {
+          headers: {
+            ...headers,
+            "Content-Type": "application/pdf",
+            "Content-Disposition":
+              'attachment; filename="society-letters-print-ready.pdf"',
+          },
+        });
+      }
       if (deliveryId) {
         const item = items.find((item) => item.id === deliveryId);
         if (!item) throw letterError("Prepared letter not found.", 404);
