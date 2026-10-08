@@ -1,6 +1,6 @@
 # Society Letter Guided Workspace
 
-Implemented locally October 8, 2026. Not deployed. This is the first workflow
+Deployed to JU October 8, 2026. The sandbox is unchanged. This is the first workflow
 simplification step: keep recipient review, document approval, processing,
 and downloads in one workspace without changing the NXT write policy.
 
@@ -53,8 +53,8 @@ guard, and diff checks passed.
 A localhost-only fictional fixture exercised selection, preparation, explicit
 approval, processing, and download availability without leaving the workspace.
 The 390px mobile layout had no page-level horizontal overflow or browser errors.
-No real recipients, letters, appeals, NXT records, emails, or deployments were
-changed during these checks.
+No real recipients, letters, appeals, NXT records, or emails were changed by
+these checks.
 
 Test coverage also verifies retained selections during automatic verification,
 saved-draft recovery, no writes when reopening batches, failure recovery,
@@ -63,3 +63,40 @@ unchanged latest-revision sequencing, and optional rather than repeated previews
 Local verification logs: `/tmp/ju-guided-letter-final-tests.log`,
 `/tmp/ju-guided-letter-final-focused.log`, `/tmp/ju-guided-letter-typecheck.log`,
 and `/tmp/ju-guided-letter-build.log`.
+
+## Deployment And Recovery
+
+- Application SHA: `899afcb72627967e282c5e640258e0704abf1a80`.
+- JU project: `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY` (`mgo-gpt`).
+- Deployment: `dpl_HBzGwMMtSE2TAUEnRqCNxo5HcxRf`.
+- Live: `https://www.jumgogpt.app`.
+- Candidate: `https://mgo-gsgaanda1-chelspers-projects.vercel.app`.
+- Rollback target: `dpl_5y5g6xGTASHCBoapq3Z5kwASynSV`,
+  application SHA `e9d58e441c5f0b4675314cc59139575d02fe3b33`.
+- Sandbox retained `dpl_H5mHhcYkDbkCZvteAeSSoqkaT2fs`.
+
+The release rerun passed all 6,088 tests, typecheck, production build, and
+release-worktree guard. An isolated archive matched all 1,194 tracked web
+files; all six changed application files were verified in the upload and no
+real environment files were included. There was no Git push.
+
+Candidate and live checks confirmed the exact application SHA, eight page
+shells, three JavaScript assets, and unauthenticated GET/POST protection on
+the campaign and society-letter APIs. These were public smoke checks, not
+live donor approvals or NXT mutation tests.
+
+Only JU's production deployment identity changed. Other project deployment
+identities, JU settings, cron definitions, and PDF settings matched the
+pre-release snapshot. Existing dependency/install-script and optional
+`canvas` warnings were unchanged from the previous successful deployment.
+
+Pause active processing before rollback. Keep saved documents, approvals,
+reservations, and appeal receipts. A code rollback does not undo NXT writes
+or letters subsequently authorized by staff; reconcile uncertain receipts
+read-only rather than preparing a duplicate batch.
+
+Release evidence uses the `/tmp/ju-guided-letter-` prefix: `release.json`,
+`release-tests.log`, `release-typecheck.log`, `release-build.log`,
+`dry.json`, `deploy.log`, `candidate-smoke.log`, `promote.log`,
+`live-smoke.log`, `projects-before.json`, `projects-after.json`, and
+`projects-after-check.log`.
