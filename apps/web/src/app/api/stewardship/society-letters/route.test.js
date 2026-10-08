@@ -160,6 +160,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "finalize_postal",
     "verify_letter_appeals",
     "continue_letter_appeals",
+    "finish_selected_letter_appeals",
     "start_postal_draft",
     "prepare_postal_document",
     "preview_postal_document",
@@ -239,6 +240,36 @@ describe("stewardship API authorization and delivery boundaries", () => {
       ).status,
     ).toBe(200);
     expect(mocks.postalContinue).toHaveBeenCalledOnce();
+  });
+  it("finishes a selected saved letter under the revision lease and returns its outcome", async () => {
+    const item = {
+      id: "one",
+      status: "prepared",
+      channel: "post",
+      letterAppeals: { status: "pending" },
+    };
+    mocks.read.mockResolvedValue({ revision: 3, history: [item] });
+    mocks.letterSync.mockResolvedValueOnce({ status: "complete", stop: false });
+    const response = await POST(
+      request({
+        action: "finish_selected_letter_appeals",
+        revision: 3,
+        deliveryIds: ["one"],
+        deliveryId: "one",
+        confirm: true,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).bulkAppealUpdate).toEqual({
+      deliveryId: "one",
+      status: "complete",
+      stop: false,
+    });
+    expect(mocks.acquire).toHaveBeenCalledWith(1, 3);
+    expect(mocks.release).toHaveBeenCalledOnce();
+    expect(mocks.letterSync).toHaveBeenCalledOnce();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
   });
   it("returns a final confirmation without invoking the writer", async () => {
     mocks.finalPreview.mockReturnValue({
@@ -847,6 +878,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
   it.each([
     "sync_exclusion_appeal",
     "continue_letter_appeals",
+    "finish_selected_letter_appeals",
     "continue_postal_batch",
     "approve_postal_draft",
   ])(

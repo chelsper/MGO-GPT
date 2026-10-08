@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { finishSelectedLetterAppeals } from "@/app/api/utils/societyLetterBulkAppeals";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -351,6 +352,7 @@ export async function POST(request) {
       "finalize_postal",
       "verify_letter_appeals",
       "continue_letter_appeals",
+      "finish_selected_letter_appeals",
       "start_postal_draft",
       "prepare_postal_document",
       "preview_postal_document",
@@ -372,7 +374,18 @@ export async function POST(request) {
     store = await acquireSocietyLetters(ctx.user.id, body.revision);
     const state = await readSocietyLetterState();
     let batchId;
+    let bulkAppealUpdate;
     switch (body.action) {
+      case "finish_selected_letter_appeals":
+        bulkAppealUpdate = await finishSelectedLetterAppeals(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
       case "update_letter_dates":
         await updateLetterDates(
           state,
@@ -721,6 +734,7 @@ export async function POST(request) {
         ctx.today,
       ),
       ...(batchId ? { batchId } : {}),
+      ...(bulkAppealUpdate ? { bulkAppealUpdate } : {}),
     });
   } catch (error) {
     return failure(error);

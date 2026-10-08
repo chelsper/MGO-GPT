@@ -25,6 +25,7 @@ import {
   normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
 import { readinessReader } from "./societyLetterReadinessNxt";
+import { finishSelectedLetterAppeals } from "./societyLetterBulkAppeals";
 import {
   previewFinalPostalLetter,
   finalizePostalLetter,
@@ -1396,6 +1397,81 @@ describe("final postal letters and household appeal receipts", () => {
     ]);
     expect(f.item().letterAppeals.status).toBe("complete");
     expect(f.store.reserve).toHaveBeenCalledTimes(1);
+  });
+  it("bulk recovery reconciles an accepted timeout and writes only the missing spouse without another letter or approval", async () => {
+    const f = await fixture();
+    const create = f.client.create.getMockImplementation();
+    f.client.create.mockImplementationOnce(async (...args) => {
+      await create(...args);
+      throw new Error("timeout");
+    });
+    await f.finish();
+    f.state.history = [f.item()];
+    const item = f.state.history[0];
+    item.postalDocument = { id: "frozen-approved-document" };
+    item.postalApproval = { approvedAt: "2026-09-25T14:00:00Z" };
+    const before = structuredClone(item);
+    const read = vi.fn();
+    const result = await finishSelectedLetterAppeals(
+      f.state,
+      definitions,
+      today,
+      { confirm: true, deliveryIds: [item.id], deliveryId: item.id },
+      f.store,
+      ctx,
+      (...args) => syncLetterAppeals(...args, f.reader, f.client),
+      read,
+    );
+    expect(result).toMatchObject({ status: "complete", stop: false });
+    expect(f.client.create.mock.calls.map((args) => args[0])).toEqual([
+      "10",
+      "11",
+    ]);
+    expect(f.store.reserve).toHaveBeenCalledOnce();
+    expect(item.postalDocument).toEqual(before.postalDocument);
+    expect(item.postalApproval).toEqual(before.postalApproval);
+    expect(item.letterAppeals.date).toBe(before.letterAppeals.date);
+    expect(item.letterAppeals.comments).toBe(before.letterAppeals.comments);
+    expect(() => assertLetterAppealsComplete([item])).not.toThrow();
+  });
+  it.each([401, 403, 429, 503, null])(
+    "returns a selection-wide stop for NXT connection/write failure %s",
+    async (httpStatus) => {
+      const f = await fixture();
+      f.client.create.mockRejectedValueOnce(
+        Object.assign(new Error("rejected"), { httpStatus: 422 }),
+      );
+      await f.finish();
+      f.client.create.mockRejectedValueOnce(
+        Object.assign(new Error("service failed"), { httpStatus }),
+      );
+      const result = await f.recover("continue_letter_appeals");
+      expect(result).toMatchObject({ status: "needs_review", stop: true });
+      expect(f.client.create).toHaveBeenCalledTimes(2);
+      expect(f.item().letterAppeals.members[1].status).toBe("pending");
+    },
+  );
+  it("returns a selection-wide stop for rate-limited reads without posting anything", async () => {
+    const f = await fixture();
+    f.client.create.mockRejectedValueOnce(
+      Object.assign(new Error("rejected"), { httpStatus: 422 }),
+    );
+    await f.finish();
+    f.reader.member.mockRejectedValueOnce(
+      Object.assign(new Error("cooldown"), { retryAfterMs: 60000 }),
+    );
+    const result = await f.recover("continue_letter_appeals");
+    expect(result.stop).toBe(true);
+    expect(f.client.create).toHaveBeenCalledTimes(1);
+  });
+  it("keeps unresolved prior writes in Needs attention while allowing other selected letters to be checked", async () => {
+    const f = await fixture();
+    f.client.create.mockRejectedValueOnce(new Error("timeout"));
+    await f.finish();
+    const result = await f.recover("continue_letter_appeals");
+    expect(result).toMatchObject({ status: "needs_review", stop: false });
+    expect(result.message).toContain("unconfirmed or was removed");
+    expect(f.client.create).toHaveBeenCalledTimes(1);
   });
   it("never retries unresolved uncertain, 5xx, or missing-ID submissions", async () => {
     for (const failure of [

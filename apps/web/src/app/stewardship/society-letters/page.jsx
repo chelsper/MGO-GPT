@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useLetterNavigation from "./useLetterNavigation";
 import useAutomaticAppealVerification from "./useAutomaticAppealVerification";
+import BulkLetterAppealUpdates from "./BulkLetterAppealUpdates";
 import { letterViewHref } from "@/utils/societyLetterNavigation";
 import {
   LETTER_BATCH_LIMIT,
@@ -392,7 +393,9 @@ function TemplateEditor({ template, busy, save, onEdit }) {
 export default function SocietyLettersPage() {
   const [data, setData] = useState(null),
     [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [requestBusy, setBusy] = useState(false);
+  const [bulkAppealsActive, setBulkAppealsActive] = useState(false);
+  const busy = requestBusy || bulkAppealsActive;
   const navigation = useLetterNavigation();
   const { tab, showMappings, navigate: setTab } = navigation;
   const [settings, setSettings] = useState(defaults),
@@ -1954,13 +1957,25 @@ export default function SocietyLettersPage() {
           )}
           {tab === "history" && (
             <section className="space-y-4">
-              <LetterHistoryFilters
-                batches={batches}
-                filter={navigation.historyFilter}
-                onFilter={navigation.setHistoryFilter}
-                search={historySearch}
-                onSearch={setHistorySearch}
-                visibleCount={visibleBatches.length}
+              <fieldset disabled={busy || refreshing || !!sendingBatch}>
+                <LetterHistoryFilters
+                  batches={batches}
+                  filter={navigation.historyFilter}
+                  onFilter={navigation.setHistoryFilter}
+                  search={historySearch}
+                  onSearch={setHistorySearch}
+                  visibleCount={visibleBatches.length}
+                />
+              </fieldset>
+              <BulkLetterAppealUpdates
+                items={visibleBatches
+                  .flatMap((batch) => batch.items)
+                  .filter((item) =>
+                    searchLetterHistory({ items: [item] }, historySearch),
+                  )}
+                busy={requestBusy || refreshing || !!sendingBatch}
+                act={act}
+                onActiveChange={setBulkAppealsActive}
               />
               <p className="text-sm text-gray-600">
                 Prepared is not sent. Mark postal batches mailed only after

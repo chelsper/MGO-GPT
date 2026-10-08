@@ -328,7 +328,11 @@ async function applyMembers(item, store, client) {
       member.failure = exclusionFailureDiagnostic(error);
       if ([400, 401, 403, 404, 413, 415, 422, 429].includes(error.httpStatus))
         member.status = "pending";
-      throw letterError(member.failure.message);
+      const failure = letterError(member.failure.message);
+      failure.httpStatus = member.failure.httpStatus;
+      failure.retryAfterMs = member.failure.retryAfterMs;
+      failure.unconfirmed = !member.failure.httpStatus;
+      throw failure;
     }
     if (!result?.id)
       throw letterError(
@@ -476,6 +480,19 @@ export async function syncLetterAppeals(
   }
   if (automatic) finishAutomaticAppealCheck(receipt, verificationError);
   await store.saveLetterAppeals(item);
+  return {
+    status: receipt.status,
+    message: receipt.message,
+    // A record-specific conflict can be left for staff. Connection, quota, and
+    // uncertain transport failures pause the whole selection without retrying.
+    stop:
+      !!verificationError &&
+      (!verificationError.status ||
+        verificationError.unconfirmed === true ||
+        [401, 403, 429].includes(verificationError.httpStatus) ||
+        verificationError.httpStatus >= 500 ||
+        verificationError.retryAfterMs > 0),
+  };
 }
 
 export function assertLetterAppealsComplete(items) {

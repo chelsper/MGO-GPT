@@ -138,6 +138,73 @@ describe("society letter workspace", () => {
       ],
     };
   }
+  it("finishes selected saved letters with current revisions and unlocks PDFs without another approval", async () => {
+    const payload = savedBatch();
+    payload.history.push({
+      ...structuredClone(payload.history[0]),
+      id: "second",
+      batchId: "second-batch",
+      name: "Second Sample",
+    });
+    const documents = payload.history.map((item) =>
+      structuredClone(item.postalDocument),
+    );
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method !== "POST") return Response.json(payload);
+      const body = JSON.parse(options.body);
+      expect(body.action).toBe("finish_selected_letter_appeals");
+      expect(body.revision).toBe(payload.revision);
+      const item = payload.history.find(
+        (entry) => entry.id === body.deliveryId,
+      );
+      item.letterAppeals.status = "complete";
+      item.letterAppeals.members[0].status = "verified";
+      payload.revision++;
+      return Response.json({
+        ...payload,
+        bulkAppealUpdate: {
+          deliveryId: item.id,
+          status: "complete",
+          stop: false,
+        },
+      });
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/stewardship/society-letters?view=history",
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Select up to 50 unfinished letters",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Finish updates for selected letters",
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Find in letter history")).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm and finish NXT updates" }),
+    );
+    await screen.findByText(/2 letters are ready to download/);
+    expect(
+      fetchMock.mock.calls
+        .filter(([, opts]) => opts?.method === "POST")
+        .map(([, opts]) => JSON.parse(opts.body).revision),
+    ).toEqual([1, 2]);
+    expect(payload.history.map((item) => item.postalDocument)).toEqual(
+      documents,
+    );
+    for (const download of screen.getAllByRole("button", {
+      name: "Download print-ready PDF",
+    }))
+      expect(download).toBeEnabled();
+    expect(screen.getByLabelText("Find in letter history")).toBeEnabled();
+  });
   it("restores saved progress without writes and keeps completed downloads in the same workspace", async () => {
     const pending = savedBatch();
     const complete = { ...savedBatch("complete"), revision: 2 };
@@ -1311,14 +1378,18 @@ describe("society letter workspace", () => {
       await screen.findByRole("button", { name: "Ready to mail (1)" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(screen.getByText("Recipient 12")).toBeVisible();
+    expect(
+      within(screen.getByRole("article")).getByText("Recipient 12"),
+    ).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Mark batch mailed" }),
     ).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Find in letter history"), {
       target: { value: "11" },
     });
-    expect(screen.getByText("Recipient 12")).toBeVisible();
+    expect(
+      within(screen.getByRole("article")).getByText("Recipient 12"),
+    ).toBeVisible();
     expect(
       screen.getByText(/Batch actions still apply to the full batch/),
     ).toBeVisible();
