@@ -1,6 +1,6 @@
 # Society Letter Recovery
 
-## Appeal Comment Length Follow-Up (Not Deployed)
+## Appeal Comment Length Follow-Up (Deployed October 9, 2026)
 
 The October 9, 11:24 AM report is a different failure from the state-name comparison. Read-only inspection of the active saved letter showed an HTTP 400 during the first member's appeal POST; the second member was not attempted. Both complete constituent appeal lists were read and neither contained the configured appeal. The approved letter remains saved. Runtime logs and the sanitized receipt did not retain the provider's raw validation text, so no exact provider message is claimed.
 
@@ -14,6 +14,15 @@ The generated appeal comment was 150 characters. Blackbaud's [Raiser's Edge Impo
 - No production data, letters, appeals, settings, or deployments were changed during this investigation. After deployment, reload and continue the existing approved batch; do not recreate or re-review it solely for this comment-length failure. Final acceptance still requires the user's explicit live continuation.
 
 Evidence: `/tmp/ju-letter-comment-` logs `red.log`, `focused.log`, `full-tests.log`, `database.log`, `typecheck.log`, and `build.log`. Read-only diagnosis: `/tmp/ju-letter-appeal-readonly.log`. These local diagnostic files are not release inputs.
+
+### Verified JU Release
+
+- Application commit: `b03bcc8f60d9f3451efccfa921239a36b6b213d2`; deployment: `dpl_77L22mMWACyPSVdkWv35T6EM9qwu`; live site: `https://www.jumgogpt.app`.
+- Released from a clean Git archive pinned to JU project `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY`, effective root `apps/web`. All 1,215 tracked web files matched the tested worktree. The 161 focused tests and 17 isolated PGlite database checks passed again from the clean archive. The 1,337-file upload contained all changed web files, no untracked extras, and no real environment files. No Git push was used.
+- Hosted build, candidate smoke checks, promotion, live smoke checks, and `verify:prod` passed. Version identity, reporting/stewardship route shells, letter recovery assets, comment-limit copy, and unauthenticated API/download protections were verified. No schema, environment, schedule, or converter changes were required. No authenticated letter processing, appeal submission, or email send was used as a smoke test.
+- Before/after project checks confirmed only JU's production deployment identity changed. The conference sandbox remained on its pre-release deployment `dpl_C1HLnQgSWKmAqUUdtbvY1XbUMnsd`; project settings, cron definitions, PDF settings, and other projects were unchanged.
+- Reload the browser page, then use **Create approved letters and apply appeals** for the existing approved batch. Do not recreate or re-review the letter solely for this comment-length failure. Live NXT acceptance still requires explicit continuation; deployment itself submitted no appeals.
+- Previous JU deployment for rollback: `dpl_AnFrXKBYQmhjCn4jSjjaUSYZfonQ` (application commit `6253225fa6debfe284204afdd8eaf640f373f24e`). Evidence: `/tmp/ju-letter-comment-` files `release-tests.log`, `dry-final.json`, `candidate.json`, `deploy.log`, `candidate-smoke.log`, `live-smoke.log`, and `project-verification.log`.
 
 ## State-Name Address Comparison Follow-Up (Deployed October 9, 2026)
 
