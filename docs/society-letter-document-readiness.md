@@ -1,6 +1,6 @@
 # Society Letter Document Readiness
 
-Status: implemented and verified locally on October 9, 2026; not deployed.
+Status: deployed to JU and verified on October 9, 2026. Conference sandbox unchanged.
 
 ## User Workflow
 
@@ -43,4 +43,19 @@ npm run typecheck
 npm run build
 ```
 
-Deployment remains a separate step. Use the JU-only release process and verify sandbox isolation before promoting.
+## JU Release Verification
+
+- Release commit: `621bb9fcc90accf0b10039305b2d056cd4a44bad`.
+- Promoted deployment: `dpl_8k7bLMAe6zsvmtrtR5vLCYQmBLFi`, verified at `https://www.jumgogpt.app/api/version`.
+- Previous production deployment: `dpl_7PfJyKrSrXzjoMHhoEBBsTMaYTx2`; commit `e87c78b0dc8cb56d25fac3f54204efe1b4058fce`.
+- Clean release archive: all 1,210 tracked web files matched the tested workspace. Unrelated local changes were excluded; no Git push was used.
+- Clean archive suite: 6,241 passed, 155 gated tests skipped. The hosted-PDF gate was subsequently exercised inside the protected candidate build; the remaining 154 optional database cases are outside this workflow and were not claimed as passing.
+- Typecheck, local production build, release guard, and hosted build passed.
+- Six fictional letters passed the actual protected PDF adapter, using existing production secrets within Vercel: individual, household, and organization examples for both supplied templates. Every result has one page, complete matching text, embedded Carlito fonts, no unresolved merge fields, and is below 4 MiB. All six page images were visually inspected.
+- The initial local hosted check received Vercel's `[SENSITIVE]` placeholders from `env pull`, not real credentials. Its authentication failure did not establish a production defect. No credentials or protection settings were changed. Future local test runners must reject redacted placeholders before issuing requests.
+- A release-only build hook performed the six conversions before building the app. Fictional inputs were removed before bundling; only encrypted QA artifacts were emitted for local layout review. The private decryption key stayed outside deployment inputs and was removed after verification. No diagnostic endpoint or public PDF artifact was added.
+- Candidate and live smoke checks passed: release identity, eight page shells, boot assets, readiness UI assets, and unauthenticated API/download rejection. These were not authenticated live-recipient approval tests.
+- JU cron schedules and PDF environment metadata stayed unchanged. The converter was not redeployed. Sandbox remains on `dpl_BrAqKBRfj5ZTYBmDUJ22NeYKteiq` with its configuration unchanged.
+- The broad account comparison observed concurrent deployments of the unrelated `lotura-ju-pilot` and `shindig` projects. This task did not deploy or modify them; scoped JU, sandbox, and converter comparisons passed.
+
+No production database migration, membership refresh, saved-template edit, recipient approval, NXT write, appeal assignment, or email send was performed during release testing.
