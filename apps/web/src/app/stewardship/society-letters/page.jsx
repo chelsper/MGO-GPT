@@ -1071,6 +1071,15 @@ export default function SocietyLettersPage() {
             ? [row.householdId]
             : [],
         );
+        if (
+          action.editRecipientAfterReturn &&
+          row?.status === "ready" &&
+          row.recipientReview?.editable
+        ) {
+          setReviewingRecipient(row);
+          setReviewFocus(null);
+          setReviewConflict(false);
+        }
         setReviewNotice(
           "Letter returned to review. Saved wording was kept and no NXT records changed. Other letters remain in Letter history. Refresh membership if this recipient is not currently in the holding list.",
         );
@@ -2141,6 +2150,7 @@ export default function SocietyLettersPage() {
                 busy={requestBusy || refreshing || !!sendingBatch}
                 act={act}
                 onActiveChange={setBulkAppealsActive}
+                onReload={load}
               />
               <p className="text-sm text-gray-600">
                 Prepared is not sent. Mark postal batches mailed only after

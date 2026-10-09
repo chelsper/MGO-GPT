@@ -51,6 +51,59 @@ function fixture(status = "complete", channel = "post") {
 }
 
 describe("shared letter batch actions", () => {
+  it("offers a direct, confirmed repair for a blocked unsubmitted letter", () => {
+    const props = fixture("needs_review");
+    const item = unsubmittedLetter();
+    item.letterAppeals.status = "needs_review";
+    item.letterAppeals.message = "The saved mailing address needs review.";
+    props.batch.items = [item];
+    render(<LetterBatchCard {...props} />);
+    expect(
+      screen.getByRole("region", { name: "Letters needing attention" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Fix recipient details for ${item.name}`,
+      }),
+    );
+    expect(props.setConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "return_letter_to_review",
+        deliveryId: item.id,
+        householdId: item.householdId,
+        editRecipientAfterReturn: true,
+      }),
+    );
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it.each(["attempted", "uncertain", "confirmed"])(
+    "only links to saved status when a blocked letter has an %s receipt",
+    (kind) => {
+      const props = fixture("needs_review");
+      const item = unsubmittedLetter();
+      item.letterAppeals.status = "needs_review";
+      if (kind === "attempted")
+        item.letterAppeals.members[0].attemptedAt = "2026-10-09T12:00:00Z";
+      else
+        item.letterAppeals.members[0].status =
+          kind === "uncertain" ? "uncertain" : "verified";
+      props.batch.items = [item];
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", { name: /Fix recipient details/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: `Review saved status for ${item.name}`,
+        }),
+      );
+      expect(
+        screen.getByText(item.name, { selector: "strong" }).closest("li"),
+      ).toHaveFocus();
+      expect(props.act).not.toHaveBeenCalled();
+      expect(props.setConfirmation).not.toHaveBeenCalled();
+    },
+  );
   it("offers a confirmation to return only an unattempted approved letter", () => {
     const props = fixture("pending");
     props.batch.items = [unsubmittedLetter()];

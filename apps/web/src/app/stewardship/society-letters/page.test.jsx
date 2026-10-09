@@ -293,67 +293,82 @@ describe("society letter workspace", () => {
     ).toBeChecked();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
-  it("returns an unsubmitted approved letter to its holding row with saved review and no extra writes", async () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/stewardship/society-letters?view=history",
-    );
-    const item = unsubmittedLetter();
-    const row = reviewRow("10", true);
-    const workspace = {
-      ...base,
-      settings: societyQuerySettings(),
-      history: [item],
-      rows: [
-        {
-          ...row,
-          status: "held",
-          recipientReview: { ...row.recipientReview, editable: false },
-        },
-      ],
-    };
-    fetchMock.mockImplementation(async (_url, opts) => {
-      if (opts?.method === "POST") {
-        const body = JSON.parse(opts.body);
-        expect(body).toMatchObject({
-          action: "return_letter_to_review",
-          deliveryId: item.id,
-          revision: 1,
-          confirm: true,
-        });
-        item.status = "cancelled";
-        item.returnToReview = { at: "2026-10-09T12:00:00Z", by: 1 };
-        workspace.rows = [row];
-        workspace.revision++;
-      }
-      return Response.json(workspace);
-    });
-    render(<Page />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Return to review" }),
-    );
-    expect(
-      fetchMock.mock.calls.filter(([, opts]) => opts?.method === "POST"),
-    ).toHaveLength(0);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Confirm", exact: true }),
-    );
-    await screen.findByText(
-      /Letter returned to review. Saved wording was kept/,
-    );
-    expect(window.location.search).toBe("");
-    expect(
-      screen.getByRole("checkbox", { name: "Select Household 10" }),
-    ).toBeChecked();
-    expect(screen.getByText(/1 selected/)).toBeVisible();
-    expect(
-      fetchMock.mock.calls.filter(([, opts]) => opts?.method === "POST"),
-    ).toHaveLength(1);
-    expect(workspace.rows[0].recipientReview.values).toEqual(
-      row.recipientReview.values,
-    );
-  });
+  it.each([false, true])(
+    "returns an unsubmitted approved letter with saved review and no extra writes (open editor: %s)",
+    async (openEditor) => {
+      window.history.replaceState(
+        {},
+        "",
+        "/stewardship/society-letters?view=history",
+      );
+      const item = unsubmittedLetter();
+      item.letterAppeals.status = "needs_review";
+      item.letterAppeals.message = "The saved mailing address needs review.";
+      const row = reviewRow("10", true);
+      const workspace = {
+        ...base,
+        settings: societyQuerySettings(),
+        history: [item],
+        rows: [
+          {
+            ...row,
+            status: "held",
+            recipientReview: { ...row.recipientReview, editable: false },
+          },
+        ],
+      };
+      fetchMock.mockImplementation(async (_url, opts) => {
+        if (opts?.method === "POST") {
+          const body = JSON.parse(opts.body);
+          expect(body).toMatchObject({
+            action: "return_letter_to_review",
+            deliveryId: item.id,
+            revision: 1,
+            confirm: true,
+          });
+          item.status = "cancelled";
+          item.returnToReview = { at: "2026-10-09T12:00:00Z", by: 1 };
+          workspace.rows = [row];
+          workspace.revision++;
+        }
+        return Response.json(workspace);
+      });
+      render(<Page />);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: openEditor
+            ? `Fix recipient details for ${item.name}`
+            : "Return to review",
+        }),
+      );
+      expect(
+        fetchMock.mock.calls.filter(([, opts]) => opts?.method === "POST"),
+      ).toHaveLength(0);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm", exact: true }),
+      );
+      await screen.findByText(
+        /Letter returned to review. Saved wording was kept/,
+      );
+      expect(window.location.search).toBe("");
+      expect(
+        screen.getByRole("checkbox", { name: "Select Household 10" }),
+      ).toBeChecked();
+      expect(screen.getByText(/1 selected/)).toBeVisible();
+      expect(
+        fetchMock.mock.calls.filter(([, opts]) => opts?.method === "POST"),
+      ).toHaveLength(1);
+      expect(workspace.rows[0].recipientReview.values).toEqual(
+        row.recipientReview.values,
+      );
+      if (openEditor) {
+        expect(screen.getByRole("dialog")).toBeVisible();
+        expect(screen.getByLabelText("Addressee")).toHaveValue(
+          row.recipientReview.values.addressee,
+        );
+      } else expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    },
+  );
   function savedBatch(status = "pending") {
     const row = reviewRow("10", true);
     return {
@@ -440,6 +455,9 @@ describe("society letter workspace", () => {
       }),
     );
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("dialog", { name: "Finish NXT updates for 2 letters?" }),
+    ).toBeVisible();
     expect(screen.getByLabelText("Find in letter history")).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", { name: "Confirm and finish NXT updates" }),
@@ -453,11 +471,56 @@ describe("society letter workspace", () => {
     expect(payload.history.map((item) => item.postalDocument)).toEqual(
       documents,
     );
-    for (const download of screen.getAllByRole("button", {
-      name: "Download print-ready PDF",
-    }))
-      expect(download).toBeEnabled();
+    await waitFor(() => {
+      for (const download of screen.getAllByRole("button", {
+        name: "Download print-ready PDF",
+      }))
+        expect(download).toBeEnabled();
+      expect(screen.getByLabelText("Find in letter history")).toBeEnabled();
+    });
+  });
+  it("releases repair and navigation controls when the bulk confirmation is cancelled", async () => {
+    const item = unsubmittedLetter();
+    item.letterAppeals.status = "needs_review";
+    item.letterAppeals.message = "The saved mailing address needs review.";
+    fetchMock.mockResolvedValue(Response.json({ ...base, history: [item] }));
+    window.history.replaceState(
+      {},
+      "",
+      "/stewardship/society-letters?view=history",
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Select up to 50 unfinished letters",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Finish updates for selected letters",
+      }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Finish NXT updates for 1 letter?" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: `Fix recipient details for ${item.name}`,
+      }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Back to selection" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: `Fix recipient details for ${item.name}`,
+        }),
+      ).toBeEnabled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Return to review" }),
+    ).toBeEnabled();
     expect(screen.getByLabelText("Find in letter history")).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
   it("restores saved progress without writes and keeps completed downloads in the same workspace", async () => {
     const pending = savedBatch();

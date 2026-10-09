@@ -2,6 +2,7 @@ import { PostalBatchRunner } from "./PostalBatchApproval";
 import LetterBatchSummary from "./LetterBatchSummary";
 import { LetterAppealStatus } from "./FinalPostalLetterDialog";
 import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
+import { focusSavedLetter, savedLetterElementId } from "./letterHistoryFocus";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
@@ -40,6 +41,24 @@ export default function LetterBatchCard({
   const printableItems = batch.items.filter(
     (item) => item.status !== "cancelled",
   );
+  const attentionItems = printableItems.filter(
+    (item) =>
+      item.letterAppeals?.status === "needs_review" ||
+      item.letterAppeals?.members?.some(
+        (member) => member.status === "uncertain",
+      ),
+  );
+  function returnToReview(item, editRecipientAfterReturn = false) {
+    setConfirmation({
+      action: "return_letter_to_review",
+      deliveryId: item.id,
+      householdId: item.householdId,
+      editRecipientAfterReturn,
+      title: `Return ${item.name} to review?`,
+      description:
+        "No NXT update has been attempted for this letter. Return only this recipient to the holding list and keep the saved wording. The approved document stays in history, but will no longer be printable from this batch. Nothing is sent or removed from NXT; other letters stay unchanged.",
+    });
+  }
   const printReadyPdf =
     batch.channel === "post" &&
     printableItems.length > 0 &&
@@ -178,6 +197,62 @@ export default function LetterBatchCard({
           batch's downloads or mailing.
         </p>
       )}
+      {attentionItems.length > 0 && (
+        <section
+          aria-label="Letters needing attention"
+          className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"
+        >
+          <h3 className="font-bold text-amber-950">
+            {attentionItems.length}{" "}
+            {attentionItems.length === 1 ? "letter needs" : "letters need"}{" "}
+            attention
+          </h3>
+          <p className="mt-2 text-sm text-gray-700">
+            Your approved letters are saved. Resolve the issues below before
+            finishing their NXT updates or downloading them.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {attentionItems.map((item) => (
+              <li
+                key={item.id}
+                className="rounded-lg border border-amber-100 bg-white p-3"
+              >
+                <p className="font-semibold">{item.name}</p>
+                <p className="mt-1 text-sm text-gray-700">
+                  {item.letterAppeals.message ||
+                    "Review this letter's saved appeal status."}
+                </p>
+                {canReturnLetterToReview(item) ? (
+                  <>
+                    <p className="mt-2 text-sm text-gray-600">
+                      No appeal has been submitted. You can correct this
+                      recipient and approve a replacement; the other letters
+                      stay saved.
+                    </p>
+                    <button
+                      className={`${primary} mt-3`}
+                      disabled={busy || !!sendingBatch}
+                      onClick={() => returnToReview(item, true)}
+                      aria-label={`Fix recipient details for ${item.name}`}
+                    >
+                      Fix recipient details
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className={`${button} mt-3`}
+                    disabled={busy || !!sendingBatch}
+                    onClick={() => focusSavedLetter(item.id)}
+                    aria-label={`Review saved status for ${item.name}`}
+                  >
+                    Review saved status
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {printableItems.length > 0 &&
         printableItems.every((i) => i.postalApproval) && (
           <PostalBatchRunner
@@ -214,7 +289,12 @@ export default function LetterBatchCard({
         </summary>
         <ul className="mt-3 space-y-3">
           {batch.items.map((item) => (
-            <li key={item.id} className="border-t pt-3 text-sm">
+            <li
+              key={item.id}
+              id={savedLetterElementId(item.id)}
+              tabIndex={-1}
+              className="scroll-mt-24 border-t pt-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700"
+            >
               <p>
                 <strong>{item.name}</strong> / {item.societyName} /{" "}
                 {item.returnToReview
@@ -251,16 +331,7 @@ export default function LetterBatchCard({
                 <button
                   className={`${button} mt-3`}
                   disabled={busy || !!sendingBatch}
-                  onClick={() =>
-                    setConfirmation({
-                      action: "return_letter_to_review",
-                      deliveryId: item.id,
-                      householdId: item.householdId,
-                      title: `Return ${item.name} to review?`,
-                      description:
-                        "No NXT update has been attempted for this letter. Return only this recipient to the holding list and keep the saved wording. The approved document stays in history, but will no longer be printable from this batch. Nothing is sent or removed from NXT; other letters stay unchanged.",
-                    })
-                  }
+                  onClick={() => returnToReview(item)}
                 >
                   Return to review
                 </button>

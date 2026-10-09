@@ -1,5 +1,14 @@
 # Society Letter Recovery
 
+## In-Progress Navigation Follow-Up (Not Deployed)
+
+The October 9 screenshot showed a pending bulk appeal confirmation. That intentionally disables other mutations, but the inline confirmation looked like ordinary page content, making the remaining controls appear broken. Saved address warnings are separate readiness failures; this change does not relax them or infer that the addresses are incorrect.
+
+- Bulk confirmation now uses an accessible modal with a visible Back to selection action, initial focus on that action, and Escape support before processing. While a request runs, the existing Stop after this household action remains available instead of silently dismissing the request.
+- A batch-level attention panel links to saved receipts. For an approved letter with no submission evidence, Fix recipient details confirms the existing safe return operation and opens the recipient editor with its saved wording. Other letters remain saved; attempted, uncertain, or confirmed submissions cannot use this shortcut.
+- Unsuccessful bulk results link directly to the corresponding letter, expanding its details and moving keyboard focus. A stopped operation offers an app-side Reload saved status action that never resumes NXT writes automatically.
+- Verification: 114 focused UI tests passed, the full default suite passed 6,196 tests with 210 existing opt-in tests skipped, and typecheck and production build passed. Desktop and 390px mobile browser checks used fictional recipients and mocked requests only. No live NXT, database, appeal, letter, or deployment changes were made for this follow-up.
+
 ## Behavior
 
 Deployed to JU and verified on October 9, 2026, after the database checks passed. Sandbox unchanged. This addresses the first two findings in the [workflow audit](/Users/chelseasantoro/.codex/worktrees/1b6f/anything%202/docs/society-letter-workflow-audit-2026-10-09.md).

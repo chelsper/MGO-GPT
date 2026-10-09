@@ -3,6 +3,7 @@ import {
   LETTER_APPEAL_SELECTION_LIMIT,
   unfinishedPostalAppealLetter,
 } from "@/utils/societyLetterBulkAppeals";
+import { focusSavedLetter } from "./letterHistoryFocus";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50";
@@ -12,6 +13,7 @@ export default function BulkLetterAppealUpdates({
   busy,
   act,
   onActiveChange,
+  onReload,
 }) {
   const [selected, setSelected] = useState([]);
   const [confirmation, setConfirmation] = useState(null);
@@ -22,6 +24,8 @@ export default function BulkLetterAppealUpdates({
   const mounted = useRef(false);
   const stopped = useRef(false);
   const starting = useRef(false);
+  const confirmationDialog = useRef(null);
+  const backToSelection = useRef(null);
   const active = !!confirmation || running;
   const candidates = items.filter(unfinishedPostalAppealLetter);
   const chosen = candidates.filter((item) => selected.includes(item.id));
@@ -36,6 +40,13 @@ export default function BulkLetterAppealUpdates({
     onActiveChange(active);
     return () => onActiveChange(false);
   }, [active, onActiveChange]);
+  useEffect(() => {
+    if (!confirmation) return;
+    const dialog = confirmationDialog.current;
+    dialog.showModal();
+    backToSelection.current?.focus();
+    return () => dialog.close();
+  }, [!!confirmation]);
 
   async function finish() {
     if (busy || starting.current || !confirmation?.length) return;
@@ -188,8 +199,16 @@ export default function BulkLetterAppealUpdates({
         </>
       )}
       {confirmation && (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-4">
-          <h3 className="font-bold">
+        <dialog
+          ref={confirmationDialog}
+          aria-labelledby="finish-saved-letters-title"
+          className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-emerald-200 bg-white p-5 text-gray-900 shadow-xl backdrop:bg-gray-900/40 sm:p-7"
+          onCancel={(event) => {
+            event.preventDefault();
+            if (!busy && !running) setConfirmation(null);
+          }}
+        >
+          <h3 id="finish-saved-letters-title" className="text-xl font-bold">
             Finish NXT updates for {confirmation.length}{" "}
             {confirmation.length === 1 ? "letter" : "letters"}?
           </h3>
@@ -197,6 +216,10 @@ export default function BulkLetterAppealUpdates({
             Use each letter's saved appeal, date, and comments. Existing
             submissions are checked first; uncertain or conflicting records are
             left for attention. No new letters are created.
+          </p>
+          <p className="mt-3 text-sm text-gray-700">
+            Need to correct a recipient first? Go back to selection to use the
+            letter's repair options. Nothing changes until you confirm below.
           </p>
           <details className="mt-3 text-sm">
             <summary className="cursor-pointer font-semibold">
@@ -248,6 +271,8 @@ export default function BulkLetterAppealUpdates({
                 Confirm and finish NXT updates
               </button>
               <button
+                ref={backToSelection}
+                autoFocus
                 className={button}
                 disabled={busy}
                 onClick={() => setConfirmation(null)}
@@ -256,7 +281,7 @@ export default function BulkLetterAppealUpdates({
               </button>
             </div>
           )}
-        </div>
+        </dialog>
       )}
       {notice && (
         <p
@@ -265,6 +290,20 @@ export default function BulkLetterAppealUpdates({
         >
           {notice}
         </p>
+      )}
+      {notice.startsWith("Updates paused.") && onReload && !active && (
+        <button
+          className={`${button} mt-3`}
+          disabled={busy}
+          onClick={async () => {
+            if (await onReload())
+              setNotice(
+                "Saved status reloaded. Review any issues below, then select the letters you want to finish. No NXT updates were started.",
+              );
+          }}
+        >
+          Reload saved status
+        </button>
       )}
       {!!results.filter((item) => item.status !== "complete").length && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-white p-4">
@@ -279,6 +318,13 @@ export default function BulkLetterAppealUpdates({
                     {item.message ||
                       "Open this letter's saved appeal details below."}
                   </p>
+                  <button
+                    className={`${button} mt-2`}
+                    disabled={busy || active}
+                    onClick={() => focusSavedLetter(item.deliveryId)}
+                  >
+                    Review {item.name}
+                  </button>
                 </li>
               ))}
           </ul>

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import {
   render,
   screen,
@@ -7,6 +7,24 @@ import {
   act as reactAct,
 } from "@testing-library/react";
 import BulkLetterAppealUpdates from "./BulkLetterAppealUpdates";
+import { savedLetterElementId } from "./letterHistoryFocus";
+
+beforeEach(() => {
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    showModal: {
+      configurable: true,
+      value() {
+        this.setAttribute("open", "");
+      },
+    },
+    close: {
+      configurable: true,
+      value() {
+        this.removeAttribute("open");
+      },
+    },
+  });
+});
 
 function fixture(count = 2) {
   const items = Array.from({ length: count }, (_, i) => ({
@@ -47,6 +65,104 @@ function confirm() {
   );
 }
 describe("bulk saved letter appeal updates", () => {
+  it("puts confirmation in a named dialog and supports Escape without starting updates", () => {
+    const props = fixture();
+    render(<BulkLetterAppealUpdates {...props} />);
+    select();
+    const dialog = screen.getByRole("dialog", {
+      name: "Finish NXT updates for 2 letters?",
+    });
+    expect(dialog).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Confirm and finish NXT updates" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Back to selection" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Back to selection" }),
+    ).toHaveFocus();
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(props.onActiveChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByText("2 selected")).toBeVisible();
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it("does not dismiss an active request with Escape", async () => {
+    const props = fixture(1);
+    let resolve;
+    props.act.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    render(<BulkLetterAppealUpdates {...props} />);
+    select();
+    confirm();
+    const dialog = screen.getByRole("dialog");
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(dialog).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Stop after this household" }),
+    ).toBeEnabled();
+    await reactAct(async () =>
+      resolve({
+        bulkAppealUpdate: {
+          deliveryId: "letter-0",
+          status: "complete",
+          stop: false,
+        },
+      }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  it("offers a read-only reload after a stopped request without restarting updates", async () => {
+    const props = fixture(1);
+    props.act.mockResolvedValueOnce(null);
+    const onReload = vi.fn(async () => ({ history: props.items }));
+    render(<BulkLetterAppealUpdates {...props} onReload={onReload} />);
+    select();
+    confirm();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Reload saved status" }),
+    );
+    await screen.findByText(/Saved status reloaded/);
+    expect(onReload).toHaveBeenCalledOnce();
+    expect(props.act).toHaveBeenCalledOnce();
+  });
+  it("opens and focuses the exact saved letter from an attention result", async () => {
+    const props = fixture(1);
+    props.act.mockResolvedValueOnce({
+      bulkAppealUpdate: {
+        deliveryId: "letter-0",
+        status: "needs_review",
+        stop: false,
+        message: "Address needs review.",
+      },
+    });
+    render(
+      <>
+        <BulkLetterAppealUpdates {...props} />
+        <details>
+          <summary>Saved letters</summary>
+          <div tabIndex={-1} id={savedLetterElementId("letter-0")}>
+            Letter details
+          </div>
+        </details>
+      </>,
+    );
+    select();
+    confirm();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review Sample 0" }),
+    );
+    expect(screen.getByText("Letter details")).toHaveFocus();
+    expect(
+      screen.getByText("Saved letters").closest("details"),
+    ).toHaveAttribute("open");
+    expect(props.act).toHaveBeenCalledOnce();
+  });
   it("requires one explicit confirmation, submits saved IDs only, and finishes sequentially across batches", async () => {
     const props = fixture();
     let resolve;
