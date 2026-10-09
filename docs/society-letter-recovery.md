@@ -1,6 +1,6 @@
 # Society Letter Recovery
 
-## State-Name Address Comparison Follow-Up (Not Deployed)
+## State-Name Address Comparison Follow-Up (Deployed October 9, 2026)
 
 The October 9, 10:59 AM failure for Allana Forte and Brian Branch was traced read-only to the saved query using `Florida` while NXT's preferred addresses use `FL`. Street, city, and ZIP matched; both preferred addresses belonged to the expected household members and were active, unrestricted, and current. No appeal had been attempted. Returning the letter to review could not resolve that equivalent-text mismatch.
 
@@ -9,6 +9,15 @@ The October 9, 10:59 AM failure for Allana Forte and Brian Branch was traced rea
 - The saved document, recipient review, approval, date, and wording are never rewritten. After deployment, reload the page and continue the existing approved batch; do not choose Fix recipient details solely for the old Florida/FL warning. Continuing performs the normal fresh NXT checks and applies only missing appeals after explicit confirmation.
 - Four new regression cases failed before the fix and passed afterward. All 218 focused comparison/readiness/finalization tests passed, including Word/PDF recovery that preserves the approval and stored document while submitting each household member exactly once in a mocked NXT client. The full default suite passed 6,232 tests; 210 existing opt-in tests remained skipped. Typecheck, production build, and whitespace checks passed.
 - A second read-only comparison against the affected saved letter and current NXT profiles confirmed the new comparator matches both addresses. No constituent, appeal, approval, delivery, database setting, or deployment was changed. Evidence: `/tmp/ju-letter-state-address-` logs `red.log`, `tests.log`, `full-tests.log`, `typecheck.log`, and `build.log`; diagnostic summary `/tmp/ju-letter-address-diagnosis-verified.log` omits street addresses and credentials.
+
+### Verified JU Release
+
+- Application commit: `6253225fa6debfe284204afdd8eaf640f373f24e`; deployment: `dpl_AnFrXKBYQmhjCn4jSjjaUSYZfonQ`; live site: `https://www.jumgogpt.app`.
+- Released from a clean Git archive pinned to JU project `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY`, effective root `apps/web`. All tracked web files matched the tested worktree. The 218 targeted tests passed again from the clean archive. A fresh upload manifest contained all changed web files, no untracked extras, and no real environment files. No Git push was used.
+- Hosted build, candidate smoke checks, promotion, live smoke checks, and `verify:prod` passed. Version identity, reporting/stewardship route shells, letter assets, and unauthenticated API/download protections were verified. This release has no schema change; existing opt-in database tests were not rerun. No authenticated letter processing, appeal submission, or email send was used as a smoke test.
+- Before/after project checks confirmed only JU's production deployment identity changed. The conference sandbox remained on its pre-release deployment `dpl_7V2ov7148y67Fc6t7d6WS6rx3CHh`; project settings, cron definitions, PDF settings, and other projects were unchanged.
+- Reload the browser page, then use **Create approved letters and apply appeals** for the existing approved batch. Do not return to review or recreate the letter solely for the old state-name mismatch. Genuine restriction or address changes still require correction.
+- Previous JU deployment for rollback: `dpl_9civc1CHxJ9nWFxAaeTYMdWPW4TA` (application commit `d4eada41023703aa262ffdea6f4f268516670487`). Evidence: `/tmp/ju-letter-state-address-` files `release-tests.log`, `dry-final.json`, `candidate.json`, `deploy.log`, `candidate-smoke.log`, `live-smoke.log`, and `project-verification.log`.
 
 ## In-Progress Navigation Follow-Up (Deployed October 9, 2026)
 
