@@ -529,6 +529,45 @@ describe("read-only society readiness", () => {
       ).status,
     ).toBe("ready_for_preview");
   });
+  it.each(["address_line_2", "country"])(
+    "allows a blank optional %s after checking the complete preferred address",
+    async (field) => {
+      const { state, row, template, recipient } = await setup();
+      const single = { ...row, ...recipient, members: ["10"] };
+      const data = member("10");
+      const check = () =>
+        evaluateLetterReadiness(
+          single,
+          { ...template, usedFields: [...template.usedFields, field] },
+          { 10: data },
+          state.readiness.policy,
+          definitions,
+          today,
+          "post",
+        );
+      expect(check().status).toBe("ready_for_preview");
+      data.profile.address.do_not_mail = true;
+      expect(check().status).toBe("needs_review");
+    },
+  );
+  it.each(["address_line_1", "city", "state", "zip", "society_name"])(
+    "still holds missing required %s merge values",
+    async (field) => {
+      const { state, row, template, recipient } = await setup();
+      const single = { ...row, ...recipient, members: ["10"], societyName: "" };
+      expect(
+        evaluateLetterReadiness(
+          single,
+          { ...template, usedFields: [field] },
+          { 10: member("10") },
+          state.readiness.policy,
+          definitions,
+          today,
+          "post",
+        ).status,
+      ).toBe("needs_review");
+    },
+  );
   it("holds missing merge values", async () => {
     const { state, row, template, recipient } = await setup();
     const single = { ...row, ...recipient, members: ["10"] };

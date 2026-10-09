@@ -306,8 +306,13 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function draftFixture(format = "docx", addressState = "FL") {
+async function draftFixture(
+  format = "docx",
+  addressState = "FL",
+  extraFields = [],
+) {
   const f = await fixture(false, "presidents", addressState);
+  f.state.templates.v1.usedFields.push(...extraFields);
   const documents = new Map();
   f.store.createPostalDraft = vi.fn(async (draft) => {
     f.state.postalDraft = structuredClone(draft);
@@ -1333,6 +1338,47 @@ describe("saved postal batch approvals", () => {
     ]);
     expect(f.state.history[0].letterAppeals.status).toBe("complete");
   });
+  it.each(["docx", "pdf"])(
+    "continues an approved %s with blank optional address fields without recreating it",
+    async (format) => {
+      const f = await draftFixture(format, "FL", ["address_line_2", "country"]);
+      await f.prepare();
+      await approvePostalDraft(
+        f.state,
+        definitions,
+        today,
+        { draftId: f.id, confirm: true, approvePreparedDocuments: true },
+        f.store,
+        ctx,
+        f.read,
+      );
+      const item = f.state.history[0];
+      const document = structuredClone(item.postalDocument);
+      const approval = structuredClone(item.postalApproval);
+      const renders = renderSocietyLetter.mock.calls.length;
+      const sync = (...args) => syncLetterAppeals(...args, f.reader, f.client);
+      for (let attempt = 0; attempt < 2; attempt++)
+        await continuePostalBatch(
+          f.state,
+          definitions,
+          today,
+          { batchId: f.id, confirm: true },
+          f.store,
+          ctx,
+          sync,
+          f.read,
+        );
+      expect(item.letterAppeals.status).toBe("complete");
+      expect(f.client.create.mock.calls.map((args) => args[0])).toEqual([
+        "10",
+        "11",
+      ]);
+      expect(item.postalDocument).toEqual(document);
+      expect(item.postalApproval).toEqual(approval);
+      expect(renderSocietyLetter).toHaveBeenCalledTimes(renders);
+      expect(f.store.approvePostalDraft).toHaveBeenCalledOnce();
+    },
+  );
   it.each(["docx", "pdf"])(
     "resumes an approved %s with a full state name without replacing or reviewing it again",
     async (format) => {

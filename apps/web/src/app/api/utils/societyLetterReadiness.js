@@ -5,6 +5,7 @@ import { recipientReviewForRow } from "./societyLetterRecipients";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { exclusionAppealWorkspace } from "./societyLetterExclusionAppeals";
 import { matchesPreferredLetterAddress } from "./societyLetterAddressMatch";
+import { isOptionalLetterMergeField } from "@/utils/societyLetterDocumentReadiness";
 import {
   letterDisposition,
   letterError,
@@ -494,7 +495,9 @@ export function evaluateLetterReadiness(
     const values = letterMergeData(row, today, template.mergeSettings);
     if (
       (template.usedFields || []).some(
-        (field) => !String(values[field] || "").trim(),
+        (field) =>
+          !isOptionalLetterMergeField(field) &&
+          !String(values[field] || "").trim(),
       )
     )
       add(

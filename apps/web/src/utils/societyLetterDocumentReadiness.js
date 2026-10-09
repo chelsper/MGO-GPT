@@ -21,6 +21,8 @@ const labels = {
 };
 const optional = new Set(["address_line_2", "country"]);
 
+export const isOptionalLetterMergeField = (field) => optional.has(field);
+
 // Shared with the actual renderer. Only fields used by the saved template
 // require values; optional address lines never turn a saved review into a block.
 export function letterMergeBlockers(row, usedFields) {
@@ -35,7 +37,7 @@ export function letterMergeBlockers(row, usedFields) {
     .filter(
       (field) =>
         Object.hasOwn(values, field) &&
-        !optional.has(field) &&
+        !isOptionalLetterMergeField(field) &&
         !String(values[field] || "").trim(),
     )
     .map((field) => {
