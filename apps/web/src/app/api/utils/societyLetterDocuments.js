@@ -2,14 +2,12 @@ import Docxtemplater from "docxtemplater";
 import PizZip from "pizzip";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
+import { letterMergeBlockers } from "@/utils/societyLetterDocumentReadiness";
 import {
   LETTER_TAGS,
-  LETTER_ADDRESS_TAGS,
   formatLetterAddress,
   letterError,
   letterMergeData,
-  letterAddressMergeData,
-  letterNameIssue,
   mergeLetterText,
   normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
@@ -206,32 +204,37 @@ export function validateLetterTemplate(raw) {
   };
 }
 
-export function renderSocietyLetter(template, row, today) {
+function compiledLetterTemplate(template) {
   const settings = normalizeLetterMergeSettings(template.mergeSettings);
   if (!settings.wordBindings && inspectLetterTemplate(template.content).legacy)
     throw letterError(
       "This letter still uses Word mail-merge placeholders. Open Letter templates, read the Word fields, and save their mappings before previewing or creating letters.",
     );
-  const data = letterMergeData(row, today, settings);
   const usedFields = new Set();
   const document = templateDocument(template.content, settings, usedFields);
   for (const value of [template.subject, template.emailBody]) {
     for (const match of String(value).matchAll(/\{([^{}]+)\}/g))
       usedFields.add(match[1].trim());
   }
-  const nameIssue = letterNameIssue(row, [...usedFields]);
-  if (nameIssue) throw letterError(nameIssue);
-  if (
-    [...usedFields].some((key) => LETTER_ADDRESS_TAGS.includes(key)) &&
-    !letterAddressMergeData(row).address_line_1
-  )
-    throw letterError(
-      "Separate address fields are not available for this recipient. Use the full mailing-address block in Letter templates, or enter the separate address fields in recipient review.",
-    );
-  if (usedFields.has("address") && !data.address)
-    throw letterError(
-      "Add a mailing address in recipient review before previewing this letter.",
-    );
+  return { document, settings, usedFields: [...usedFields] };
+}
+
+export function letterTemplateRequirements(template) {
+  return compiledLetterTemplate(template).usedFields;
+}
+
+export function renderSocietyLetter(template, row, today) {
+  const { document, settings, usedFields } = compiledLetterTemplate(template);
+  const data = letterMergeData(row, today, settings);
+  const blockers = letterMergeBlockers(row, usedFields);
+  if (blockers.length) {
+    const error = letterError(blockers.map((item) => item.message).join(" "));
+    error.blockers = blockers.map((item) => ({
+      ...item,
+      householdId: row.householdId,
+    }));
+    throw error;
+  }
   document.render(data);
   return {
     document: document.toBuffer(),

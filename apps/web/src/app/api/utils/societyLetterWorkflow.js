@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
+import {
+  inspectDocumentRequirements,
+  documentReadinessForRow,
+} from "./societyLetterDocumentReadiness";
 import { advanceQueryList } from "./constituentQueryList";
 import { getQueryJobMetadataRowCount } from "./savedQueryExecution";
 import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
@@ -73,6 +77,14 @@ export function letterWorkspace(state, definitions, today) {
   const issue = sourceIssue(state, definitions, today);
   const signature = letterSourceSignature(state, definitions);
   const period = state.settings ? letterPeriod(state.settings, today) : null;
+  const documentRequirements = new Map();
+  if (state.settings?.sourceMode === "society_queries") {
+    for (const key of state.settings.societyKeys || [])
+      documentRequirements.set(
+        key,
+        inspectDocumentRequirements(activeTemplate(state, key)),
+      );
+  }
   let sourceConfigured = false;
   try {
     validateLetterSettings(
@@ -122,7 +134,8 @@ export function letterWorkspace(state, definitions, today) {
               emailBody: t.emailBody,
               savedAt: t.savedAt,
               mergeSettings: normalizeLetterMergeSettings(t.mergeSettings),
-              usedFields: t.usedFields || [],
+              usedFields:
+                documentRequirements.get(d.key)?.fields || t.usedFields || [],
               wordFields: t.wordFields || null,
             }
           : {}),
@@ -175,6 +188,12 @@ export function letterWorkspace(state, definitions, today) {
         ...(recipientReview ? { recipientReview } : {}),
         ...(state.settings?.sourceMode === "society_queries"
           ? {
+              documentReadiness: documentReadinessForRow(
+                row,
+                recipientReview,
+                documentRequirements.get(row.societyKey) ||
+                  inspectDocumentRequirements(null),
+              ),
               readiness: {
                 post: letterReadinessForRow(
                   state,

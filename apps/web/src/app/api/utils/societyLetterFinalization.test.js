@@ -369,6 +369,61 @@ async function draftFixture(format = "docx") {
 }
 
 describe("saved postal batch approvals", () => {
+  it("rejects the whole selection before creating a draft when a later recipient lacks a required merge field", async () => {
+    const f = await fixture(true);
+    const second = structuredClone(f.row);
+    second.householdId = "20";
+    second.members = ["20"];
+    second.memberNames[0].constituentId = "20";
+    second.recipientCandidates[0].constituentId = "20";
+    f.state.snapshot.rows.push(second);
+    await saveLetterRecipientReview(
+      f.state,
+      second,
+      f.state.snapshot.signature,
+      {
+        ...second.recipientCandidates[0],
+        confirm: true,
+        reviewToken: recipientReviewForRow(
+          f.state,
+          second,
+          f.state.snapshot.signature,
+        ).token,
+        recipientConstituentId: "20",
+        addressConstituentId: "20",
+      },
+      f.store,
+      ctx.user.id,
+    );
+    f.store.createPostalDraft = vi.fn();
+    const error = Object.assign(
+      new Error("Add city for {city} in recipient review."),
+      {
+        status: 400,
+        blockers: [{ field: "city", householdId: "20", action: "recipient" }],
+      },
+    );
+    renderSocietyLetter.mockClear();
+    renderSocietyLetter
+      .mockImplementationOnce(() => ({ document: Buffer.from("first letter") }))
+      .mockImplementationOnce(() => {
+        throw error;
+      });
+    await expect(
+      startPostalDraft(
+        f.state,
+        definitions,
+        today,
+        { householdIds: ["10", "20"], format: "docx" },
+        f.store,
+        ctx,
+      ),
+    ).rejects.toBe(error);
+    expect(renderSocietyLetter).toHaveBeenCalledTimes(2);
+    expect(f.store.createPostalDraft).not.toHaveBeenCalled();
+    expect(f.state.history).toEqual([]);
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
   it("respects a saved NXT cooldown before reading documents or continuing updates", async () => {
     const f = await draftFixture();
     await f.prepare();

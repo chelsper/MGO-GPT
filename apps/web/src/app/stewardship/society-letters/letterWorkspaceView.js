@@ -1,4 +1,5 @@
 import { organizationLetterContacts } from "@/utils/societyLetterContacts";
+import { LETTER_ADDRESS_TAGS, LETTER_NAME_TAGS } from "@/utils/societyLetters";
 
 export const REVIEW_FILTERS = [
   ["all", "All recipients"],
@@ -16,6 +17,7 @@ export const ATTENTION_FILTERS = [
   ["greeting", "Addressee or greeting missing"],
   ["contacts", "Organization contact choices"],
   ["readiness", "Readiness needs attention"],
+  ["template", "Letter template needs attention"],
 ];
 
 const hasText = (value) => typeof value === "string" && !!value.trim();
@@ -38,10 +40,22 @@ export function letterReviewView(
       ? candidates
       : [row];
   const attention = [];
+  const documentBlockers =
+    automaticPostalChecks && channel === "post"
+      ? row.documentReadiness?.blockers
+      : null;
   if (review?.status === "needs_review")
     attention.push(review.reason === "expired" ? "expired" : "changed");
   if (review?.editable === false) attention.push("unavailable");
-  if (channel === "post" && !choices.some((item) => hasText(item.address)))
+  if (
+    documentBlockers
+      ? documentBlockers.some(
+          (item) =>
+            item.field === "address" ||
+            LETTER_ADDRESS_TAGS.includes(item.field),
+        )
+      : channel === "post" && !choices.some((item) => hasText(item.address))
+  )
     attention.push("address");
   if (
     channel === "email" &&
@@ -53,9 +67,17 @@ export function letterReviewView(
   )
     attention.push("email");
   if (
-    !choices.some((item) => hasText(item.addressee) && hasText(item.salutation))
+    documentBlockers
+      ? documentBlockers.some((item) =>
+          ["addressee", "salutation", ...LETTER_NAME_TAGS].includes(item.field),
+        )
+      : !choices.some(
+          (item) => hasText(item.addressee) && hasText(item.salutation),
+        )
   )
     attention.push("greeting");
+  if (documentBlockers?.some((item) => item.action === "templates"))
+    attention.push("template");
   if (
     !reviewed &&
     candidates?.some((item) => organizationLetterContacts(item).length > 1)

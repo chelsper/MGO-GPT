@@ -16,6 +16,7 @@ import {
   runLetterReadiness,
   saveReadinessPolicy,
   letterReadinessForRow,
+  letterReadinessWorkspace,
 } from "./societyLetterReadiness";
 
 const hash = (v) =>
@@ -212,6 +213,30 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("read-only society readiness", () => {
+  it("distinguishes membership refresh, continuation, and appeal-setup repairs without writes", async () => {
+    const { state } = await setup();
+    expect(
+      letterReadinessWorkspace(state, definitions, today).blocker,
+    ).toBeNull();
+    state.snapshot.generatedAt = "2026-09-20T15:00:00Z";
+    expect(
+      letterReadinessWorkspace(state, definitions, today).blocker,
+    ).toMatchObject({ code: "membership_stale", action: "refresh" });
+    state.job = { status: "running" };
+    expect(
+      letterReadinessWorkspace(state, definitions, today).blocker,
+    ).toMatchObject({ code: "refresh_incomplete", action: "resume" });
+    state.job.status = "failed";
+    expect(
+      letterReadinessWorkspace(state, definitions, today).blocker.action,
+    ).toBe("refresh");
+    state.job.status = "complete";
+    state.snapshot.generatedAt = new Date().toISOString();
+    state.readiness.policy = null;
+    expect(
+      letterReadinessWorkspace(state, definitions, today).blocker,
+    ).toMatchObject({ code: "appeals_unconfigured", action: "appeals" });
+  });
   it("holds an NXT exclusion appeal without treating it as a sent letter", async () => {
     const { state, row, template, recipient } = await setup();
     const members = { 10: member("10", "11"), 11: member("11", "10") };

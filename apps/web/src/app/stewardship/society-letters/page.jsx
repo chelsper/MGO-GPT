@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useLetterNavigation from "./useLetterNavigation";
 import useAutomaticAppealVerification from "./useAutomaticAppealVerification";
+import { documentReady } from "@/utils/societyLetterDocumentReadiness";
 import BulkLetterAppealUpdates from "./BulkLetterAppealUpdates";
 import { letterViewHref } from "@/utils/societyLetterNavigation";
 import {
@@ -394,6 +395,7 @@ export default function SocietyLettersPage() {
   const [data, setData] = useState(null),
     [error, setError] = useState("");
   const [requestBusy, setBusy] = useState(false);
+  const [operationBlockers, setOperationBlockers] = useState([]);
   const [bulkAppealsActive, setBulkAppealsActive] = useState(false);
   const busy = requestBusy || bulkAppealsActive;
   const navigation = useLetterNavigation();
@@ -479,6 +481,7 @@ export default function SocietyLettersPage() {
   }
   async function load() {
     if (inFlight.current) return null;
+    setOperationBlockers([]);
     inFlight.current = true;
     setBusy(true);
     try {
@@ -487,6 +490,7 @@ export default function SocietyLettersPage() {
       if (!response.ok) throw new Error(payload.error);
       accept(payload);
       setError("");
+      setOperationBlockers([]);
       return payload;
     } catch (err) {
       setError(err.message || "Could not load stewardship.");
@@ -498,6 +502,7 @@ export default function SocietyLettersPage() {
   }
   async function downloadBatch(batchId, deliveryId, format = "docx") {
     setError("");
+    setOperationBlockers([]);
     try {
       const params = new URLSearchParams({ download: batchId });
       if (deliveryId) params.set("deliveryId", deliveryId);
@@ -534,7 +539,11 @@ export default function SocietyLettersPage() {
       ["verify_letter_appeals", "verify_exclusion_appeal"].includes(
         body.action,
       );
-    if (!automatic) setError("");
+    if (!automatic) {
+      setError("");
+      setOperationBlockers([]);
+      setReviewNotice("");
+    }
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -550,6 +559,8 @@ export default function SocietyLettersPage() {
       }
       const payload = await response.json();
       if (!response.ok) {
+        if (!automatic && Array.isArray(payload.blockers))
+          setOperationBlockers(payload.blockers);
         if (body.action === "save_recipient" && response.status === 409)
           setReviewConflict(true);
         throw new Error(payload.error || "This operation could not finish.");
@@ -560,7 +571,15 @@ export default function SocietyLettersPage() {
         accept(payload, automatic);
         if (!automatic) {
           setPreview(null);
-          if (body.action !== "update_letter_dates") setSelected([]);
+          if (
+            ![
+              "update_letter_dates",
+              "refresh",
+              "resume",
+              "save_recipient",
+            ].includes(body.action)
+          )
+            setSelected([]);
         }
       }
       return payload;
@@ -767,9 +786,7 @@ export default function SocietyLettersPage() {
   }
   const canPrepare = (row) =>
     householdPreview
-      ? queryPostal &&
-        channel === "post" &&
-        row.recipientReview?.status === "saved"
+      ? queryPostal && channel === "post" && documentReady(row)
       : !row.issues?.[channel] && (channel !== "email" || data.emailEnabled);
   const selectable = filtered.filter(canPrepare);
   // Selecting a recipient is only a local review choice, not delivery approval.
@@ -780,6 +797,14 @@ export default function SocietyLettersPage() {
     selected.includes(row.householdId),
   );
   const selectedReviewable = selectedRows.filter(canReview);
+  const blockedSelection = queryPostal
+    ? selectedRows.filter((row) => !canPrepare(row))
+    : [];
+  const reviewedBlocked = queryPostal
+    ? filtered.filter(
+        (row) => row.recipientReview?.status === "saved" && !canPrepare(row),
+      )
+    : [];
   const selectionBusy = busy || refreshing || !!sendingBatch;
   function selectionReason(row) {
     if (selectionBusy) return "Wait for the current operation to finish.";
@@ -810,9 +835,9 @@ export default function SocietyLettersPage() {
                 : queryPostal && data.readiness?.issue
                   ? data.readiness.issue
                   : selected.length > deliveryBatchLimit
-                    ? `Document approval is limited to ${deliveryBatchLimit} households at a time. Choose fewer recipients or use Select reviewed households.`
+                    ? `Document approval is limited to ${deliveryBatchLimit} households at a time. Choose fewer recipients or use Select ready households.`
                     : !selectedRows.every(canPrepare)
-                      ? "Some selected recipients still need their names and addresses reviewed. Save their recipient choices before starting document approval. No separate delivery check is required."
+                      ? "Some selected recipients need attention before document approval. Fix the items below; your selection and saved reviews are kept. No separate delivery check is required."
                       : "";
   const reviewable = filtered.filter(
     (row) =>
@@ -953,6 +978,23 @@ export default function SocietyLettersPage() {
     const result = await act({ action, jobId: data.job?.id });
     if (result?.job?.status === "running") setRefreshing(true);
   }
+  function repairBlocker(blocker, row) {
+    if (["refresh", "resume"].includes(blocker?.action))
+      return refreshMembership();
+    if (blocker?.action === "recipient" && row) {
+      setError("");
+      setReviewFocus(blocker.focus);
+      setReviewingRecipient(row);
+      setReviewConflict(false);
+      return;
+    }
+    if (blocker?.action === "excluded") return setTab("excluded");
+    navigateSetup(
+      ["settings", "templates", "appeals"].includes(blocker?.action)
+        ? blocker.action
+        : "setup",
+    );
+  }
   function changeSourceMode(mode, fields) {
     const constituentColumns = Object.fromEntries(
       Object.entries(CONSTITUENT_LETTER_COLUMNS).map(([key, fallback]) => {
@@ -1082,6 +1124,26 @@ export default function SocietyLettersPage() {
           className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-900"
         >
           {error}
+          {operationBlockers.map((blocker, index) => {
+            const row = data?.rows.find(
+              (item) => item.householdId === blocker.householdId,
+            );
+            return (
+              <button
+                key={index}
+                className="ml-3 underline"
+                disabled={
+                  busy ||
+                  sourceDirty ||
+                  (blocker.action === "recipient" && (!row || !canReview(row)))
+                }
+                onClick={() => repairBlocker(blocker, row)}
+              >
+                {blocker.label}
+                {row ? ` for ${row.name}` : ""}
+              </button>
+            );
+          })}
           <button className="ml-3 underline" disabled={busy} onClick={load}>
             Reload saved results
           </button>
@@ -1214,8 +1276,8 @@ export default function SocietyLettersPage() {
                   ) : (
                     <p>
                       {recipientChoicesSaved
-                        ? "Recipient choices are saved. Select reviewed households to prepare and approve their letters."
-                        : "Review names and addresses, select reviewed households, then approve their letters. Nothing is sent just by reviewing."}
+                        ? "Recipient choices are saved. Select ready households to prepare and approve their letters."
+                        : "Review names and addresses, select ready households, then approve their letters. Nothing is sent just by reviewing."}
                     </p>
                   )}
 
@@ -1299,7 +1361,7 @@ export default function SocietyLettersPage() {
                     <p>
                       {data.settings?.sourceMode === "society_queries" &&
                       data.sourceIssue === CONSTITUENT_LETTER_PREVIEW_NOTICE
-                        ? "Review recipients, then select reviewed households to prepare and approve their documents. NXT is checked automatically for the selected households before appeals are applied. No separate delivery check is required. Email delivery is not enabled for these query lists."
+                        ? "Review recipients, then select ready households to prepare and approve their documents. NXT is checked automatically for the selected households before appeals are applied. No separate delivery check is required. Email delivery is not enabled for these query lists."
                         : data.sourceIssue}
                     </p>
                     {(!data.settings || !data.refreshedAt) && (
@@ -1528,9 +1590,13 @@ export default function SocietyLettersPage() {
                           <button
                             type="button"
                             className={`${button} mt-2`}
-                            onClick={() => navigateSetup("appeals")}
+                            disabled={selectionBusy || sourceDirty}
+                            onClick={() =>
+                              repairBlocker(data.readiness.blocker)
+                            }
                           >
-                            Open appeal settings
+                            {data.readiness.blocker?.label ||
+                              "Open setup checklist"}
                           </button>
                         </div>
                       )}
@@ -1688,10 +1754,14 @@ export default function SocietyLettersPage() {
                                 .map((r) => r.householdId),
                             );
                             setPreview(null);
+                            if (queryPostal)
+                              setReviewNotice(
+                                `${Math.min(selectable.length, deliveryBatchLimit)} ready households selected. ${reviewedBlocked.length} reviewed recipients in this view need attention and remain in the holding list.`,
+                              );
                           }}
                         >
                           {queryPostal
-                            ? "Select reviewed households"
+                            ? "Select ready households"
                             : "Select eligible households"}{" "}
                           (up to {deliveryBatchLimit})
                         </button>
@@ -1702,6 +1772,7 @@ export default function SocietyLettersPage() {
                         onClick={() => {
                           setSelected([]);
                           setPreview(null);
+                          setReviewNotice("");
                         }}
                       >
                         Clear selection
@@ -1760,6 +1831,55 @@ export default function SocietyLettersPage() {
                       >
                         {preparationIssue}
                       </p>
+                    )}
+                    {queryPostal && reviewedBlocked.length > 0 && (
+                      <p className="mt-3 text-sm text-amber-900">
+                        {reviewedBlocked.length} reviewed recipients in this
+                        view need attention before documents can be created.
+                        Their saved reviews are kept.
+                      </p>
+                    )}
+                    {blockedSelection.length > 0 && (
+                      <section
+                        aria-label="Selected recipients needing attention"
+                        className="mt-3 rounded-xl border border-amber-200 p-3"
+                      >
+                        <p className="font-semibold">
+                          Keep these selected while you make corrections
+                        </p>
+                        <ul className="mt-2 max-h-64 overflow-auto space-y-3">
+                          {blockedSelection.map((row) => {
+                            const blockers =
+                              row.documentReadiness?.blockers || [];
+                            return (
+                              <li key={row.householdId}>
+                                <p className="font-semibold">{row.name}</p>
+                                <p className="text-sm">
+                                  {blockers
+                                    .map((item) => item.message)
+                                    .join(" ") ||
+                                    "Reload saved results to check this recipient's letter fields."}
+                                </p>
+                                {blockers[0] && (
+                                  <button
+                                    className={`${button} mt-1`}
+                                    disabled={
+                                      selectionBusy ||
+                                      (blockers[0].action === "recipient" &&
+                                        !canReview(row))
+                                    }
+                                    onClick={() =>
+                                      repairBlocker(blockers[0], row)
+                                    }
+                                  >
+                                    {blockers[0].label} for {row.name}
+                                  </button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </section>
                     )}
                   </div>
                   {!householdPreview && !selectable.length && (
@@ -1821,6 +1941,16 @@ export default function SocietyLettersPage() {
                               definitions={data.definitions}
                               sourceIssue={data.sourceIssue}
                               automaticPostalChecks={queryPostal}
+                              documentBlocked={
+                                queryPostal &&
+                                (!canPrepare(row) ||
+                                  !!data.readiness?.issue ||
+                                  sourceDirty ||
+                                  !!data.postalDraft)
+                              }
+                              onRepair={(blocker) =>
+                                repairBlocker(blocker, row)
+                              }
                               onFinalize={
                                 data.settings?.sourceMode === "society_queries"
                                   ? () =>
@@ -1851,6 +1981,7 @@ export default function SocietyLettersPage() {
                               onSelect={(checked) => {
                                 if (selectionReason(row)) return;
                                 setPreview(null);
+                                setReviewNotice("");
                                 setSelected((current) =>
                                   checked
                                     ? [

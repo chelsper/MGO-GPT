@@ -29,13 +29,36 @@ const recent = (date) =>
   Date.now() - Date.parse(date) < DAY;
 const review = (reason) => ({ status: "needs_review", reasons: [reason] });
 
-function sourceProblem(state, definitions, today) {
+function sourceBlocker(state, definitions, today) {
   if (state.settings?.sourceMode !== "society_queries")
-    return "Use the combined society queries to check the full letter hierarchy.";
+    return {
+      code: "source_unconfigured",
+      action: "settings",
+      label: "Configure membership queries",
+      message:
+        "Use the combined society queries to check the full letter hierarchy.",
+    };
   const hierarchy = letterHierarchy(definitions, state.settings);
   const annual = definitions.filter((d) => d.active && d.basis === "annual");
   if (annual.some((d) => !hierarchy.some((h) => h.key === d.key)))
-    return "Include every active annual society in the hierarchy before checking readiness.";
+    return {
+      code: "hierarchy_incomplete",
+      action: "settings",
+      label: "Review society hierarchy",
+      message:
+        "Include every active annual society in the hierarchy before checking readiness.",
+    };
+  if (state.job && state.job.status !== "complete")
+    return {
+      code: "refresh_incomplete",
+      action: state.job.status === "running" ? "resume" : "refresh",
+      label:
+        state.job.status === "running"
+          ? "Resume membership refresh"
+          : "Restart membership refresh",
+      message:
+        "Finish the membership refresh before preparing letters. Saved recipient reviews are kept when their details are unchanged.",
+    };
   const period = letterPeriod(state.settings, today);
   if (
     state.snapshot?.signature !== sourceSignature(state, definitions) ||
@@ -46,18 +69,32 @@ function sourceProblem(state, definitions, today) {
         !(state.snapshot?.sources || []).some((s) => s.societyKey === d.key),
     )
   )
-    return "Refresh all society membership queries for this period before checking readiness (saved membership must be less than 24 hours old).";
-  if (state.job && state.job.status !== "complete")
-    return "Finish the membership refresh before checking readiness.";
+    return {
+      code: "membership_stale",
+      action: "refresh",
+      label: "Refresh membership and keep my reviews",
+      message:
+        "Refresh all society membership queries for this period before checking readiness (saved membership must be less than 24 hours old).",
+    };
   return null;
 }
 
-function policyProblem(state, definitions, today) {
+function sourceProblem(state, definitions, today) {
+  return sourceBlocker(state, definitions, today)?.message || null;
+}
+
+export function letterPolicyBlocker(state, definitions, today) {
   if (
     state.readiness?.exclusionPolicy &&
     !exclusionAppealWorkspace(state, definitions, today).current
   )
-    return "Verify the exclusion appeal settings for this period before checking NXT.";
+    return {
+      code: "exclusion_appeals_unconfigured",
+      action: "excluded",
+      label: "Verify exclusion appeals",
+      message:
+        "Verify the exclusion appeal settings for this period before checking NXT.",
+    };
   const policy = state.readiness?.policy;
   if (
     !policy ||
@@ -73,15 +110,29 @@ function policyProblem(state, definitions, today) {
       (d) => !policy.appeals?.[d.key]?.id,
     )
   )
-    return "Save the letter appeal settings for this period before checking NXT.";
+    return {
+      code: "appeals_unconfigured",
+      action: "appeals",
+      label: "Configure appeals",
+      message:
+        "Save the letter appeal settings for this period before checking NXT.",
+    };
   return null;
 }
 
-export function letterReadinessIssue(state, definitions, today) {
+function policyProblem(state, definitions, today) {
+  return letterPolicyBlocker(state, definitions, today)?.message || null;
+}
+
+export function letterReadinessBlocker(state, definitions, today) {
   return (
-    sourceProblem(state, definitions, today) ||
-    policyProblem(state, definitions, today)
+    sourceBlocker(state, definitions, today) ||
+    letterPolicyBlocker(state, definitions, today)
   );
+}
+
+export function letterReadinessIssue(state, definitions, today) {
+  return letterReadinessBlocker(state, definitions, today)?.message || null;
 }
 
 function inputs(state, definitions, row, channel) {
@@ -129,11 +180,13 @@ export function letterReadinessForRow(state, definitions, today, row, channel) {
 export function letterReadinessWorkspace(state, definitions, today) {
   if (!state.settings || state.settings.sourceMode !== "society_queries")
     return null;
-  const problem = sourceProblem(state, definitions, today);
+  const blocker = letterReadinessBlocker(state, definitions, today);
   const job = state.readiness?.job;
   return {
     policy: state.readiness?.policy || null,
-    issue: problem || policyProblem(state, definitions, today),
+    issue: blocker?.message || null,
+    blocker,
+    policyCurrent: !letterPolicyBlocker(state, definitions, today),
     job: job
       ? {
           id: job.id,

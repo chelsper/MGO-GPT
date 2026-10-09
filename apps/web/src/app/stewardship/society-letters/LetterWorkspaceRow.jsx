@@ -31,12 +31,21 @@ export default function LetterWorkspaceRow({
   onFinalize,
   sourceIssue,
   automaticPostalChecks = false,
+  documentBlocked = false,
+  onRepair,
 }) {
   const [expanded, setExpanded] = useState(false);
   const readiness = row.readiness?.[channel];
   const automatic = automaticPostalChecks && channel === "post";
   const issueLabels = ATTENTION_FILTERS.filter(([key]) =>
     view.attention.includes(key),
+  ).filter(
+    ([key]) =>
+      !(
+        automatic &&
+        row.documentReadiness &&
+        ["address", "greeting", "template"].includes(key)
+      ),
   );
   const detailsId = `letter-recipient-details-${row.householdId}`;
   const selectionReasonId = `letter-selection-reason-${row.householdId}`;
@@ -130,8 +139,33 @@ export default function LetterWorkspaceRow({
           {automatic ? (
             <>
               <span className="inline-block rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
-                {view.reviewed ? "Prepare document" : "Review recipient"}
+                {view.reviewed
+                  ? documentBlocked
+                    ? "Needs attention"
+                    : "Ready to create"
+                  : "Review recipient"}
               </span>
+              {row.documentReadiness?.blockers
+                ?.filter((item) => item.code !== "recipient_review_required")
+                .map((item, index) => (
+                  <p
+                    key={`${item.code}-${item.field || index}`}
+                    className="mt-1 max-w-sm text-xs text-amber-900"
+                  >
+                    {item.message}
+                  </p>
+                ))}
+              {view.reviewed &&
+                row.documentReadiness?.blockers?.[0] &&
+                onRepair && (
+                  <button
+                    className="mt-1 min-h-11 text-sm font-semibold text-emerald-800 underline"
+                    disabled={reviewDisabled}
+                    onClick={() => onRepair(row.documentReadiness.blockers[0])}
+                  >
+                    {row.documentReadiness.blockers[0].label}
+                  </button>
+                )}
               <p className="mt-1 max-w-sm text-xs text-gray-600">
                 NXT is checked automatically before appeal updates.
               </p>
@@ -169,7 +203,7 @@ export default function LetterWorkspaceRow({
             (automatic || readiness?.status === "ready_for_preview") && (
               <button
                 className={`${button} mb-2 !border-emerald-700 text-emerald-800`}
-                disabled={reviewDisabled}
+                disabled={reviewDisabled || documentBlocked}
                 aria-label={`Create final postal letter for ${row.name}`}
                 onClick={onFinalize}
               >

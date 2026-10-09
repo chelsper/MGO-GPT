@@ -206,6 +206,8 @@ export default function LetterRecipientDialog({
             ? "addressee"
             : target;
     const element = fields.current[field] || fields.current.recipient;
+    const details = element?.closest("details");
+    if (details) details.open = true;
     element?.focus();
     element?.scrollIntoView?.({ block: "center" });
   }
@@ -664,6 +666,9 @@ export default function LetterRecipientDialog({
                         </p>
                       )}
                     <RecipientNameFields
+                      fieldRef={(key, element) => {
+                        fields.current[key] = element;
+                      }}
                       values={values}
                       mergeNames={mergeNames}
                       usedFields={usedNameFields}
@@ -737,6 +742,9 @@ export default function LetterRecipientDialog({
                           <label key={key} className="font-semibold">
                             {LETTER_FIELD_LABELS[key]}
                             <input
+                              ref={(element) => {
+                                fields.current[key] = element;
+                              }}
                               className={input}
                               maxLength={300}
                               value={mergeAddress[key]}

@@ -23,6 +23,35 @@ const saved = (values = choice) => ({
 });
 
 describe("saved-data letter workspace facets", () => {
+  it("includes individual required address and name fields in attention filters while preserving reviewed status", () => {
+    const reviewed = {
+      ...saved(),
+      documentReadiness: {
+        status: "blocked",
+        blockers: [
+          { field: "city", focus: "city" },
+          { field: "first_name", focus: "first_name" },
+        ],
+      },
+    };
+    const view = letterReviewView(reviewed, "post", null, true);
+    expect(view).toEqual({
+      reviewed: true,
+      needsReview: false,
+      attention: ["address", "greeting"],
+    });
+    expect(matchesLetterReview(view, "attention")).toBe(true);
+    expect(letterReviewCounts([view]).attention).toBe(1);
+    reviewed.documentReadiness.blockers = [];
+    reviewed.recipientReview.values = {
+      ...choice,
+      address: "",
+      salutation: "",
+    };
+    expect(letterReviewView(reviewed, "post", null, true).attention).toEqual(
+      [],
+    );
+  });
   it("keeps optional postal preflight results out of recipient review without changing email or legacy checks", () => {
     const checked = {
       ...saved(),

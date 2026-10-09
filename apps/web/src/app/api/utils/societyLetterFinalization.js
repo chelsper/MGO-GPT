@@ -14,7 +14,7 @@ import { recipientReviewForRow } from "./societyLetterRecipients";
 import { renderSocietyLetter } from "./societyLetterDocuments";
 import { readinessReader, letterRecordId } from "./societyLetterReadinessNxt";
 import {
-  letterReadinessIssue,
+  letterReadinessBlocker,
   evaluateLetterReadiness,
 } from "./societyLetterReadiness";
 import {
@@ -80,8 +80,12 @@ export function previewFinalPostalLetter(
   body,
   letterDate = today,
 ) {
-  const issue = letterReadinessIssue(state, definitions, today);
-  if (issue) throw letterError(issue);
+  const blocker = letterReadinessBlocker(state, definitions, today);
+  if (blocker) {
+    const error = letterError(blocker.message);
+    error.blockers = [blocker];
+    throw error;
+  }
   const source = state.snapshot.rows.find(
     (r) => r.householdId === body.householdId,
   );

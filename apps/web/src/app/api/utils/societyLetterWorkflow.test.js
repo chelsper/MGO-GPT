@@ -143,6 +143,40 @@ function draftSetup() {
   };
 }
 describe("society letter workflow", () => {
+  it("publishes actual Word requirements for both document readiness and the recipient editor", () => {
+    const { state } = draftSetup();
+    state.settings.sourceMode = "society_queries";
+    state.snapshot.rows[0].sourceMode = "society_queries";
+    const template = {
+      ...validateLetterTemplate({
+        ...templateFixture(),
+        content: wordFixture("{first_name} {city}").generate({
+          type: "base64",
+        }),
+      }),
+      societyKey: "presidents_society",
+      sequence: 1,
+      usedFields: ["salutation"],
+    };
+    state.templates = { [template.version]: template };
+    state.snapshot.signature = letterSourceSignature(state, definitions);
+    const before = structuredClone(state);
+    const workspace = letterWorkspace(state, definitions, today);
+    expect(
+      workspace.templates.find(
+        (item) => item.societyKey === "presidents_society",
+      ).usedFields,
+    ).toEqual(expect.arrayContaining(["first_name", "city"]));
+    expect(workspace.rows[0].documentReadiness.blockers).toContainEqual(
+      expect.objectContaining({
+        field: "city",
+        action: "recipient",
+        focus: "city",
+      }),
+    );
+    expect(workspace.rows[0].documentReadiness.status).toBe("blocked");
+    expect(state).toEqual(before);
+  });
   it("keeps an organization and its contact on separate lines through save, reload, and letter rendering", async () => {
     const { state, store, body } = draftSetup();
     const contact = {

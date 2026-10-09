@@ -6,6 +6,7 @@ export default function RecipientNameFields({
   usedFields,
   organization,
   onChange,
+  fieldRef,
 }) {
   return (
     <details
@@ -25,6 +26,7 @@ export default function RecipientNameFields({
           <label key={key} className="font-semibold">
             {LETTER_FIELD_LABELS[key]}
             <input
+              ref={(element) => fieldRef?.(key, element)}
               className="mt-2 w-full rounded-lg border border-gray-300 bg-white p-3 font-normal"
               maxLength={300}
               value={mergeNames[key]}

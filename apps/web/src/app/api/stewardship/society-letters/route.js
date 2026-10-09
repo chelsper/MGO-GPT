@@ -79,6 +79,7 @@ const failure = (error) =>
       error: error.status
         ? error.message
         : "The stewardship operation could not finish. Reload saved history before retrying; letters are never resent automatically.",
+      ...(error.status && error.blockers ? { blockers: error.blockers } : {}),
     },
     error.status || 500,
   );
