@@ -58,6 +58,7 @@ describe("society-letter release discovery", () => {
       "/api/stewardship/society-letters/reload",
     );
     expect(destination.searchParams.get("dpl")).toBe("dpl_new");
+    expect(destination.searchParams.get("expectedDeployment")).toBe("dpl_new");
     expect(destination.searchParams.get("returnTo")).toBe(
       "/stewardship/society-letters?view=history#saved",
     );

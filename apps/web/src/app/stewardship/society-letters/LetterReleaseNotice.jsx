@@ -87,6 +87,7 @@ export default function LetterReleaseNotice({
             return;
           const query = new URLSearchParams({
             dpl: latest,
+            expectedDeployment: latest,
             returnTo:
               window.location.pathname +
               window.location.search +

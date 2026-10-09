@@ -16,7 +16,9 @@ export async function GET(request) {
       headers,
     });
   const deployment = process.env.VERCEL_DEPLOYMENT_ID;
-  if (!deployment || url.searchParams.get("dpl") !== deployment)
+  // Vercel consumes the reserved `dpl` routing parameter before this handler.
+  // Keep the app's validation value separate from that platform parameter.
+  if (!deployment || url.searchParams.get("expectedDeployment") !== deployment)
     return new Response(
       "The release changed. Return to Society Letters and check for the latest version.",
       { status: 409, headers },

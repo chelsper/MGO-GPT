@@ -3,10 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
 
 const origin = "https://www.jumgogpt.app";
-const base = `${origin}/api/stewardship/society-letters/reload?dpl=dpl_new`;
+const base = `${origin}/api/stewardship/society-letters/reload?expectedDeployment=dpl_new`;
 beforeEach(() => vi.stubEnv("VERCEL_DEPLOYMENT_ID", "dpl_new"));
 afterEach(() => vi.unstubAllEnvs());
 describe("explicit release-pin reset", () => {
+  it("works after the platform consumes its reserved routing parameter", async () => {
+    const result = await GET(new Request(base));
+    expect(result.status).toBe(303);
+    expect(result.headers.getSetCookie()).toHaveLength(3);
+  });
+  it("requires the application validation value, not only the platform parameter", async () => {
+    const result = await GET(new Request(base.replace("expectedDeployment", "dpl")));
+    expect(result.status).toBe(409);
+    expect(result.headers.get("set-cookie")).toBeNull();
+  });
   it("expires only version pins and returns to the saved workspace view", async () => {
     const result = await GET(
       new Request(
