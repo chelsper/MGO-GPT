@@ -1,5 +1,15 @@
 # Society Letter Recovery
 
+## State-Name Address Comparison Follow-Up (Not Deployed)
+
+The October 9, 10:59 AM failure for Allana Forte and Brian Branch was traced read-only to the saved query using `Florida` while NXT's preferred addresses use `FL`. Street, city, and ZIP matched; both preferred addresses belonged to the expected household members and were active, unrestricted, and current. No appeal had been attempted. Returning the letter to review could not resolve that equivalent-text mismatch.
+
+- The address comparator now accepts the full name or two-letter abbreviation for the same US state (including DC), only when NXT explicitly identifies the country as the United States. It generates alternatives from NXT's structured state field, not a global replacement in the street, city, or saved letter. The mappings follow [USPS Publication 28, Appendix B](https://pe.usps.com/text/pub28/pub28apb.htm).
+- Street, unit, city, ZIP/ZIP+4, and nonempty country text still must match. Foreign/unknown-country addresses keep the existing exact comparison. Ownership, inactive/invalid/do-not-mail flags, dates, seasonal restrictions, consent, household links, and prior appeals retain their existing checks.
+- The saved document, recipient review, approval, date, and wording are never rewritten. After deployment, reload the page and continue the existing approved batch; do not choose Fix recipient details solely for the old Florida/FL warning. Continuing performs the normal fresh NXT checks and applies only missing appeals after explicit confirmation.
+- Four new regression cases failed before the fix and passed afterward. All 218 focused comparison/readiness/finalization tests passed, including Word/PDF recovery that preserves the approval and stored document while submitting each household member exactly once in a mocked NXT client. The full default suite passed 6,232 tests; 210 existing opt-in tests remained skipped. Typecheck, production build, and whitespace checks passed.
+- A second read-only comparison against the affected saved letter and current NXT profiles confirmed the new comparator matches both addresses. No constituent, appeal, approval, delivery, database setting, or deployment was changed. Evidence: `/tmp/ju-letter-state-address-` logs `red.log`, `tests.log`, `full-tests.log`, `typecheck.log`, and `build.log`; diagnostic summary `/tmp/ju-letter-address-diagnosis-verified.log` omits street addresses and credentials.
+
 ## In-Progress Navigation Follow-Up (Deployed October 9, 2026)
 
 The October 9 screenshot showed a pending bulk appeal confirmation. That intentionally disables other mutations, but the inline confirmation looked like ordinary page content, making the remaining controls appear broken. Saved address warnings are separate readiness failures; this change does not relax them or infer that the addresses are incorrect.

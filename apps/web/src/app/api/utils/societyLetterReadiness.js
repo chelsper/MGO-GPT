@@ -4,6 +4,7 @@ import { readinessReader, letterRecordId } from "./societyLetterReadinessNxt";
 import { recipientReviewForRow } from "./societyLetterRecipients";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { exclusionAppealWorkspace } from "./societyLetterExclusionAppeals";
+import { matchesPreferredLetterAddress } from "./societyLetterAddressMatch";
 import {
   letterDisposition,
   letterError,
@@ -457,14 +458,6 @@ export function evaluateLetterReadiness(
     const address = owner?.address;
     const start = date(address?.start),
       end = date(address?.end);
-    const composed = [
-      address?.address_lines,
-      [address?.city, address?.state, address?.postal_code]
-        .filter(Boolean)
-        .join(" "),
-    ]
-      .filter(Boolean)
-      .join("\n");
     if (
       !address ||
       owner.no_valid_address !== false ||
@@ -477,14 +470,7 @@ export function evaluateLetterReadiness(
       end === "invalid" ||
       (start && start > today) ||
       (end && end <= today) ||
-      !row.address ||
-      ![
-        composed,
-        [composed, address.country].filter(Boolean).join("\n"),
-        address.formatted_address,
-      ]
-        .filter(Boolean)
-        .some((a) => normalize(a) === normalize(row.address))
+      !matchesPreferredLetterAddress(row.address, address)
     )
       add(
         "The saved mailing address is not a current, unrestricted preferred NXT address. Review the address before previewing.",

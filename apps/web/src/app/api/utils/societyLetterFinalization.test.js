@@ -65,7 +65,11 @@ const definitions = [
 ];
 const hash = (v) =>
   createHash("sha256").update(JSON.stringify(v)).digest("hex");
-async function fixture(single = false, society = "presidents") {
+async function fixture(
+  single = false,
+  society = "presidents",
+  addressState = "FL",
+) {
   const settings = {
     sourceMode: "society_queries",
     societyKeys: ["presidents", "ood"],
@@ -73,7 +77,7 @@ async function fixture(single = false, society = "presidents") {
   };
   const period = letterPeriod(settings, today);
   const members = single ? ["10"] : ["10", "11"];
-  const address = "10 Test St\nJacksonville FL 32211";
+  const address = `10 Test St\nJacksonville ${addressState} 32211`;
   const row = {
     householdId: "10",
     members,
@@ -297,8 +301,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function draftFixture(format = "docx") {
-  const f = await fixture();
+async function draftFixture(format = "docx", addressState = "FL") {
+  const f = await fixture(false, "presidents", addressState);
   const documents = new Map();
   f.store.createPostalDraft = vi.fn(async (draft) => {
     f.state.postalDraft = structuredClone(draft);
@@ -1144,6 +1148,55 @@ describe("saved postal batch approvals", () => {
     ]);
     expect(f.state.history[0].letterAppeals.status).toBe("complete");
   });
+  it.each(["docx", "pdf"])(
+    "resumes an approved %s with a full state name without replacing or reviewing it again",
+    async (format) => {
+      const f = await draftFixture(format, "Florida");
+      for (const data of Object.values(f.profiles))
+        data.profile.address.country = "UNITED STATES";
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      const item = f.state.history[0];
+      item.letterAppeals.status = "needs_review";
+      item.letterAppeals.message =
+        "The saved mailing address is not a current, unrestricted preferred NXT address. Review the address before previewing.";
+      const before = structuredClone(item);
+      const documents = structuredClone([...f.documents.values()]);
+      const renders = renderSocietyLetter.mock.calls.length;
+      const reviews = structuredClone(f.state.recipient_reviews);
+      const sync = (...args) => syncLetterAppeals(...args, f.reader, f.client);
+      for (let attempt = 0; attempt < 2; attempt++)
+        await continuePostalBatch(
+          f.state,
+          definitions,
+          today,
+          { batchId: f.id, confirm: true },
+          f.store,
+          ctx,
+          sync,
+          f.read,
+        );
+      expect(item.letterAppeals.status).toBe("complete");
+      expect(f.client.create.mock.calls.map((args) => args[0])).toEqual([
+        "10",
+        "11",
+      ]);
+      expect(f.state.history).toHaveLength(1);
+      expect(item.postalApproval).toEqual(before.postalApproval);
+      expect(item.postalDocument).toEqual(before.postalDocument);
+      expect(item.address).toBe(before.address);
+      expect(item.letterDate).toBe(before.letterDate);
+      expect(item.letterAppeals.date).toBe(before.letterAppeals.date);
+      expect(item.letterAppeals.comments).toBe(before.letterAppeals.comments);
+      expect(f.state.recipient_reviews).toEqual(reviews);
+      expect([...f.documents.values()]).toEqual(documents);
+      expect(renderSocietyLetter).toHaveBeenCalledTimes(renders);
+      expect(f.store.approvePostalDraft).toHaveBeenCalledOnce();
+      expect(f.store.reserve).not.toHaveBeenCalled();
+      expect(() => assertLetterAppealsComplete([item])).not.toThrow();
+    },
+  );
   it("can discard only an unapproved draft, with explicit confirmation", async () => {
     const f = await draftFixture();
     await expect(discardPostalDraft(f.state, f.body, f.store)).rejects.toThrow(

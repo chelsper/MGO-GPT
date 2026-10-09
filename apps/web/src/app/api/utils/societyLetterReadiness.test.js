@@ -287,6 +287,103 @@ describe("read-only society readiness", () => {
       ),
     ).rejects.toThrow(/separate from exclusion/);
   });
+  it.each([false, true])(
+    "accepts Florida and FL as the same preferred US address (NXT full name: %s)",
+    async (fullName) => {
+      const { state, row, template, recipient } = await setup();
+      const members = { 10: member("10", "11"), 11: member("11", "10") };
+      members[10].profile.address.state = fullName ? "Florida" : "FL";
+      const saved = {
+        ...row,
+        ...recipient,
+        address: `10 Test St\nJacksonville, ${fullName ? "FL" : "Florida"} 32211`,
+      };
+      expect(
+        evaluateLetterReadiness(
+          saved,
+          template,
+          members,
+          state.readiness.policy,
+          definitions,
+          today,
+          "post",
+        ).status,
+      ).toBe("ready_for_preview");
+    },
+  );
+  it.each([
+    [
+      "no mail",
+      (m) => {
+        m.profile.address.do_not_mail = true;
+      },
+    ],
+    [
+      "unknown mail flag",
+      (m) => {
+        delete m.profile.address.do_not_mail;
+      },
+    ],
+    [
+      "inactive",
+      (m) => {
+        m.profile.address.inactive = true;
+      },
+    ],
+    [
+      "invalid address",
+      (m) => {
+        m.profile.no_valid_address = true;
+      },
+    ],
+    [
+      "foreign owner",
+      (m) => {
+        m.profile.address.constituent_id = "99";
+      },
+    ],
+    [
+      "future",
+      (m) => {
+        m.profile.address.start = "2027-01-01";
+      },
+    ],
+    [
+      "expired",
+      (m) => {
+        m.profile.address.end = today;
+      },
+    ],
+    [
+      "seasonal",
+      (m) => {
+        m.profile.address.seasonal_start = { m: 6, d: 1 };
+      },
+    ],
+  ])(
+    "keeps the %s restriction even when the state name is equivalent",
+    async (_label, mutate) => {
+      const { state, row, template, recipient } = await setup();
+      const members = { 10: member("10", "11"), 11: member("11", "10") };
+      mutate(members[10]);
+      const saved = {
+        ...row,
+        ...recipient,
+        address: "10 Test St\nJacksonville, Florida 32211",
+      };
+      expect(
+        evaluateLetterReadiness(
+          saved,
+          template,
+          members,
+          state.readiness.policy,
+          definitions,
+          today,
+          "post",
+        ).status,
+      ).toBe("needs_review");
+    },
+  );
   it("checks both spouses and preserves membership, choices, delivery flags, and history", async () => {
     const { state, row, run, reader } = await setup();
     const original = structuredClone({
