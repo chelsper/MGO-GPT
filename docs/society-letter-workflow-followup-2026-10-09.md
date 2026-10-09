@@ -28,10 +28,12 @@ preparation simplification below. These were deployed to JU in application commi
 - Approved documents, dates, household membership, and member receipts are not
   rewritten by recovery guidance. No migration or live data repair is required.
 
-Finding 4 is implemented as the local follow-on below, not included in that
-deployment. No document limits were increased.
+Finding 4 was subsequently deployed to JU in application commit
+`d471b3b13d429ff4c2b020af3a539af9ae2a3693`; see
+[the completed-letter release record](ju-letter-completed-subsets-release-2026-10-09.md).
+No document limits were increased.
 
-### Completed-Letter Subsets (Local Follow-On)
+### Completed-Letter Subsets
 
 - Mixed postal batches show completed recipients with checkboxes, selected and
   omitted counts, and the names/reasons of omitted letters. Newly completed
@@ -67,7 +69,8 @@ already run separately. Typecheck, production build, release-worktree check, and
 diff whitespace checks passed. The full-suite rerun had no unhandled errors after
 the timer cleanup. Existing non-fatal bundler/test warnings remain. No real letter,
 mailing, or appeal was used as a test. Hosted conversion and live NXT writes were
-not exercised; this follow-on is not yet deployed.
+not exercised. The later JU-only deployment and read-only smoke checks are
+recorded in the release link above.
 
 Evidence: `/tmp/ju-letter-subset-focused-final.log`,
 `/tmp/ju-letter-subset-full-final.log`,
