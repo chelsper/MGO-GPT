@@ -312,6 +312,92 @@ describe("read-only society readiness", () => {
     },
   );
   it.each([
+    ["valid", () => {}, "ready_for_preview"],
+    [
+      "no mail",
+      (m) => {
+        m.profile.address.do_not_mail = true;
+      },
+      "needs_review",
+    ],
+    [
+      "unknown permission",
+      (m) => {
+        delete m.profile.address.do_not_mail;
+      },
+      "needs_review",
+    ],
+    [
+      "inactive address",
+      (m) => {
+        m.profile.address.inactive = true;
+      },
+      "needs_review",
+    ],
+    [
+      "inactive organization",
+      (m) => {
+        m.profile.inactive = true;
+      },
+      "needs_review",
+    ],
+    [
+      "invalid address",
+      (m) => {
+        m.profile.no_valid_address = true;
+      },
+      "needs_review",
+    ],
+    [
+      "expired",
+      (m) => {
+        m.profile.address.end = today;
+      },
+      "needs_review",
+    ],
+    [
+      "seasonal",
+      (m) => {
+        m.profile.address.seasonal_start = { m: 6, d: 1 };
+      },
+      "needs_review",
+    ],
+    [
+      "restricted",
+      (m) => {
+        m.preferences.push({ id: "s1", solicit_code: "No Solicitation" });
+      },
+      "needs_review",
+    ],
+  ])(
+    "verifies an organization-name address prefix without bypassing %s checks",
+    async (_label, mutate, status) => {
+      const { state, row, template, recipient } = await setup();
+      const org = member("10");
+      Object.assign(org.profile, {
+        type: "Organization",
+        name: "Example Foundation",
+      });
+      mutate(org);
+      expect(
+        evaluateLetterReadiness(
+          {
+            ...row,
+            ...recipient,
+            members: ["10"],
+            address: `Example Foundation\n${address}`,
+          },
+          template,
+          { 10: org },
+          state.readiness.policy,
+          definitions,
+          today,
+          "post",
+        ).status,
+      ).toBe(status);
+    },
+  );
+  it.each([
     [
       "no mail",
       (m) => {

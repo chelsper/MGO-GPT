@@ -67,9 +67,26 @@ const US_COUNTRIES = new Set([
   "u.s.a.",
 ]);
 
-export function matchesPreferredLetterAddress(savedAddress, address) {
-  const saved = normalize(savedAddress);
-  if (!saved || !address) return false;
+export function matchesPreferredLetterAddress(
+  savedAddress,
+  address,
+  owner = null,
+) {
+  const original = normalize(savedAddress);
+  if (!original || !address) return false;
+  const saved = new Set([original]);
+  // A reviewed organization letter may put its name above the street. Accept
+  // only one exact, freshly verified owner-name line, never an arbitrary prefix.
+  const lines = String(savedAddress).trim().split(/\r?\n/);
+  if (
+    owner?.type === "Organization" &&
+    owner.id != null &&
+    String(owner.id) === String(address.constituent_id) &&
+    normalize(owner.name) &&
+    lines.length > 1 &&
+    normalize(lines[0]) === normalize(owner.name)
+  )
+    saved.add(normalize(lines.slice(1).join("\n")));
   const states = [address.state];
   // Vary only NXT's structured state field, never words in the saved street or
   // city. Unknown/foreign countries keep the original exact-text comparison.
@@ -93,5 +110,7 @@ export function matchesPreferredLetterAddress(savedAddress, address) {
       [composed, address.country].filter(Boolean).join("\n"),
     );
   }
-  return candidates.filter(Boolean).some((value) => normalize(value) === saved);
+  return candidates
+    .filter(Boolean)
+    .some((value) => saved.has(normalize(value)));
 }

@@ -11,6 +11,51 @@ const preferred = {
 const saved = "10 Test St\nApt 2\nJacksonville, Florida 32211-1234";
 
 describe("preferred letter address comparison", () => {
+  const orgAddress = { ...preferred, constituent_id: "50" };
+  const organization = {
+    id: "50",
+    type: "Organization",
+    name: "Example Foundation",
+  };
+  it("accepts one verified organization-name line and preserves the approved address", () => {
+    const text = `Example Foundation\r\n${saved}`;
+    const before = structuredClone({ orgAddress, organization });
+    expect(matchesPreferredLetterAddress(text, orgAddress, organization)).toBe(
+      true,
+    );
+    expect(matchesPreferredLetterAddress(saved, orgAddress, organization)).toBe(
+      true,
+    );
+    expect(
+      matchesPreferredLetterAddress(
+        text,
+        {
+          ...orgAddress,
+          address_lines: `Example Foundation\n${orgAddress.address_lines}`,
+        },
+        organization,
+      ),
+    ).toBe(true);
+    expect({ orgAddress, organization }).toEqual(before);
+  });
+  it.each([
+    [`Other Foundation\n${saved}`, organization],
+    [`Contact Name\n${saved}`, organization],
+    [`Example Foundation\nExample Foundation\n${saved}`, organization],
+    [`Example Foundation\n${saved.replace("Apt 2", "Apt 9")}`, organization],
+    [`Example Foundation\n${saved}`, { ...organization, type: "Individual" }],
+    [`Example Foundation\n${saved}`, { ...organization, id: "99" }],
+    [`Example Foundation\n${saved}`, { ...organization, name: "" }],
+    [`Example Foundation\n${saved}`, null],
+    ["Example Foundation\n", organization],
+  ])(
+    "does not strip unverified names or overlook actual address changes",
+    (text, owner) => {
+      expect(matchesPreferredLetterAddress(text, orgAddress, owner)).toBe(
+        false,
+      );
+    },
+  );
   it.each(["", "\nUNITED STATES"])(
     "accepts a full state name with optional country %s without changing either value",
     (country) => {

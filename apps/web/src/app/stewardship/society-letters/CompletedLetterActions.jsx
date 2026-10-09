@@ -10,12 +10,12 @@ export default function CompletedLetterActions({
   downloadBatch,
   setConfirmation,
 }) {
-  const ready = batch.items.filter(
-    (item) => item.status === "prepared" && completedPostalLetter(item),
-  );
+  const ready = batch.items.filter(completedPostalLetter);
   const [selected, setSelected] = useState(() => ready.map((item) => item.id));
   const [downloading, setDownloading] = useState(false);
   const items = ready.filter((item) => selected.includes(item.id));
+  const toMail = items.filter((item) => item.status === "prepared");
+  const readyToMail = ready.filter((item) => item.status === "prepared");
   const omitted = batch.items.filter(
     (item) => !items.some((chosen) => chosen.id === item.id),
   );
@@ -60,9 +60,10 @@ export default function CompletedLetterActions({
         Completed letters can move ahead
       </h3>
       <p className="mt-2 text-sm text-gray-700">
-        {ready.length} ready to mail; {blocked.length} still in progress;{" "}
-        {mailed.length} already mailed. Choose the completed letters to download
-        or record as mailed. Blocked letters stay saved in this batch.
+        {ready.length} available to download; {readyToMail.length} ready to
+        mail; {blocked.length} still in progress; {mailed.length} marked mailed.
+        Completed letters remain available to download after mailing. Blocked
+        letters stay saved in this batch.
       </p>
       <div className="my-3 flex flex-wrap gap-2">
         <button
@@ -98,6 +99,8 @@ export default function CompletedLetterActions({
               />
               <span>
                 <strong>{item.name}</strong> / {item.societyName}
+                {item.status === "mailed" &&
+                  " / Marked mailed; download available"}
               </span>
             </label>
           </li>
@@ -115,13 +118,11 @@ export default function CompletedLetterActions({
             {omitted.map((item) => (
               <li key={item.id}>
                 {item.name} /{" "}
-                {item.status === "mailed"
-                  ? "Already mailed"
-                  : item.status === "cancelled"
-                    ? "Cancelled or returned to review"
-                    : completedPostalLetter(item)
-                      ? "Not selected"
-                      : "Still in progress"}
+                {item.status === "cancelled"
+                  ? "Cancelled or returned to review"
+                  : completedPostalLetter(item)
+                    ? "Not selected"
+                    : "Still in progress"}
               </li>
             ))}
           </ul>
@@ -145,18 +146,18 @@ export default function CompletedLetterActions({
           Download selected letters (.zip)
         </button>
         <button
-          className={`${button} !bg-emerald-700 !text-white`}
-          disabled={disabled || !items.length}
+          className={button}
+          disabled={disabled || !toMail.length}
           onClick={() =>
             setConfirmation({
               action: "mail_selected_letters",
               batchId: batch.id,
-              deliveryIds: items.map((item) => item.id),
-              recipientNames: items.map(
+              deliveryIds: toMail.map((item) => item.id),
+              recipientNames: toMail.map(
                 (item) => `${item.name} / ${item.societyName}`,
               ),
-              title: `Mark ${items.length} selected ${items.length === 1 ? "letter" : "letters"} mailed?`,
-              description: `Confirm these letters have actually been dispatched by postal mail. Only the listed letters will be marked mailed. The other ${omitted.length} letters stay unchanged. This does not send anything or change NXT.`,
+              title: `Mark ${toMail.length} selected ${toMail.length === 1 ? "letter" : "letters"} mailed?`,
+              description: `Confirm these letters have actually been dispatched by postal mail. Only the listed letters will be marked mailed. The other ${batch.items.length - toMail.length} letters stay unchanged, including letters already marked mailed. This does not create or download files, send anything, or change NXT.`,
             })
           }
         >

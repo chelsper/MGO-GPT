@@ -75,7 +75,7 @@ describe("completed letter subset controls", () => {
     );
     expect(f.downloadBatch).not.toHaveBeenCalled();
   });
-  it("requires reselecting newly completed letters, excludes mailed letters, and drops invalid selections", () => {
+  it("requires reselecting newly completed letters, retains mailed downloads, and drops invalid selections", () => {
     const f = fixture();
     const { rerender } = render(<CompletedLetterActions {...f} />);
     f.batch = {
@@ -90,7 +90,10 @@ describe("completed letter subset controls", () => {
     expect(
       screen.getByRole("checkbox", { name: /New Example/ }),
     ).not.toBeChecked();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    expect(
+      screen.getByRole("checkbox", { name: /Alex Example/ }),
+    ).toBeChecked();
     expect(
       screen.getByRole("button", { name: "Mark selected letters mailed" }),
     ).toBeDisabled();
@@ -98,6 +101,62 @@ describe("completed letter subset controls", () => {
       screen.getByRole("button", { name: "Select all completed" }),
     );
     expect(screen.getByRole("checkbox", { name: /New Example/ })).toBeChecked();
+  });
+  it("keeps the download selector when all completed letters are marked mailed but the batch has a blocked letter", async () => {
+    const f = fixture();
+    f.batch.items[0].status = "mailed";
+    f.batch.items[1].status = "mailed";
+    render(<CompletedLetterActions {...f} />);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    expect(
+      screen.getByText(/2 available to download; 0 ready to mail/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Download selected letters (.zip)" }),
+    );
+    await waitFor(() =>
+      expect(f.downloadBatch).toHaveBeenCalledExactlyOnceWith(
+        f.batch.id,
+        undefined,
+        "docx",
+        [f.batch.items[0].id, "second"],
+      ),
+    );
+    expect(f.setConfirmation).not.toHaveBeenCalled();
+  });
+  it("downloads a mixed mailed/prepared selection but confirms mailing only for prepared letters", async () => {
+    const f = fixture();
+    f.batch.items[0].status = "mailed";
+    render(<CompletedLetterActions {...f} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Download selected print-ready PDF" }),
+    );
+    await waitFor(() =>
+      expect(f.downloadBatch).toHaveBeenCalledExactlyOnceWith(
+        f.batch.id,
+        undefined,
+        "combined-pdf",
+        [f.batch.items[0].id, "second"],
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Mark selected letters mailed" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    );
+    expect(f.setConfirmation).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        deliveryIds: ["second"],
+        recipientNames: ["Pat Example / President's Society"],
+        title: "Mark 1 selected letter mailed?",
+      }),
+    );
   });
   it("supports Word archives but not a misleading combined PDF for mixed formats", async () => {
     const f = fixture();

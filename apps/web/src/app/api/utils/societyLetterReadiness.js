@@ -473,7 +473,7 @@ export function evaluateLetterReadiness(
       end === "invalid" ||
       (start && start > today) ||
       (end && end <= today) ||
-      !matchesPreferredLetterAddress(row.address, address)
+      !matchesPreferredLetterAddress(row.address, address, owner)
     )
       add(
         "The saved mailing address is not a current, unrestricted preferred NXT address. Review the address before previewing.",

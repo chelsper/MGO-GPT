@@ -125,7 +125,7 @@ export default function LetterBatchCard({
           {batch.channel === "post" &&
             batch.items.some((i) => i.status === "prepared") && (
               <button
-                className={guided ? button : primary}
+                className={button}
                 disabled={
                   busy ||
                   printableItems.some(
@@ -139,7 +139,7 @@ export default function LetterBatchCard({
                     batchId: batch.id,
                     title: "Confirm these letters have been mailed",
                     description:
-                      "This records the prepared postal letters as mailed and covers their lower society tiers for the same period.",
+                      "Confirm these letters have actually been dispatched by postal mail. This records them as mailed and covers their lower society tiers for the same period. It does not create, download, print, or send the letters.",
                   })
                 }
               >

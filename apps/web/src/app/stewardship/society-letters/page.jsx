@@ -46,6 +46,7 @@ import QueryColumnMapper from "./QueryColumnMapper";
 import LetterSetupChecklist from "./LetterSetupChecklist";
 import PostalBatchApproval from "./PostalBatchApproval";
 import LetterHistoryFilters from "./LetterHistoryFilters";
+import LetterReleaseNotice from "./LetterReleaseNotice";
 import {
   matchesLetterHistory,
   searchLetterHistory,
@@ -1124,6 +1125,7 @@ export default function SocietyLettersPage() {
   }
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 text-gray-900 sm:px-8">
+      <LetterReleaseNotice busy={busy || refreshing || !!sendingBatch} />
       <a
         href={navigation.backHref}
         onClick={navigation.back}
