@@ -2,6 +2,10 @@
 
 Date: October 9, 2026. Scope: JU production Society Letter Creation, with emphasis on the saved letters still blocked at 3:50 PM Eastern. These findings describe the observed state and tested paths, not a guarantee against every future provider failure.
 
+Release update: the local address, download-access, and version-notice fixes below
+were subsequently deployed to JU. See [the final release verification](ju-letter-address-download-release-2026-10-09.md)
+for the deployed commit, additional routing correction, browser checks, and remaining holds.
+
 ## Executive findings
 
 1. **The user's browser was not running the deployed fixes.** The host-only, HttpOnly `__vdpl` cookie pinned it to the 11:13 AM deployment. Vercel runtime logs place the 3:48-3:52 PM workspace and API requests on that older release. A cookie-free production smoke test passed while this existing session still ran old code.
