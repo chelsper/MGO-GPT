@@ -25,7 +25,14 @@ afterEach(() => {
 
 describe("society-letter release discovery", () => {
   it("bypasses the version cookie without credentials and requires confirmation before navigation", async () => {
-    const fetch = vi.fn().mockResolvedValue(respond(newer));
+    const path = "/stewardship/society-letters?view=history#saved";
+    const fetch = vi.fn(async (url) =>
+      respond(
+        url.startsWith("/api/stewardship/")
+          ? { deploymentId: newer.deploymentId, returnTo: path }
+          : newer,
+      ),
+    );
     const assign = vi.fn();
     vi.stubGlobal("fetch", fetch);
     vi.stubGlobal("location", {
@@ -51,18 +58,17 @@ describe("society-letter release discovery", () => {
     expect(assign).not.toHaveBeenCalled();
     fireEvent.click(button);
     expect(assign).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
     confirm.mockReturnValue(true);
     fireEvent.click(button);
-    const destination = new URL(assign.mock.calls[0][0], "https://ju.test");
-    expect(destination.pathname).toBe(
-      "/api/stewardship/society-letters/reload",
-    );
-    expect(destination.searchParams.get("dpl")).toBe("dpl_new");
-    expect(destination.searchParams.get("expectedDeployment")).toBe("dpl_new");
-    expect(destination.searchParams.get("returnTo")).toBe(
-      "/stewardship/society-letters?view=history#saved",
-    );
-    expect(fetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(path));
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls[2][1]).toMatchObject({
+      credentials: "same-origin",
+      redirect: "error",
+      headers: { accept: "application/json", "x-deployment-id": "dpl_new" },
+    });
+    expect(fetch.mock.calls[3][1].headers).toBeUndefined();
   });
   it.each([
     { ...newer, commitSha: current },
@@ -123,5 +129,67 @@ describe("society-letter release discovery", () => {
     vi.stubGlobal("fetch", fetch);
     render(<LetterReleaseNotice buildCommit="" />);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps a retry on the workspace instead of navigating to a failed reset", async () => {
+    const fetch = vi.fn(async (url) =>
+      url.startsWith("/api/stewardship/")
+        ? { ok: false, status: 409 }
+        : respond(newer),
+    );
+    const assign = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("location", {
+      pathname: "/stewardship/society-letters",
+      search: "",
+      hash: "",
+      assign,
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<LetterReleaseNotice buildCommit={current} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Load latest version" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your saved letters are unchanged",
+    );
+    expect(assign).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Load latest version" }),
+    ).toBeEnabled();
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+  it("prevents repeat clicks and aborts update work when the workspace closes", async () => {
+    const assign = vi.fn();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(respond(newer))
+      .mockImplementation(
+        (_url, { signal }) =>
+          new Promise((_resolve, reject) =>
+            signal.addEventListener("abort", () =>
+              reject(new Error("cancelled")),
+            ),
+          ),
+      );
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("location", {
+      pathname: "/stewardship/society-letters",
+      search: "",
+      hash: "",
+      assign,
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const view = render(<LetterReleaseNotice buildCommit={current} />);
+    const button = await screen.findByRole("button", {
+      name: "Load latest version",
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    view.unmount();
+    expect(fetch.mock.calls[1][1].signal.aborted).toBe(true);
+    await act(async () => {});
+    expect(assign).not.toHaveBeenCalled();
   });
 });

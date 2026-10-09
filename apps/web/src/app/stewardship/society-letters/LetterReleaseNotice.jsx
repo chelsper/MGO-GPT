@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { recoverLetterRelease } from "./letterReleaseRecovery";
 
 export default function LetterReleaseNotice({
   busy = false,
   buildCommit = import.meta.env.VITE_GIT_COMMIT_SHA,
 }) {
   const [latest, setLatest] = useState(null);
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState(null);
+  const recovery = useRef(null);
+  useEffect(
+    () => () => {
+      recovery.current?.abort();
+      recovery.current = null;
+    },
+    [],
+  );
   useEffect(() => {
     if (!buildCommit) return;
     let controller;
@@ -76,30 +87,50 @@ export default function LetterReleaseNotice({
       <button
         type="button"
         className="mt-3 min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 font-semibold text-emerald-900 disabled:opacity-50"
-        disabled={busy}
-        onClick={() => {
+        disabled={busy || updating}
+        onClick={async () => {
           if (
             busy ||
+            recovery.current ||
             !window.confirm(
               "Have you saved your edits and paused any running batch? Load the latest version now?",
             )
           )
             return;
-          const query = new URLSearchParams({
-            dpl: latest,
-            expectedDeployment: latest,
-            returnTo:
+          const controller = new AbortController();
+          recovery.current = controller;
+          setUpdating(true);
+          setError(null);
+          const timeout = setTimeout(() => controller.abort(), 15000);
+          try {
+            const destination = await recoverLetterRelease(
               window.location.pathname +
-              window.location.search +
-              window.location.hash,
-          });
-          window.location.assign(
-            `/api/stewardship/society-letters/reload?${query}`,
-          );
+                window.location.search +
+                window.location.hash,
+              { signal: controller.signal },
+            );
+            if (!controller.signal.aborted) window.location.assign(destination);
+          } catch {
+            if (recovery.current === controller)
+              setError(
+                "The update could not be confirmed. Your saved letters are unchanged. Try loading the latest version again.",
+              );
+          } finally {
+            clearTimeout(timeout);
+            if (recovery.current === controller) {
+              recovery.current = null;
+              setUpdating(false);
+            }
+          }
         }}
       >
-        Load latest version
+        {updating ? "Loading latest version..." : "Load latest version"}
       </button>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-amber-900">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

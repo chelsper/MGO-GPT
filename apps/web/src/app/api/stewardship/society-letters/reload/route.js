@@ -47,9 +47,9 @@ export async function GET(request) {
       "Set-Cookie",
       `__vdpl=; Max-Age=0; Path=${path}; HttpOnly; Secure; SameSite=Lax`,
     );
-  headers.set(
-    "Location",
-    destination.pathname + destination.search + destination.hash,
-  );
+  const returnTo = destination.pathname + destination.search + destination.hash;
+  if (request.headers.get("accept") === "application/json")
+    return Response.json({ deploymentId: deployment, returnTo }, { headers });
+  headers.set("Location", returnTo);
   return new Response(null, { status: 303, headers });
 }
