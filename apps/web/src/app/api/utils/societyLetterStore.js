@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { letterError } from "@/utils/societyLetters";
 import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
+import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
 
 let ready;
 export function ensureSocietyLetterSchema() {
@@ -223,6 +224,44 @@ export async function acquireSocietyLetters(userId, revision) {
       if (rows.length !== 1)
         throw letterError(
           "The letter changed. Reload history before returning it to review; no reservation was released.",
+          409,
+        );
+    },
+    async mailSelectedLetters(batchId, items) {
+      selectedPostalLetters(
+        items,
+        batchId,
+        items.map((item) => item.id),
+      );
+      const audit = { at: new Date().toISOString(), by: userId };
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ), selected AS MATERIALIZED (
+        SELECT delivery.* FROM stewardship_letter_deliveries delivery
+        WHERE id IN (SELECT (item->>'id')::uuid FROM jsonb_array_elements(${JSON.stringify(items)}::jsonb) item)
+          AND EXISTS(SELECT 1 FROM lock) FOR UPDATE
+      ), matching AS (
+        SELECT delivery.id FROM selected delivery
+        JOIN jsonb_array_elements(${JSON.stringify(items)}::jsonb) item ON delivery.id = (item->>'id')::uuid
+        WHERE delivery.batch_id = ${batchId}::uuid AND delivery.status IN ('prepared', 'mailed')
+          AND delivery.status = item->>'status' AND delivery.provider_id IS NULL
+          AND delivery.payload->>'channel' = 'post'
+          AND delivery.payload->'members' = item->'members'
+          AND delivery.payload->'letterAppeals' = item->'letterAppeals'
+          AND delivery.payload->'postalDocument' = item->'postalDocument'
+          AND delivery.payload->'postalApproval' IS NOT DISTINCT FROM item->'postalApproval'
+          AND delivery.payload->'mailDispatch' IS NOT DISTINCT FROM item->'mailDispatch'
+      ), changed AS (
+        UPDATE stewardship_letter_deliveries SET status = 'mailed',
+          payload = jsonb_set(payload, '{mailDispatch}', ${JSON.stringify(audit)}::jsonb),
+          updated_by = ${userId}, updated_at = NOW()
+        WHERE id IN (SELECT id FROM matching) AND status = 'prepared'
+          AND (SELECT COUNT(*) FROM matching) = ${items.length} RETURNING id
+      ) SELECT (SELECT COUNT(*) FROM matching) AS matched, (SELECT COUNT(*) FROM changed) AS changed`;
+      if (Number(rows[0]?.matched) !== items.length)
+        throw letterError(
+          "The selected letters changed. Reload saved history before marking them mailed; no letters were changed.",
           409,
         );
     },

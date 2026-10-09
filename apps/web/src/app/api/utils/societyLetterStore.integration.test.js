@@ -15,6 +15,7 @@ import Papa from "papaparse";
 import { readStewardshipOverview } from "./stewardshipOverview";
 import { letterPeriod } from "@/utils/societyLetters";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
+import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
 
 const database = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({
@@ -141,6 +142,121 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  async function dispatchFixture() {
+    const store = await acquireSocietyLetters(1, 0);
+    const first = completedLetter();
+    const second = completedLetter({ id: randomUUID(), householdId: "20" });
+    const blocked = {
+      ...unsubmittedLetter(),
+      id: randomUUID(),
+      householdId: "30",
+    };
+    const foreign = completedLetter({
+      id: randomUUID(),
+      batchId: randomUUID(),
+      householdId: "40",
+    });
+    await store.reserve([first, second, blocked, foreign]);
+    return { store, first, second, blocked, foreign };
+  }
+  it("atomically mails only selected completed letters, retaining blocked reservations and audit on a repeat", async () => {
+    const f = await dispatchFixture();
+    const before = await readSocietyLetterState();
+    await f.store.mailSelectedLetters(f.first.batchId, [f.second, f.first]);
+    const after = await readSocietyLetterState();
+    for (const original of [f.first, f.second]) {
+      const row = after.history.find((entry) => entry.id === original.id);
+      expect(row.status).toBe("mailed");
+      expect(row.mailDispatch).toEqual({ at: expect.any(String), by: 1 });
+      expect(row.postalDocument).toEqual(original.postalDocument);
+      expect(row.letterAppeals).toEqual(original.letterAppeals);
+    }
+    for (const original of [f.blocked, f.foreign])
+      expect(after.history.find((entry) => entry.id === original.id)).toEqual(
+        before.history.find((entry) => entry.id === original.id),
+      );
+    await f.store.mailSelectedLetters(
+      f.first.batchId,
+      after.history.filter((entry) =>
+        [f.first.id, f.second.id].includes(entry.id),
+      ),
+    );
+    expect((await readSocietyLetterState()).history).toEqual(after.history);
+    await expect(
+      f.store.reserve([{ ...f.blocked, id: randomUUID() }]),
+    ).rejects.toThrow();
+    await f.store.release();
+  });
+  it.each([
+    "receipt",
+    "document",
+    "membership",
+    "approval",
+    "status",
+    "deleted",
+  ])(
+    "makes no partial dispatch change when a selected %s changed",
+    async (kind) => {
+      const f = await dispatchFixture();
+      const id = literal(f.second.id);
+      if (kind === "status")
+        await execute(
+          `UPDATE stewardship_letter_deliveries SET status='cancelled' WHERE id=${id}`,
+        );
+      else if (kind === "deleted")
+        await execute(
+          `DELETE FROM stewardship_letter_deliveries WHERE id=${id}`,
+        );
+      else {
+        const key = {
+          receipt: "letterAppeals",
+          document: "postalDocument",
+          membership: "members",
+          approval: "postalApproval",
+        }[kind];
+        await execute(
+          `UPDATE stewardship_letter_deliveries SET payload=payload - '${key}' WHERE id=${id}`,
+        );
+      }
+      const before = await readSocietyLetterState();
+      await expect(
+        f.store.mailSelectedLetters(f.first.batchId, [f.first, f.second]),
+      ).rejects.toMatchObject({ status: 409 });
+      expect((await readSocietyLetterState()).history).toEqual(before.history);
+      await f.store.release();
+    },
+  );
+  it("rejects a stolen lease without marking any selected letter mailed", async () => {
+    const f = await dispatchFixture();
+    const before = await readSocietyLetterState();
+    await execute(
+      "UPDATE stewardship_letters SET lease_until = NOW() - INTERVAL '1 second' WHERE id=1",
+    );
+    const other = await acquireSocietyLetters(1, before.revision);
+    await expect(
+      f.store.mailSelectedLetters(f.first.batchId, [f.first, f.second]),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await readSocietyLetterState()).history).toEqual(before.history);
+    await f.store.release();
+    await expect(
+      acquireSocietyLetters(1, before.revision),
+    ).rejects.toMatchObject({ status: 409 });
+    await other.release();
+  });
+  it("does not accept blocked, foreign-batch, or duplicate members of a mailing selection", async () => {
+    const f = await dispatchFixture();
+    const before = await readSocietyLetterState();
+    for (const selected of [
+      [f.first, f.blocked],
+      [f.first, f.foreign],
+      [f.first, f.first],
+    ])
+      await expect(
+        f.store.mailSelectedLetters(f.first.batchId, selected),
+      ).rejects.toThrow();
+    expect((await readSocietyLetterState()).history).toEqual(before.history);
+    await f.store.release();
+  });
   it("returns one unattempted letter atomically, retaining documents, wording, and other reservations", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const original = unsubmittedLetter();

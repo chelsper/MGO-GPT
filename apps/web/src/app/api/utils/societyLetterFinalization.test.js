@@ -1456,6 +1456,42 @@ describe("saved postal batch approvals", () => {
     ]);
     expect(f.state.history[0].letterAppeals.status).toBe("complete");
   });
+  it("continues the remaining letter after partial mailing without touching the mailed household", async () => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    await f.approve();
+    const mailed = {
+      ...structuredClone(f.state.history[0]),
+      id: "already-mailed",
+      householdId: "20",
+      members: ["20", "21"],
+      status: "mailed",
+      mailDispatch: { at: "2026-10-09T12:00:00Z", by: 7 },
+      letterAppeals: {
+        status: "complete",
+        members: [
+          { id: "20", status: "verified" },
+          { id: "21", status: "verified" },
+        ],
+      },
+    };
+    f.state.history.unshift(mailed);
+    const before = structuredClone(mailed);
+    await continuePostalBatch(
+      f.state,
+      definitions,
+      today,
+      { batchId: f.id, confirm: true },
+      f.store,
+      ctx,
+      (...args) => syncLetterAppeals(...args, f.reader, f.client),
+      f.read,
+    );
+    expect(f.client.create.mock.calls.map(([id]) => id)).toEqual(["10", "11"]);
+    expect(f.state.history[1].letterAppeals.status).toBe("complete");
+    expect(mailed).toEqual(before);
+  });
   it.each(["docx", "pdf"])(
     "continues an approved %s with blank optional address fields without recreating it",
     async (format) => {

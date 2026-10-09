@@ -12,6 +12,7 @@ import { LETTER_COLUMNS, LETTER_TAGS } from "@/utils/societyLetters";
 import { societyQuerySettings } from "../../../../test/societyQueryFixture";
 import { sourceForSociety } from "./SocietyQueryEditors";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
+import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
 const household = {
   householdId: "10",
   name: "Sample Household",
@@ -406,6 +407,83 @@ describe("society letter workspace", () => {
       ],
     };
   }
+  it("downloads and marks only completed letters mailed from a blocked batch, with one explicit confirmation", async () => {
+    const ready = completedLetter({ name: "Ready Example" });
+    const blocked = {
+      ...unsubmittedLetter(),
+      id: "blocked",
+      name: "Blocked Example",
+    };
+    const payload = { ...base, history: [ready, blocked] };
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => "blob:selected"),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    fetchMock.mockImplementation(async (requestUrl, options) => {
+      const params = new URL(requestUrl, "https://example.org").searchParams;
+      if (params.has("download")) {
+        expect(params.getAll("selectedDeliveryId")).toEqual([ready.id]);
+        expect(params.get("format")).toBe("combined-pdf");
+        return new Response("fake selected PDF");
+      }
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        expect(body.action).toBe("mail_selected_letters");
+        expect(body.confirm).toBe(true);
+        expect(body.deliveryIds).toEqual([ready.id]);
+        expect(body.revision).toBe(1);
+        ready.status = "mailed";
+        payload.revision++;
+      }
+      return Response.json(payload);
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/stewardship/society-letters?view=history",
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Download selected print-ready PDF",
+      }),
+    );
+    await waitFor(() => expect(anchorClick).toHaveBeenCalledOnce());
+    expect(ready.status).toBe("prepared");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Mark 1 selected letter mailed?",
+    });
+    expect(
+      within(dialog).getByText("Ready Example / President's Society"),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByText(/Blocked Example/),
+    ).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(0);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm", exact: true }),
+    );
+    await waitFor(() => expect(ready.status).toBe("mailed"));
+    expect(
+      await screen.findByText(/1 selected letter is recorded as mailed/),
+    ).toBeVisible();
+    expect(blocked.status).toBe("prepared");
+    expect(blocked.letterAppeals.status).toBe("pending");
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(1);
+  });
   it("finishes selected saved letters with current revisions and unlocks PDFs without another approval", async () => {
     const payload = savedBatch();
     payload.history.push({

@@ -44,6 +44,24 @@ async function fixture(count = 2) {
 }
 
 describe("print-ready approved PDF batches", () => {
+  it("combines an explicit completed subset in approved order without reading a blocked document", async () => {
+    const f = await fixture(3);
+    f.items[1].letterAppeals.status = "pending";
+    const before = structuredClone(f.items);
+    const merged = await PDFDocument.load(
+      await postalBatchPrintPdf([f.items[2], f.items[0]], f.read),
+    );
+    expect(
+      merged
+        .getPages()
+        .map((page) => page.node.get(PDFName.of("TestOrder")).decodeText()),
+    ).toEqual(["0-0", "2-0"]);
+    expect(f.read.mock.calls.map(([id]) => id)).toEqual([
+      f.items[0].postalDocument.id,
+      f.items[2].postalDocument.id,
+    ]);
+    expect(f.items).toEqual(before);
+  });
   it("copies every page in approved order with sizes and rotations intact, without changing stored records", async () => {
     const f = await fixture();
     const before = structuredClone({ items: f.items, records: f.records });

@@ -4,6 +4,7 @@ import { LetterAppealStatus } from "./FinalPostalLetterDialog";
 import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
 import { letterAppealRecovery } from "@/utils/societyLetterVerification";
 import { focusSavedLetter, savedLetterElementId } from "./letterHistoryFocus";
+import CompletedLetterActions from "./CompletedLetterActions";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
@@ -198,6 +199,13 @@ export default function LetterBatchCard({
           batch's downloads or mailing.
         </p>
       )}
+      <CompletedLetterActions
+        key={`completed-${batch.id}`}
+        batch={batch}
+        busy={busy || !!sendingBatch}
+        downloadBatch={downloadBatch}
+        setConfirmation={setConfirmation}
+      />
       {attentionItems.length > 0 && (
         <section
           aria-label="Letters needing attention"

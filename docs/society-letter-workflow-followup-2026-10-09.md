@@ -3,7 +3,9 @@
 ## Implementation Update
 
 The subsequent implementation addresses findings 1-3 and the one-click document
-preparation simplification below. These are local changes, not yet deployed.
+preparation simplification below. These were deployed to JU in application commit
+`5340476102b5eb5d1cdf6b2f47c32e12fb33a1c8`; see
+[the release record](ju-letter-recovery-release-2026-10-09.md).
 
 - Main batch, selected-letter recovery, individual continuation, and manual
   verification share a saved-pause guard. Early requests do not issue NXT calls,
@@ -26,9 +28,51 @@ preparation simplification below. These are local changes, not yet deployed.
 - Approved documents, dates, household membership, and member receipts are not
   rewritten by recovery guidance. No migration or live data repair is required.
 
-Finding 4 remains a separate next step: explicit download/dispatch operations for
-completed subsets of a partly blocked batch. No partial-mailing behavior or
-document limits were changed in this implementation.
+Finding 4 is implemented as the local follow-on below, not included in that
+deployment. No document limits were increased.
+
+### Completed-Letter Subsets (Local Follow-On)
+
+- Mixed postal batches show completed recipients with checkboxes, selected and
+  omitted counts, and the names/reasons of omitted letters. Newly completed
+  recipients are not silently added to an existing selection.
+- Staff can download selected saved documents as a ZIP or one print-ready PDF
+  in approved order. Subset filenames explicitly include `selected`. Existing
+  full-batch downloads still mean the full batch and still reject blocked items.
+- `GET ?download=<batch>&selectedDeliveryId=<id>...` accepts at most 10 distinct
+  IDs from that batch. Every selected letter must have complete household
+  receipts and a saved document. All bytes are verified; invalid selections or
+  corrupt documents fail rather than silently omitting a letter. No template
+  rendering, PDF conversion, NXT update, or mailing-status change occurs.
+- `POST action=mail_selected_letters` requires confirmation of physical dispatch,
+  current workspace revision, batch ID, and explicit delivery IDs. Saved documents
+  are verified first. Under the workspace lease, one SQL statement locks the
+  selected deliveries and compares all receipt, membership, document, approval,
+  and dispatch snapshots before changing any delivery status. A changed or invalid
+  selection changes no letters. Existing mailed items retain their original audit;
+  newly mailed items record staff ID and timestamp in `mailDispatch`.
+- Incomplete letters retain their documents and reservations. Later continuation
+  skips already-mailed letters; existing history filters and status counts keep
+  mixed batches available in each applicable view. No migration is needed.
+- A small unrelated lifecycle cleanup cancels the Team Discussion deep-link scroll
+  timer on unmount. The first broad test and targeted rerun exposed its existing
+  post-teardown exception. A regression test verifies cancellation; no test was
+  disabled or relaxed.
+
+Follow-on verification: focused letter suite including isolated PGlite passed
+**1,207 tests**, with only the hosted-PDF and supplied-template sample checks
+skipped. This includes **26 database tests**. The final full default suite passed
+**6,329 tests**, with **219 opt-in tests skipped**, including the 26 database tests
+already run separately. Typecheck, production build, release-worktree check, and
+diff whitespace checks passed. The full-suite rerun had no unhandled errors after
+the timer cleanup. Existing non-fatal bundler/test warnings remain. No real letter,
+mailing, or appeal was used as a test. Hosted conversion and live NXT writes were
+not exercised; this follow-on is not yet deployed.
+
+Evidence: `/tmp/ju-letter-subset-focused-final.log`,
+`/tmp/ju-letter-subset-full-final.log`,
+`/tmp/ju-letter-subset-typecheck-final.log`, and
+`/tmp/ju-letter-subset-build-final.log`.
 
 Implementation verification:
 
@@ -43,8 +87,10 @@ Implementation verification:
   hosted PDF conversion and a supplied-template sample export, neither rerun here.
 - Type checking and the production build passed. Build output retained existing
   bundler warnings; there were no build errors.
-- No live NXT writes, production repair, hosted PDF request, deployment, or
-  sandbox change was performed. Local/mock checks are not live-provider proof.
+- During the original local implementation checks, no live NXT writes,
+  production repair, hosted PDF request, deployment, or sandbox change was
+  performed. The later JU-only release is recorded above. Local/mock checks are
+  not live-provider proof.
 - Logs: `/tmp/ju-letter-recovery-full-tests-final.log`,
   `/tmp/ju-letter-recovery-focused-final.log`,
   `/tmp/ju-letter-recovery-database.log`,

@@ -66,6 +66,8 @@ import {
 } from "@/app/api/utils/societyLetterPostalBatches";
 
 import { returnLetterToReview } from "@/app/api/utils/societyLetterRecovery";
+import { mailSelectedLetters } from "@/app/api/utils/societyLetterDispatch";
+import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
 
 export const maxDuration = 120;
 const headers = {
@@ -141,7 +143,7 @@ export async function GET(request) {
     }
     const batchId = params.get("download");
     if (batchId) {
-      const items = state.history.filter(
+      let items = state.history.filter(
         (item) =>
           item.batchId === batchId &&
           item.channel === "post" &&
@@ -150,6 +152,15 @@ export async function GET(request) {
       if (!items.length)
         throw letterError("Prepared postal batch not found.", 404);
       const deliveryId = new URL(request.url).searchParams.get("deliveryId");
+      const selectedIds = params.getAll("selectedDeliveryId");
+      if (selectedIds.length) {
+        if (deliveryId)
+          throw letterError(
+            "Choose either an individual letter or selected letters, not both.",
+            400,
+          );
+        items = selectedPostalLetters(state.history, batchId, selectedIds);
+      }
       if (params.get("format") === "combined-pdf") {
         if (deliveryId)
           throw letterError("Choose the whole batch for a print-ready PDF.");
@@ -158,8 +169,9 @@ export async function GET(request) {
           headers: {
             ...headers,
             "Content-Type": "application/pdf",
-            "Content-Disposition":
-              'attachment; filename="society-letters-print-ready.pdf"',
+            "Content-Disposition": selectedIds.length
+              ? 'attachment; filename="society-letters-selected-print-ready.pdf"'
+              : 'attachment; filename="society-letters-print-ready.pdf"',
           },
         });
       }
@@ -203,7 +215,9 @@ export async function GET(request) {
           headers: {
             ...headers,
             "Content-Type": "application/zip",
-            "Content-Disposition": 'attachment; filename="society-letters.zip"',
+            "Content-Disposition": selectedIds.length
+              ? 'attachment; filename="society-letters-selected.zip"'
+              : 'attachment; filename="society-letters.zip"',
           },
         },
       );
@@ -338,6 +352,7 @@ export async function POST(request) {
       "prepare",
       "send",
       "mailed",
+      "mail_selected_letters",
       "cancel",
       "verify",
       "exclude_recipient",
@@ -380,6 +395,9 @@ export async function POST(request) {
     let batchId;
     let bulkAppealUpdate;
     switch (body.action) {
+      case "mail_selected_letters":
+        await mailSelectedLetters(state, body, store);
+        break;
       case "return_letter_to_review":
         await returnLetterToReview(state, body, store);
         break;

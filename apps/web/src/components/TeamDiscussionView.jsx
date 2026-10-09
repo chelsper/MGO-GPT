@@ -557,6 +557,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") === "Resolved" ? "Resolved" : "Open");
   const openedLink = useRef(null);
+  const linkedScrollTimer = useRef(null);
   const [viewMode, setViewMode] = useState("date");
   const [editingItem, setEditingItem] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -671,6 +672,8 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
     return () => window.clearTimeout(timeoutId);
   }, [recentlySavedId]);
 
+  useEffect(() => () => window.clearTimeout(linkedScrollTimer.current), []);
+
   useEffect(() => {
     if (typeof window === "undefined" || !discussionItems.length) return;
 
@@ -705,7 +708,9 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
     setViewMode("date");
     setStatusFilter(matchedItem.status || "Open");
 
-    window.setTimeout(() => {
+    window.clearTimeout(linkedScrollTimer.current);
+    linkedScrollTimer.current = window.setTimeout(() => {
+      linkedScrollTimer.current = null;
       const target = document.getElementById(`discussion-card-${matchedItem.id}`);
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 50);

@@ -41,7 +41,7 @@ export async function postalBatchPrintPdf(items, read) {
     )
   )
     throw letterError(
-      "One print-ready PDF requires a complete approved PDF batch. Word and individual letter downloads remain available.",
+      "One print-ready PDF requires completed, approved PDF letters from the same batch. Word and individual letter downloads remain available.",
       409,
     );
   assertLetterAppealsComplete(items);

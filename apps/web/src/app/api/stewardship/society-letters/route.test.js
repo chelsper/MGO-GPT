@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { unsubmittedLetter } from "../../../../../test/societyLetterRecoveryFixture";
+import { completedLetter } from "../../../../../test/societyLetterDispatchFixture";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   workspace: vi.fn(),
@@ -11,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   prepare: vi.fn(),
   finish: vi.fn(),
+  mailSelected: vi.fn(),
+  postalDownload: vi.fn(),
   returnLetter: vi.fn(),
   release: vi.fn(),
   exclusion: vi.fn(),
@@ -55,7 +58,7 @@ vi.mock("@/app/api/utils/societyLetterPostalBatches", () => ({
   updateLetterDates: mocks.letterDates,
   continuePostalBatch: mocks.postalContinue,
   savedPostalDocument: mocks.postalDocument,
-  postalBatchDownload: vi.fn(),
+  postalBatchDownload: mocks.postalDownload,
 }));
 vi.mock(
   "@/app/api/utils/societyLetterFinalization",
@@ -152,12 +155,109 @@ beforeEach(() => {
   mocks.acquire.mockResolvedValue({
     release: mocks.release,
     finishBatch: mocks.finish,
+    mailSelectedLetters: mocks.mailSelected,
     returnLetterToReview: mocks.returnLetter,
   });
   mocks.exclusionRemoval.mockResolvedValue(undefined);
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("downloads only explicit completed IDs while the full batch remains blocked", async () => {
+    const ready = completedLetter();
+    const blocked = { ...unsubmittedLetter(), id: "blocked" };
+    mocks.read.mockResolvedValue({ history: [ready, blocked] });
+    mocks.printPdf.mockResolvedValue(Buffer.from("selected-pdf"));
+    mocks.postalDownload.mockResolvedValue(Buffer.from("selected-zip"));
+    const path = `${url}?download=${ready.batchId}`;
+    expect((await GET(new Request(`${path}&format=combined-pdf`))).status).toBe(
+      409,
+    );
+    const pdf = await GET(
+      new Request(`${path}&format=combined-pdf&selectedDeliveryId=${ready.id}`),
+    );
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get("content-disposition")).toContain(
+      "selected-print-ready.pdf",
+    );
+    expect(mocks.printPdf).toHaveBeenCalledExactlyOnceWith([ready]);
+    const zip = await GET(
+      new Request(`${path}&selectedDeliveryId=${ready.id}`),
+    );
+    expect(zip.status).toBe(200);
+    expect(zip.headers.get("content-disposition")).toContain("selected.zip");
+    expect(mocks.postalDownload).toHaveBeenCalledExactlyOnceWith([ready]);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+  });
+  it.each(["blocked", "missing", "foreign", "duplicate", "mixed-individual"])(
+    "rejects %s downloads without silently skipping selected letters",
+    async (kind) => {
+      const ready = completedLetter();
+      const other = completedLetter({ id: "other" });
+      if (kind === "blocked")
+        other.letterAppeals.members[0].status = "uncertain";
+      if (kind === "foreign") other.batchId = "other-batch";
+      mocks.read.mockResolvedValue({ history: [ready, other] });
+      const extra =
+        kind === "mixed-individual"
+          ? `&deliveryId=${ready.id}`
+          : `&selectedDeliveryId=${kind === "missing" ? "missing" : kind === "duplicate" ? ready.id : other.id}`;
+      const response = await GET(
+        new Request(
+          `${url}?download=${ready.batchId}&format=combined-pdf&selectedDeliveryId=${ready.id}${extra}`,
+        ),
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(mocks.printPdf).not.toHaveBeenCalled();
+      expect(mocks.mailSelected).not.toHaveBeenCalled();
+    },
+  );
+  it("marks the exact completed selection mailed with confirmation and no NXT write", async () => {
+    const ready = completedLetter();
+    mocks.read.mockResolvedValue({
+      history: [ready, { ...unsubmittedLetter(), id: "blocked" }],
+    });
+    const body = {
+      action: "mail_selected_letters",
+      revision: 3,
+      batchId: ready.batchId,
+      deliveryIds: [ready.id],
+    };
+    expect((await POST(request(body))).status).toBe(422);
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+    expect(
+      (await POST(request({ ...body, confirm: true, automatic: true }))).status,
+    ).toBe(422);
+    expect((await POST(request({ ...body, confirm: true }))).status).toBe(200);
+    expect(mocks.postalDocument).toHaveBeenCalledExactlyOnceWith(
+      ready.postalDocument,
+    );
+    expect(mocks.mailSelected).toHaveBeenCalledExactlyOnceWith(ready.batchId, [
+      ready,
+    ]);
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+  });
+  it("will not use subset IDs to partially perform a whole-batch mailing", async () => {
+    const ready = completedLetter();
+    mocks.read.mockResolvedValue({
+      history: [ready, { ...unsubmittedLetter(), id: "blocked" }],
+    });
+    const response = await POST(
+      request({
+        action: "mailed",
+        revision: 3,
+        confirm: true,
+        batchId: ready.batchId,
+        deliveryIds: [ready.id],
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+  });
   it("returns only the saved unsubmitted letter with explicit confirmation and no NXT operation", async () => {
     const item = unsubmittedLetter();
     mocks.read.mockResolvedValue({ history: [item] });
@@ -239,6 +339,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "update_letter_dates",
     "continue_postal_batch",
     "return_letter_to_review",
+    "mail_selected_letters",
   ])(
     "restricts %s to authorized reviewers and current revisions",
     async (action) => {

@@ -99,6 +99,13 @@ function BatchConfirmation({ value, busy, onCancel, onConfirm }) {
         {value.title}
       </h2>
       <p className="my-4 text-gray-600">{value.description}</p>
+      {value.recipientNames && (
+        <ul className="mb-4 max-h-60 list-disc overflow-y-auto pl-5 text-sm">
+          {value.recipientNames.map((name, index) => (
+            <li key={index}>{name}</li>
+          ))}
+        </ul>
+      )}
       <div className="flex gap-3">
         <button autoFocus className={button} disabled={busy} onClick={onCancel}>
           Go back
@@ -425,6 +432,7 @@ export default function SocietyLettersPage() {
   const [reviewFilter, setReviewFilter] = useState("all");
   const [attentionFilter, setAttentionFilter] = useState("all");
   const [reviewNotice, setReviewNotice] = useState("");
+  const [dispatchNotice, setDispatchNotice] = useState("");
   const [sampleViews, setSampleViews] = useState([]);
   const setupContent = useRef(null);
   const [setupNavigation, setSetupNavigation] = useState(0);
@@ -502,12 +510,18 @@ export default function SocietyLettersPage() {
       setBusy(false);
     }
   }
-  async function downloadBatch(batchId, deliveryId, format = "docx") {
+  async function downloadBatch(
+    batchId,
+    deliveryId,
+    format = "docx",
+    selectedIds,
+  ) {
     setError("");
     setOperationBlockers([]);
     try {
       const params = new URLSearchParams({ download: batchId });
       if (deliveryId) params.set("deliveryId", deliveryId);
+      selectedIds?.forEach((id) => params.append("selectedDeliveryId", id));
       if (!deliveryId && format === "combined-pdf")
         params.set("format", "combined-pdf");
       const response = await fetch(`${endpoint}?${params}`, {
@@ -519,8 +533,12 @@ export default function SocietyLettersPage() {
         deliveryId
           ? `society-letter.${format}`
           : format === "combined-pdf"
-            ? "society-letters-print-ready.pdf"
-            : "society-letters.zip",
+            ? selectedIds
+              ? "society-letters-selected-print-ready.pdf"
+              : "society-letters-print-ready.pdf"
+            : selectedIds
+              ? "society-letters-selected.zip"
+              : "society-letters.zip",
       );
     } catch (err) {
       setError(
@@ -545,6 +563,7 @@ export default function SocietyLettersPage() {
       setError("");
       setOperationBlockers([]);
       setReviewNotice("");
+      setDispatchNotice("");
     }
     try {
       const response = await fetch(endpoint, {
@@ -1061,6 +1080,10 @@ export default function SocietyLettersPage() {
         setSendingBatch(action.batchId);
     } else {
       const result = await act({ ...action, confirm: true });
+      if (action.action === "mail_selected_letters" && result)
+        setDispatchNotice(
+          `${action.deliveryIds.length} selected ${action.deliveryIds.length === 1 ? "letter is" : "letters are"} recorded as mailed. Other letters in this batch are unchanged.`,
+        );
       if (action.action === "restart" && result?.job?.status === "running")
         setRefreshing(true);
       if (action.action === "update_letter_dates" && result)
@@ -1227,6 +1250,14 @@ export default function SocietyLettersPage() {
               </button>
             ))}
           </nav>
+          {dispatchNotice && (
+            <p
+              role="status"
+              className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
+            >
+              {dispatchNotice}
+            </p>
+          )}
           {setupOpen && (
             <>
               <nav
