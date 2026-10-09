@@ -65,6 +65,8 @@ import {
   postalBatchDownload,
 } from "@/app/api/utils/societyLetterPostalBatches";
 
+import { returnLetterToReview } from "@/app/api/utils/societyLetterRecovery";
+
 export const maxDuration = 120;
 const headers = {
   "Cache-Control": "private, no-store",
@@ -361,6 +363,7 @@ export async function POST(request) {
       "discard_postal_draft",
       "update_letter_dates",
       "continue_postal_batch",
+      "return_letter_to_review",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -376,6 +379,9 @@ export async function POST(request) {
     let batchId;
     let bulkAppealUpdate;
     switch (body.action) {
+      case "return_letter_to_review":
+        await returnLetterToReview(state, body, store);
+        break;
       case "finish_selected_letter_appeals":
         bulkAppealUpdate = await finishSelectedLetterAppeals(
           state,
@@ -694,7 +700,8 @@ export async function POST(request) {
         if (body.confirm !== true)
           throw letterError("Confirm this batch action first.");
         const items = state.history.filter(
-          (item) => item.batchId === body.batchId,
+          (item) =>
+            item.batchId === body.batchId && item.status !== "cancelled",
         );
         if (
           !items.some((item) =>

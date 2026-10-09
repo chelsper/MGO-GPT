@@ -38,6 +38,137 @@ const batch = (status = "pending") => ({
 });
 
 describe("saved postal approval UX", () => {
+  it("unlocks after a definite failure is resolved, without submitting the next letter", async () => {
+    const failed = batch();
+    failed.items[0].letterAppeals.status = "needs_review";
+    const act = vi.fn().mockResolvedValue({ history: failed.items });
+    const view = render(
+      <PostalBatchRunner batch={batch()} busy={false} act={act} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Create approved letters and apply appeals",
+        }),
+      ).toBeDisabled(),
+    );
+    view.rerender(<PostalBatchRunner batch={failed} busy={false} act={act} />);
+    const resolved = structuredClone(failed);
+    resolved.items[0].letterAppeals.status = "complete";
+    resolved.items[0].letterAppeals.members[0].status = "verified";
+    view.rerender(
+      <PostalBatchRunner batch={resolved} busy={false} act={act} />,
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    ).toBeEnabled();
+    expect(act).toHaveBeenCalledOnce();
+  });
+  it.each(["pending", "uncertain", "cooldown", "failed-read"])(
+    "reloads %s receipts read-only after a transport stop",
+    async (scenario) => {
+      const original = batch();
+      const act = vi.fn().mockResolvedValue(null);
+      const loaded = batch();
+      loaded.items.forEach((item) => {
+        item.status = "prepared";
+      });
+      if (scenario === "uncertain")
+        loaded.items[0].letterAppeals.members[0].status = "uncertain";
+      if (scenario === "cooldown")
+        loaded.items[0].letterAppeals.verificationFailure = {
+          checkedAt: new Date().toISOString(),
+          retryAfterMs: 300000,
+        };
+      const reload = vi
+        .fn()
+        .mockResolvedValue(
+          scenario === "failed-read" ? null : { history: loaded.items },
+        );
+      const view = render(
+        <PostalBatchRunner
+          batch={original}
+          busy={false}
+          act={act}
+          onReload={reload}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Create approved letters and apply appeals",
+        }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", {
+            name: "Create approved letters and apply appeals",
+          }),
+        ).toBeDisabled(),
+      );
+      view.rerender(
+        <PostalBatchRunner
+          batch={structuredClone(original)}
+          busy={false}
+          act={act}
+          onReload={reload}
+        />,
+      );
+      expect(
+        screen.getByRole("button", {
+          name: "Create approved letters and apply appeals",
+        }),
+      ).toBeDisabled();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Reload saved batch status" }),
+      );
+      await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+      if (scenario === "pending")
+        await waitFor(() =>
+          expect(
+            screen.getByRole("button", {
+              name: "Create approved letters and apply appeals",
+            }),
+          ).toBeEnabled(),
+        );
+      else
+        expect(
+          screen.getByRole("button", {
+            name: "Create approved letters and apply appeals",
+          }),
+        ).toBeDisabled();
+      expect(act).toHaveBeenCalledOnce();
+    },
+  );
+  it("does not start a newly approved batch during a saved NXT cooldown", () => {
+    const pending = batch();
+    pending.items[0].letterAppeals.verificationFailure = {
+      checkedAt: new Date().toISOString(),
+      retryAfterMs: 300000,
+    };
+    const act = vi.fn();
+    render(
+      <PostalBatchRunner
+        batch={pending}
+        busy={false}
+        act={act}
+        autoStart
+        onAutoStartConsumed={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Create approved letters and apply appeals",
+      }),
+    ).toBeDisabled();
+    expect(act).not.toHaveBeenCalled();
+  });
   it("unlocks continuation after automatic read-only confirmation, without starting any writes", async () => {
     const pending = batch();
     const unresolved = batch();

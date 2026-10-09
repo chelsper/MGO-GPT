@@ -7,6 +7,7 @@ import {
   normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
+import { letterAppealRetryAt } from "@/utils/societyLetterVerification";
 import { renderSocietyLetter } from "./societyLetterDocuments";
 import {
   previewFinalPostalLetter,
@@ -409,6 +410,15 @@ export async function continuePostalBatch(
     )
     .sort((a, b) => a.postalApproval.index - b.postalApproval.index);
   if (!items.length) throw letterError("Approved postal batch not found.", 404);
+  const retryAt = Math.max(
+    0,
+    ...items.map((item) => letterAppealRetryAt(item.letterAppeals)),
+  );
+  if (retryAt > Date.now())
+    throw letterError(
+      `NXT requested a pause until ${new Date(retryAt).toISOString()}. Reload saved status afterward.`,
+      429,
+    );
   // Never skip over an unresolved household and silently continue writing other records.
   if (
     items.some((i) =>

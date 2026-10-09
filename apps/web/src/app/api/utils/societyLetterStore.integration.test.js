@@ -1,10 +1,20 @@
-// Opt-in: use an ephemeral local PostgreSQL cluster, never DATABASE_URL.
+// @vitest-environment node
+// Opt-in: use an ephemeral PostgreSQL cluster or in-memory PGlite, never DATABASE_URL.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import Papa from "papaparse";
 import { readStewardshipOverview } from "./stewardshipOverview";
 import { letterPeriod } from "@/utils/societyLetters";
+import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 
 const database = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({
@@ -18,10 +28,14 @@ import {
 } from "./societyLetterStore";
 
 const socket = process.env.STEWARDSHIP_TEST_PG_SOCKET;
-const enabled = /^\/(?:private\/)?tmp\/stewardship-pg\.[A-Za-z0-9]+$/.test(
+const modulePath = process.env.STEWARDSHIP_PGLITE_MODULE;
+const validSocket = /^\/(?:private\/)?tmp\/stewardship-pg\.[A-Za-z0-9]+$/.test(
   socket || "",
 );
-function execute(statement) {
+const enabled = validSocket || Boolean(modulePath);
+let pg;
+async function execute(statement) {
+  if (pg) return (await pg.exec(statement)).flatMap((result) => result.rows);
   const output = execFileSync(
     process.env.STEWARDSHIP_TEST_PSQL || "psql",
     [
@@ -77,6 +91,20 @@ function literal(value) {
 }
 describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   beforeAll(async () => {
+    if (modulePath) {
+      if (
+        socket ||
+        !/^\/(?:private\/)?tmp\/.+\/node_modules\/@electric-sql\/pglite\/dist\/index\.js$/.test(
+          modulePath,
+        )
+      ) {
+        throw new Error(
+          "Choose only an isolated /tmp PGlite runtime or test socket",
+        );
+      }
+      const { PGlite } = await import(/* @vite-ignore */ modulePath);
+      pg = await PGlite.create();
+    }
     database.query = async (parts, values) =>
       execute(
         parts.reduce(
@@ -85,16 +113,19 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
           "",
         ),
       );
-    execute(
+    await execute(
       "CREATE TABLE IF NOT EXISTS users(id BIGINT PRIMARY KEY); INSERT INTO users(id) VALUES(1) ON CONFLICT DO NOTHING;",
     );
     await ensureSocietyLetterSchema();
-    execute(
+    await execute(
       "CREATE TABLE IF NOT EXISTS organization_settings(id INTEGER PRIMARY KEY, time_zone TEXT); INSERT INTO organization_settings VALUES (1, 'America/New_York') ON CONFLICT DO NOTHING; CREATE TABLE IF NOT EXISTS data_change_requests(id BIGINT PRIMARY KEY, source_pending_action_id BIGINT, status TEXT, needed_by DATE);",
     );
+  }, 30000);
+  afterAll(async () => {
+    await pg?.close();
   });
-  beforeEach(() => {
-    execute(
+  beforeEach(async () => {
+    await execute(
       "TRUNCATE data_change_requests, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
@@ -110,6 +141,101 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("returns one unattempted letter atomically, retaining documents, wording, and other reservations", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = unsubmittedLetter();
+    const state = await readSocietyLetterState();
+    state.recipient_reviews = {
+      example: { values: { salutation: "Alex and Pat" }, savedBy: 1 },
+    };
+    await store.save(state);
+    const draft = { id: original.batchId, status: "draft", entries: [] };
+    await store.createPostalDraft(draft);
+    const document = {
+      id: original.postalDocument.id,
+      householdId: "10",
+      sha256: original.postalDocument.sha256,
+      content: "ZmljdGlvbmFs",
+    };
+    await store.savePostalDraft(draft, document);
+    const other = {
+      ...unsubmittedLetter(),
+      id: randomUUID(),
+      householdId: "20",
+      members: ["20"],
+      letterAppeals: {
+        status: "pending",
+        members: [{ id: "20", status: "pending" }],
+      },
+    };
+    await store.approvePostalDraft({ ...draft, status: "approved" }, [
+      original,
+      other,
+    ]);
+    await store.returnLetterToReview(original);
+    const saved = await readSocietyLetterState();
+    const returned = saved.history.find((i) => i.id === original.id);
+    expect(returned).toMatchObject({
+      status: "cancelled",
+      returnToReview: { by: 1, reason: "no_nxt_submission_attempted" },
+      letterAppeals: original.letterAppeals,
+      postalDocument: original.postalDocument,
+      postalApproval: original.postalApproval,
+    });
+    expect(saved.history.find((i) => i.id === other.id).status).toBe(
+      "prepared",
+    );
+    expect(saved.recipient_reviews).toEqual(state.recipient_reviews);
+    expect((await readPostalDocument(document.id)).content).toBe(
+      document.content,
+    );
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    await store.reserve([
+      { ...original, id: randomUUID(), batchId: randomUUID() },
+    ]);
+    expect((await readSocietyLetterState()).history).toHaveLength(3);
+    await store.release();
+  });
+  it("compares the durable receipt and rejects stale no-attempt claims after an intent checkpoint", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = unsubmittedLetter();
+    await store.reserve([original]);
+    const attempted = structuredClone(original);
+    attempted.letterAppeals.members[1].status = "uncertain";
+    attempted.letterAppeals.members[1].attemptedAt = "2026-10-09T12:00:00Z";
+    await store.saveLetterAppeals(attempted);
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await readSocietyLetterState()).history[0]).toMatchObject({
+      status: "prepared",
+      letterAppeals: attempted.letterAppeals,
+    });
+    await expect(store.returnLetterToReview(attempted)).rejects.toMatchObject({
+      status: 409,
+    });
+    await store.release();
+  });
+  it("cannot return a letter with an expired or replaced lease", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = unsubmittedLetter();
+    await store.reserve([original]);
+    await execute(
+      "UPDATE stewardship_letters SET lease_until=NOW()-INTERVAL '1 second' WHERE id=1;",
+    );
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    const state = await readSocietyLetterState();
+    const next = await acquireSocietyLetters(1, state.revision);
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await readSocietyLetterState()).history[0].status).toBe("prepared");
+    await next.release();
+  });
   it("reads the overview with real JSONB projections without changing saved work", async () => {
     const store = await acquireSocietyLetters(1, 0);
     const state = await readSocietyLetterState();
@@ -148,7 +274,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       status: "draft",
       entries: [],
     });
-    execute(
+    await execute(
       "INSERT INTO data_change_requests VALUES (1, 100, 'Open', '2000-01-01'), (2, 101, 'In Progress', '2100-01-01'), (3, 102, 'Completed', '2000-01-01'), (4, NULL, 'Open', '2000-01-01');",
     );
     const before = await readSocietyLetterState();
@@ -462,7 +588,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     const store = await acquireSocietyLetters(1, 0);
     const first = item();
     await store.reserve([first]);
-    execute(
+    await execute(
       "UPDATE stewardship_letters SET lease_until=NOW()-INTERVAL '1 second' WHERE id=1;",
     );
     await expect(

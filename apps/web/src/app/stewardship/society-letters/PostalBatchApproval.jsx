@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import SavedLetterPreview from "./SavedLetterPreview";
+import { letterAppealRetryAt } from "@/utils/societyLetterVerification";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 disabled:cursor-not-allowed disabled:opacity-50";
@@ -372,6 +373,7 @@ export function PostalBatchRunner({
   act,
   autoStart = false,
   onAutoStartConsumed,
+  onReload,
 }) {
   const run = useRef(false);
   const startedFromApproval = useRef(false);
@@ -392,23 +394,58 @@ export function PostalBatchRunner({
   const paused = batch.items.some(
     (i) => i.letterAppeals?.status === "needs_review",
   );
-  const wasUncertain = useRef(uncertain);
+  const retryAt = Math.max(
+    0,
+    ...batch.items.map((item) => letterAppealRetryAt(item.letterAppeals)),
+  );
+  const waiting = retryAt > Date.now();
+  const receiptKey = JSON.stringify(
+    batch.items.map((item) => [item.id, item.status, item.letterAppeals]),
+  );
+  const previousReceipts = useRef(receiptKey);
   useEffect(() => {
-    // A read-only reconciliation can unlock Continue, but never starts writes.
-    if (wasUncertain.current && !uncertain && !paused) setStopped(false);
-    wasUncertain.current = uncertain;
-  }, [uncertain, paused]);
+    // Resolve definite failures as well as uncertain ones, but only from new
+    // saved receipts. An unrelated render must not clear a transport stop.
+    if (
+      previousReceipts.current !== receiptKey &&
+      !uncertain &&
+      !paused &&
+      !waiting
+    )
+      setStopped(false);
+    previousReceipts.current = receiptKey;
+  }, [receiptKey, uncertain, paused, waiting]);
+  async function reloadStatus() {
+    const result = await onReload?.();
+    const items = result?.history?.filter(
+      (item) => item.batchId === batch.id && item.status === "prepared",
+    );
+    if (
+      items?.length &&
+      items.every(
+        (item) =>
+          item.letterAppeals &&
+          item.letterAppeals.status !== "needs_review" &&
+          !item.letterAppeals.members.some(
+            (member) => member.status === "uncertain",
+          ) &&
+          letterAppealRetryAt(item.letterAppeals) <= Date.now(),
+      )
+    )
+      setStopped(false);
+  }
   useEffect(() => {
     // Only an approval click in this page session starts processing. Reloading
     // saved history never writes to NXT, and a consumed approval never retries.
     if (autoStart && !busy && !startedFromApproval.current) {
       startedFromApproval.current = true;
       onAutoStartConsumed?.();
-      if (!uncertain && !paused && completed < batch.items.length) start();
+      if (!uncertain && !paused && !waiting && completed < batch.items.length)
+        start();
     }
   }, [autoStart, busy]);
   async function start() {
-    if (run.current) return;
+    if (run.current || uncertain || waiting) return;
     run.current = true;
     setRunning(true);
     setStopped(false);
@@ -422,7 +459,9 @@ export function PostalBatchRunner({
         setStopped(true);
         break;
       }
-      const items = result.history.filter((i) => i.batchId === batch.id);
+      const items = result.history.filter(
+        (i) => i.batchId === batch.id && i.status !== "cancelled",
+      );
       if (
         !items.length ||
         items.every((i) => i.letterAppeals?.status === "complete") ||
@@ -465,13 +504,29 @@ export function PostalBatchRunner({
                 : "This batch needs attention. Review the member receipts below. Your approved letters are kept."}
             </p>
           )}
+          {waiting && (
+            <p role="status" className="mt-2 text-sm">
+              NXT requested a pause until {new Date(retryAt).toLocaleString()}.
+              Reload saved status afterward; no updates will start
+              automatically.
+            </p>
+          )}
+          {(stopped || waiting) && onReload && (
+            <button
+              className={`${button} mt-3`}
+              disabled={busy || running}
+              onClick={reloadStatus}
+            >
+              Reload saved batch status
+            </button>
+          )}
           <p className="mt-3 text-sm">
             Your approval is saved. Continue this same batch without reviewing
             the letters again.
           </p>
           <button
             className={`${button} mt-3 !bg-emerald-700 !text-white`}
-            disabled={busy || running || uncertain || stopped}
+            disabled={busy || running || uncertain || stopped || waiting}
             onClick={start}
           >
             {running

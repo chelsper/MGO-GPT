@@ -369,6 +369,33 @@ async function draftFixture(format = "docx") {
 }
 
 describe("saved postal batch approvals", () => {
+  it("respects a saved NXT cooldown before reading documents or continuing updates", async () => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    await f.approve();
+    f.state.history[0].letterAppeals.verificationFailure = {
+      checkedAt: new Date().toISOString(),
+      retryAfterMs: 300000,
+    };
+    const sync = vi.fn();
+    f.read.mockClear();
+    await expect(
+      continuePostalBatch(
+        f.state,
+        definitions,
+        today,
+        { batchId: f.id, confirm: true },
+        f.store,
+        ctx,
+        sync,
+        f.read,
+      ),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(sync).not.toHaveBeenCalled();
+    expect(f.read).not.toHaveBeenCalled();
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
   it.each(["running", "paused"])(
     "does not let an optional %s preflight block document preparation or approval",
     async (status) => {

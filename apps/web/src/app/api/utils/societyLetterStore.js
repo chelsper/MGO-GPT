@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { letterError } from "@/utils/societyLetters";
+import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
 
 let ready;
 export function ensureSocietyLetterSchema() {
@@ -192,6 +193,36 @@ export async function acquireSocietyLetters(userId, revision) {
       if (!rows.length)
         throw letterError(
           "The letter update could not be saved. Reload history and verify NXT status; do not create another letter.",
+          409,
+        );
+    },
+    async returnLetterToReview(item) {
+      if (!canReturnLetterToReview(item))
+        throw letterError(
+          "Only an approved letter with no attempted NXT updates can return to review.",
+          409,
+        );
+      const audit = {
+        at: new Date().toISOString(),
+        by: userId,
+        reason: "no_nxt_submission_attempted",
+      };
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ) UPDATE stewardship_letter_deliveries
+        SET status = 'cancelled', payload = jsonb_set(payload, '{returnToReview}', ${JSON.stringify(audit)}::jsonb),
+          updated_by = ${userId}, updated_at = NOW()
+        WHERE id = ${item.id}::uuid AND batch_id = ${item.batchId}::uuid
+          AND status = 'prepared' AND provider_id IS NULL AND payload->>'channel' = 'post'
+          AND payload->'letterAppeals' = ${JSON.stringify(item.letterAppeals)}::jsonb
+          AND payload->'members' = ${JSON.stringify(item.members)}::jsonb
+          AND payload->'postalApproval' = ${JSON.stringify(item.postalApproval)}::jsonb
+          AND payload->'postalDocument' = ${JSON.stringify(item.postalDocument)}::jsonb
+          AND EXISTS(SELECT 1 FROM lock) RETURNING id`;
+      if (rows.length !== 1)
+        throw letterError(
+          "The letter changed. Reload history before returning it to review; no reservation was released.",
           409,
         );
     },

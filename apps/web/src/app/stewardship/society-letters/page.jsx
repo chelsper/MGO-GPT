@@ -478,14 +478,22 @@ export default function SocietyLettersPage() {
       );
   }
   async function load() {
+    if (inFlight.current) return null;
+    inFlight.current = true;
+    setBusy(true);
     try {
       const response = await fetch(endpoint, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error);
       accept(payload);
       setError("");
+      return payload;
     } catch (err) {
       setError(err.message || "Could not load stewardship.");
+      return null;
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
     }
   }
   async function downloadBatch(batchId, deliveryId, format = "docx") {
@@ -835,15 +843,19 @@ export default function SocietyLettersPage() {
             ? batch.id === workspaceBatchId
             : batch.items.every((item) => item.postalApproval) &&
               batch.items.some(
-                (item) => item.letterAppeals?.status !== "complete",
+                (item) =>
+                  item.status === "prepared" &&
+                  item.letterAppeals?.status !== "complete",
               ),
         );
   const activeWork = Boolean(data?.postalDraft || workspaceBatch);
   const guidedPostal = queryPostal && (channel === "post" || activeWork);
   const batchComplete = Boolean(
-    workspaceBatch?.items.every(
-      (item) => item.letterAppeals?.status === "complete",
-    ),
+    workspaceBatch?.items.filter((item) => item.status !== "cancelled").length >
+      0 &&
+    workspaceBatch.items
+      .filter((item) => item.status !== "cancelled")
+      .every((item) => item.letterAppeals?.status === "complete"),
   );
   const recipientChoicesSaved = selected.length
     ? selectedRows.length === selected.length && selectedRows.every(canPrepare)
@@ -926,6 +938,7 @@ export default function SocietyLettersPage() {
         historySearch={guided ? "" : historySearch}
         receiptIds={receiptIds}
         setReceiptIds={setReceiptIds}
+        onReload={load}
       />
     );
   }
@@ -1000,6 +1013,27 @@ export default function SocietyLettersPage() {
         setReviewNotice(
           `Uncreated letters use ${result.today}. Saved recipient reviews were kept. Previously created letters are unchanged.`,
         );
+      if (action.action === "return_letter_to_review" && result) {
+        setApprovedPostalStart(null);
+        setWorkspaceBatchId(null);
+        setShowRecipients(true);
+        setSearch("");
+        setSocietyFilter("");
+        setReviewFilter("all");
+        setAttentionFilter("all");
+        const row = result.rows.find(
+          (item) => item.householdId === action.householdId,
+        );
+        setSelected(
+          row?.status === "ready" && row.recipientReview?.editable
+            ? [row.householdId]
+            : [],
+        );
+        setReviewNotice(
+          "Letter returned to review. Saved wording was kept and no NXT records changed. Other letters remain in Letter history. Refresh membership if this recipient is not currently in the holding list.",
+        );
+        setTab("ready");
+      }
     }
   }
   return (

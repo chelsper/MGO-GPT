@@ -11,6 +11,7 @@ import Page from "./page";
 import { LETTER_COLUMNS, LETTER_TAGS } from "@/utils/societyLetters";
 import { societyQuerySettings } from "../../../../test/societyQueryFixture";
 import { sourceForSociety } from "./SocietyQueryEditors";
+import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 const household = {
   householdId: "10",
   name: "Sample Household",
@@ -100,6 +101,67 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("returns an unsubmitted approved letter to its holding row with saved review and no extra writes", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/stewardship/society-letters?view=history",
+    );
+    const item = unsubmittedLetter();
+    const row = reviewRow("10", true);
+    const workspace = {
+      ...base,
+      settings: societyQuerySettings(),
+      history: [item],
+      rows: [
+        {
+          ...row,
+          status: "held",
+          recipientReview: { ...row.recipientReview, editable: false },
+        },
+      ],
+    };
+    fetchMock.mockImplementation(async (_url, opts) => {
+      if (opts?.method === "POST") {
+        const body = JSON.parse(opts.body);
+        expect(body).toMatchObject({
+          action: "return_letter_to_review",
+          deliveryId: item.id,
+          revision: 1,
+          confirm: true,
+        });
+        item.status = "cancelled";
+        item.returnToReview = { at: "2026-10-09T12:00:00Z", by: 1 };
+        workspace.rows = [row];
+        workspace.revision++;
+      }
+      return Response.json(workspace);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Return to review" }),
+    );
+    expect(
+      fetchMock.mock.calls.filter(([, opts]) => opts?.method === "POST"),
+    ).toHaveLength(0);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm", exact: true }),
+    );
+    await screen.findByText(
+      /Letter returned to review. Saved wording was kept/,
+    );
+    expect(window.location.search).toBe("");
+    expect(
+      screen.getByRole("checkbox", { name: "Select Household 10" }),
+    ).toBeChecked();
+    expect(screen.getByText(/1 selected/)).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([, opts]) => opts?.method === "POST"),
+    ).toHaveLength(1);
+    expect(workspace.rows[0].recipientReview.values).toEqual(
+      row.recipientReview.values,
+    );
+  });
   function savedBatch(status = "pending") {
     const row = reviewRow("10", true);
     return {

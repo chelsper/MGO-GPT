@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { unsubmittedLetter } from "../../../../../test/societyLetterRecoveryFixture";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   workspace: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   prepare: vi.fn(),
   finish: vi.fn(),
+  returnLetter: vi.fn(),
   release: vi.fn(),
   exclusion: vi.fn(),
   recipient: vi.fn(),
@@ -150,11 +152,78 @@ beforeEach(() => {
   mocks.acquire.mockResolvedValue({
     release: mocks.release,
     finishBatch: mocks.finish,
+    returnLetterToReview: mocks.returnLetter,
   });
   mocks.exclusionRemoval.mockResolvedValue(undefined);
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("returns only the saved unsubmitted letter with explicit confirmation and no NXT operation", async () => {
+    const item = unsubmittedLetter();
+    mocks.read.mockResolvedValue({ history: [item] });
+    const body = {
+      action: "return_letter_to_review",
+      revision: 3,
+      deliveryId: item.id,
+    };
+    expect((await POST(request(body))).status).toBe(422);
+    expect(mocks.returnLetter).not.toHaveBeenCalled();
+    expect(
+      (await POST(request({ ...body, confirm: true, automatic: true }))).status,
+    ).toBe(422);
+    expect(mocks.returnLetter).not.toHaveBeenCalled();
+    expect((await POST(request({ ...body, confirm: true }))).status).toBe(200);
+    expect(mocks.returnLetter).toHaveBeenCalledExactlyOnceWith(item);
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+  });
+  it("does not trust client claims that a submitted spouse is pending", async () => {
+    const item = unsubmittedLetter();
+    item.letterAppeals.members[1].attemptedAt = "2026-10-09T12:00:00Z";
+    mocks.read.mockResolvedValue({ history: [item] });
+    expect(
+      (
+        await POST(
+          request({
+            action: "return_letter_to_review",
+            revision: 3,
+            deliveryId: item.id,
+            confirm: true,
+            letterAppeals: unsubmittedLetter().letterAppeals,
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(mocks.returnLetter).not.toHaveBeenCalled();
+  });
+  it("mails only active confirmed letters after one unsubmitted letter was returned", async () => {
+    const returned = {
+      ...unsubmittedLetter(),
+      status: "cancelled",
+      returnToReview: { by: 1 },
+    };
+    const ready = { ...unsubmittedLetter(), id: "ready" };
+    ready.letterAppeals.status = "complete";
+    ready.letterAppeals.members.forEach((m) => {
+      m.status = "verified";
+    });
+    mocks.read.mockResolvedValue({ history: [returned, ready] });
+    expect(
+      (
+        await POST(
+          request({
+            action: "mailed",
+            revision: 3,
+            batchId: ready.batchId,
+            confirm: true,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect(mocks.finish).toHaveBeenCalledWith(ready.batchId, "mailed");
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+  });
   it.each([
     "preview_final_postal",
     "finalize_postal",
@@ -169,6 +238,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "discard_postal_draft",
     "update_letter_dates",
     "continue_postal_batch",
+    "return_letter_to_review",
   ])(
     "restricts %s to authorized reviewers and current revisions",
     async (action) => {

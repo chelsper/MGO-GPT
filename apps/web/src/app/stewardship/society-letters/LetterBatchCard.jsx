@@ -1,6 +1,7 @@
 import { PostalBatchRunner } from "./PostalBatchApproval";
 import LetterBatchSummary from "./LetterBatchSummary";
 import { LetterAppealStatus } from "./FinalPostalLetterDialog";
+import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
@@ -34,6 +35,7 @@ export default function LetterBatchCard({
   historySearch = "",
   receiptIds,
   setReceiptIds,
+  onReload,
 }) {
   const printableItems = batch.items.filter(
     (item) => item.status !== "cancelled",
@@ -77,7 +79,7 @@ export default function LetterBatchCard({
                 className={
                   guided &&
                   !printReadyPdf &&
-                  batch.items.every(
+                  printableItems.every(
                     (item) => item.letterAppeals?.status === "complete",
                   )
                     ? primary
@@ -85,7 +87,7 @@ export default function LetterBatchCard({
                 }
                 disabled={
                   busy ||
-                  batch.items.some(
+                  printableItems.some(
                     (i) =>
                       i.letterAppeals && i.letterAppeals.status !== "complete",
                   )
@@ -93,7 +95,7 @@ export default function LetterBatchCard({
                 onClick={() => downloadBatch(batch.id)}
               >
                 Download{" "}
-                {batch.items.every((i) => i.postalDocument?.format === "pdf")
+                {printableItems.every((i) => i.postalDocument?.format === "pdf")
                   ? "PDF"
                   : "Word"}{" "}
                 letters (.zip)
@@ -105,7 +107,7 @@ export default function LetterBatchCard({
                 className={guided ? button : primary}
                 disabled={
                   busy ||
-                  batch.items.some(
+                  printableItems.some(
                     (i) =>
                       i.letterAppeals && i.letterAppeals.status !== "complete",
                   )
@@ -169,16 +171,25 @@ export default function LetterBatchCard({
           does not update NXT or mark letters mailed.
         </p>
       )}
-      {batch.items.every((i) => i.postalApproval) && (
-        <PostalBatchRunner
-          key={batch.id}
-          batch={batch}
-          busy={busy || !!sendingBatch}
-          act={act}
-          autoStart={autoStart}
-          onAutoStartConsumed={onAutoStartConsumed}
-        />
+      {batch.items.some((item) => item.returnToReview) && (
+        <p className="mt-3 text-sm text-gray-600">
+          {batch.items.filter((item) => item.returnToReview).length} returned to
+          review. These letters are kept in history but are not included in this
+          batch's downloads or mailing.
+        </p>
       )}
+      {printableItems.length > 0 &&
+        printableItems.every((i) => i.postalApproval) && (
+          <PostalBatchRunner
+            key={batch.id}
+            batch={{ ...batch, items: printableItems }}
+            busy={busy || !!sendingBatch}
+            act={act}
+            autoStart={autoStart}
+            onAutoStartConsumed={onAutoStartConsumed}
+            onReload={onReload}
+          />
+        )}
       <LetterBatchSummary items={batch.items} />
       <details
         className="mt-4"
@@ -186,11 +197,14 @@ export default function LetterBatchCard({
           !!historySearch.trim() ||
           batch.items.some((i) =>
             guided
-              ? i.letterAppeals?.status === "needs_review" ||
-                i.letterAppeals?.members?.some(
-                  (member) => member.status === "uncertain",
-                )
-              : i.letterAppeals && i.letterAppeals.status !== "complete",
+              ? i.status !== "cancelled" &&
+                (i.letterAppeals?.status === "needs_review" ||
+                  i.letterAppeals?.members?.some(
+                    (member) => member.status === "uncertain",
+                  ))
+              : i.status !== "cancelled" &&
+                i.letterAppeals &&
+                i.letterAppeals.status !== "complete",
           ) ||
           undefined
         }
@@ -203,30 +217,61 @@ export default function LetterBatchCard({
             <li key={item.id} className="border-t pt-3 text-sm">
               <p>
                 <strong>{item.name}</strong> / {item.societyName} /{" "}
-                {item.letterAppeals && item.letterAppeals.status !== "complete"
-                  ? item.letterAppeals.status === "needs_review"
-                    ? "Reserved: appeal updates need attention"
-                    : "Reserved: appeal updates pending"
-                  : labels[item.status]}
+                {item.returnToReview
+                  ? "Returned to review; no appeal submitted"
+                  : item.letterAppeals &&
+                      item.status !== "cancelled" &&
+                      item.letterAppeals.status !== "complete"
+                    ? item.letterAppeals.status === "needs_review"
+                      ? "Reserved: appeal updates need attention"
+                      : "Reserved: appeal updates pending"
+                    : labels[item.status]}
               </p>
-              <LetterAppealStatus
-                item={item}
-                automatic
-                busy={busy}
-                onVerify={() =>
-                  act({
-                    action: "verify_letter_appeals",
-                    deliveryId: item.id,
-                  })
-                }
-                onContinue={() =>
-                  act({
-                    action: "continue_letter_appeals",
-                    deliveryId: item.id,
-                    confirm: true,
-                  })
-                }
-              />
+              {item.status !== "cancelled" && (
+                <LetterAppealStatus
+                  item={item}
+                  automatic
+                  busy={busy}
+                  onVerify={() =>
+                    act({
+                      action: "verify_letter_appeals",
+                      deliveryId: item.id,
+                    })
+                  }
+                  onContinue={() =>
+                    act({
+                      action: "continue_letter_appeals",
+                      deliveryId: item.id,
+                      confirm: true,
+                    })
+                  }
+                />
+              )}
+              {canReturnLetterToReview(item) && (
+                <button
+                  className={`${button} mt-3`}
+                  disabled={busy || !!sendingBatch}
+                  onClick={() =>
+                    setConfirmation({
+                      action: "return_letter_to_review",
+                      deliveryId: item.id,
+                      householdId: item.householdId,
+                      title: `Return ${item.name} to review?`,
+                      description:
+                        "No NXT update has been attempted for this letter. Return only this recipient to the holding list and keep the saved wording. The approved document stays in history, but will no longer be printable from this batch. Nothing is sent or removed from NXT; other letters stay unchanged.",
+                    })
+                  }
+                >
+                  Return to review
+                </button>
+              )}
+              {item.returnToReview && (
+                <p className="mt-2 text-gray-600">
+                  Returned {new Date(item.returnToReview.at).toLocaleString()}.
+                  Saved recipient choices were kept. Review and approve a new
+                  document before any appeal update.
+                </p>
+              )}
               <p className="mt-1 text-gray-500">
                 {item.period.start} through {item.period.end}.{" "}
                 {item.channel === "email" ? item.email : item.addressee}

@@ -3,6 +3,21 @@ const time = (value) => Date.parse(value) || 0;
 const keyFor = (receipt) =>
   JSON.stringify(receipt.members.map((m) => [m.id, m.attemptedAt || null]));
 
+export function letterAppealRetryAt(receipt) {
+  const failures = [
+    receipt?.verificationFailure,
+    ...(receipt?.members || []).flatMap((m) => [m.failure, m.lastWriteFailure]),
+  ];
+  return Math.max(
+    0,
+    ...failures.map((failure) =>
+      failure?.retryAfterMs > 0
+        ? time(failure.checkedAt) + failure.retryAfterMs
+        : 0,
+    ),
+  );
+}
+
 // Only reconcile an existing uncertain submission. Never turn a pending write
 // or a completed receipt into background work.
 export function automaticAppealCheck(receipt, now = Date.now()) {
@@ -19,18 +34,7 @@ export function automaticAppealCheck(receipt, now = Date.now()) {
     (saved?.attempts || 0) >= DELAYS.length
   )
     return null;
-  const failures = [
-    receipt.verificationFailure,
-    ...receipt.members.flatMap((m) => [m.failure, m.lastWriteFailure]),
-  ];
-  const cooldown = Math.max(
-    0,
-    ...failures.map((failure) =>
-      failure?.retryAfterMs
-        ? time(failure.checkedAt) + failure.retryAfterMs
-        : 0,
-    ),
-  );
+  const cooldown = letterAppealRetryAt(receipt);
   const dueAt = Math.max(
     saved ? time(saved.nextCheckAt) : time(receipt.checkedAt) + DELAYS[0],
     cooldown,
