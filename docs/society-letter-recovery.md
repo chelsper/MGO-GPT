@@ -1,13 +1,23 @@
 # Society Letter Recovery
 
-## In-Progress Navigation Follow-Up (Not Deployed)
+## In-Progress Navigation Follow-Up (Deployed October 9, 2026)
 
 The October 9 screenshot showed a pending bulk appeal confirmation. That intentionally disables other mutations, but the inline confirmation looked like ordinary page content, making the remaining controls appear broken. Saved address warnings are separate readiness failures; this change does not relax them or infer that the addresses are incorrect.
 
 - Bulk confirmation now uses an accessible modal with a visible Back to selection action, initial focus on that action, and Escape support before processing. While a request runs, the existing Stop after this household action remains available instead of silently dismissing the request.
 - A batch-level attention panel links to saved receipts. For an approved letter with no submission evidence, Fix recipient details confirms the existing safe return operation and opens the recipient editor with its saved wording. Other letters remain saved; attempted, uncertain, or confirmed submissions cannot use this shortcut.
 - Unsuccessful bulk results link directly to the corresponding letter, expanding its details and moving keyboard focus. A stopped operation offers an app-side Reload saved status action that never resumes NXT writes automatically.
-- Verification: 114 focused UI tests passed, the full default suite passed 6,196 tests with 210 existing opt-in tests skipped, and typecheck and production build passed. Desktop and 390px mobile browser checks used fictional recipients and mocked requests only. No live NXT, database, appeal, letter, or deployment changes were made for this follow-up.
+- Verification: 114 focused UI tests passed, the full default suite passed 6,196 tests with 210 existing opt-in tests skipped, and typecheck and production build passed. The full default suite, typecheck, and build also passed from a clean release archive. Desktop and 390px mobile browser checks used fictional recipients and mocked requests only. No live NXT, database, appeal, or letter changes were made during verification.
+
+### Follow-Up Release
+
+- Application commit: `d4eada41023703aa262ffdea6f4f268516670487`.
+- JU deployment: `dpl_9civc1CHxJ9nWFxAaeTYMdWPW4TA`, candidate `https://mgo-eep5eovk3-chelspers-projects.vercel.app`, live `https://www.jumgogpt.app`.
+- Previous JU / rollback target: `dpl_8k7bLMAe6zsvmtrtR5vLCYQmBLFi`, commit `621bb9fcc90accf0b10039305b2d056cd4a44bad`.
+- The clean archive matched all 1,211 tracked web files. The 1,333-file upload contained all changed application files, no untracked files, and no real environment files. Unrelated local changes were excluded. No Git push was used.
+- The candidate was built without changing the live domain, smoke-tested, then promoted. Candidate and live checks verified the exact version/deployment, page shells, boot assets, the new letter-recovery controls, and unauthenticated rejection of protected APIs and PDF downloads. The repository production verifier passed.
+- Sandbox remained `dpl_BrAqKBRfj5ZTYBmDUJ22NeYKteiq`. All other project deployment identities, Git connections, cron definitions, and PDF-setting metadata were unchanged. No database, environment, dependency, or converter-service changes were required.
+- Evidence: `/tmp/ju-letter-history-` files `release.json`, `release-tests.log`, `release-typecheck.log`, `release-build.log`, `dry-final.json`, `candidate.json`, `deploy.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, `verify-prod.log`, `projects-before.json`, `projects-after.json`, and `projects-after.log`.
 
 ## Behavior
 
