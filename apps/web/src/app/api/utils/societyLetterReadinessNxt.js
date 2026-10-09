@@ -139,11 +139,8 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
         profile,
         "appeal records",
       );
-      const preferences = await collection(
-        `/commpref/v1/constituents/${id}/constituentsolicitcodes`,
-        profile,
-        "solicit-code records",
-      );
+      // Society recognition letters do not use contact/solicit codes as holds.
+      // Explicit address/email flags and consent records are still checked.
       // Consent rows are scoped by the requested constituent, and the official
       // response does not repeat constituent_id. Reject it if present and wrong.
       const consents = await collection(
@@ -155,7 +152,6 @@ export function readinessReader(ctx, fetcher = blackbaudApiFetch) {
       return {
         profile,
         appeals,
-        preferences,
         consents,
         ...(consents === null
           ? { consentUnavailable: "relationship_only" }

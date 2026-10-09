@@ -398,11 +398,11 @@ export default function LetterReadinessPanel({
       )}
       <p className="mt-3 text-xs text-gray-500">
         Checks expire after 24 hours or when source, recipient, template, or
-        period details change. Active solicit codes and consent instructions
-        require staff review. Checks alone do not send letters or update
-        appeals. Final postal letters require a separate preview and
-        confirmation for every household member. Exclusion appeals are
-        configured separately.
+        period details change. Contact and solicit codes do not block society
+        letters. Address and email restrictions and applicable consent
+        instructions are still checked. Checks alone do not send letters or
+        update appeals. Postal letters and household appeal updates still
+        require your approval. Exclusion appeals are configured separately.
       </p>
     </section>
   );

@@ -301,14 +301,6 @@ function date(value) {
     return "invalid";
   return value.slice(0, 10);
 }
-function activePreference(item, today) {
-  const start = date(item.start_date),
-    end = date(item.end_date);
-  if (start === "invalid" || end === "invalid" || (start && end && start > end))
-    return true;
-  return (!start || start <= today) && (!end || end >= today);
-}
-
 export function evaluateLetterReadiness(
   row,
   template,
@@ -367,10 +359,6 @@ export function evaluateLetterReadiness(
     )
       add(
         "A constituent name changed in NXT. Refresh membership and review the merge fields.",
-      );
-    if (data.preferences.some((item) => activePreference(item, today)))
-      add(
-        "An active NXT solicit code needs staff review. No communication restriction is ignored automatically.",
       );
     const fullSpouse =
       expected.length === 1 &&

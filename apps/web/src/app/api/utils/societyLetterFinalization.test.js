@@ -472,7 +472,11 @@ describe("saved postal batch approvals", () => {
         );
       if (kind === "catalog") f.client.catalog.mockResolvedValue([]);
       if (kind === "restriction")
-        f.profiles["11"].preferences.push({ id: "do-not-mail" });
+        f.profiles["11"].consents.push({
+          id: "c",
+          channel: "Mail",
+          constituent_consent_response: "OptOut",
+        });
       await syncLetterAppeals(
         f.state,
         definitions,
@@ -499,6 +503,65 @@ describe("saved postal batch approvals", () => {
         expect(item.letterAppeals.verificationFailure.httpStatus).toBe(403);
       expect(item.postalDocument).toEqual(document);
       expect(f.client.create).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["docx", "pdf"])(
+    "resumes a saved contact-code hold without reapproving or regenerating the %s letter",
+    async (format) => {
+      const f = await draftFixture(format);
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      const item = f.state.history[0];
+      Object.assign(item.letterAppeals, {
+        status: "needs_review",
+        recoveryAction: "status",
+        message:
+          "An active NXT solicit code needs staff review. No communication restriction is ignored automatically.",
+      });
+      for (const profile of Object.values(f.profiles)) {
+        profile.preferences = [
+          { solicit_code: "No Solicitation" },
+          { solicit_code: "No E-Mail" },
+        ];
+      }
+      const approved = structuredClone({
+        document: item.postalDocument,
+        approval: item.postalApproval,
+        letterDate: item.letterDate,
+      });
+      const renders = renderSocietyLetter.mock.calls.length;
+      const resume = () =>
+        syncLetterAppeals(
+          f.state,
+          definitions,
+          today,
+          {
+            action: "continue_letter_appeals",
+            deliveryId: item.id,
+            confirm: true,
+          },
+          f.store,
+          ctx,
+          f.reader,
+          f.client,
+        );
+      await resume();
+      expect(item.letterAppeals.status).toBe("complete");
+      expect(f.client.create.mock.calls.map(([id]) => id)).toEqual([
+        "10",
+        "11",
+      ]);
+      await resume();
+      expect(f.client.create).toHaveBeenCalledTimes(2);
+      expect({
+        document: item.postalDocument,
+        approval: item.postalApproval,
+        letterDate: item.letterDate,
+      }).toEqual(approved);
+      expect(renderSocietyLetter).toHaveBeenCalledTimes(renders);
+      expect(f.state.history).toHaveLength(1);
+      expect(item.status).toBe("prepared");
     },
   );
   it("stores concise NXT comments and the full audit note on newly approved letters", async () => {
@@ -786,7 +849,11 @@ describe("saved postal batch approvals", () => {
       await f.approve();
       expect(f.reader.member).not.toHaveBeenCalled();
       if (kind === "restriction")
-        f.profiles["11"].preferences.push({ id: "do-not-mail" });
+        f.profiles["11"].consents.push({
+          id: "c",
+          channel: "Mail",
+          constituent_consent_response: "OptOut",
+        });
       if (kind === "prior letter")
         f.profiles["11"].appeals.push({ id: "a", appeal: { id: "100" } });
       if (kind === "NXT unavailable" || kind === "rate limited")
@@ -1726,7 +1793,7 @@ describe("final postal letters and household appeal receipts", () => {
       ).status,
     ).toBe("covered");
   });
-  it.each(["both-relationship", "unlinked", "restricted", "unknown-partner"])(
+  it.each(["both-relationship", "unlinked", "deceased", "unknown-partner"])(
     "does not skip spouse safety for %s",
     async (kind) => {
       const f = await fixture();
@@ -1739,8 +1806,7 @@ describe("final postal letters and household appeal receipts", () => {
       if (kind === "unknown-partner")
         delete f.profiles["10"].profile.is_constituent;
       if (kind === "unlinked") f.profiles["11"].profile.spouse.id = "99";
-      if (kind === "restricted")
-        f.profiles["11"].preferences = [{ solicit_code: "Do not mail" }];
+      if (kind === "deceased") f.profiles["11"].profile.deceased = true;
       await expect(f.finish()).rejects.toThrow();
       expect(f.store.reserve).not.toHaveBeenCalled();
       expect(f.client.create).not.toHaveBeenCalled();
@@ -1817,7 +1883,12 @@ describe("final postal letters and household appeal receipts", () => {
     const f = await fixture();
     if (kind === "spouse") f.profiles["11"].profile.spouse.id = "12";
     if (kind === "name") f.profiles["11"].profile.first = "Changed";
-    if (kind === "restriction") f.profiles["11"].preferences.push({ id: "p" });
+    if (kind === "restriction")
+      f.profiles["11"].consents.push({
+        id: "p",
+        channel: "Mail",
+        constituent_consent_response: "OptOut",
+      });
     if (kind === "prior")
       f.profiles["11"].appeals.push({ id: "a", appeal: { id: "100" } });
     if (kind === "address") f.profiles["10"].profile.address.do_not_mail = true;
@@ -1860,11 +1931,7 @@ describe("final postal letters and household appeal receipts", () => {
               : [];
           return { count: value.length, value };
         }
-        if (
-          path.endsWith("/appeals") ||
-          path.endsWith("/constituentsolicitcodes")
-        )
-          return { count: 0, value: [] };
+        if (path.endsWith("/appeals")) return { count: 0, value: [] };
         return { ...f.profiles[id].profile, is_constituent: id === "10" };
       });
       f.reader.member = readinessReader(ctx, fetcher).member;

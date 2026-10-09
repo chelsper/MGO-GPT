@@ -292,7 +292,7 @@ async function freshCheck(
       Object.fromEntries(item.members.map((id) => [id, members[id].appeals])),
     );
   // Ignore only this letter's exact, verified assignments during recovery.
-  // Other same/higher appeals and all restrictions still block another write.
+  // Other same/higher appeals and applicable delivery restrictions still block.
   const checking = structuredClone(members);
   for (const member of receipt.members) {
     if (verified(member))

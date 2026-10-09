@@ -47,10 +47,16 @@ override the saved finalization inputs.
 The current complete appeal catalog must contain the configured active system
 ID and exact, unique description. NXT Data Integration creates by description,
 so ambiguous descriptions fail closed. Every household member is re-read with
-their profile, appeal history, solicit codes, and consent instructions before
+their profile, appeal history, and consent instructions before
 either member is written. Current reciprocal spouse links, names, status,
 preferred postal address, restrictions, and prior same/higher letters must pass
 the existing readiness evaluator.
+
+Contact/solicit codes are not fetched or treated as holds for society recognition
+letters. Continuing an older saved contact-code hold performs the normal current
+checks and applies only missing appeals; it does not regenerate or reapprove the
+letter. Explicit address/email flags, applicable consent, exclusions, and duplicate
+protection remain in force. NXT contact codes themselves are never changed.
 
 `stewardship_letter_deliveries.payload.letterAppeals` stores the frozen policy,
 appeal, date, comments, member IDs, and per-member receipt state. The existing

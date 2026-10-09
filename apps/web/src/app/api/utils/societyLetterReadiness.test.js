@@ -363,9 +363,13 @@ describe("read-only society readiness", () => {
       "needs_review",
     ],
     [
-      "restricted",
+      "postal consent restriction",
       (m) => {
-        m.preferences.push({ id: "s1", solicit_code: "No Solicitation" });
+        m.consents.push({
+          id: "s1",
+          channel: "Mail",
+          constituent_consent_response: "OptOut",
+        });
       },
       "needs_review",
     ],
@@ -550,18 +554,6 @@ describe("read-only society readiness", () => {
     ["inactive", (m) => (m.profile.inactive = true)],
     ["deceased", (m) => (m.profile.deceased = true)],
     ["changed name", (m) => (m.profile.first = "Changed")],
-    [
-      "solicit restriction",
-      (m) => (m.preferences = [{ solicit_code: "No mail" }]),
-    ],
-    [
-      "invalid restriction date",
-      (m) => (m.preferences = [{ end_date: "invalid" }]),
-    ],
-    [
-      "impossible restriction date",
-      (m) => (m.preferences = [{ end_date: "2026-02-30" }]),
-    ],
     ["consent instructions", (m) => (m.consents = [{ consent: "OptOut" }])],
     ["unknown appeal", (m) => (m.appeals = [{}])],
     ["no mail", (m) => (m.profile.address.do_not_mail = true)],
@@ -589,11 +581,19 @@ describe("read-only society readiness", () => {
       letterReadinessForRow(state, definitions, today, row, "post").status,
     ).toBe("needs_review");
   });
-  it("ignores only clearly expired solicit codes", async () => {
+  it.each([
+    { solicit_code: "No Solicitation" },
+    { solicit_code: "No E-Mail" },
+    { solicit_code: "Do not mail" },
+    { solicit_code: "Custom contact instruction" },
+    { end_date: "invalid" },
+    { end_date: "2026-02-30" },
+    { end_date: "2026-01-01T05:00:00Z" },
+  ])("does not use contact codes as society-letter holds: %j", async (code) => {
     const { state, row, reader, run } = await setup();
     reader.member.mockImplementation(async (id) => ({
       ...member(id, id === "10" ? "11" : "10"),
-      preferences: [{ end_date: "2026-01-01T05:00:00Z" }],
+      preferences: [code],
     }));
     await run();
     expect(
@@ -681,6 +681,40 @@ describe("read-only society readiness", () => {
       letterReadinessForRow(state, definitions, today, row, "email").status,
     ).toBe("needs_review");
     expect(row.emailAllowed).toBe(false);
+  });
+  it("ignores email contact codes but keeps explicit email opt-outs and consent checks", async () => {
+    const { state, row, template, recipient } = await setup();
+    const data = member("10");
+    data.preferences = [
+      { solicit_code: "No E-Mail" },
+      { solicit_code: "No Solicitation" },
+    ];
+    const check = () =>
+      evaluateLetterReadiness(
+        { ...row, ...recipient, members: ["10"] },
+        template,
+        { 10: data },
+        state.readiness.policy,
+        definitions,
+        today,
+        "email",
+      );
+    expect(check().status).toBe("ready_for_preview");
+    data.profile.email.do_not_email = true;
+    expect(check().status).toBe("needs_review");
+    data.profile.email.do_not_email = false;
+    data.profile.requests_no_email = true;
+    expect(check().status).toBe("needs_review");
+    data.profile.requests_no_email = false;
+    data.consents = [
+      {
+        id: "c",
+        channel: "Email",
+        constituent_consent_response: "OptOut",
+        consent_date: today,
+      },
+    ];
+    expect(check().status).toBe("needs_review");
   });
   it("does not pull NXT for missing recipient choices", async () => {
     const { state, row, reader, run } = await setup();
@@ -1062,7 +1096,6 @@ describe("readiness NXT reader", () => {
     member("10").profile,
     { count: 0, value: [] },
     { count: 0, value: [] },
-    { count: 0, value: [] },
   ];
   it("uses only bounded GETs to fixed endpoints", async () => {
     const responses = payloads();
@@ -1071,7 +1104,6 @@ describe("readiness NXT reader", () => {
     expect(fetcher.mock.calls.map((c) => c[0])).toEqual([
       "/constituent/v1/constituents/10",
       "/constituent/v1/constituents/10/appeals",
-      "/commpref/v1/constituents/10/constituentsolicitcodes",
       "/commpref/v1/constituents/10/consents?most_recent_only=true",
     ]);
     for (const [, options] of fetcher.mock.calls)
@@ -1081,6 +1113,27 @@ describe("readiness NXT reader", () => {
         maxRetries: 0,
       });
   });
+  it("does not fetch or require access to contact-code records", async () => {
+    const fetcher = vi.fn(async (path) => {
+      if (path.endsWith("/constituentsolicitcodes"))
+        throw Object.assign(new Error("Contact-code access denied"), {
+          httpStatus: 403,
+        });
+      if (path.endsWith("/constituents/10")) return member("10").profile;
+      return { count: 0, value: [] };
+    });
+    expect(await readinessReader(ctx, fetcher).member("10")).toMatchObject({
+      profile: { id: "10" },
+      appeals: [],
+      consents: [],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(
+      fetcher.mock.calls.some(([path]) =>
+        path.endsWith("/constituentsolicitcodes"),
+      ),
+    ).toBe(false);
+  });
   it("accepts request-scoped consent rows without a repeated constituent ID", async () => {
     const consent = {
       id: "15",
@@ -1089,12 +1142,12 @@ describe("readiness NXT reader", () => {
       consent_date: "2026-09-01T00:00:00Z",
     };
     const responses = payloads();
-    responses[3] = { count: 1, value: [consent] };
+    responses[2] = { count: 1, value: [consent] };
     const fetcher = vi.fn(async () => responses.shift());
     expect((await readinessReader(ctx, fetcher).member("10")).consents).toEqual(
       [consent],
     );
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it("distinguishes the known relationship-only consent 404 from an empty consent list", async () => {
     const responses = payloads();
@@ -1112,7 +1165,7 @@ describe("readiness NXT reader", () => {
       consents: null,
       consentUnavailable: "relationship_only",
     });
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it.each([true, undefined])(
     "never treats ResourceNotFound as empty for full or unknown constituent status %s",
@@ -1149,15 +1202,15 @@ describe("readiness NXT reader", () => {
     "still rejects malformed, partial, or conflicting consent rows %j",
     async (invalid) => {
       const responses = payloads();
-      responses[3] = invalid;
+      responses[2] = invalid;
       const fetcher = vi.fn(async () => responses.shift());
       await expect(readinessReader(ctx, fetcher).member("10")).rejects.toThrow(
         /incomplete or conflicting consent records.*ID 10/,
       );
-      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(fetcher).toHaveBeenCalledTimes(3);
     },
   );
-  it.each([1, 2])(
+  it.each([1])(
     "still requires constituent ownership on collection %s",
     async (index) => {
       const responses = payloads();
@@ -1197,7 +1250,7 @@ describe("readiness NXT reader", () => {
         isConstituent ? "profile was found" : "not a full constituent",
       );
       expect(error.message).not.toContain("private provider details");
-      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(fetcher).toHaveBeenCalledTimes(3);
     },
   );
   it.each([401, 403, 429, 500])(
@@ -1214,7 +1267,7 @@ describe("readiness NXT reader", () => {
       await expect(readinessReader(ctx, fetcher).member("10")).rejects.toBe(
         providerError,
       );
-      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(fetcher).toHaveBeenCalledTimes(3);
     },
   );
   it.each([
