@@ -1,5 +1,20 @@
 # Society Letter Recovery
 
+## Appeal Comment Length Follow-Up (Not Deployed)
+
+The October 9, 11:24 AM report is a different failure from the state-name comparison. Read-only inspection of the active saved letter showed an HTTP 400 during the first member's appeal POST; the second member was not attempted. Both complete constituent appeal lists were read and neither contained the configured appeal. The approved letter remains saved. Runtime logs and the sanitized receipt did not retain the provider's raw validation text, so no exact provider message is claimed.
+
+The generated appeal comment was 150 characters. Blackbaud's [Raiser's Edge Import Guide, Constituent Appeal Fields, printed page 134](https://help.blackbaud.com/docs/0/assets/guides/re/import.pdf#page=140) documents a 50-character limit for `CAPComment`. This is a concrete request incompatibility consistent with the HTTP 400. The [Data Integration create contract](https://developer.sky.blackbaud.com/api#api=nxt-data-integration&operation=CreateConstituentAppeal) was also checked; the date, integer constituent ID, and description field shapes remain unchanged.
+
+- Newly approved letters store a 45-character `JUMGOGPT <full letter UUID>` NXT comment. The full audit note remains in the saved receipt, alongside the existing period, date, document, approval, and household metadata.
+- Explicit continuation of an existing letter first reconciles NXT history. Only an untouched or definitively rejected pending member with the exact app-generated legacy note can receive the compact comment. The original shared note stays unchanged. The exact `submittedComments` is saved per member before POST and used for subsequent read-back/reconciliation.
+- Confirmed or uncertain legacy assignments are checked against their original text. Ambiguous submissions are never retried, third-party assignments are not adopted, and arbitrary user comments are never silently truncated. Successful members are not resubmitted. The approved document is not regenerated or reapproved.
+- Shared transport rejects comments longer than 50 before a request. New NXT-linked exclusions enforce the same limit in the server and dialog; app-only reasons keep their 500-character limit. An old overlong exclusion reason is retained and blocked before a new uncertain marker or POST, rather than truncated.
+- Verification: adding the real comment limit to the fictional NXT client reproduced 17 failing finalization tests before the fix. All 161 focused tests and all 6,255 default tests passed afterward; 210 existing opt-in tests remained skipped in the default run. The 17 society-letter database checks separately passed with isolated in-memory PGlite, including per-member comment persistence across leases and unchanged frozen letter data. Native multi-process PostgreSQL behavior and live NXT writes were not exercised. Typecheck, production build, release check, and whitespace checks passed.
+- No production data, letters, appeals, settings, or deployments were changed during this investigation. After deployment, reload and continue the existing approved batch; do not recreate or re-review it solely for this comment-length failure. Final acceptance still requires the user's explicit live continuation.
+
+Evidence: `/tmp/ju-letter-comment-` logs `red.log`, `focused.log`, `full-tests.log`, `database.log`, `typecheck.log`, and `build.log`. Read-only diagnosis: `/tmp/ju-letter-appeal-readonly.log`. These local diagnostic files are not release inputs.
+
 ## State-Name Address Comparison Follow-Up (Deployed October 9, 2026)
 
 The October 9, 10:59 AM failure for Allana Forte and Brian Branch was traced read-only to the saved query using `Florida` while NXT's preferred addresses use `FL`. Street, city, and ZIP matched; both preferred addresses belonged to the expected household members and were active, unrestricted, and current. No appeal had been attempted. Returning the letter to review could not resolve that equivalent-text mismatch.

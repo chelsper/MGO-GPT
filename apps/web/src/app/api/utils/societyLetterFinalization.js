@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
 import {
+  assertNxtAppealComments,
+  compactLetterAppealComment,
+  legacyLetterAppealComment,
+  NXT_APPEAL_COMMENT_LIMIT,
+} from "@/utils/societyLetterAppealComments";
+import {
   beginAutomaticAppealCheck,
   finishAutomaticAppealCheck,
 } from "@/utils/societyLetterVerification";
@@ -51,7 +57,7 @@ const verified = (member) => member.status === "verified";
 const matching = (rows, appeal) =>
   rows.filter((row) => String(row.appeal?.id) === appeal.id);
 const exact = (row, receipt, member) =>
-  row.comments === receipt.comments &&
+  row.comments === (member.submittedComments ?? receipt.comments) &&
   row.date?.slice(0, 10) === receipt.date &&
   (!member.assignmentId || String(row.id) === member.assignmentId);
 
@@ -317,6 +323,22 @@ async function applyMembers(item, store, client) {
       throw letterError(
         "Verify the uncertain submission first. It will not be sent again.",
       );
+    let comments = member.submittedComments ?? receipt.comments;
+    // Only migrate our exact legacy generated note after fresh reconciliation.
+    // Keep it for audit and preserve the exact text of every earlier submission.
+    if (
+      member.submittedComments === undefined &&
+      !member.assignmentId &&
+      (!member.attemptedAt ||
+        [400, 401, 403, 404, 413, 415, 422, 429].includes(
+          member.failure?.httpStatus,
+        )) &&
+      comments?.length > NXT_APPEAL_COMMENT_LIMIT &&
+      comments === legacyLetterAppealComment(item)
+    )
+      comments = compactLetterAppealComment(item);
+    assertNxtAppealComments(comments);
+    member.submittedComments = comments;
     member.status = "uncertain";
     member.attemptedAt = new Date().toISOString();
     await store.saveLetterAppeals(item);
@@ -326,7 +348,7 @@ async function applyMembers(item, store, client) {
         member.id,
         receipt.appeal,
         receipt.date,
-        receipt.comments,
+        member.submittedComments,
       );
     } catch (error) {
       member.failure = exclusionFailureDiagnostic(error);
@@ -436,7 +458,8 @@ export function reservePostalLetter(
       members: preview.row.members.map((id) => ({ id, status: "pending" })),
     },
   });
-  item.letterAppeals.comments = `Society letter created in JUMGOGPT. Period ${item.period.start} to ${item.period.end}. Letter ${item.id}. Postal dispatch recorded separately.`;
+  item.letterAppeals.comments = compactLetterAppealComment(item);
+  item.letterAppeals.auditComments = legacyLetterAppealComment(item);
   return item;
 }
 

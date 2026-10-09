@@ -377,6 +377,9 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     });
     await store.reserve([delivery]);
     delivery.letterAppeals.members[0].status = "uncertain";
+    delivery.letterAppeals.comments =
+      "Legacy audit comment retained in the saved receipt";
+    delivery.letterAppeals.members[0].submittedComments = `JUMGOGPT ${delivery.id}`;
     delivery.addressee = "MUST NOT CHANGE";
     delivery.selectionSummary.total = 999;
     await store.saveLetterAppeals(delivery);
@@ -389,6 +392,15 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       notSelected: 5,
     });
     expect(saved.history[0].letterAppeals.members[0].status).toBe("uncertain");
+    expect(saved.history[0].letterAppeals.comments).toBe(
+      delivery.letterAppeals.comments,
+    );
+    expect(saved.history[0].letterAppeals.members[0].submittedComments).toBe(
+      `JUMGOGPT ${delivery.id}`,
+    );
+    expect(
+      saved.history[0].letterAppeals.members[1].submittedComments,
+    ).toBeUndefined();
     const next = await acquireSocietyLetters(1, saved.revision);
     await expect(store.saveLetterAppeals(delivery)).rejects.toMatchObject({
       status: 409,
@@ -400,6 +412,10 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       (await readSocietyLetterState()).history[0].letterAppeals.members[0]
         .status,
     ).toBe("verified");
+    expect(
+      (await readSocietyLetterState()).history[0].letterAppeals.members[0]
+        .submittedComments,
+    ).toBe(`JUMGOGPT ${delivery.id}`);
   });
   it("does not mail partial appeal updates or cancel NXT-linked letters", async () => {
     const store = await acquireSocietyLetters(1, 0);

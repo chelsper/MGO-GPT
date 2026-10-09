@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { blackbaudApiFetch } from "./blackbaud";
 import { letterRecordId } from "./societyLetterReadinessNxt";
 import {
+  assertNxtAppealComments,
+  NXT_APPEAL_COMMENT_LIMIT,
+} from "@/utils/societyLetterAppealComments";
+import {
   beginAutomaticAppealCheck,
   finishAutomaticAppealCheck,
 } from "@/utils/societyLetterVerification";
@@ -148,6 +152,7 @@ export function exclusionAppealClient(
     },
     create(id, appeal, date, comments) {
       id = letterRecordId(id);
+      assertNxtAppealComments(comments);
       if (Number(id) > 2147483647)
         throw letterError(
           "This constituent ID cannot be used with the NXT appeal endpoint.",
@@ -285,10 +290,10 @@ export function prepareExclusionAppeal(state, definitions, today, body) {
   if (
     typeof body.reason !== "string" ||
     !body.reason.trim() ||
-    body.reason.trim().length > 500
+    body.reason.trim().length > NXT_APPEAL_COMMENT_LIMIT
   )
     throw letterError(
-      "Enter an exclusion reason of 1-500 characters for the NXT comments.",
+      "Enter an exclusion reason of 1-50 characters for the NXT comments.",
     );
   const generatedAt = Date.parse(state.snapshot?.generatedAt);
   if (
@@ -407,6 +412,7 @@ export async function syncExclusionAppeal(
     if (!verifyOnly)
       for (const member of nxt.members) {
         if (finished(member)) continue;
+        assertNxtAppealComments(nxt.comments);
         // Persist before POST. A timeout, process exit, or lost response must never
         // turn an uncertain create into an automatic duplicate submission.
         member.status = "uncertain";

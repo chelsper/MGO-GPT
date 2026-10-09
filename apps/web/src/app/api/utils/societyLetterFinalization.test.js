@@ -232,6 +232,10 @@ async function fixture(
     ),
     appeals: vi.fn(async (id) => structuredClone(profiles[id].appeals)),
     create: vi.fn(async (id, appeal, date, comments) => {
+      if (comments.length > 50)
+        throw Object.assign(new Error("Comments exceeds 50 characters"), {
+          httpStatus: 400,
+        });
       events.push(`post:${id}`);
       const result = {
         id: String(200 + Number(id)),
@@ -284,6 +288,7 @@ async function fixture(
     reader,
     client,
     events,
+    persisted,
     item,
     preview,
     finish,
@@ -373,6 +378,186 @@ async function draftFixture(format = "docx", addressState = "FL") {
 }
 
 describe("saved postal batch approvals", () => {
+  it("stores concise NXT comments and the full audit note on newly approved letters", async () => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    await f.approve();
+    const item = f.state.history[0];
+    expect(item.letterAppeals.comments).toBe(`JUMGOGPT ${item.id}`);
+    expect(item.letterAppeals.comments).toHaveLength(45);
+    expect(item.letterAppeals.auditComments).toContain(
+      "Postal dispatch recorded separately.",
+    );
+    expect(item.letterAppeals.auditComments).toContain(item.period.start);
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["uncertain-absent", false],
+    ["uncertain-existing", true],
+    ["verified-existing", true],
+    ["pending-external", false],
+    ["pending-unknown-attempt", false],
+    ["custom-long", false],
+  ])(
+    "preserves earlier submissions during legacy comment recovery: %s",
+    async (kind, completes) => {
+      const f = await draftFixture();
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      const item = f.state.history[0],
+        receipt = item.letterAppeals;
+      receipt.comments =
+        kind === "custom-long"
+          ? "User-specified note ".repeat(4)
+          : `Society letter created in JUMGOGPT. Period ${item.period.start} to ${item.period.end}. Letter ${item.id}. Postal dispatch recorded separately.`;
+      const member = receipt.members[0];
+      if (kind.startsWith("uncertain")) member.status = "uncertain";
+      if (kind === "verified-existing") {
+        member.status = "verified";
+        member.assignmentId = "210";
+      }
+      if (kind !== "pending-external" && kind !== "custom-long")
+        member.attemptedAt = new Date().toISOString();
+      if (kind.endsWith("existing") || kind === "pending-external")
+        f.profiles["10"].appeals.push({
+          id: "210",
+          constituent_id: "10",
+          appeal: { id: receipt.appeal.id },
+          date: receipt.date,
+          comments: receipt.comments,
+        });
+      const before = structuredClone(receipt);
+      await syncLetterAppeals(
+        f.state,
+        definitions,
+        today,
+        {
+          deliveryId: item.id,
+          action: "continue_letter_appeals",
+          confirm: true,
+        },
+        f.store,
+        ctx,
+        f.reader,
+        f.client,
+      );
+      expect(receipt.status).toBe(completes ? "complete" : "needs_review");
+      expect(f.client.create.mock.calls.map((c) => c[0])).toEqual(
+        completes ? ["11"] : [],
+      );
+      expect(receipt.comments).toBe(before.comments);
+      expect(member.submittedComments).toBeUndefined();
+      if (completes) {
+        expect(member.assignmentId).toBe("210");
+        expect(f.profiles["10"].appeals[0].comments).toBe(before.comments);
+        expect(f.client.create.mock.calls[0][3]).toBe(`JUMGOGPT ${item.id}`);
+      }
+    },
+  );
+  it("reconciles a lost response using the exact compact comment, without a second submission", async () => {
+    const f = await draftFixture();
+    await f.prepare();
+    await f.review();
+    await f.approve();
+    const item = f.state.history[0],
+      receipt = item.letterAppeals;
+    receipt.comments = `Society letter created in JUMGOGPT. Period ${item.period.start} to ${item.period.end}. Letter ${item.id}. Postal dispatch recorded separately.`;
+    const create = f.client.create.getMockImplementation();
+    f.client.create.mockImplementationOnce(async (...args) => {
+      await create(...args);
+      throw new Error("response lost");
+    });
+    const run = (action) =>
+      syncLetterAppeals(
+        f.state,
+        definitions,
+        today,
+        { deliveryId: item.id, action, confirm: true },
+        f.store,
+        ctx,
+        f.reader,
+        f.client,
+      );
+    await run("continue_letter_appeals");
+    expect(receipt.members[0].status).toBe("uncertain");
+    await run("verify_letter_appeals");
+    expect(receipt.members[0].status).toBe("verified");
+    expect(f.client.create).toHaveBeenCalledOnce();
+    await run("continue_letter_appeals");
+    expect(receipt.status).toBe("complete");
+    expect(f.client.create.mock.calls.map((c) => c[0])).toEqual(["10", "11"]);
+  });
+  it.each(["docx", "pdf"])(
+    "recovers a rejected legacy %s comment without replacing its approved document",
+    async (format) => {
+      const f = await draftFixture(format);
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      const item = f.state.history[0];
+      const receipt = item.letterAppeals;
+      receipt.comments = `Society letter created in JUMGOGPT. Period ${item.period.start} to ${item.period.end}. Letter ${item.id}. Postal dispatch recorded separately.`;
+      receipt.status = "needs_review";
+      receipt.members[0].attemptedAt = new Date().toISOString();
+      receipt.members[0].failure = { httpStatus: 400 };
+      const before = structuredClone(item);
+      const documents = structuredClone([...f.documents.values()]);
+      const renders = renderSocietyLetter.mock.calls.length;
+      const run = () =>
+        continuePostalBatch(
+          f.state,
+          definitions,
+          today,
+          { batchId: f.id, confirm: true },
+          f.store,
+          ctx,
+          (...args) => syncLetterAppeals(...args, f.reader, f.client),
+          f.read,
+        );
+      await syncLetterAppeals(
+        f.state,
+        definitions,
+        today,
+        {
+          deliveryId: item.id,
+          action: "verify_letter_appeals",
+          automatic: true,
+        },
+        f.store,
+        ctx,
+        f.reader,
+        f.client,
+      );
+      expect(f.client.create).not.toHaveBeenCalled();
+      expect(receipt.members[0].submittedComments).toBeUndefined();
+      const create = f.client.create.getMockImplementation();
+      f.client.create.mockImplementation(async (...args) => {
+        const saved = f.persisted
+          .get(item.id)
+          .letterAppeals.members.find((m) => m.id === args[0]);
+        expect(saved.status).toBe("uncertain");
+        expect(saved.submittedComments).toBe(args[3]);
+        return create(...args);
+      });
+      await run();
+      await run();
+      expect(receipt.status).toBe("complete");
+      expect(f.client.create.mock.calls.map((c) => [c[0], c[3]])).toEqual([
+        ["10", `JUMGOGPT ${item.id}`],
+        ["11", `JUMGOGPT ${item.id}`],
+      ]);
+      expect(receipt.comments).toBe(before.letterAppeals.comments);
+      expect(item.postalApproval).toEqual(before.postalApproval);
+      expect(item.postalDocument).toEqual(before.postalDocument);
+      expect(item.letterDate).toBe(before.letterDate);
+      expect([...f.documents.values()]).toEqual(documents);
+      expect(renderSocietyLetter).toHaveBeenCalledTimes(renders);
+      expect(f.store.approvePostalDraft).toHaveBeenCalledOnce();
+      expect(f.state.history).toHaveLength(1);
+    },
+  );
   it("rejects the whole selection before creating a draft when a later recipient lacks a required merge field", async () => {
     const f = await fixture(true);
     const second = structuredClone(f.row);

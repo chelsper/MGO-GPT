@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { NXT_APPEAL_COMMENT_LIMIT } from "@/utils/societyLetterAppealComments";
 
 export default function LetterExclusionDialog({
   recipient,
@@ -68,7 +69,8 @@ export default function LetterExclusionDialog({
         <textarea
           autoFocus
           value={reason}
-          maxLength={500}
+          maxLength={configured ? NXT_APPEAL_COMMENT_LIMIT : 500}
+          aria-describedby={configured ? "exclusion-comment-limit" : undefined}
           onChange={(event) => {
             setReason(event.target.value);
             setConfirmNxt(false);
@@ -77,6 +79,12 @@ export default function LetterExclusionDialog({
           rows={3}
         />
       </label>
+      {configured && (
+        <p id="exclusion-comment-limit" className="mt-1 text-sm text-gray-600">
+          {reason.length}/{NXT_APPEAL_COMMENT_LIMIT} characters. NXT limits
+          appeal comments to 50 characters.
+        </p>
+      )}
       {configured && (
         <>
           <label className="mt-4 block text-sm font-semibold">
@@ -124,7 +132,11 @@ export default function LetterExclusionDialog({
           disabled={
             busy ||
             (configured &&
-              (!appeal || !confirmNxt || !reason.trim() || !exclusionDate))
+              (!appeal ||
+                !confirmNxt ||
+                !reason.trim() ||
+                !exclusionDate ||
+                reason.trim().length > NXT_APPEAL_COMMENT_LIMIT))
           }
           onClick={() => onSave({ reason, exclusionDate, confirmNxt })}
           className="min-h-11 rounded-xl bg-emerald-700 px-4 py-2 font-semibold text-white"

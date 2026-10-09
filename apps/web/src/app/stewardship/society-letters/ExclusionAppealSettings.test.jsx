@@ -38,6 +38,37 @@ beforeEach(() => {
   });
 });
 describe("exclusion appeal controls", () => {
+  it("limits NXT reasons to 50 characters while keeping longer app-only reasons", () => {
+    const { rerender } = render(
+      <LetterExclusionDialog
+        recipient={recipient}
+        appealSettings={appealSettings}
+        today="2026-09-25"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const reason = screen.getByLabelText("Reason (NXT comments)");
+    expect(reason).toHaveAttribute("maxlength", "50");
+    fireEvent.change(reason, { target: { value: "a".repeat(51) } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(
+      screen.getByRole("button", { name: "Exclude and record in NXT" }),
+    ).toBeDisabled();
+    expect(screen.getByText(/51\/50 characters/)).toBeInTheDocument();
+    rerender(
+      <LetterExclusionDialog
+        recipient={recipient}
+        today="2026-09-25"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Reason (optional)")).toHaveAttribute(
+      "maxlength",
+      "500",
+    );
+  });
   it("shows exact appeal and members and requires reason/date/confirmation before NXT writes", () => {
     const save = vi.fn();
     render(

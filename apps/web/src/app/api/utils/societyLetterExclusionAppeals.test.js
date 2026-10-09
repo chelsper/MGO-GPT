@@ -252,6 +252,21 @@ describe("automatic exclusion reconciliation", () => {
 });
 
 describe("society exclusion appeal policy", () => {
+  it("validates the 50-character NXT reason limit without truncation", async () => {
+    const { state, body } = await setup();
+    expect(() =>
+      prepareExclusionAppeal(state, definitions, today, {
+        ...body,
+        reason: "a".repeat(51),
+      }),
+    ).toThrow(/1-50 characters/);
+    expect(
+      prepareExclusionAppeal(state, definitions, today, {
+        ...body,
+        reason: "a".repeat(50),
+      }).comments,
+    ).toBe("a".repeat(50));
+  });
   it("resolves lookup codes to immutable IDs and selects the highest qualifying tier", async () => {
     const { state, item } = await setup();
     expect(exclusionAppealWorkspace(state, definitions, today).current).toBe(
@@ -324,6 +339,19 @@ describe("society exclusion appeal policy", () => {
 });
 
 describe("durable exclusion write-back", () => {
+  it("does not mark an old overlong exclusion reason uncertain or silently truncate it", async () => {
+    const { state, item, store, client } = await setup();
+    const reason = "Full saved reason ".repeat(5);
+    item.nxt.comments = reason;
+    await syncExclusionAppeal(state, item, store, ctx, client);
+    expect(item.nxt.status).toBe("needs_review");
+    expect(item.nxt.message).toContain("50 characters");
+    expect(item.nxt.comments).toBe(reason);
+    expect(
+      item.nxt.members.every((m) => m.status === "pending" && !m.attemptedAt),
+    ).toBe(true);
+    expect(client.create).not.toHaveBeenCalled();
+  });
   it("writes and verifies each spouse once, with date and reason, never letter-sent history", async () => {
     const { state, item, store, client, saved } = await setup();
     await syncExclusionAppeal(state, item, store, ctx, client);
@@ -558,6 +586,21 @@ describe("safe exclusion error diagnostics", () => {
 });
 
 describe("NXT exclusion client contract", () => {
+  it("rejects overlong comments before any request and accepts exactly 50 characters", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ id: "44" });
+    const client = exclusionAppealClient(ctx, fetcher);
+    expect(() =>
+      client.create("10", { description: "Exclusion" }, today, "a".repeat(51)),
+    ).toThrow(/50 characters/);
+    expect(fetcher).not.toHaveBeenCalled();
+    await client.create(
+      "10",
+      { description: "Exclusion" },
+      today,
+      "a".repeat(50),
+    );
+    expect(fetcher.mock.calls[0][1].body.comments).toHaveLength(50);
+  });
   it("uses the documented Data Integration payload and disables POST retries", async () => {
     const fetcher = vi.fn().mockResolvedValue({ id: "44" });
     await exclusionAppealClient(ctx, fetcher).create(
