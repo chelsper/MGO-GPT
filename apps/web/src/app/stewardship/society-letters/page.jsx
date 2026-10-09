@@ -431,6 +431,7 @@ export default function SocietyLettersPage() {
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const [approvedPostalStart, setApprovedPostalStart] = useState(null);
+  const [preparingPostalStart, setPreparingPostalStart] = useState(null);
   // Undefined restores an unfinished batch for display only, never for submission.
   const [workspaceBatchId, setWorkspaceBatchId] = useState(undefined);
   const [showRecipients, setShowRecipients] = useState(false);
@@ -467,6 +468,7 @@ export default function SocietyLettersPage() {
       setPreview(null);
       setWorkspaceBatchId(undefined);
       setApprovedPostalStart(null);
+      setPreparingPostalStart(null);
       setShowRecipients(false);
     }
     loadedScope.current = nextScope;
@@ -571,6 +573,14 @@ export default function SocietyLettersPage() {
         accept(payload, automatic);
         if (!automatic) {
           setPreview(null);
+          if (body.action === "start_postal_draft" && payload.postalDraft?.id)
+            setPreparingPostalStart(payload.postalDraft.id);
+          if (
+            ["update_letter_dates", "discard_postal_draft"].includes(
+              body.action,
+            )
+          )
+            setPreparingPostalStart(null);
           if (
             ![
               "update_letter_dates",
@@ -920,6 +930,8 @@ export default function SocietyLettersPage() {
             setWorkspaceBatchId(batchId);
             setShowRecipients(false);
           }}
+          autoPrepare={preparingPostalStart === data.postalDraft.id}
+          onAutoPrepareConsumed={() => setPreparingPostalStart(null)}
         />
       );
     if (!workspaceBatch) return null;
@@ -1827,7 +1839,7 @@ export default function SocietyLettersPage() {
                           }}
                         >
                           {queryPostal
-                            ? "Start document approval"
+                            ? "Prepare letters"
                             : "Review selected letters"}
                         </button>
                       )}

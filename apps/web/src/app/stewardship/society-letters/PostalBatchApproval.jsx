@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import SavedLetterPreview from "./SavedLetterPreview";
-import { letterAppealRetryAt } from "@/utils/societyLetterVerification";
+import {
+  canResumeLetterAppeals,
+  letterAppealPauseMessage,
+} from "@/utils/societyLetterVerification";
+import useLetterAppealPause from "./useLetterAppealPause";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 disabled:cursor-not-allowed disabled:opacity-50";
@@ -149,7 +153,7 @@ function DocumentReview({ draft, entry, revision, busy, act, onClose }) {
           if (result) onClose();
         }}
       >
-        Approve this document
+        Finish preview
       </button>
     </section>
   );
@@ -161,6 +165,8 @@ export default function PostalBatchApproval({
   busy,
   act,
   onApproved,
+  autoPrepare = false,
+  onAutoPrepareConsumed,
 }) {
   const panel = useRef(null);
   const reviewButton = useRef(null);
@@ -170,6 +176,7 @@ export default function PostalBatchApproval({
   }, []);
   const [running, setRunning] = useState(false);
   const run = useRef(false);
+  const preparationStarted = useRef(false);
   const [opened, setOpened] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
   const [discard, setDiscard] = useState(false);
@@ -180,9 +187,15 @@ export default function PostalBatchApproval({
     [],
   );
   const prepared = draft.entries.filter((e) => e.document).length;
-  const approved = draft.entries.filter(
-    (e) => e.document && e.reviewedHash === e.document.sha256,
-  ).length;
+  useEffect(() => {
+    // Only the click that created this draft starts preparation. Loading saved
+    // work or changing a date never starts another generation run implicitly.
+    if (autoPrepare && !busy && !preparationStarted.current) {
+      preparationStarted.current = true;
+      onAutoPrepareConsumed?.();
+      prepare();
+    }
+  }, [autoPrepare, busy]);
   async function prepare() {
     if (run.current) return;
     run.current = true;
@@ -225,9 +238,9 @@ export default function PostalBatchApproval({
         prepared documents and their NXT appeal updates.
       </p>
       <p className="mt-2 text-sm">
-        {prepared} of {draft.entries.length} documents prepared; {approved}{" "}
-        approved. This draft is saved so you can leave and return. No NXT
-        appeals have been applied by this draft.
+        {prepared} of {draft.entries.length} documents prepared. This draft is
+        saved so you can leave and return. No NXT appeals have been applied by
+        this draft.
       </p>
       {prepared < draft.entries.length && (
         <button
@@ -269,7 +282,7 @@ export default function PostalBatchApproval({
             </details>
             <p className="mt-1 text-sm">
               {e.reviewedHash
-                ? "Document approved"
+                ? "Preview checked; ready for batch approval"
                 : e.document
                   ? "Ready for batch approval"
                   : "Document not prepared yet"}
@@ -283,7 +296,7 @@ export default function PostalBatchApproval({
               }}
             >
               {e.reviewedHash
-                ? "View approved document"
+                ? "View checked preview"
                 : "Preview document (optional)"}
             </button>
           </li>
@@ -394,11 +407,13 @@ export function PostalBatchRunner({
   const paused = batch.items.some(
     (i) => i.letterAppeals?.status === "needs_review",
   );
-  const retryAt = Math.max(
-    0,
-    ...batch.items.map((item) => letterAppealRetryAt(item.letterAppeals)),
+  const { retryAt, waiting } = useLetterAppealPause(
+    batch.items.map((item) => item.letterAppeals),
   );
-  const waiting = retryAt > Date.now();
+  const resumable = batch.items.every((item) =>
+    canResumeLetterAppeals(item.letterAppeals),
+  );
+  const retryableStop = paused && resumable && !!onReload;
   const receiptKey = JSON.stringify(
     batch.items.map((item) => [item.id, item.status, item.letterAppeals]),
   );
@@ -406,33 +421,19 @@ export function PostalBatchRunner({
   useEffect(() => {
     // Resolve definite failures as well as uncertain ones, but only from new
     // saved receipts. An unrelated render must not clear a transport stop.
-    if (
-      previousReceipts.current !== receiptKey &&
-      !uncertain &&
-      !paused &&
-      !waiting
-    )
-      setStopped(false);
+    if (previousReceipts.current !== receiptKey && resumable) setStopped(false);
     previousReceipts.current = receiptKey;
-  }, [receiptKey, uncertain, paused, waiting]);
+  }, [receiptKey, resumable]);
   async function reloadStatus() {
     const result = await onReload?.();
     const items = result?.history?.filter(
       (item) => item.batchId === batch.id && item.status === "prepared",
     );
-    if (
-      items?.length &&
-      items.every(
-        (item) =>
-          item.letterAppeals &&
-          item.letterAppeals.status !== "needs_review" &&
-          !item.letterAppeals.members.some(
-            (member) => member.status === "uncertain",
-          ) &&
-          letterAppealRetryAt(item.letterAppeals) <= Date.now(),
-      )
-    )
-      setStopped(false);
+    const safe =
+      !!items?.length &&
+      items.every((item) => canResumeLetterAppeals(item.letterAppeals));
+    if (safe) setStopped(false);
+    return safe;
   }
   useEffect(() => {
     // Only an approval click in this page session starts processing. Reloading
@@ -476,6 +477,27 @@ export function PostalBatchRunner({
     run.current = false;
     setRunning(false);
   }
+  async function continueSaved() {
+    if (busy || run.current || waiting || uncertain) return;
+    if (stopped) {
+      if (!retryableStop) return;
+      run.current = true;
+      setRunning(true);
+      let safe = false;
+      try {
+        safe = await reloadStatus();
+        // Leaving the screen cancels continuation, even if the read completes.
+        if (!run.current) return;
+      } catch {
+        safe = false;
+      } finally {
+        run.current = false;
+        setRunning(false);
+      }
+      if (!safe) return;
+    }
+    await start();
+  }
   return (
     <section
       aria-label="Approved batch progress"
@@ -493,8 +515,10 @@ export function PostalBatchRunner({
           </p>
           {stopped && !uncertain && (
             <p role="status" className="mt-2 text-sm">
-              Processing stopped. Reload saved status before continuing; your
-              approved letters are kept.
+              Processing stopped. Your approved letters are kept.
+              {retryableStop
+                ? " Continue saved letters will check saved status and safely resume."
+                : " Reload saved status before continuing."}
             </p>
           )}
           {(uncertain || paused) && (
@@ -506,9 +530,7 @@ export function PostalBatchRunner({
           )}
           {waiting && (
             <p role="status" className="mt-2 text-sm">
-              NXT requested a pause until {new Date(retryAt).toLocaleString()}.
-              Reload saved status afterward; no updates will start
-              automatically.
+              {letterAppealPauseMessage(retryAt)}
             </p>
           )}
           {(stopped || waiting) && onReload && (
@@ -526,12 +548,18 @@ export function PostalBatchRunner({
           </p>
           <button
             className={`${button} mt-3 !bg-emerald-700 !text-white`}
-            disabled={busy || running || uncertain || stopped || waiting}
-            onClick={start}
+            disabled={
+              busy ||
+              running ||
+              uncertain ||
+              (stopped && !retryableStop) ||
+              waiting
+            }
+            onClick={continueSaved}
           >
             {running
               ? "Creating one household at a time..."
-              : "Create approved letters and apply appeals"}
+              : "Continue saved letters"}
           </button>
           {running && (
             <button

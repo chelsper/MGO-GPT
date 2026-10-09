@@ -8,6 +8,7 @@ import {
 import {
   beginAutomaticAppealCheck,
   finishAutomaticAppealCheck,
+  assertLetterAppealPauseEnded,
 } from "@/utils/societyLetterVerification";
 import {
   completeAppealCatalog,
@@ -343,6 +344,7 @@ export async function syncExclusionAppeal(
   if (!item || item.restoredAt || !item.nxt)
     throw letterError("Choose an active NXT-linked exclusion.");
   const nxt = item.nxt;
+  if (!automatic) assertLetterAppealPauseEnded([nxt]);
   if (automatic) {
     if (!verifyOnly) throw letterError("Automatic checks must be read-only.");
     if (!beginAutomaticAppealCheck(nxt)) return;

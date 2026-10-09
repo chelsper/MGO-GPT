@@ -9,6 +9,7 @@ import {
 import {
   beginAutomaticAppealCheck,
   finishAutomaticAppealCheck,
+  assertLetterAppealPauseEnded,
 } from "@/utils/societyLetterVerification";
 import {
   relationshipOnlyReceipt,
@@ -61,6 +62,10 @@ const exact = (row, receipt, member) =>
   row.date?.slice(0, 10) === receipt.date &&
   (!member.assignmentId || String(row.id) === member.assignmentId);
 
+function recoveryError(message, recoveryAction) {
+  return Object.assign(letterError(message), { recoveryAction });
+}
+
 function currentAppeal(catalog, configured) {
   const found = catalog.filter((a) => String(a.id) === configured.id);
   if (
@@ -74,8 +79,9 @@ function currentAppeal(catalog, configured) {
         configured.description.trim().toLowerCase(),
     ).length !== 1
   )
-    throw letterError(
+    throw recoveryError(
       "The letter appeal changed or its description is not unique in NXT. Verify the appeal settings before continuing.",
+      "appeals",
     );
 }
 
@@ -305,7 +311,10 @@ async function freshCheck(
     receipt.exclusionPolicy,
   );
   if (result.status !== "ready_for_preview")
-    throw letterError(result.reasons.join(" "));
+    throw recoveryError(
+      result.reasons.join(" "),
+      result.recoveryAction || "status",
+    );
   for (const member of receipt.members) {
     if (members[member.id].profile.is_constituent === false) {
       member.status = "not_applicable";
@@ -380,17 +389,24 @@ async function applyMembers(item, store, client) {
 
 function receiptStatus(item, error = null) {
   const receipt = item.letterAppeals;
-  if (error) receipt.verificationFailure = exclusionFailureDiagnostic(error);
-  else delete receipt.verificationFailure;
+  if (error) {
+    receipt.verificationFailure = exclusionFailureDiagnostic(error);
+    receipt.recoveryAction =
+      error.recoveryAction ||
+      (!error.status && !error.httpStatus ? "retry" : "status");
+  } else {
+    delete receipt.verificationFailure;
+    delete receipt.recoveryAction;
+  }
   receipt.status = error
     ? "needs_review"
     : completeLetterAppealMembers(receipt.members)
       ? "complete"
       : "pending";
   receipt.message = error
-    ? error.status
+    ? error.status && !error.httpStatus
       ? error.message
-      : "NXT could not confirm this update. Verify status before continuing; uncertain submissions are never resent."
+      : receipt.verificationFailure.message
     : receipt.status === "complete"
       ? "Letter created and appeal confirmed for every full constituent. Relationship-only spouses remain included in the household; no separate appeal is assigned to them. This does not mean it has been mailed."
       : "Saved submissions checked. Continue only the remaining member updates; no new letter will be created.";
@@ -479,6 +495,8 @@ export async function syncLetterAppeals(
   if (body.automatic === true && !verifyOnly)
     throw letterError("Automatic checks must be read-only.");
   const automatic = verifyOnly && body.automatic === true;
+  // Do not persist another failure or extend the deadline for an early retry.
+  if (!automatic) assertLetterAppealPauseEnded([receipt]);
   if (automatic) {
     if (!beginAutomaticAppealCheck(receipt)) return;
     await store.saveLetterAppeals(item);

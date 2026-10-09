@@ -4,6 +4,8 @@ import {
   unfinishedPostalAppealLetter,
 } from "@/utils/societyLetterBulkAppeals";
 import { focusSavedLetter } from "./letterHistoryFocus";
+import { letterAppealPauseMessage } from "@/utils/societyLetterVerification";
+import useLetterAppealPause from "./useLetterAppealPause";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50";
@@ -29,6 +31,9 @@ export default function BulkLetterAppealUpdates({
   const active = !!confirmation || running;
   const candidates = items.filter(unfinishedPostalAppealLetter);
   const chosen = candidates.filter((item) => selected.includes(item.id));
+  const { retryAt, waiting } = useLetterAppealPause(
+    chosen.map((item) => item.letterAppeals),
+  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -49,7 +54,7 @@ export default function BulkLetterAppealUpdates({
   }, [!!confirmation]);
 
   async function finish() {
-    if (busy || starting.current || !confirmation?.length) return;
+    if (busy || waiting || starting.current || !confirmation?.length) return;
     starting.current = true;
     stopped.current = false;
     setRunning(true);
@@ -126,6 +131,11 @@ export default function BulkLetterAppealUpdates({
         household members. Your approved letters stay unchanged. Nothing is
         emailed or marked mailed.
       </p>
+      {waiting && (
+        <p role="status" className="mt-3 text-sm">
+          {letterAppealPauseMessage(retryAt)}
+        </p>
+      )}
       {!active && candidates.length > 0 && (
         <>
           <div className="my-4 flex flex-wrap items-center gap-3">
@@ -187,7 +197,7 @@ export default function BulkLetterAppealUpdates({
           </ul>
           <button
             className={`${button} mt-4 !bg-emerald-700 !text-white`}
-            disabled={busy || !chosen.length}
+            disabled={busy || waiting || !chosen.length}
             onClick={() => {
               setConfirmation(chosen);
               setNotice("");
@@ -265,7 +275,7 @@ export default function BulkLetterAppealUpdates({
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 className={`${button} !bg-emerald-700 !text-white`}
-                disabled={busy}
+                disabled={busy || waiting}
                 onClick={finish}
               >
                 Confirm and finish NXT updates

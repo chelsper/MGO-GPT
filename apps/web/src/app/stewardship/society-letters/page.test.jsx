@@ -154,7 +154,7 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: "Needs attention 1" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -182,7 +182,7 @@ describe("society letter workspace", () => {
       screen.getByRole("checkbox", { name: "Select Household 11" }),
     );
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", { name: "Edit address for Household 11" }),
@@ -208,7 +208,7 @@ describe("society letter workspace", () => {
       screen.getByRole("checkbox", { name: "Select Household 11" }),
     ).toBeChecked();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).action).toBe(
       "save_recipient",
@@ -238,7 +238,7 @@ describe("society letter workspace", () => {
       await screen.findByRole("checkbox", { name: "Select Household 10" }),
     );
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", {
@@ -247,7 +247,7 @@ describe("society letter workspace", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Start document approval" }),
+        screen.getByRole("button", { name: "Prepare letters" }),
       ).toBeEnabled(),
     );
     expect(
@@ -276,9 +276,7 @@ describe("society letter workspace", () => {
     fireEvent.click(
       await screen.findByRole("checkbox", { name: "Select Household 11" }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Start document approval" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare letters" }));
     const alert = await screen.findByRole("alert");
     fireEvent.click(
       within(alert).getByRole("button", {
@@ -304,6 +302,7 @@ describe("society letter workspace", () => {
       const item = unsubmittedLetter();
       item.letterAppeals.status = "needs_review";
       item.letterAppeals.message = "The saved mailing address needs review.";
+      item.letterAppeals.recoveryAction = "recipient";
       const row = reviewRow("10", true);
       const workspace = {
         ...base,
@@ -483,6 +482,7 @@ describe("society letter workspace", () => {
     const item = unsubmittedLetter();
     item.letterAppeals.status = "needs_review";
     item.letterAppeals.message = "The saved mailing address needs review.";
+    item.letterAppeals.recoveryAction = "recipient";
     fetchMock.mockResolvedValue(Response.json({ ...base, history: [item] }));
     window.history.replaceState(
       {},
@@ -544,7 +544,7 @@ describe("society letter workspace", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     );
     await waitFor(() =>
@@ -588,7 +588,7 @@ describe("society letter workspace", () => {
     ).toBeDisabled();
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeDisabled();
     expect(screen.getByText(/Appeal confirmation is pending/)).toBeVisible();
@@ -649,7 +649,7 @@ describe("society letter workspace", () => {
     render(<Page />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -660,7 +660,7 @@ describe("society letter workspace", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeDisabled();
     expect(
@@ -714,17 +714,11 @@ describe("society letter workspace", () => {
         name: "Select ready households (up to 10)",
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Start document approval" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare letters" }));
     await screen.findByRole("region", { name: "Approve saved letter batch" });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
       screen.getByRole("button", { name: "Approve letters and continue" }),
     ).toBeDisabled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Prepare documents", exact: true }),
-    );
     await screen.findByText(/1 of 1 documents prepared/);
     expect(
       screen.getByRole("button", { name: "Approve letters and continue" }),
@@ -796,7 +790,7 @@ describe("society letter workspace", () => {
     ]);
     expect(checkbox).toBeChecked();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     await reactAct(async () => {
       await vi.advanceTimersByTimeAsync(600000);
@@ -832,7 +826,7 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: "All recipients 2" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -867,7 +861,7 @@ describe("society letter workspace", () => {
       screen.getByRole("checkbox", { name: "Select Household 10" }),
     ).toBeChecked();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Delivery method"), {
       target: { value: "email" },
@@ -876,7 +870,7 @@ describe("society letter workspace", () => {
       screen.queryByRole("region", { name: "Letter workflow" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -960,9 +954,7 @@ describe("society letter workspace", () => {
         name: "Select ready households (up to 10)",
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Start document approval" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare letters" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
       action: "start_postal_draft",
@@ -1004,7 +996,7 @@ describe("society letter workspace", () => {
       expect(screen.getByText("Recipient choices saved")).toBeVisible();
       expect(screen.getByText("Ready to create")).toBeVisible();
       expect(
-        screen.getByRole("button", { name: "Start document approval" }),
+        screen.getByRole("button", { name: "Prepare letters" }),
       ).toBeEnabled();
       expect(
         screen.getByRole("button", { name: "Edit selected recipients" }),
@@ -1231,7 +1223,7 @@ describe("society letter workspace", () => {
     expect(checkbox).toBeChecked();
     expect(screen.getByText("1 selected")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeDisabled();
     expect(
       screen.getByText(/Some selected recipients need attention/),
@@ -1264,7 +1256,7 @@ describe("society letter workspace", () => {
     );
     expect(screen.getByText("50 selected")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeDisabled();
     expect(
       screen.getByText(/Document approval is limited to 10 households/),
@@ -1285,7 +1277,7 @@ describe("society letter workspace", () => {
     );
     expect(screen.getByText("10 selected")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -1311,7 +1303,7 @@ describe("society letter workspace", () => {
       screen.getByRole("checkbox", { name: "Select Household 20" }),
     );
     const approve = screen.getByRole("button", {
-      name: "Start document approval",
+      name: "Prepare letters",
     });
     expect(approve).toBeDisabled();
     fireEvent.click(approve);
@@ -1350,7 +1342,7 @@ describe("society letter workspace", () => {
         screen.getByRole("button", { name: "Review selected recipients" }),
       ).toBeEnabled();
       expect(
-        screen.getByRole("button", { name: "Start document approval" }),
+        screen.getByRole("button", { name: "Prepare letters" }),
       ).toBeEnabled();
       expect(fetchMock).toHaveBeenCalledOnce();
     },
@@ -1397,7 +1389,7 @@ describe("society letter workspace", () => {
         screen.getByRole("checkbox", { name: "Select Household 10" }),
       ).toBeChecked();
       expect(
-        screen.getByRole("button", { name: "Start document approval" }),
+        screen.getByRole("button", { name: "Prepare letters" }),
       ).toBeDisabled();
       expect(screen.getAllByText(message).length).toBeGreaterThan(0);
       expect(fetchMock).toHaveBeenCalledOnce();
@@ -1423,7 +1415,7 @@ describe("society letter workspace", () => {
       screen.getByRole("button", { name: "Review selected recipients" }),
     ).toBeEnabled();
     expect(
-      screen.queryByRole("button", { name: "Start document approval" }),
+      screen.queryByRole("button", { name: "Prepare letters" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/Some selected recipients still need their names/),
@@ -1502,9 +1494,7 @@ describe("society letter workspace", () => {
       );
       expect(screen.getByText(`${limit} selected`)).toBeVisible();
       expect(fetchMock).toHaveBeenCalledOnce();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Start document approval" }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Prepare letters" }));
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
       expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
         action: "start_postal_draft",
@@ -1550,7 +1540,7 @@ describe("society letter workspace", () => {
         exact: true,
       }),
     );
-    await screen.findByText(/10 of 10 documents prepared; 0 approved/);
+    await screen.findByText(/10 of 10 documents prepared/);
     expect(
       fetchMock.mock.calls
         .filter(([, options]) => options?.method === "POST")
@@ -2252,7 +2242,7 @@ describe("society letter workspace", () => {
       await screen.findByRole("checkbox", { name: "Select Household 10" }),
     );
     expect(
-      screen.getByRole("button", { name: "Start document approval" }),
+      screen.getByRole("button", { name: "Prepare letters" }),
     ).toBeEnabled();
     const details = screen
       .getByText("Optional NXT preflight (unfinished check)", {

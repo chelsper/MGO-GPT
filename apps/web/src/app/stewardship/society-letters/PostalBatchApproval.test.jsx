@@ -38,6 +38,183 @@ const batch = (status = "pending") => ({
 });
 
 describe("saved postal approval UX", () => {
+  it.each(["safe", "uncertain", "read-failed"])(
+    "continues after an expired pause with one click only when reloaded receipts are safe: %s",
+    async (outcome) => {
+      let now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const failed = batch();
+        failed.items.forEach((item) => {
+          item.status = "prepared";
+        });
+        failed.items[0].letterAppeals.status = "needs_review";
+        failed.items[0].letterAppeals.verificationFailure = {
+          checkedAt: new Date(now).toISOString(),
+          httpStatus: 429,
+          retryAfterMs: 60000,
+        };
+        const loaded = structuredClone(failed);
+        if (outcome === "uncertain")
+          loaded.items[0].letterAppeals.members[0].status = "uncertain";
+        const reload = vi
+          .fn()
+          .mockResolvedValue(
+            outcome === "read-failed" ? null : { history: loaded.items },
+          );
+        const act = vi
+          .fn()
+          .mockResolvedValueOnce({ history: failed.items })
+          .mockResolvedValue({ history: batch("complete").items });
+        const view = render(
+          <PostalBatchRunner
+            batch={batch()}
+            busy={false}
+            act={act}
+            onReload={reload}
+          />,
+        );
+        fireEvent.click(
+          screen.getByRole("button", { name: "Continue saved letters" }),
+        );
+        await waitFor(() =>
+          expect(screen.getByText(/Processing stopped/)).toBeVisible(),
+        );
+        view.rerender(
+          <PostalBatchRunner
+            batch={failed}
+            busy={false}
+            act={act}
+            onReload={reload}
+          />,
+        );
+        expect(
+          screen.getByRole("button", { name: "Continue saved letters" }),
+        ).toBeDisabled();
+        now += 60001;
+        view.rerender(
+          <PostalBatchRunner
+            batch={structuredClone(failed)}
+            busy={false}
+            act={act}
+            onReload={reload}
+          />,
+        );
+        expect(act).toHaveBeenCalledOnce();
+        fireEvent.click(
+          screen.getByRole("button", { name: "Continue saved letters" }),
+        );
+        await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+        await waitFor(() =>
+          expect(
+            screen.queryByRole("button", { name: /Creating one household/ }),
+          ).not.toBeInTheDocument(),
+        );
+        expect(act).toHaveBeenCalledTimes(outcome === "safe" ? 2 : 1);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
+  it.each([false, true])(
+    "prepares only a just-created draft once, without automatic approval (creation click: %s)",
+    async (autoPrepare) => {
+      const pending = draft([entry("10", false)]);
+      const act = vi
+        .fn()
+        .mockResolvedValue({ postalDraft: draft([entry("10")]) });
+      const consumed = vi.fn();
+      const props = {
+        draft: pending,
+        revision: 3,
+        busy: true,
+        act,
+        onApproved: vi.fn(),
+        autoPrepare,
+        onAutoPrepareConsumed: consumed,
+      };
+      const view = render(<PostalBatchApproval {...props} />);
+      expect(act).not.toHaveBeenCalled();
+      view.rerender(<PostalBatchApproval {...props} busy={false} />);
+      if (autoPrepare) {
+        await waitFor(() => expect(act).toHaveBeenCalledOnce());
+        expect(act).toHaveBeenCalledWith({
+          action: "prepare_postal_document",
+          draftId: "draft",
+          householdId: "10",
+        });
+        expect(consumed).toHaveBeenCalledOnce();
+      }
+      view.rerender(
+        <PostalBatchApproval {...props} busy={false} revision={4} />,
+      );
+      expect(act).toHaveBeenCalledTimes(autoPrepare ? 1 : 0);
+      expect(props.onApproved).not.toHaveBeenCalled();
+    },
+  );
+  it("unlocks an expired provider pause on read-only reload, without resubmitting automatically", async () => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const failed = batch();
+      failed.items.forEach((item) => {
+        item.status = "prepared";
+      });
+      failed.items[0].letterAppeals.status = "needs_review";
+      failed.items[0].letterAppeals.verificationFailure = {
+        checkedAt: new Date(now).toISOString(),
+        httpStatus: 429,
+        retryAfterMs: 300000,
+      };
+      const act = vi.fn().mockResolvedValue({ history: failed.items });
+      const reload = vi.fn().mockResolvedValue({ history: failed.items });
+      const view = render(
+        <PostalBatchRunner
+          batch={batch()}
+          busy={false}
+          act={act}
+          onReload={reload}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue saved letters" }),
+      );
+      await waitFor(() =>
+        expect(screen.getByText(/Processing stopped/)).toBeVisible(),
+      );
+      view.rerender(
+        <PostalBatchRunner
+          batch={failed}
+          busy={false}
+          act={act}
+          onReload={reload}
+        />,
+      );
+      expect(screen.getByText(/NXT requested a pause/)).toBeVisible();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Reload saved batch status" }),
+      );
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(
+        screen.getByRole("button", { name: "Continue saved letters" }),
+      ).toBeDisabled();
+      now += 300001;
+      fireEvent.click(
+        screen.getByRole("button", { name: "Reload saved batch status" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Continue saved letters" }),
+        ).toBeEnabled(),
+      );
+      expect(
+        screen.queryByText(/NXT requested a pause/),
+      ).not.toBeInTheDocument();
+      expect(act).toHaveBeenCalledOnce();
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("unlocks after a definite failure is resolved, without submitting the next letter", async () => {
     const failed = batch();
     failed.items[0].letterAppeals.status = "needs_review";
@@ -47,13 +224,13 @@ describe("saved postal approval UX", () => {
     );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     );
     await waitFor(() =>
       expect(
         screen.getByRole("button", {
-          name: "Create approved letters and apply appeals",
+          name: "Continue saved letters",
         }),
       ).toBeDisabled(),
     );
@@ -66,7 +243,7 @@ describe("saved postal approval UX", () => {
     );
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeEnabled();
     expect(act).toHaveBeenCalledOnce();
@@ -102,13 +279,13 @@ describe("saved postal approval UX", () => {
       );
       fireEvent.click(
         screen.getByRole("button", {
-          name: "Create approved letters and apply appeals",
+          name: "Continue saved letters",
         }),
       );
       await waitFor(() =>
         expect(
           screen.getByRole("button", {
-            name: "Create approved letters and apply appeals",
+            name: "Continue saved letters",
           }),
         ).toBeDisabled(),
       );
@@ -122,7 +299,7 @@ describe("saved postal approval UX", () => {
       );
       expect(
         screen.getByRole("button", {
-          name: "Create approved letters and apply appeals",
+          name: "Continue saved letters",
         }),
       ).toBeDisabled();
       fireEvent.click(
@@ -133,14 +310,14 @@ describe("saved postal approval UX", () => {
         await waitFor(() =>
           expect(
             screen.getByRole("button", {
-              name: "Create approved letters and apply appeals",
+              name: "Continue saved letters",
             }),
           ).toBeEnabled(),
         );
       else
         expect(
           screen.getByRole("button", {
-            name: "Create approved letters and apply appeals",
+            name: "Continue saved letters",
           }),
         ).toBeDisabled();
       expect(act).toHaveBeenCalledOnce();
@@ -164,7 +341,7 @@ describe("saved postal approval UX", () => {
     );
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeDisabled();
     expect(act).not.toHaveBeenCalled();
@@ -180,14 +357,14 @@ describe("saved postal approval UX", () => {
     );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     );
     await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
     rerender(<PostalBatchRunner batch={unresolved} busy={false} act={act} />);
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeDisabled();
     const confirmed = structuredClone(unresolved);
@@ -196,7 +373,7 @@ describe("saved postal approval UX", () => {
     rerender(<PostalBatchRunner batch={confirmed} busy={false} act={act} />);
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeEnabled();
     expect(act).toHaveBeenCalledTimes(1);
@@ -217,7 +394,7 @@ describe("saved postal approval UX", () => {
       screen.getByRole("button", { name: "Preview document (optional)" }),
     );
     expect(
-      screen.getByRole("button", { name: "Approve this document" }),
+      screen.getByRole("button", { name: "Finish preview" }),
     ).toBeDisabled();
     expect(
       screen.getByRole("button", {
@@ -227,9 +404,7 @@ describe("saved postal approval UX", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Finish rendering test document" }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Approve this document" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Finish preview" }));
     await waitFor(() =>
       expect(act).toHaveBeenCalledWith({
         action: "review_postal_document",
@@ -312,7 +487,7 @@ describe("saved postal approval UX", () => {
     expect(act).not.toHaveBeenCalled();
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     );
     await waitFor(() => expect(act).toHaveBeenCalledOnce());
@@ -324,7 +499,7 @@ describe("saved postal approval UX", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("button", {
-          name: "Create approved letters and apply appeals",
+          name: "Continue saved letters",
         }),
       ).toBeDisabled(),
     );
@@ -339,7 +514,7 @@ describe("saved postal approval UX", () => {
     render(<PostalBatchRunner batch={batch()} busy={false} act={act} />);
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     );
     await waitFor(() => expect(act).toHaveBeenCalledTimes(2));
@@ -352,7 +527,7 @@ describe("saved postal approval UX", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(
       screen.getByRole("button", {
-        name: "Create approved letters and apply appeals",
+        name: "Continue saved letters",
       }),
     ).toBeDisabled();
     expect(

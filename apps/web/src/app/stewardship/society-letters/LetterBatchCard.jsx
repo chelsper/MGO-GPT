@@ -2,6 +2,7 @@ import { PostalBatchRunner } from "./PostalBatchApproval";
 import LetterBatchSummary from "./LetterBatchSummary";
 import { LetterAppealStatus } from "./FinalPostalLetterDialog";
 import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
+import { letterAppealRecovery } from "@/utils/societyLetterVerification";
 import { focusSavedLetter, savedLetterElementId } from "./letterHistoryFocus";
 
 const button =
@@ -222,7 +223,8 @@ export default function LetterBatchCard({
                   {item.letterAppeals.message ||
                     "Review this letter's saved appeal status."}
                 </p>
-                {canReturnLetterToReview(item) ? (
+                {letterAppealRecovery(item.letterAppeals) === "recipient" &&
+                canReturnLetterToReview(item) ? (
                   <>
                     <p className="mt-2 text-sm text-gray-600">
                       No appeal has been submitted. You can correct this
@@ -239,14 +241,33 @@ export default function LetterBatchCard({
                     </button>
                   </>
                 ) : (
-                  <button
-                    className={`${button} mt-3`}
-                    disabled={busy || !!sendingBatch}
-                    onClick={() => focusSavedLetter(item.id)}
-                    aria-label={`Review saved status for ${item.name}`}
-                  >
-                    Review saved status
-                  </button>
+                  <>
+                    <p className="mt-2 text-sm text-gray-600">
+                      {letterAppealRecovery(item.letterAppeals) === "connection"
+                        ? "Ask an administrator to check the Blackbaud connection and permissions. Your approved letter stays saved; you do not need to edit the recipient."
+                        : ["retry", "waiting"].includes(
+                              letterAppealRecovery(item.letterAppeals),
+                            )
+                          ? "Your approved letter stays saved. Continue saved letters after any NXT pause; no replacement letter is needed."
+                          : "Keep this approved letter while you resolve its saved NXT status. Do not create another letter."}
+                    </p>
+                    {letterAppealRecovery(item.letterAppeals) === "appeals" && (
+                      <a
+                        className={`${button} mt-3 inline-block`}
+                        href="/stewardship/society-letters?view=appeals"
+                      >
+                        Open appeal settings
+                      </a>
+                    )}
+                    <button
+                      className={`${button} mt-3`}
+                      disabled={busy || !!sendingBatch}
+                      onClick={() => focusSavedLetter(item.id)}
+                      aria-label={`Review saved status for ${item.name}`}
+                    >
+                      Review saved status
+                    </button>
+                  </>
                 )}
               </li>
             ))}

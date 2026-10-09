@@ -41,6 +41,17 @@ function fixture() {
   return { state, store, sync, read, run };
 }
 describe("selected saved letter recovery", () => {
+  it("honors a pause on any selected letter before reading a document or starting another household", async () => {
+    const f = fixture();
+    f.state.history[1].letterAppeals.verificationFailure = {
+      checkedAt: new Date().toISOString(),
+      retryAfterMs: 300000,
+    };
+    await expect(f.run()).rejects.toMatchObject({ status: 429 });
+    expect(f.read).not.toHaveBeenCalled();
+    expect(f.sync).not.toHaveBeenCalled();
+    expect(f.store.saveLetterAppeals).not.toHaveBeenCalled();
+  });
   it("processes only the requested saved letter across batches, checking its frozen document first", async () => {
     const f = fixture();
     expect(

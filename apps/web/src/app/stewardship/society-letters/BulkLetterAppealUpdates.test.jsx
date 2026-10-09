@@ -65,6 +65,38 @@ function confirm() {
   );
 }
 describe("bulk saved letter appeal updates", () => {
+  it("keeps the selection but blocks confirmation while a selected letter is paused", () => {
+    vi.useFakeTimers();
+    const props = fixture();
+    props.items[1].letterAppeals.verificationFailure = {
+      checkedAt: new Date().toISOString(),
+      retryAfterMs: 60000,
+    };
+    const view = render(<BulkLetterAppealUpdates {...props} />);
+    try {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Select up to 50 unfinished letters",
+        }),
+      );
+      expect(screen.getByText("2 selected")).toBeVisible();
+      expect(
+        screen.getByRole("button", {
+          name: "Finish updates for selected letters",
+        }),
+      ).toBeDisabled();
+      reactAct(() => vi.advanceTimersByTime(60000));
+      expect(
+        screen.getByRole("button", {
+          name: "Finish updates for selected letters",
+        }),
+      ).toBeEnabled();
+      expect(props.act).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
   it("puts confirmation in a named dialog and supports Escape without starting updates", () => {
     const props = fixture();
     render(<BulkLetterAppealUpdates {...props} />);

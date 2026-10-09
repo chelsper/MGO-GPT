@@ -4,6 +4,8 @@ import {
   beginAutomaticAppealCheck,
   finishAutomaticAppealCheck,
   nextAutomaticAppealCheck,
+  canResumeLetterAppeals,
+  letterAppealRecovery,
 } from "./societyLetterVerification";
 
 const now = Date.parse("2026-10-08T12:00:00Z");
@@ -16,6 +18,30 @@ const receipt = () => ({
 });
 
 describe("automatic read-only appeal reconciliation", () => {
+  it("only clears stopped recovery for safe pending work or a known expired provider pause", () => {
+    const r = {
+      status: "needs_review",
+      members: [{ id: "10", status: "pending" }],
+      verificationFailure: {
+        httpStatus: 429,
+        checkedAt: new Date(now).toISOString(),
+        retryAfterMs: 60000,
+      },
+    };
+    expect(canResumeLetterAppeals(r, now)).toBe(false);
+    expect(canResumeLetterAppeals(r, now + 60000)).toBe(true);
+    r.members[0].status = "uncertain";
+    expect(canResumeLetterAppeals(r, now + 60000)).toBe(false);
+    r.members[0].status = "pending";
+    r.verificationFailure = { httpStatus: 403 };
+    expect(letterAppealRecovery(r, now)).toBe("connection");
+    expect(canResumeLetterAppeals(r, now)).toBe(false);
+    delete r.verificationFailure;
+    expect(canResumeLetterAppeals(r, now)).toBe(false);
+    r.recoveryAction = "recipient";
+    expect(letterAppealRecovery(r, now)).toBe("recipient");
+    expect(canResumeLetterAppeals(r, now)).toBe(false);
+  });
   it("checks uncertain submissions only, after the initial delay", () => {
     const r = receipt();
     expect(automaticAppealCheck(r, now).delay).toBe(5000);

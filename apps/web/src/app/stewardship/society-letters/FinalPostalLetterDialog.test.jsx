@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  act,
+} from "@testing-library/react";
 vi.mock("./SavedLetterPreview", () => ({
   default: ({ draft, onReady }) => (
     <button
@@ -46,6 +52,59 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("final letter confirmation", () => {
+  it("disables manual reads and continuation for a saved pause, then enables only an explicit click", () => {
+    vi.useFakeTimers();
+    try {
+      const onContinue = vi.fn(),
+        onVerify = vi.fn();
+      const item = {
+        name: "Sample",
+        status: "prepared",
+        letterAppeals: {
+          status: "needs_review",
+          appeal: preview.appeal,
+          members: [{ id: "10", status: "pending" }],
+          verificationFailure: {
+            checkedAt: new Date().toISOString(),
+            retryAfterMs: 60000,
+          },
+        },
+      };
+      render(
+        <LetterAppealStatus
+          item={item}
+          onContinue={onContinue}
+          onVerify={onVerify}
+        />,
+      );
+      expect(screen.getByRole("checkbox")).toBeDisabled();
+      expect(
+        screen.queryByRole("button", { name: "Verify NXT status (read only)" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", {
+          name: "Continue remaining appeal updates",
+        }),
+      ).toBeDisabled();
+      act(() => vi.advanceTimersByTime(60000));
+      expect(screen.getByRole("checkbox")).toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "Verify NXT status (read only)" }),
+      ).toBeEnabled();
+      expect(onContinue).not.toHaveBeenCalled();
+      expect(onVerify).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Continue remaining appeal updates",
+        }),
+      );
+      expect(onContinue).toHaveBeenCalledOnce();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
   it("allows saved review without a repeat preview, requires approval and prevents repeat submit", () => {
     const onConfirm = vi.fn();
     render(

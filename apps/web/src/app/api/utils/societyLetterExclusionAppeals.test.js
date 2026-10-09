@@ -166,6 +166,31 @@ describe("automatic exclusion reconciliation", () => {
     vi.setSystemTime(new Date("2026-09-25T15:00:00Z"));
   });
   afterEach(() => vi.useRealTimers());
+  it.each([false, true])(
+    "protects explicit exclusion continuation and verification during a saved pause (verify: %s)",
+    async (verifyOnly) => {
+      const f = await setup();
+      f.client.catalog.mockClear();
+      f.item.nxt.verificationFailure = {
+        checkedAt: new Date().toISOString(),
+        retryAfterMs: 60000,
+      };
+      const before = structuredClone(f.state);
+      await expect(
+        syncExclusionAppeal(
+          f.state,
+          f.item,
+          f.store,
+          ctx,
+          f.client,
+          verifyOnly,
+        ),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(f.client.catalog).not.toHaveBeenCalled();
+      expect(f.client.create).not.toHaveBeenCalled();
+      expect(f.state).toEqual(before);
+    },
+  );
   it("checks only existing submissions and preserves the local exclusion", async () => {
     const f = await setup();
     const create = f.client.create.getMockImplementation();

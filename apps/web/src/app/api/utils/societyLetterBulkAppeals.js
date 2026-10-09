@@ -6,6 +6,7 @@ import {
 } from "@/utils/societyLetterBulkAppeals";
 import { syncLetterAppeals } from "./societyLetterFinalization";
 import { savedPostalDocument } from "./societyLetterPostalBatches";
+import { assertLetterAppealPauseEnded } from "@/utils/societyLetterVerification";
 
 // One selected household per leased request. Receipts remain the durable checkpoint;
 // reopening the page never resumes writes without another explicit confirmation.
@@ -47,6 +48,7 @@ export async function finishSelectedLetterAppeals(
   const item = selected.find((entry) => entry.id === body.deliveryId);
   if (letterAppealsFinished(item))
     return { deliveryId: item.id, status: "complete", stop: false };
+  assertLetterAppealPauseEnded(selected.map((entry) => entry.letterAppeals));
   if (item.postalDocument) {
     try {
       await readDocument(item.postalDocument);

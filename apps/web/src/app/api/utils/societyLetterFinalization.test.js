@@ -383,6 +383,124 @@ async function draftFixture(
 }
 
 describe("saved postal batch approvals", () => {
+  it.each(["single", "bulk", "manual", "automatic"])(
+    "honors the same saved pause for %s recovery without rewriting it",
+    async (mode) => {
+      const f = await draftFixture();
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      const item = f.state.history[0];
+      const sync = (...args) => syncLetterAppeals(...args, f.reader, f.client);
+      f.reader.member.mockRejectedValueOnce(
+        Object.assign(new Error("rate limited"), {
+          httpStatus: 429,
+          retryAfterMs: 300000,
+        }),
+      );
+      await continuePostalBatch(
+        f.state,
+        definitions,
+        today,
+        { batchId: f.id, confirm: true },
+        f.store,
+        ctx,
+        sync,
+        f.read,
+      );
+      const before = structuredClone(item);
+      const reads = f.reader.member.mock.calls.length;
+      const saves = f.store.saveLetterAppeals.mock.calls.length;
+      const resume = () =>
+        mode === "bulk"
+          ? finishSelectedLetterAppeals(
+              f.state,
+              definitions,
+              today,
+              { deliveryIds: [item.id], deliveryId: item.id, confirm: true },
+              f.store,
+              ctx,
+              sync,
+              (ref) => savedPostalDocument(ref, f.read),
+            )
+          : sync(
+              f.state,
+              definitions,
+              today,
+              {
+                action: ["manual", "automatic"].includes(mode)
+                  ? "verify_letter_appeals"
+                  : "continue_letter_appeals",
+                deliveryId: item.id,
+                confirm: true,
+                automatic: mode === "automatic",
+              },
+              f.store,
+              ctx,
+            );
+      if (mode === "automatic") await resume();
+      else await expect(resume()).rejects.toMatchObject({ status: 429 });
+      expect(f.reader.member).toHaveBeenCalledTimes(reads);
+      expect(f.client.create).not.toHaveBeenCalled();
+      expect(f.client.appeals).not.toHaveBeenCalled();
+      expect(f.store.saveLetterAppeals).toHaveBeenCalledTimes(saves);
+      expect(item).toEqual(before);
+      vi.advanceTimersByTime(300000);
+      await resume();
+      if (["single", "bulk"].includes(mode)) {
+        expect(f.client.create).toHaveBeenCalledTimes(2);
+        expect(item.letterAppeals.status).toBe("complete");
+        expect(item.postalDocument).toEqual(before.postalDocument);
+        expect(item.postalApproval).toEqual(before.postalApproval);
+      } else expect(f.client.create).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["address", "permissions", "catalog", "restriction"])(
+    "records targeted recovery guidance for %s without replacing the approved letter",
+    async (kind) => {
+      const f = await draftFixture();
+      await f.prepare();
+      await f.review();
+      await f.approve();
+      const item = f.state.history[0];
+      const document = structuredClone(item.postalDocument);
+      if (kind === "address")
+        f.profiles["10"].profile.address.address_lines = "20 Changed St";
+      if (kind === "permissions")
+        f.reader.member.mockRejectedValueOnce(
+          Object.assign(new Error("denied"), { httpStatus: 403 }),
+        );
+      if (kind === "catalog") f.client.catalog.mockResolvedValue([]);
+      if (kind === "restriction")
+        f.profiles["11"].preferences.push({ id: "do-not-mail" });
+      await syncLetterAppeals(
+        f.state,
+        definitions,
+        today,
+        {
+          action: "continue_letter_appeals",
+          deliveryId: item.id,
+          confirm: true,
+        },
+        f.store,
+        ctx,
+        f.reader,
+        f.client,
+      );
+      expect(item.letterAppeals.status).toBe("needs_review");
+      expect(item.letterAppeals.recoveryAction).toBe(
+        kind === "address"
+          ? "recipient"
+          : kind === "catalog"
+            ? "appeals"
+            : "status",
+      );
+      if (kind === "permissions")
+        expect(item.letterAppeals.verificationFailure.httpStatus).toBe(403);
+      expect(item.postalDocument).toEqual(document);
+      expect(f.client.create).not.toHaveBeenCalled();
+    },
+  );
   it("stores concise NXT comments and the full audit note on newly approved letters", async () => {
     const f = await draftFixture();
     await f.prepare();

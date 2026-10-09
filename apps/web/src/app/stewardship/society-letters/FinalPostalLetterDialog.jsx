@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import useLetterAppealPause from "./useLetterAppealPause";
 import SavedLetterPreview from "./SavedLetterPreview";
 import LetterBatchSummary from "./LetterBatchSummary";
 import { relationshipOnlyReceipt } from "@/utils/societyLetterAppealMembers";
@@ -173,6 +174,7 @@ export function LetterAppealStatus({
 }) {
   const [confirmed, setConfirmed] = useState(false);
   const receipt = item.letterAppeals;
+  const { waiting } = useLetterAppealPause([receipt]);
   if (!receipt) return null;
   const complete = receipt.status === "complete";
   return (
@@ -221,7 +223,7 @@ export function LetterAppealStatus({
                 <input
                   type="checkbox"
                   checked={confirmed}
-                  disabled={busy}
+                  disabled={busy || waiting}
                   onChange={(e) => setConfirmed(e.target.checked)}
                 />{" "}
                 Apply the saved appeal only to remaining members. Do not create
@@ -229,7 +231,7 @@ export function LetterAppealStatus({
               </label>
               <button
                 className={`${button} mt-3`}
-                disabled={busy || !confirmed}
+                disabled={busy || waiting || !confirmed}
                 onClick={() => {
                   setConfirmed(false);
                   onContinue();

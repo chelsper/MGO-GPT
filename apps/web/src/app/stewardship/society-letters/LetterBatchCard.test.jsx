@@ -51,11 +51,40 @@ function fixture(status = "complete", channel = "post") {
 }
 
 describe("shared letter batch actions", () => {
+  it.each(["permissions", "catalog", "legacy"])(
+    "keeps approved %s failures out of recipient repair",
+    (kind) => {
+      const props = fixture("needs_review");
+      const item = unsubmittedLetter();
+      item.letterAppeals.status = "needs_review";
+      if (kind === "permissions")
+        item.letterAppeals.verificationFailure = { httpStatus: 403 };
+      if (kind === "catalog") item.letterAppeals.recoveryAction = "appeals";
+      props.batch.items = [item];
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", { name: /Fix recipient details/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: `Review saved status for ${item.name}`,
+        }),
+      );
+      expect(props.setConfirmation).not.toHaveBeenCalled();
+      if (kind === "permissions")
+        expect(screen.getByText(/Ask an administrator/)).toBeVisible();
+      if (kind === "catalog")
+        expect(
+          screen.getByRole("link", { name: "Open appeal settings" }),
+        ).toHaveAttribute("href", "/stewardship/society-letters?view=appeals");
+    },
+  );
   it("offers a direct, confirmed repair for a blocked unsubmitted letter", () => {
     const props = fixture("needs_review");
     const item = unsubmittedLetter();
     item.letterAppeals.status = "needs_review";
     item.letterAppeals.message = "The saved mailing address needs review.";
+    item.letterAppeals.recoveryAction = "recipient";
     props.batch.items = [item];
     render(<LetterBatchCard {...props} />);
     expect(

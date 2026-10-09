@@ -1,3 +1,5 @@
+import { letterError } from "./societyLetters";
+
 const DELAYS = [5000, 30000, 120000];
 const time = (value) => Date.parse(value) || 0;
 const keyFor = (receipt) =>
@@ -16,6 +18,48 @@ export function letterAppealRetryAt(receipt) {
         : 0,
     ),
   );
+}
+
+export function letterAppealPauseMessage(retryAt) {
+  return `NXT requested a pause until ${new Date(retryAt).toLocaleString()}. Your saved work is kept. Continue after the pause; no updates will restart automatically.`;
+}
+
+export function assertLetterAppealPauseEnded(receipts, now = Date.now()) {
+  const retryAt = Math.max(0, ...receipts.map(letterAppealRetryAt));
+  if (retryAt > now) {
+    const error = letterError(letterAppealPauseMessage(retryAt), 429);
+    error.retryAfterMs = retryAt - now;
+    throw error;
+  }
+}
+
+// Recovery advice is not write eligibility. Every continuation still performs
+// fresh NXT checks and reconciles the durable per-member submission receipts.
+export function letterAppealRecovery(receipt, now = Date.now()) {
+  if (!receipt) return "status";
+  if (letterAppealRetryAt(receipt) > now) return "waiting";
+  if (receipt.members?.some((m) => m.status === "uncertain")) return "verify";
+  if (receipt.status === "complete") return "complete";
+  const failure = receipt.verificationFailure;
+  if ([401, 403].includes(failure?.httpStatus) && !failure.retryAfterMs)
+    return "connection";
+  if (
+    failure?.httpStatus === 429 ||
+    failure?.retryAfterMs > 0 ||
+    failure?.httpStatus >= 500
+  )
+    return "retry";
+  if (
+    ["retry", "connection", "appeals", "recipient"].includes(
+      receipt.recoveryAction,
+    )
+  )
+    return receipt.recoveryAction;
+  return receipt.status === "pending" ? "retry" : "status";
+}
+
+export function canResumeLetterAppeals(receipt, now = Date.now()) {
+  return ["complete", "retry"].includes(letterAppealRecovery(receipt, now));
 }
 
 // Only reconcile an existing uncertain submission. Never turn a pending write

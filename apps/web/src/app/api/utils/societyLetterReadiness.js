@@ -320,8 +320,10 @@ export function evaluateLetterReadiness(
   exclusionPolicy = null,
 ) {
   const reasons = [];
-  const add = (text) => {
+  const recoveryActions = [];
+  const add = (text, action = "status") => {
     if (!reasons.includes(text)) reasons.push(text);
+    recoveryActions.push(action);
   };
   const rank = hierarchy.findIndex((d) => d.key === row.societyKey);
   let acknowledged = false;
@@ -475,6 +477,7 @@ export function evaluateLetterReadiness(
     )
       add(
         "The saved mailing address is not a current, unrestricted preferred NXT address. Review the address before previewing.",
+        "recipient",
       );
   } else {
     const email = members[row.recipientConstituentId]?.profile?.email;
@@ -488,6 +491,7 @@ export function evaluateLetterReadiness(
     )
       add(
         "The selected email is not a current, unrestricted primary NXT email. Review the email before previewing.",
+        "recipient",
       );
   }
   if (!template) add("Upload a letter template for this society.");
@@ -502,6 +506,7 @@ export function evaluateLetterReadiness(
     )
       add(
         "The letter has missing merge values. Review its template and saved recipient choices.",
+        "recipient",
       );
   }
   if (
@@ -513,7 +518,15 @@ export function evaluateLetterReadiness(
       "The highest qualifying society is not resolved. Refresh all society queries.",
     );
   return reasons.length
-    ? { status: "needs_review", reasons }
+    ? {
+        status: "needs_review",
+        reasons,
+        recoveryAction: recoveryActions.every(
+          (action) => action === "recipient",
+        )
+          ? "recipient"
+          : "status",
+      }
     : {
         status: "ready_for_preview",
         reasons: [
