@@ -5,7 +5,12 @@ import { MAX_COMBINED_LETTER_HOUSEHOLDS } from "@/utils/societyLetters";
 const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal";
 
-export default function LetterCsvExport({ data, busy, onExport }) {
+export default function LetterCsvExport({
+  data,
+  busy,
+  onExport,
+  onTrackedExport,
+}) {
   const [societyKey, setSocietyKey] = useState("");
   const [dateOverride, setDateOverride] = useState("");
   const [working, setWorking] = useState(false);
@@ -15,7 +20,7 @@ export default function LetterCsvExport({ data, busy, onExport }) {
   const letterDate = dateOverride || data.today;
   const plan = societyLetterCsvPlan(data, societyKey, letterDate);
   const disabled = busy || working;
-  async function download() {
+  async function download(tracked = false) {
     if (disabled || inFlight.current || plan.issue || !plan.entries.length)
       return;
     inFlight.current = true;
@@ -23,8 +28,8 @@ export default function LetterCsvExport({ data, busy, onExport }) {
     setError("");
     setMessage("");
     try {
-      await onExport({
-        action: "export_merge_csv",
+      await (tracked ? onTrackedExport : onExport)({
+        action: tracked ? "create_csv_run" : "export_merge_csv",
         revision: data.revision,
         periodKey: data.period.key,
         societyKey,
@@ -32,7 +37,9 @@ export default function LetterCsvExport({ data, busy, onExport }) {
         householdIds: plan.entries.map((entry) => entry.householdId),
       });
       setMessage(
-        `CSV download started for ${plan.entries.length} households. No appeals, letter statuses, or mailing statuses changed.`,
+        tracked
+          ? `Tracked CSV saved for ${plan.entries.length} households. After merging in Word, open Saved CSV exports to confirm which letters you created and apply their appeals. Nothing is marked mailed.`
+          : `CSV download started for ${plan.entries.length} households. No appeals, letter statuses, or mailing statuses changed.`,
       );
     } catch (err) {
       setError(
@@ -133,10 +140,27 @@ export default function LetterCsvExport({ data, busy, onExport }) {
         type="button"
         className="mt-3 min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
         disabled={disabled || !!plan.issue || !plan.entries.length}
-        onClick={download}
+        onClick={() => download(false)}
       >
         {working ? "Preparing CSV..." : "Download reviewed households (.csv)"}
       </button>
+      {onTrackedExport && (
+        <button
+          type="button"
+          className="ml-2 mt-3 min-h-11 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          disabled={disabled || !!plan.issue || !plan.entries.length}
+          onClick={() => download(true)}
+        >
+          Save tracked CSV &amp; download
+        </button>
+      )}
+      {onTrackedExport && (
+        <p className="mt-2 text-sm text-gray-700">
+          Choose a tracked CSV if you want to apply NXT appeals and record
+          mailing later. It saves the exact recipient list and merge values;
+          neither download option updates NXT.
+        </p>
+      )}
       {message && (
         <p role="status" className="mt-2 text-sm text-emerald-900">
           {message}
@@ -180,7 +204,8 @@ export default function LetterCsvExport({ data, busy, onExport }) {
           Connect directly to Word. If opening in Excel first, import ZIP codes
           and system IDs as text to preserve leading zeros. Word controls the
           letterhead, page breaks, and blank address-line suppression. External
-          merge completion and appeal updates are not tracked by this export.
+          merge completion and appeal updates require a tracked CSV and your
+          explicit confirmation under Saved CSV exports.
         </p>
       </details>
     </section>

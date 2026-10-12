@@ -92,6 +92,30 @@ export function previewFinalPostalLetter(
   body,
   letterDate = today,
 ) {
+  const preview = previewPostalLetterData(
+    state,
+    definitions,
+    today,
+    body,
+    letterDate,
+  );
+  renderSocietyLetter(
+    state.templates[preview.row.templateVersion],
+    preview.row,
+    letterDate,
+  );
+  return preview;
+}
+
+// CSV-created letters share the same qualification and reservation rules, but
+// their document is created in Word, not rendered again by the application.
+export function previewPostalLetterData(
+  state,
+  definitions,
+  today,
+  body,
+  letterDate = today,
+) {
   const blocker = letterReadinessBlocker(state, definitions, today);
   if (blocker) {
     const error = letterError(blocker.message);
@@ -168,7 +192,6 @@ export function previewFinalPostalLetter(
     letterDate,
     channel: "post",
   };
-  renderSocietyLetter(template, row, letterDate);
   const appeal = state.readiness.policy.appeals[source.societyKey];
   const selectionSummary = letterSelectionSummary(state, [row]);
   return {

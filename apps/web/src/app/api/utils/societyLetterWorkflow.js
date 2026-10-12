@@ -102,6 +102,7 @@ export function letterWorkspace(state, definitions, today) {
       : [];
   return {
     revision: state.revision,
+    csvRuns: state.csvRuns || [],
     postalDraft: state.postalDraft || null,
     settings: state.settings,
     today,

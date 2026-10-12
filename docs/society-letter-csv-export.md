@@ -16,9 +16,32 @@ CSV values preserve quotes, commas, Unicode, line breaks, and leading-zero ZIP c
 
 - This is a saved-data export, not a live NXT communication or delivery check. The panel shows the last membership refresh time.
 - Export does not create a reservation, letter batch, appeal assignment, delivery receipt, or mailed status. It does not call NXT or the PDF converter.
-- Repeated downloads can include the same households. There is no external Word-merge completion tracking yet. Staff must avoid mixing CSV printing and in-app document creation for the same recipients.
+- Repeated downloads can include the same households. Use the tracked workflow below when recording externally created letters; a read-only download cannot retrospectively identify what was printed.
 - Existing PDF/Word approval, appeal reconciliation, and downloads are unchanged. Their existing limits still apply.
-- A separate tracked confirmation for externally created letters and explicit, duplicate-safe appeal updates is a future step, not part of this export.
+- A tracked CSV is an additional opt-in workflow. The original read-only export retains its no-write behavior.
+
+## Tracked CSV Workflow (Implemented, Not Yet Deployed)
+
+1. Choose **Save tracked CSV & download**. This saves the exact CSV, its digest, recipient manifest, society, template version, and letter date. It does not reserve recipients or change NXT.
+2. Merge in Word and check the results. In **Saved CSV exports** (available in Letter workspace and Letter history), open that export and select only the households whose letters were actually created. Selection is limited to 50 at a time for safe appeal processing; the CSV itself still exports all eligible households, up to 5,000.
+3. Check the creation confirmation and select **Confirm letters created & apply appeals**. The app checks that the saved merge data is still valid, reserves the selected letters atomically, and uses the existing NXT reconciliation worker to apply missing society appeals to each applicable household constituent. A relationship-only spouse that is not a constituent retains the existing not-applicable receipt handling. Only the highest qualifying society's appeal is assigned; lower-tier coverage stays in the existing letter history.
+4. After physical dispatch, open **Letter history**, select completed CSV letters, and confirm **Mark selected letters mailed**. No recipients are selected for mailing by default. Partial completion is supported: unresolved letters stay prepared while selected completed letters are marked mailed with user/time audit.
+
+The app cannot verify an external Word document's contents. Staff explicitly attest that they created and checked the selected letters using this saved CSV. The merged Word/PDF file remains outside the app; CSV history never offers a newly rendered replacement document or claims to store that external file. Re-downloads return the original CSV, including any recipients already created or mailed, with a duplicate-mailing warning.
+
+Changed merge fields, names, addresses, membership, template, exclusions, periods, or expired reviews block new confirmation rather than silently applying appeals to a different letter. An unchanged membership timestamp refresh does not invalidate the export. Existing membership freshness, appeal configuration, live NXT checks and uncertain-submission protections remain in force. An interrupted confirmation reuses its saved reservations. Resume unfinished updates in Letter history; nothing resumes on page load without confirmation.
+
+Before any NXT submission attempt, a CSV letter can return to review. Its old tracked export cannot confirm that recipient again; correct the details and download a new tracked CSV. Any attempted or uncertain write remains protected against automatic cancellation and duplicate submission.
+
+### Implementation
+
+- Additive table `stewardship_letter_csv_runs` stores immutable JSON payloads and lightweight summaries. Existing schema initialization creates it without changing existing tables or records. No new environment variables, converter deployment, or NXT permissions are required beyond existing appeal access.
+- `create_csv_run` and `confirm_csv_letters` require the existing staff role, same-origin validation, revision/lease protection, and explicit confirmation for creation. `GET ?csvRun=<id>` returns the authorized recipient manifest; `&format=csv` downloads verified saved bytes using private/no-store headers.
+- `csvMailMerge` on existing delivery receipts records the export ID/digest and creation attestation (user/time). `finish_selected_letter_appeals` handles member checks/writes and recovery without new transport code. `mail_selected_csv_letters` uses exact receipt/manifest comparisons and atomic selected-only dispatch updates.
+- Document download and completion validators remain separate: a CSV receipt is not proof of an app-generated PDF. Existing PDF/Word documents continue to require their saved bytes and original approval safeguards.
+- Local tests cover real workspace export/confirmation, stale values and membership, exact selection, lost-response retries, both household appeals, role/CSRF boundaries, no document fallback, UI confirmation/pagination/stop behavior, and isolated PGlite storage/mailing/correction races. No live donor changes are made by these tests.
+
+Local verification on October 12: 6,542 tests passed, including all 30 isolated PGlite letter-store tests and the full screen-level tracked export/creation/appeal/mailing sequence. The existing 193 opt-in tests remain skipped; no live-service tests were enabled. Typecheck, production build, and whitespace checks passed. Evidence is in `/tmp/ju-tracked-csv-tests.log`, `/tmp/ju-tracked-csv-typecheck.log`, and `/tmp/ju-tracked-csv-build.log`. This change has not been deployed, and no live appeals, letters, or mailing statuses were changed.
 
 ## Developer Notes
 

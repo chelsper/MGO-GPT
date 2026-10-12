@@ -4,6 +4,33 @@ import { csvWorkspace } from "../../../../test/societyLetterCsvFixture";
 import LetterCsvExport from "./LetterCsvExport";
 
 describe("mail merge export controls", () => {
+  it("provides a separate opt-in tracked export, not an appeal or mailing action", async () => {
+    const data = csvWorkspace(70),
+      onExport = vi.fn(),
+      onTrackedExport = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LetterCsvExport
+        data={data}
+        onExport={onExport}
+        onTrackedExport={onTrackedExport}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Society for CSV"), {
+      target: { value: "ood" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save tracked CSV & download" }),
+    );
+    await waitFor(() => expect(onTrackedExport).toHaveBeenCalledOnce());
+    expect(onTrackedExport.mock.calls[0][0]).toMatchObject({
+      action: "create_csv_run",
+      householdIds: data.rows.map((row) => row.householdId),
+    });
+    expect(onExport).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Tracked CSV saved for 70 households/),
+    ).toBeVisible();
+  });
   it("exports all reviewed households for one society only on an explicit click", async () => {
     const data = csvWorkspace(70);
     data.rows[69].recipientReview.status = "unreviewed";

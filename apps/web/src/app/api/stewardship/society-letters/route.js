@@ -9,6 +9,7 @@ import {
   ensureSocietyLetterSchema,
   readSocietyLetterState,
   acquireSocietyLetters,
+  readLetterCsvRun,
 } from "@/app/api/utils/societyLetterStore";
 import {
   letterArchive,
@@ -70,6 +71,13 @@ import { mailSelectedLetters } from "@/app/api/utils/societyLetterDispatch";
 import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
 import { printReadyPdfFilename } from "@/utils/societyLetterDownloads";
 import { exportSocietyLetterCsv } from "@/app/api/utils/societyLetterCsvExport";
+import {
+  createTrackedCsvRun,
+  confirmCsvLetters,
+  assertCsvRun,
+  csvRunSummary,
+  mailSelectedCsvLetters,
+} from "@/app/api/utils/societyLetterCsvTracking";
 
 export const maxDuration = 120;
 const headers = {
@@ -121,6 +129,25 @@ export async function GET(request) {
     const ctx = await context(request);
     const state = await readSocietyLetterState();
     const params = new URL(request.url).searchParams;
+    if (params.has("csvRun")) {
+      const run = assertCsvRun(await readLetterCsvRun(params.get("csvRun")));
+      if (params.get("format") === "csv")
+        return new Response(run.csv, {
+          headers: {
+            ...headers,
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${run.filename}"`,
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
+      return json({
+        ...csvRunSummary(run),
+        entries: run.entries.map(({ householdId, name }) => ({
+          householdId,
+          name,
+        })),
+      });
+    }
     if (params.has("templateVersion")) {
       const version = params.get("templateVersion");
       const template = /^[a-f0-9]{64}$/.test(version || "")
@@ -153,6 +180,11 @@ export async function GET(request) {
       );
       if (!items.length)
         throw letterError("Prepared postal batch not found.", 404);
+      if (items.some((item) => item.csvMailMerge))
+        throw letterError(
+          "These letters were created in Word from a tracked CSV. Download the original CSV from Saved CSV exports; the app does not have your external Word or PDF document.",
+          409,
+        );
       const deliveryId = new URL(request.url).searchParams.get("deliveryId");
       const selectedIds = params.getAll("selectedDeliveryId");
       if (selectedIds.length) {
@@ -368,6 +400,9 @@ export async function POST(request) {
       "send",
       "mailed",
       "mail_selected_letters",
+      "create_csv_run",
+      "confirm_csv_letters",
+      "mail_selected_csv_letters",
       "cancel",
       "verify",
       "exclude_recipient",
@@ -409,7 +444,32 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     let bulkAppealUpdate;
+    let csvRunId, csvDeliveryIds;
     switch (body.action) {
+      case "create_csv_run":
+        csvRunId = await createTrackedCsvRun(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "confirm_csv_letters":
+        csvDeliveryIds = await confirmCsvLetters(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+          await readLetterCsvRun(body.runId),
+        );
+        break;
+      case "mail_selected_csv_letters":
+        await mailSelectedCsvLetters(state, body, store);
+        break;
       case "mail_selected_letters":
         await mailSelectedLetters(state, body, store);
         break;
@@ -752,6 +812,17 @@ export async function POST(request) {
           throw letterError("Only postal batches can be marked mailed.");
         if (body.action === "mailed") assertLetterAppealsComplete(items);
         if (
+          body.action === "mailed" &&
+          items.some((item) => item.csvMailMerge)
+        ) {
+          await mailSelectedCsvLetters(
+            state,
+            { ...body, deliveryIds: items.map((item) => item.id) },
+            store,
+          );
+          break;
+        }
+        if (
           body.action === "cancel" &&
           items.some((item) => item.letterAppeals)
         )
@@ -776,6 +847,8 @@ export async function POST(request) {
       ),
       ...(batchId ? { batchId } : {}),
       ...(bulkAppealUpdate ? { bulkAppealUpdate } : {}),
+      ...(csvRunId ? { csvRunId } : {}),
+      ...(csvDeliveryIds ? { csvDeliveryIds } : {}),
     });
   } catch (error) {
     return failure(error);

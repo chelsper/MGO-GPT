@@ -48,6 +48,7 @@ import PostalBatchApproval from "./PostalBatchApproval";
 import LetterHistoryFilters from "./LetterHistoryFilters";
 import LetterReleaseNotice from "./LetterReleaseNotice";
 import LetterCsvExport from "./LetterCsvExport";
+import CsvRunManager from "./CsvRunManager";
 import {
   matchesLetterHistory,
   searchLetterHistory,
@@ -406,7 +407,8 @@ export default function SocietyLettersPage() {
   const [requestBusy, setBusy] = useState(false);
   const [operationBlockers, setOperationBlockers] = useState([]);
   const [bulkAppealsActive, setBulkAppealsActive] = useState(false);
-  const busy = requestBusy || bulkAppealsActive;
+  const [csvRunActive, setCsvRunActive] = useState(false);
+  const busy = requestBusy || bulkAppealsActive || csvRunActive;
   const navigation = useLetterNavigation();
   const { tab, showMappings, navigate: setTab } = navigation;
   const [settings, setSettings] = useState(defaults),
@@ -536,6 +538,44 @@ export default function SocietyLettersPage() {
     } finally {
       inFlight.current = false;
       setBusy(false);
+    }
+  }
+  async function savedCsvRun(id, download = false) {
+    if (inFlight.current)
+      throw new Error("Wait for the current operation to finish.");
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const params = new URLSearchParams({ csvRun: id });
+      if (download) params.set("format", "csv");
+      const response = await fetch(`${endpoint}?${params}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error((await response.json()).error);
+      if (!download) return await response.json();
+      const filename = response.headers
+        .get("Content-Disposition")
+        ?.match(/^attachment; filename="([a-z0-9-]+\.csv)"$/i)?.[1];
+      if (!filename)
+        throw new Error("The saved CSV response could not be verified.");
+      saveBlob(await response.blob(), filename);
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+  async function trackedCsvExport(body) {
+    const result = await act(body);
+    if (!result?.csvRunId)
+      throw new Error(
+        "The tracked CSV could not be saved. Reload saved results before trying again.",
+      );
+    try {
+      await savedCsvRun(result.csvRunId, true);
+    } catch {
+      throw new Error(
+        "Your tracked CSV was saved, but the download did not finish. Open Saved CSV exports and download the original again; do not create another export.",
+      );
     }
   }
   async function downloadBatch(
@@ -1112,7 +1152,12 @@ export default function SocietyLettersPage() {
         setSendingBatch(action.batchId);
     } else {
       const result = await act({ ...action, confirm: true });
-      if (action.action === "mail_selected_letters" && result)
+      if (
+        ["mail_selected_letters", "mail_selected_csv_letters"].includes(
+          action.action,
+        ) &&
+        result
+      )
         setDispatchNotice(
           `${action.deliveryIds.length} selected ${action.deliveryIds.length === 1 ? "letter is" : "letters are"} recorded as mailed. Other letters in this batch are unchanged.`,
         );
@@ -1667,6 +1712,23 @@ export default function SocietyLettersPage() {
                       data={data}
                       busy={selectionBusy || sourceDirty}
                       onExport={exportMergeCsv}
+                      onTrackedExport={trackedCsvExport}
+                    />
+                  )}
+                  {queryPostal && (
+                    <CsvRunManager
+                      data={data}
+                      busy={
+                        requestBusy ||
+                        bulkAppealsActive ||
+                        refreshing ||
+                        sourceDirty ||
+                        !!sendingBatch
+                      }
+                      act={act}
+                      loadRun={savedCsvRun}
+                      downloadRun={(id) => savedCsvRun(id, true)}
+                      onActiveChange={setCsvRunActive}
                     />
                   )}
                   {queryPostal && (
@@ -2215,6 +2277,19 @@ export default function SocietyLettersPage() {
           )}
           {tab === "history" && (
             <section className="space-y-4">
+              <CsvRunManager
+                data={data}
+                busy={
+                  requestBusy ||
+                  bulkAppealsActive ||
+                  refreshing ||
+                  !!sendingBatch
+                }
+                act={act}
+                loadRun={savedCsvRun}
+                downloadRun={(id) => savedCsvRun(id, true)}
+                onActiveChange={setCsvRunActive}
+              />
               <fieldset disabled={busy || refreshing || !!sendingBatch}>
                 <LetterHistoryFilters
                   batches={batches}
@@ -2231,7 +2306,9 @@ export default function SocietyLettersPage() {
                   .filter((item) =>
                     searchLetterHistory({ items: [item] }, historySearch),
                   )}
-                busy={requestBusy || refreshing || !!sendingBatch}
+                busy={
+                  requestBusy || csvRunActive || refreshing || !!sendingBatch
+                }
                 act={act}
                 onActiveChange={setBulkAppealsActive}
                 onReload={load}

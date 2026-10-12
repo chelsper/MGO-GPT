@@ -100,7 +100,9 @@ export default function BulkLetterAppealUpdates({
       ).length;
       const attention = outcomes.length - complete;
       setNotice(
-        `${complete} ${complete === 1 ? "letter is" : "letters are"} ready to download.${attention ? ` ${attention} need attention below.` : ""}${stopped.current ? " Stopped before the next household. Remaining letters are unchanged." : " Completed PDF batches can be downloaded below."}`,
+        plan.some((item) => item.csvMailMerge)
+          ? `${complete} letters have confirmed appeals; ${attention} need attention.${stopped.current ? " Stopped before the next household." : ""} CSV-created documents remain in Word. Mark letters mailed only after dispatch.`
+          : `${complete} ${complete === 1 ? "letter is" : "letters are"} ready to download.${attention ? ` ${attention} need attention below.` : ""}${stopped.current ? " Stopped before the next household. Remaining letters are unchanged." : " Completed PDF batches can be downloaded below."}`,
       );
     } catch {
       if (mounted.current)

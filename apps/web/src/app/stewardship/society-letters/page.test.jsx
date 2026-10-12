@@ -14,6 +14,7 @@ import { sourceForSociety } from "./SocietyQueryEditors";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
 import { csvWorkspace } from "../../../../test/societyLetterCsvFixture";
+import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
 const household = {
   householdId: "10",
   name: "Sample Household",
@@ -116,6 +117,172 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("connects a tracked export to explicit creation, household appeal processing, and separate selected dispatch", async () => {
+    const csv = csvWorkspace(2);
+    let payload = {
+      ...base,
+      ...csv,
+      settings: {
+        ...societyQuerySettings(),
+        societyKeys: csv.settings.societyKeys,
+      },
+      rows: csv.rows.map((row) => ({
+        ...row,
+        issues: { post: null, email: null },
+      })),
+      csvRuns: [],
+    };
+    const run = {
+      id: "33333333-3333-4333-8333-333333333333",
+      sha256: "a".repeat(64),
+      societyName: "Order of the Dolphin",
+      periodKey: csv.period.key,
+      letterDate: csv.today,
+      count: 2,
+      createdAt: "2026-10-12T12:00:00Z",
+      entries: csv.rows.map(({ householdId, name }) => ({ householdId, name })),
+    };
+    const created = completedCsvFixture({
+      name: "Example 0",
+      householdId: "1000",
+      members: ["1000"],
+      societyKey: "ood",
+      societyName: "Order of the Dolphin",
+      period: csv.period,
+      preparedAt: "2026-10-12T12:00:00Z",
+      letterDate: csv.today,
+    });
+    created.letterAppeals.members = [{ id: "1000", status: "verified" }];
+    const actions = [];
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => "blob:csv"),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fetchMock.mockImplementation(async (url, options) => {
+      if (options?.method === "POST") {
+        const body = JSON.parse(options.body);
+        actions.push(body.action);
+        expect(body.revision).toBe(payload.revision);
+        payload = { ...payload, revision: payload.revision + 1 };
+        if (body.action === "create_csv_run") {
+          payload.csvRuns = [run];
+          return Response.json({ ...payload, csvRunId: run.id });
+        }
+        if (body.action === "confirm_csv_letters") {
+          expect(body).toMatchObject({
+            confirm: true,
+            runId: run.id,
+            householdIds: ["1000"],
+          });
+          payload.history = [
+            {
+              ...created,
+              letterAppeals: {
+                ...created.letterAppeals,
+                status: "pending",
+                members: [{ id: "1000", status: "pending" }],
+              },
+            },
+          ];
+          return Response.json({ ...payload, csvDeliveryIds: [created.id] });
+        }
+        if (body.action === "finish_selected_letter_appeals") {
+          expect(body).toMatchObject({
+            confirm: true,
+            deliveryId: created.id,
+            deliveryIds: [created.id],
+          });
+          payload.history = [created];
+          return Response.json({
+            ...payload,
+            bulkAppealUpdate: {
+              deliveryId: created.id,
+              status: "complete",
+              stop: false,
+            },
+          });
+        }
+        if (body.action === "mail_selected_csv_letters") {
+          expect(body).toMatchObject({
+            confirm: true,
+            batchId: created.batchId,
+            deliveryIds: [created.id],
+          });
+          payload.history = [{ ...created, status: "mailed" }];
+          return Response.json(payload);
+        }
+        throw new Error(`Unexpected mutation: ${body.action}`);
+      }
+      if (String(url).includes("csvRun=")) {
+        if (String(url).includes("format=csv"))
+          return new Response("fictional,csv", {
+            headers: {
+              "Content-Disposition":
+                'attachment; filename="ood-2026-10-12-mail-merge.csv"',
+            },
+          });
+        return Response.json(run);
+      }
+      return Response.json(payload);
+    });
+    render(<Page />);
+    fireEvent.change(await screen.findByLabelText("Society for CSV"), {
+      target: { value: "ood" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save tracked CSV & download" }),
+    );
+    await screen.findByText(/Tracked CSV saved for 2 households/);
+    expect(actions).toEqual(["create_csv_run"]);
+    fireEvent.change(screen.getByLabelText("Tracked export"), {
+      target: { value: run.id },
+    });
+    await screen.findByRole("button", { name: "Select eligible on this page" });
+    const manager = within(
+      screen.getByRole("region", { name: "Saved CSV exports" }),
+    );
+    fireEvent.click(manager.getByRole("checkbox", { name: /Example 0/ }));
+    fireEvent.click(
+      manager.getByRole("checkbox", { name: /I created and checked/ }),
+    );
+    fireEvent.click(
+      manager.getByRole("button", {
+        name: "Confirm letters created & apply appeals",
+      }),
+    );
+    await manager.findByText(/1 letter has confirmed appeals/);
+    expect(actions).toEqual([
+      "create_csv_run",
+      "confirm_csv_letters",
+      "finish_selected_letter_appeals",
+    ]);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Letter history", exact: true }),
+    );
+    const completed = within(
+      await screen.findByRole("region", { name: "Completed letters" }),
+    );
+    expect(
+      completed.getByRole("button", { name: "Mark selected letters mailed" }),
+    ).toBeDisabled();
+    fireEvent.click(completed.getByRole("checkbox", { name: /Example 0/ }));
+    fireEvent.click(
+      completed.getByRole("button", { name: "Mark selected letters mailed" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+    await screen.findByText(/1 selected letter is recorded as mailed/);
+    expect(actions).toEqual([
+      "create_csv_run",
+      "confirm_csv_letters",
+      "finish_selected_letter_appeals",
+      "mail_selected_csv_letters",
+    ]);
+  });
   it("downloads every eligible reviewed household as CSV independently of table filters and selections", async () => {
     const csv = csvWorkspace(60);
     const payload = {

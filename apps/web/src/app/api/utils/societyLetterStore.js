@@ -3,6 +3,7 @@ import sql from "./sql";
 import { letterError } from "@/utils/societyLetters";
 import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
 import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
+import { selectedCsvLetters } from "@/utils/societyLetterCsvTracking";
 
 let ready;
 export function ensureSocietyLetterSchema() {
@@ -40,6 +41,11 @@ export function ensureSocietyLetterSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`;
     await sql`INSERT INTO stewardship_letters(id) VALUES(1) ON CONFLICT DO NOTHING`;
+    await sql`CREATE TABLE IF NOT EXISTS stewardship_letter_csv_runs (
+      id UUID PRIMARY KEY, payload JSONB NOT NULL, summary JSONB NOT NULL,
+      created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
   })().catch((error) => {
     ready = null;
     throw error;
@@ -54,8 +60,11 @@ export async function readSocietyLetterState() {
     await sql`SELECT payload, status, provider_id, updated_at, updated_by FROM stewardship_letter_deliveries ORDER BY created_at DESC, id`;
   const drafts =
     await sql`SELECT payload FROM stewardship_letter_postal_batches WHERE status = 'draft' ORDER BY created_at`;
+  const runs =
+    await sql`SELECT summary FROM stewardship_letter_csv_runs ORDER BY created_at DESC, id`;
   return {
     ...state,
+    csvRuns: runs.map((row) => row.summary),
     postalDraft: drafts[0]?.payload || null,
     history: deliveries.map((row) => ({
       ...row.payload,
@@ -73,6 +82,18 @@ export async function readPostalDocument(id) {
   return row || null;
 }
 
+export async function readLetterCsvRun(id) {
+  if (
+    typeof id !== "string" ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)
+  )
+    throw letterError("Choose a saved CSV export.", 400);
+  const [row] =
+    await sql`SELECT payload FROM stewardship_letter_csv_runs WHERE id = ${id}::uuid`;
+  if (!row) throw letterError("Saved CSV export not found.", 404);
+  return row.payload;
+}
+
 export async function acquireSocietyLetters(userId, revision) {
   const token = randomUUID();
   const [row] =
@@ -84,6 +105,16 @@ export async function acquireSocietyLetters(userId, revision) {
       409,
     );
   return {
+    async createCsvRun(run, summary) {
+      const rows = await sql`WITH lock AS (
+        UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
+        WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING id
+      ) INSERT INTO stewardship_letter_csv_runs(id, payload, summary, created_by)
+        SELECT ${run.id}::uuid, ${JSON.stringify(run)}::jsonb, ${JSON.stringify(summary)}::jsonb, ${userId}
+        FROM lock RETURNING id`;
+      if (rows.length !== 1)
+        throw letterError("The CSV was not saved. Reload the workspace.", 409);
+    },
     async createPostalDraft(draft) {
       const rows = await sql`WITH lock AS (
         UPDATE stewardship_letters SET revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
@@ -218,8 +249,9 @@ export async function acquireSocietyLetters(userId, revision) {
           AND status = 'prepared' AND provider_id IS NULL AND payload->>'channel' = 'post'
           AND payload->'letterAppeals' = ${JSON.stringify(item.letterAppeals)}::jsonb
           AND payload->'members' = ${JSON.stringify(item.members)}::jsonb
-          AND payload->'postalApproval' = ${JSON.stringify(item.postalApproval)}::jsonb
-          AND payload->'postalDocument' = ${JSON.stringify(item.postalDocument)}::jsonb
+          AND payload->'postalApproval' IS NOT DISTINCT FROM ${item.postalApproval ? JSON.stringify(item.postalApproval) : null}::jsonb
+          AND payload->'postalDocument' IS NOT DISTINCT FROM ${item.postalDocument ? JSON.stringify(item.postalDocument) : null}::jsonb
+          AND payload->'csvMailMerge' IS NOT DISTINCT FROM ${item.csvMailMerge ? JSON.stringify(item.csvMailMerge) : null}::jsonb
           AND EXISTS(SELECT 1 FROM lock) RETURNING id`;
       if (rows.length !== 1)
         throw letterError(
@@ -227,8 +259,10 @@ export async function acquireSocietyLetters(userId, revision) {
           409,
         );
     },
-    async mailSelectedLetters(batchId, items) {
-      selectedPostalLetters(
+    async mailSelectedLetters(batchId, items, format = "document") {
+      if (!["document", "csv"].includes(format))
+        throw letterError("Unknown letter format.");
+      (format === "csv" ? selectedCsvLetters : selectedPostalLetters)(
         items,
         batchId,
         items.map((item) => item.id),
@@ -249,7 +283,8 @@ export async function acquireSocietyLetters(userId, revision) {
           AND delivery.payload->>'channel' = 'post'
           AND delivery.payload->'members' = item->'members'
           AND delivery.payload->'letterAppeals' = item->'letterAppeals'
-          AND delivery.payload->'postalDocument' = item->'postalDocument'
+          AND delivery.payload->'postalDocument' IS NOT DISTINCT FROM item->'postalDocument'
+          AND delivery.payload->'csvMailMerge' IS NOT DISTINCT FROM item->'csvMailMerge'
           AND delivery.payload->'postalApproval' IS NOT DISTINCT FROM item->'postalApproval'
           AND delivery.payload->'mailDispatch' IS NOT DISTINCT FROM item->'mailDispatch'
       ), changed AS (

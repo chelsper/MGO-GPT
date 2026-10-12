@@ -44,6 +44,7 @@ export default function LetterBatchCard({
   onReload,
 }) {
   const [downloading, setDownloading] = useState(false);
+  const csv = batch.items.some((item) => item.csvMailMerge);
   const printableItems = batch.items.filter(
     (item) => item.status !== "cancelled",
   );
@@ -61,8 +62,9 @@ export default function LetterBatchCard({
       householdId: item.householdId,
       editRecipientAfterReturn,
       title: `Return ${item.name} to review?`,
-      description:
-        "No NXT update has been attempted for this letter. Return only this recipient to the holding list and keep the saved wording. The approved document stays in history, but will no longer be printable from this batch. Nothing is sent or removed from NXT; other letters stay unchanged.",
+      description: item.csvMailMerge
+        ? "No NXT update has been attempted for this letter. Return only this recipient to review. Do not mail the old Word merge for this recipient; download a new tracked CSV after making corrections. Nothing is sent or removed from NXT."
+        : "No NXT update has been attempted for this letter. Return only this recipient to the holding list and keep the saved wording. The approved document stays in history, but will no longer be printable from this batch. Nothing is sent or removed from NXT; other letters stay unchanged.",
     });
   }
   const printReadyPdf =
@@ -96,7 +98,7 @@ export default function LetterBatchCard({
             Prepared {new Date(batch.date).toLocaleString()}
           </p>
         </div>
-        {batch.channel === "post" && !hasSubsetActions && (
+        {batch.channel === "post" && !csv && !hasSubsetActions && (
           <SocietyPdfDownloads
             items={printableItems}
             disabled={busy || !!sendingBatch || downloading}
@@ -105,6 +107,7 @@ export default function LetterBatchCard({
         )}
         <div className="flex flex-wrap gap-2">
           {batch.channel === "post" &&
+            !csv &&
             batch.items.some((i) => i.status !== "cancelled") && (
               <button
                 className={
@@ -133,6 +136,7 @@ export default function LetterBatchCard({
               </button>
             )}
           {batch.channel === "post" &&
+            !csv &&
             batch.items.some((i) => i.status === "prepared") && (
               <button
                 className={button}
@@ -195,6 +199,14 @@ export default function LetterBatchCard({
             )}
         </div>
       </div>
+      {csv && (
+        <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm">
+          Created in Word from a tracked CSV. Household appeals are tracked
+          here. Your merged document remains in Word; use Saved CSV exports to
+          download the original recipient list again. Select completed letters
+          below to record physical mailing.
+        </p>
+      )}
       {batch.items.some((item) => item.returnToReview) && (
         <p className="mt-3 text-sm text-gray-600">
           {batch.items.filter((item) => item.returnToReview).length} returned to
@@ -221,7 +233,8 @@ export default function LetterBatchCard({
           </h3>
           <p className="mt-2 text-sm text-gray-700">
             Your approved letters are saved. Resolve the issues below before
-            finishing their NXT updates or downloading them.
+            finishing their NXT updates
+            {csv ? ". Your document remains in Word." : " or downloading them."}
           </p>
           <ul className="mt-3 space-y-3">
             {attentionItems.map((item) => (
@@ -404,27 +417,29 @@ export default function LetterBatchCard({
                     Check email delivery
                   </button>
                 )}
-              {item.channel === "post" && item.status !== "cancelled" && (
-                <button
-                  className={`${button} mt-2`}
-                  disabled={
-                    busy ||
-                    (!!item.letterAppeals &&
-                      item.letterAppeals.status !== "complete")
-                  }
-                  onClick={() =>
-                    downloadBatch(
-                      batch.id,
-                      item.id,
-                      item.postalDocument?.format || "docx",
-                    )
-                  }
-                >
-                  Download this{" "}
-                  {item.postalDocument?.format === "pdf" ? "PDF" : "Word"}{" "}
-                  letter
-                </button>
-              )}
+              {item.channel === "post" &&
+                !item.csvMailMerge &&
+                item.status !== "cancelled" && (
+                  <button
+                    className={`${button} mt-2`}
+                    disabled={
+                      busy ||
+                      (!!item.letterAppeals &&
+                        item.letterAppeals.status !== "complete")
+                    }
+                    onClick={() =>
+                      downloadBatch(
+                        batch.id,
+                        item.id,
+                        item.postalDocument?.format || "docx",
+                      )
+                    }
+                  >
+                    Download this{" "}
+                    {item.postalDocument?.format === "pdf" ? "PDF" : "Word"}{" "}
+                    letter
+                  </button>
+                )}
               {item.channel === "email" &&
                 !item.providerId &&
                 ["sending", "needs_review"].includes(item.status) && (

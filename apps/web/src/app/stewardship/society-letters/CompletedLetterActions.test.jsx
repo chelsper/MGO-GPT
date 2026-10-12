@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
 import CompletedLetterActions from "./CompletedLetterActions";
+import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
 
 function fixture() {
   const first = completedLetter({ name: "Alex Example" });
@@ -29,6 +30,39 @@ function fixture() {
   };
 }
 describe("completed letter subset controls", () => {
+  it("offers CSV mailing without document downloads or a preselected mailing list", () => {
+    const first = completedCsvFixture({ name: "Alex Example" });
+    const second = completedCsvFixture({ id: "second", name: "Pat Example" });
+    const setConfirmation = vi.fn(),
+      downloadBatch = vi.fn();
+    render(
+      <CompletedLetterActions
+        batch={{ id: first.batchId, channel: "post", items: [first, second] }}
+        setConfirmation={setConfirmation}
+        downloadBatch={downloadBatch}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Download/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    ).toBeDisabled();
+    expect(screen.getByText("0 selected; 2 not included.")).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Alex Example/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    );
+    expect(setConfirmation).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        action: "mail_selected_csv_letters",
+        deliveryIds: [first.id],
+        recipientNames: ["Alex Example / President's Society"],
+        description: expect.stringContaining("actually been dispatched"),
+      }),
+    );
+    expect(downloadBatch).not.toHaveBeenCalled();
+  });
   it("lists completed recipients and omissions, without doing anything on page load", async () => {
     const f = fixture();
     render(<CompletedLetterActions {...f} />);

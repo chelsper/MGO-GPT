@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import LetterBatchCard from "./LetterBatchCard";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
+import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
 
 function fixture(status = "complete", channel = "post") {
   const item = {
@@ -51,6 +52,25 @@ function fixture(status = "complete", channel = "post") {
 }
 
 describe("shared letter batch actions", () => {
+  it("shows CSV receipts and selected mailing without offering nonexistent generated documents or whole-batch mailing", () => {
+    const props = fixture();
+    const item = completedCsvFixture();
+    props.batch = { ...props.batch, id: item.batchId, items: [item] };
+    render(<LetterBatchCard {...props} />);
+    expect(
+      screen.getByText(/Created in Word from a tracked CSV/),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /Download/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Mark batch mailed" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    ).toBeDisabled();
+    expect(props.act).not.toHaveBeenCalled();
+  });
   it.each(["permissions", "catalog", "legacy"])(
     "keeps approved %s failures out of recipient repair",
     (kind) => {

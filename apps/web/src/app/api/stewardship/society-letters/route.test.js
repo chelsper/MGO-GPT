@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { unsubmittedLetter } from "../../../../../test/societyLetterRecoveryFixture";
 import { completedLetter } from "../../../../../test/societyLetterDispatchFixture";
+import { completedCsvFixture } from "../../../../../test/societyLetterCsvTrackingFixture";
+import { createHash } from "node:crypto";
 import {
   csvRequest,
   csvWorkspace,
@@ -11,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   schema: vi.fn(),
   ownSchema: vi.fn(),
   read: vi.fn(),
+  readCsv: vi.fn(),
+  createCsv: vi.fn(),
   acquire: vi.fn(),
   view: vi.fn(),
   send: vi.fn(),
@@ -88,6 +92,7 @@ vi.mock("@/app/api/utils/societyLetterStore", () => ({
   ensureSocietyLetterSchema: mocks.ownSchema,
   readSocietyLetterState: mocks.read,
   acquireSocietyLetters: mocks.acquire,
+  readLetterCsvRun: mocks.readCsv,
 }));
 vi.mock("@/app/api/utils/societyLetterWorkflow", () => ({
   letterWorkspace: mocks.view,
@@ -161,11 +166,150 @@ beforeEach(() => {
     finishBatch: mocks.finish,
     mailSelectedLetters: mocks.mailSelected,
     returnLetterToReview: mocks.returnLetter,
+    createCsvRun: mocks.createCsv,
   });
   mocks.exclusionRemoval.mockResolvedValue(undefined);
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  const run = () => ({
+    id: "33333333-3333-4333-8333-333333333333",
+    filename: "ood-2026-10-12-mail-merge.csv",
+    csv: "fictional,csv",
+    sha256: createHash("sha256").update("fictional,csv").digest("hex"),
+    count: 1,
+    entries: [{ householdId: "10", name: "Example", fingerprint: "internal" }],
+  });
+  it("saves a tracked CSV without submitting appeals or preparing documents", async () => {
+    const workspace = csvWorkspace();
+    mocks.view.mockReturnValue(workspace);
+    const response = await POST(
+      request({ ...csvRequest(workspace), action: "create_csv_run" }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).csvRunId).toEqual(expect.any(String));
+    expect(mocks.createCsv).toHaveBeenCalledOnce();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
+  it("downloads the unchanged tracked CSV and exposes only a safe recipient manifest", async () => {
+    mocks.readCsv.mockResolvedValue(run());
+    const response = await GET(
+      new Request(`${url}?csvRun=${run().id}&format=csv`),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(
+      "text/csv; charset=utf-8",
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.text()).toBe("fictional,csv");
+    const manifest = await (
+      await GET(new Request(`${url}?csvRun=${run().id}`))
+    ).json();
+    expect(manifest.entries).toEqual([{ householdId: "10", name: "Example" }]);
+    expect(manifest).not.toHaveProperty("csv");
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+  });
+  it.each(["anonymous", "mgo", "inactive"])(
+    "restricts saved CSV downloads and recipient manifests: %s",
+    async (mode) => {
+      if (mode === "anonymous") mocks.auth.mockResolvedValue(null);
+      else
+        mocks.workspace.mockResolvedValue({
+          sessionUser: {
+            id: 1,
+            role: mode === "mgo" ? "mgo" : "admin",
+            active: mode !== "inactive",
+          },
+        });
+      expect((await GET(new Request(`${url}?csvRun=${run().id}`))).status).toBe(
+        mode === "anonymous" ? 401 : 403,
+      );
+      expect(mocks.readCsv).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    "create_csv_run",
+    "confirm_csv_letters",
+    "mail_selected_csv_letters",
+  ])("rejects automatic and cross-site CSV mutations: %s", async (action) => {
+    expect(
+      (
+        await POST(
+          request({ action, revision: 3, confirm: true, automatic: true }),
+        )
+      ).status,
+    ).toBe(422);
+    expect(
+      (
+        await POST(
+          request(
+            { action, revision: 3, confirm: true },
+            { Origin: "https://other.example" },
+          ),
+        )
+      ).status,
+    ).toBe(403);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+  });
+  it("requires explicit creation confirmation and refuses changed saved CSV bytes", async () => {
+    mocks.readCsv.mockResolvedValue(run());
+    expect(
+      (
+        await POST(
+          request({
+            action: "confirm_csv_letters",
+            revision: 3,
+            runId: run().id,
+          }),
+        )
+      ).status,
+    ).toBe(422);
+    mocks.readCsv.mockResolvedValue({ ...run(), csv: "changed" });
+    expect(
+      (await GET(new Request(`${url}?csvRun=${run().id}&format=csv`))).status,
+    ).toBe(409);
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+  });
+  it("mails selected CSV-created letters only, using the atomic dispatch path", async () => {
+    const item = completedCsvFixture();
+    mocks.read.mockResolvedValue({ history: [item] });
+    const response = await POST(
+      request({
+        action: "mail_selected_csv_letters",
+        revision: 3,
+        batchId: item.batchId,
+        deliveryIds: [item.id],
+        confirm: true,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.mailSelected).toHaveBeenCalledExactlyOnceWith(
+      item.batchId,
+      [item],
+      "csv",
+    );
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.postalDocument).not.toHaveBeenCalled();
+  });
+  it.each(["", "&format=combined-pdf", "&deliveryId=letter"])(
+    "never renders a replacement app document for a CSV-created letter: %s",
+    async (suffix) => {
+      const item = completedCsvFixture();
+      mocks.read.mockResolvedValue({ history: [item] });
+      const response = await GET(
+        new Request(`${url}?download=${item.batchId}${suffix}`),
+      );
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toContain("created in Word");
+      expect(mocks.postalDocument).not.toHaveBeenCalled();
+      expect(mocks.printPdf).not.toHaveBeenCalled();
+    },
+  );
   it("exports a fresh read-only CSV without acquiring a write lease, rendering documents, or touching NXT", async () => {
     const workspace = csvWorkspace(60);
     mocks.view.mockReturnValue(workspace);

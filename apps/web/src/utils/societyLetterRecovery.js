@@ -1,4 +1,5 @@
 import { relationshipOnlyReceipt } from "./societyLetterAppealMembers";
+import { trackedCsvLetter } from "./societyLetterCsvTracking";
 
 // Pending after a rejected POST is not the same as never submitted. Keep any
 // evidence of an attempt protected, even if a later read changes its status.
@@ -10,8 +11,9 @@ export function canReturnLetterToReview(item) {
     item.channel === "post" &&
     !item.providerId &&
     typeof item.batchId === "string" &&
-    item.postalApproval?.batchId === item.batchId &&
-    item.postalDocument?.id &&
+    ((item.postalApproval?.batchId === item.batchId &&
+      item.postalDocument?.id) ||
+      trackedCsvLetter(item)) &&
     ["pending", "needs_review"].includes(receipt?.status) &&
     Array.isArray(members) &&
     members.length > 0 &&

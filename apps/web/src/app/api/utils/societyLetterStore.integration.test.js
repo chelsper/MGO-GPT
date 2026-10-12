@@ -16,6 +16,7 @@ import { readStewardshipOverview } from "./stewardshipOverview";
 import { letterPeriod } from "@/utils/societyLetters";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
+import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
 
 const database = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({
@@ -26,6 +27,7 @@ import {
   ensureSocietyLetterSchema,
   readSocietyLetterState,
   readPostalDocument,
+  readLetterCsvRun,
 } from "./societyLetterStore";
 
 const socket = process.env.STEWARDSHIP_TEST_PG_SOCKET;
@@ -66,6 +68,7 @@ async function execute(statement) {
               "snapshot",
               "job",
               "payload",
+              "summary",
               "exclusions",
               "recipient_reviews",
               "readiness",
@@ -127,7 +130,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   });
   beforeEach(async () => {
     await execute(
-      "TRUNCATE data_change_requests, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
+      "TRUNCATE data_change_requests, stewardship_letter_csv_runs, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -159,6 +162,94 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     await store.reserve([first, second, blocked, foreign]);
     return { store, first, second, blocked, foreign };
   }
+  it("saves immutable CSV content under a lease, lists only summaries and reserves no letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const run = { id: randomUUID(), csv: "private fictional merge data" };
+    const summary = { id: run.id, count: 1 };
+    await store.createCsvRun(run, summary);
+    expect(await readLetterCsvRun(run.id)).toEqual(run);
+    const state = await readSocietyLetterState();
+    expect(state.revision).toBe(1);
+    expect(state.csvRuns).toEqual([summary]);
+    expect(state.history).toEqual([]);
+    await expect(
+      store.createCsvRun({ ...run, csv: "changed" }, summary),
+    ).rejects.toThrow();
+    expect(await readLetterCsvRun(run.id)).toEqual(run);
+    await store.release();
+    await expect(
+      store.createCsvRun({ ...run, id: randomUUID() }, summary),
+    ).rejects.toThrow();
+    await expect(readLetterCsvRun("not-an-id")).rejects.toThrow();
+  });
+  it("marks only selected CSV-created letters mailed with audit, preserving unfinished household receipts", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const first = completedCsvFixture(),
+      second = completedCsvFixture({ id: randomUUID(), householdId: "20" });
+    second.letterAppeals.status = "pending";
+    second.letterAppeals.members.forEach((member) => {
+      member.status = "pending";
+    });
+    await store.reserve([first, second]);
+    await expect(
+      store.mailSelectedLetters(first.batchId, [first]),
+    ).rejects.toThrow();
+    await store.mailSelectedLetters(first.batchId, [first], "csv");
+    const state = await readSocietyLetterState();
+    expect(state.history.find((item) => item.id === first.id)).toMatchObject({
+      status: "mailed",
+      mailDispatch: { by: 1, at: expect.any(String) },
+      csvMailMerge: first.csvMailMerge,
+    });
+    expect(state.history.find((item) => item.id === second.id)).toMatchObject({
+      status: "prepared",
+      letterAppeals: second.letterAppeals,
+    });
+    const mailed = state.history.find((item) => item.id === first.id);
+    await store.mailSelectedLetters(first.batchId, [mailed], "csv");
+    expect(
+      (await readSocietyLetterState()).history.find(
+        (item) => item.id === first.id,
+      ).mailDispatch,
+    ).toEqual(mailed.mailDispatch);
+  });
+  it("does not mark any CSV letter mailed when the durable manifest or receipt changed", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const first = completedCsvFixture(),
+      second = completedCsvFixture({ id: randomUUID(), householdId: "20" });
+    await store.reserve([first, second]);
+    await execute(
+      `UPDATE stewardship_letter_deliveries SET payload=jsonb_set(payload,'{csvMailMerge,csvSha256}','"${"b".repeat(64)}"') WHERE id='${second.id}'`,
+    );
+    await expect(
+      store.mailSelectedLetters(first.batchId, [first, second], "csv"),
+    ).rejects.toThrow("no letters were changed");
+    expect(
+      (await readSocietyLetterState()).history.every(
+        (item) => item.status === "prepared" && !item.mailDispatch,
+      ),
+    ).toBe(true);
+  });
+  it("releases an unsubmitted CSV reservation only while its entire saved receipt and manifest still match", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const item = completedCsvFixture();
+    item.letterAppeals.status = "needs_review";
+    item.letterAppeals.members.forEach((member) => {
+      member.status = "pending";
+    });
+    await store.reserve([item]);
+    await expect(
+      store.returnLetterToReview({
+        ...item,
+        csvMailMerge: { ...item.csvMailMerge, runId: randomUUID() },
+      }),
+    ).rejects.toThrow("no reservation was released");
+    await store.returnLetterToReview(item);
+    expect((await readSocietyLetterState()).history[0]).toMatchObject({
+      status: "cancelled",
+      returnToReview: { by: 1, reason: "no_nxt_submission_attempted" },
+    });
+  });
   it("atomically mails only selected completed letters, retaining blocked reservations and audit on a repeat", async () => {
     const f = await dispatchFixture();
     const before = await readSocietyLetterState();

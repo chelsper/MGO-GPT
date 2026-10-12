@@ -28,6 +28,8 @@ import { readinessReader } from "./societyLetterReadinessNxt";
 import { finishSelectedLetterAppeals } from "./societyLetterBulkAppeals";
 import {
   previewFinalPostalLetter,
+  previewPostalLetterData,
+  reservePostalLetter,
   finalizePostalLetter,
   syncLetterAppeals,
   assertLetterAppealsComplete,
@@ -299,6 +301,48 @@ async function fixture(
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(`${today}T15:00:00Z`));
+});
+it("applies a confirmed CSV letter's appeal to both members without creating a document, and reconciles a retry without duplicate writes", async () => {
+  const f = await fixture();
+  const preview = previewPostalLetterData(f.state, definitions, today, {
+    householdId: "10",
+  });
+  const item = reservePostalLetter(preview, f.state, today, ctx);
+  item.csvMailMerge = {
+    runId: "33333333-3333-4333-8333-333333333333",
+    csvSha256: "a".repeat(64),
+    confirmedAt: new Date().toISOString(),
+    confirmedBy: 7,
+  };
+  await f.store.reserve([item]);
+  expect(renderSocietyLetter).not.toHaveBeenCalled();
+  const run = () =>
+    finishSelectedLetterAppeals(
+      f.state,
+      definitions,
+      today,
+      { deliveryIds: [item.id], deliveryId: item.id, confirm: true },
+      f.store,
+      ctx,
+      (...args) => syncLetterAppeals(...args, f.reader, f.client),
+    );
+  f.state.history = [f.item()];
+  expect((await run()).status).toBe("complete");
+  expect(
+    f.client.create.mock.calls.map(([id, appeal]) => [id, appeal.id]),
+  ).toEqual([
+    ["10", "100"],
+    ["11", "100"],
+  ]);
+  f.state.history = [f.item()];
+  expect((await run()).status).toBe("complete");
+  expect(f.client.create).toHaveBeenCalledTimes(2);
+  expect(renderSocietyLetter).not.toHaveBeenCalled();
+  expect(f.item()).toMatchObject({
+    status: "prepared",
+    coveredKeys: ["presidents", "ood"],
+    csvMailMerge: item.csvMailMerge,
+  });
 });
 afterEach(() => {
   vi.useRealTimers();

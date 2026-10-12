@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { completedPostalLetter } from "@/utils/societyLetterDispatch";
+import { completedCsvLetter } from "@/utils/societyLetterCsvTracking";
 import SocietyPdfDownloads from "./SocietyPdfDownloads";
 
 const button =
@@ -11,8 +12,13 @@ export default function CompletedLetterActions({
   downloadBatch,
   setConfirmation,
 }) {
-  const ready = batch.items.filter(completedPostalLetter);
-  const [selected, setSelected] = useState(() => ready.map((item) => item.id));
+  const csv =
+    batch.items.length > 0 && batch.items.every((item) => item.csvMailMerge);
+  const complete = csv ? completedCsvLetter : completedPostalLetter;
+  const ready = batch.items.filter(complete);
+  const [selected, setSelected] = useState(() =>
+    csv ? [] : ready.map((item) => item.id),
+  );
   const [downloading, setDownloading] = useState(false);
   const items = ready.filter((item) => selected.includes(item.id));
   const toMail = items.filter((item) => item.status === "prepared");
@@ -24,13 +30,13 @@ export default function CompletedLetterActions({
     (item) =>
       item.status !== "cancelled" &&
       item.status !== "mailed" &&
-      !completedPostalLetter(item),
+      !complete(item),
   );
   const mailed = batch.items.filter((item) => item.status === "mailed");
   if (
     batch.channel !== "post" ||
     !ready.length ||
-    (!blocked.length && !mailed.length)
+    (!csv && !blocked.length && !mailed.length)
   )
     return null;
   const disabled = busy || downloading;
@@ -51,10 +57,14 @@ export default function CompletedLetterActions({
         Completed letters can move ahead
       </h3>
       <p className="mt-2 text-sm text-gray-700">
-        {ready.length} available to download; {readyToMail.length} ready to
-        mail; {blocked.length} still in progress; {mailed.length} marked mailed.
-        Completed letters remain available to download after mailing. Blocked
-        letters stay saved in this batch.
+        {ready.length}{" "}
+        {csv ? "with appeals confirmed" : "available to download"};{" "}
+        {readyToMail.length} ready to mail; {blocked.length} still in progress;{" "}
+        {mailed.length} marked mailed.
+        {csv
+          ? "Your merged document stays in Word; no PDF or Word file is stored in the app."
+          : "Completed letters remain available to download after mailing."}{" "}
+        Blocked letters stay saved in this batch.
       </p>
       <div className="my-3 flex flex-wrap gap-2">
         <button
@@ -91,7 +101,9 @@ export default function CompletedLetterActions({
               <span>
                 <strong>{item.name}</strong> / {item.societyName}
                 {item.status === "mailed" &&
-                  " / Marked mailed; download available"}
+                  (csv
+                    ? " / Marked mailed"
+                    : " / Marked mailed; download available")}
               </span>
             </label>
           </li>
@@ -111,7 +123,7 @@ export default function CompletedLetterActions({
                 {item.name} /{" "}
                 {item.status === "cancelled"
                   ? "Cancelled or returned to review"
-                  : completedPostalLetter(item)
+                  : complete(item)
                     ? "Not selected"
                     : "Still in progress"}
               </li>
@@ -119,25 +131,31 @@ export default function CompletedLetterActions({
           </ul>
         </details>
       )}
-      <SocietyPdfDownloads
-        items={items}
-        disabled={disabled}
-        onDownload={(ids) => download("combined-pdf", ids)}
-      />
+      {!csv && (
+        <SocietyPdfDownloads
+          items={items}
+          disabled={disabled}
+          onDownload={(ids) => download("combined-pdf", ids)}
+        />
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          className={button}
-          disabled={disabled || !items.length}
-          onClick={() => download("docx")}
-        >
-          Download selected letters (.zip)
-        </button>
+        {!csv && (
+          <button
+            className={button}
+            disabled={disabled || !items.length}
+            onClick={() => download("docx")}
+          >
+            Download selected letters (.zip)
+          </button>
+        )}
         <button
           className={button}
           disabled={disabled || !toMail.length}
           onClick={() =>
             setConfirmation({
-              action: "mail_selected_letters",
+              action: csv
+                ? "mail_selected_csv_letters"
+                : "mail_selected_letters",
               batchId: batch.id,
               deliveryIds: toMail.map((item) => item.id),
               recipientNames: toMail.map(
@@ -152,8 +170,10 @@ export default function CompletedLetterActions({
         </button>
       </div>
       <p className="mt-3 text-sm text-gray-600">
-        Downloads use the saved approved documents and do not mark letters
-        mailed. Record mailing only after dispatch.
+        {csv
+          ? "Confirming creation and applying appeals does not mean a letter was mailed."
+          : "Downloads use the saved approved documents and do not mark letters mailed."}{" "}
+        Record mailing only after dispatch.
       </p>
     </section>
   );
