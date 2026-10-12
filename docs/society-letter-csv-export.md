@@ -83,3 +83,30 @@ Release evidence uses the `/tmp/ju-letter-csv-deploy-` prefix: `tests.log`, `typ
 - The existing schema initializer adds `stewardship_letter_csv_runs`. No destructive migration, new environment variables, additional NXT permissions, or converter deployment was needed.
 
 Tracked-release evidence uses the `/tmp/ju-tracked-csv-deploy-` prefix: `tests.log`, `typecheck.log`, `release.json`, `dry.json`, `candidate.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, `production-verification.log`, `after.log`, and the before/after project snapshots.
+
+## October 12 CSV Workflow Audit
+
+The following usability fixes are local and not yet deployed. The deployed version remains `179eb5e23e2be6b6978a5cdf53f4cb0293557f0b`.
+
+### Step By Step
+
+1. Review and save recipient choices in the holding list. CSV includes only eligible reviewed households for the selected society, not every query result. Exclusions, higher-tier coverage, existing reservations, expired reviews, and missing required fields remain protected.
+2. Select the society and letter date, then use **Save tracked CSV & download** if appeals and mailing will be recorded later. The plain download remains read-only and cannot establish an immutable list for later creation confirmation. Export itself does not contact NXT, reserve letters, or mark anything mailed.
+3. Merge in a local Word copy using native Word merge fields that match the CSV headers. This is a separate engine from the app's renderer: app tags, a plain Date label, and typed guillemets do not become native Word fields just by attaching the CSV. Use the reviewed full `address` value when preserving manually edited address blocks. Prepare the reusable Word copy before the main production run. Do not replace the app's saved template after exporting without obtaining a new tracked CSV.
+4. Open the saved export and select only the letters actually created and checked. Confirm up to 50 at a time; this is an appeal-processing limit, not a CSV export limit. The app checks the immutable export against current saved data and reserves the complete selected set before any NXT writes.
+5. Missing appeals are applied to each applicable household constituent through the existing worker. Both members are retained for joint letters. An uncertain submission is read back before any continuation; it is never blindly sent twice. Record-specific conflicts do not prevent other households finishing. NXT throttling pauses the selection rather than moving on with additional requests.
+6. After physical dispatch, select completed CSV-created letters in **Letter history** and confirm **Mark selected letters mailed**. Incomplete letters remain prepared. No app-generated PDF/Word document is claimed for an external Word merge.
+
+### Findings And Fixes
+
+- Reproduced three missing early-feedback cases: expired recipient review, changed saved merge fields, and missing appeal setup. The saved-export picker previously checked only the broad row status, so it could offer these recipients and leave the rejection until confirmation. A read-only manifest now reports changed-export reasons; the picker also checks current CSV eligibility, explains blocked rows, and offers the existing setup/refresh action where appropriate. Server confirmation still revalidates under the lease.
+- Added **Refresh saved CSV status** to reload current saved records and the manifest without NXT writes. Existing reservations remain resumable rather than being rejected simply because the original export's recipients are now held.
+- Preserved specific server errors inside the CSV controls instead of replacing them with generic confirmation/save failures. Tested successful save plus failed download, lost save response, and stale-revision rejection. Recovery reloads the saved export and downloads the original without creating a second export.
+- Clarified the Word date-field requirement and singular household counts. The original supplied OOD DOCX structurally contains native addressee/address fields but a plain Date label and a typed `First_Name` greeting placeholder. Those require native fields in the external Word copy. No Word template or letter wording was changed by this audit.
+
+### Evidence And Limits
+
+- Live, read-only downloads passed for both societies: one OOD row and three President's Society rows were eligible at audit time. CSV parsing found no errors; rows were unique by household, all required name/date/address values were populated, the full address retained the city/state comma, and both single-record and joint households were represented. No tracked export, letter reservation, appeal assignment, or mailing change was created during live checking.
+- New tests use the actual CSV reservation, finalization/reconciliation, and selected-dispatch validation functions with a simulated NXT transport. They cover both spouses, compact appeal comments, duplicate prevention, lost write responses both with and without a saved NXT assignment, throttling, a conflicting prior appeal, and independent completion of another household. UI tests cover failed downloads, lost save responses, stale exports, early blockers, and read-only refresh.
+- Full local verification: 6,554 tests passed, including all 30 isolated PGlite letter-store tests; 193 existing opt-in tests remained skipped. Typecheck, production build, and whitespace checks passed. Logs: `/tmp/ju-csv-audit-tests.log`, `/tmp/ju-csv-audit-typecheck.log`, `/tmp/ju-csv-audit-build.log`; reproduced failures before fixes: `/tmp/ju-csv-audit-repro.log`.
+- A native Word merge/print was not executed, and live NXT write permissions or end-to-end appeal writes were not exercised on donors. The full saved-template browser download was not verified. These are verification limits, not claims that external Word or NXT can never fail. The recommended next step is to prepare and verify CSV-ready Word copies for both societies, deploy the local usability fixes, then conduct one explicitly authorized tracked pilot before a large mailing.

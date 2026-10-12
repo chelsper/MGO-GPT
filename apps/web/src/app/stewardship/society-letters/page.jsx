@@ -565,7 +565,7 @@ export default function SocietyLettersPage() {
     }
   }
   async function trackedCsvExport(body) {
-    const result = await act(body);
+    const result = await act(body, false, { throwOnError: true });
     if (!result?.csvRunId)
       throw new Error(
         "The tracked CSV could not be saved. Reload saved results before trying again.",
@@ -622,8 +622,12 @@ export default function SocietyLettersPage() {
   useEffect(() => {
     load();
   }, []);
-  async function act(body, download = false) {
-    if (inFlight.current) return;
+  async function act(body, download = false, { throwOnError = false } = {}) {
+    if (inFlight.current) {
+      if (throwOnError)
+        throw new Error("Wait for the current operation to finish.");
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     const automatic =
@@ -690,6 +694,7 @@ export default function SocietyLettersPage() {
         setRefreshing(false);
         setSendingBatch(null);
       }
+      if (throwOnError) throw err;
       return null;
     } finally {
       inFlight.current = false;
@@ -1725,10 +1730,12 @@ export default function SocietyLettersPage() {
                         sourceDirty ||
                         !!sendingBatch
                       }
-                      act={act}
+                      act={(body) => act(body, false, { throwOnError: true })}
                       loadRun={savedCsvRun}
                       downloadRun={(id) => savedCsvRun(id, true)}
                       onActiveChange={setCsvRunActive}
+                      onResolveBlocker={repairBlocker}
+                      onReload={load}
                     />
                   )}
                   {queryPostal && (
@@ -2285,10 +2292,12 @@ export default function SocietyLettersPage() {
                   refreshing ||
                   !!sendingBatch
                 }
-                act={act}
+                act={(body) => act(body, false, { throwOnError: true })}
                 loadRun={savedCsvRun}
                 downloadRun={(id) => savedCsvRun(id, true)}
                 onActiveChange={setCsvRunActive}
+                onResolveBlocker={repairBlocker}
+                onReload={load}
               />
               <fieldset disabled={busy || refreshing || !!sendingBatch}>
                 <LetterHistoryFilters

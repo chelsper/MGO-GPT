@@ -117,6 +117,129 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it.each(["stale", "download_failed", "lost_save_response"])(
+    "keeps tracked CSV recovery actionable after %s without a second export",
+    async (mode) => {
+      const csv = csvWorkspace(1);
+      let payload = {
+        ...base,
+        ...csv,
+        settings: {
+          ...societyQuerySettings(),
+          societyKeys: csv.settings.societyKeys,
+        },
+        rows: csv.rows.map((row) => ({
+          ...row,
+          issues: { post: null, email: null },
+        })),
+        csvRuns: [],
+      };
+      const run = {
+        id: "33333333-3333-4333-8333-333333333333",
+        sha256: "a".repeat(64),
+        societyKey: "ood",
+        societyName: "Order of the Dolphin",
+        periodKey: csv.period.key,
+        letterDate: csv.today,
+        count: 1,
+        createdAt: "2026-10-12T12:00:00Z",
+        entries: csv.rows.map(({ householdId, name }) => ({
+          householdId,
+          name,
+        })),
+      };
+      const posts = [],
+        downloads = [];
+      vi.stubGlobal(
+        "URL",
+        Object.assign(URL, {
+          createObjectURL: vi.fn(() => "blob:csv"),
+          revokeObjectURL: vi.fn(),
+        }),
+      );
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+        () => {},
+      );
+      fetchMock.mockImplementation(async (url, options) => {
+        if (options?.method === "POST") {
+          const body = JSON.parse(options.body);
+          posts.push(body.action);
+          expect(body.action).toBe("create_csv_run");
+          if (mode === "stale")
+            return Response.json(
+              {
+                error:
+                  "The eligible recipients changed. Reload Society Letters and review the export count before downloading.",
+              },
+              { status: 409 },
+            );
+          payload = {
+            ...payload,
+            revision: payload.revision + 1,
+            csvRuns: [run],
+          };
+          if (mode === "lost_save_response")
+            throw new Error("Connection lost while saving the export");
+          return Response.json({ ...payload, csvRunId: run.id });
+        }
+        if (String(url).includes("csvRun=")) {
+          if (!String(url).includes("format=csv")) return Response.json(run);
+          downloads.push(url);
+          if (mode === "download_failed" && downloads.length === 1)
+            return Response.json(
+              { error: "Temporary download error" },
+              { status: 503 },
+            );
+          return new Response("fictional,csv", {
+            headers: {
+              "Content-Disposition":
+                'attachment; filename="ood-2026-10-12-mail-merge.csv"',
+            },
+          });
+        }
+        return Response.json(payload);
+      });
+      render(<Page />);
+      fireEvent.change(await screen.findByLabelText("Society for CSV"), {
+        target: { value: "ood" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Save tracked CSV & download" }),
+      );
+      const exportPanel = within(
+        screen.getByRole("region", { name: "Word mail merge export" }),
+      );
+      const warning = await exportPanel.findByRole("alert");
+      if (mode === "stale") {
+        expect(warning).toHaveTextContent("eligible recipients changed");
+        expect(
+          screen.queryByLabelText("Tracked export"),
+        ).not.toBeInTheDocument();
+        expect(downloads).toEqual([]);
+      } else {
+        if (mode === "download_failed")
+          expect(warning).toHaveTextContent(
+            "was saved, but the download did not finish",
+          );
+        else {
+          fireEvent.click(
+            screen.getByRole("button", { name: "Reload saved results" }),
+          );
+          await screen.findByLabelText("Tracked export");
+        }
+        fireEvent.change(screen.getByLabelText("Tracked export"), {
+          target: { value: run.id },
+        });
+        fireEvent.click(
+          await screen.findByRole("button", {
+            name: "Download original CSV again",
+          }),
+        );
+        await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+      }
+      expect(posts).toEqual(["create_csv_run"]);
+    },
+  );
   it("connects a tracked export to explicit creation, household appeal processing, and separate selected dispatch", async () => {
     const csv = csvWorkspace(2);
     let payload = {
@@ -136,6 +259,7 @@ describe("society letter workspace", () => {
       id: "33333333-3333-4333-8333-333333333333",
       sha256: "a".repeat(64),
       societyName: "Order of the Dolphin",
+      societyKey: "ood",
       periodKey: csv.period.key,
       letterDate: csv.today,
       count: 2,

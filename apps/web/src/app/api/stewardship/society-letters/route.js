@@ -75,7 +75,7 @@ import {
   createTrackedCsvRun,
   confirmCsvLetters,
   assertCsvRun,
-  csvRunSummary,
+  csvRunReview,
   mailSelectedCsvLetters,
 } from "@/app/api/utils/societyLetterCsvTracking";
 
@@ -140,13 +140,7 @@ export async function GET(request) {
             "Cross-Origin-Resource-Policy": "same-origin",
           },
         });
-      return json({
-        ...csvRunSummary(run),
-        entries: run.entries.map(({ householdId, name }) => ({
-          householdId,
-          name,
-        })),
-      });
+      return json(csvRunReview(state, ctx.definitions, ctx.today, run));
     }
     if (params.has("templateVersion")) {
       const version = params.get("templateVersion");

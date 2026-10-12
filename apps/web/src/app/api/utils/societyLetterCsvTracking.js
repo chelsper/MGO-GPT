@@ -65,6 +65,52 @@ export function assertCsvRun(run) {
   return run;
 }
 
+// Read-only feedback for the saved-export picker. Confirmation still rechecks
+// every selected row under the workflow lease before reserving any letters.
+export function csvRunReview(state, definitions, today, run) {
+  assertCsvRun(run);
+  const workspace = letterWorkspace(state, definitions, today);
+  const plan = societyLetterCsvPlan(workspace, run.societyKey, run.letterDate);
+  const current = new Map(
+    plan.entries.map((entry) => [entry.householdId, entry]),
+  );
+  const omitted = new Map(
+    plan.omitted.map((entry) => [entry.householdId, entry.reason]),
+  );
+  const receipts = new Map();
+  for (const item of state.history) {
+    if (item.csvMailMerge?.runId !== run.id) continue;
+    if (!receipts.has(item.householdId)) receipts.set(item.householdId, []);
+    receipts.get(item.householdId).push(item);
+  }
+  return {
+    ...csvRunSummary(run),
+    entries: run.entries.map((saved) => {
+      const own = receipts.get(saved.householdId) || [];
+      let confirmationIssue = "";
+      if (own.some((item) => item.status === "cancelled"))
+        confirmationIssue =
+          "Returned to review. Use a new tracked CSV after correcting the recipient.";
+      else if (!own.length) {
+        const entry = current.get(saved.householdId);
+        confirmationIssue =
+          run.periodKey !== workspace.period?.key
+            ? "This export belongs to another recognition period. Use Letter history for letters already recorded."
+            : plan.issue ||
+              omitted.get(saved.householdId) ||
+              (!entry || fingerprint(plan.columns, entry) !== saved.fingerprint
+                ? "Letter fields or qualification changed since this export. Use a new tracked CSV for this recipient; do not mail their old merge."
+                : "");
+      }
+      return {
+        householdId: saved.householdId,
+        name: saved.name,
+        confirmationIssue,
+      };
+    }),
+  };
+}
+
 export async function createTrackedCsvRun(
   state,
   definitions,

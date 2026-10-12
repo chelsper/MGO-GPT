@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { letterAppealsFinished } from "@/utils/societyLetterBulkAppeals";
 import { letterViewHref } from "@/utils/societyLetterNavigation";
+import { societyLetterCsvPlan } from "@/utils/societyLetterCsvExport";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50";
@@ -14,6 +15,8 @@ export default function CsvRunManager({
   loadRun,
   downloadRun,
   onActiveChange,
+  onResolveBlocker,
+  onReload,
 }) {
   const [run, setRun] = useState(null);
   const [selected, setSelected] = useState([]);
@@ -38,9 +41,14 @@ export default function CsvRunManager({
     onActiveChange(working);
     return () => onActiveChange(false);
   }, [working, onActiveChange]);
-  const currentRows = new Map(
-    (data.rows || []).map((row) => [row.householdId, row]),
+  const plan = run
+    ? societyLetterCsvPlan(data, run.societyKey, run.letterDate)
+    : null;
+  const eligible = new Set(plan?.entries.map((entry) => entry.householdId));
+  const omitted = new Map(
+    plan?.omitted.map((entry) => [entry.householdId, entry.reason]),
   );
+  const blocker = data.readiness?.blocker;
   const ownLetters = new Map(),
     returnedIds = new Set();
   for (const item of data.history || []) {
@@ -51,11 +59,18 @@ export default function CsvRunManager({
   const entries = (run?.entries || []).map((entry) => {
     const own = ownLetters.get(entry.householdId);
     const returned = returnedIds.has(entry.householdId);
+    const issue =
+      entry.confirmationIssue ||
+      plan?.issue ||
+      omitted.get(entry.householdId) ||
+      (!eligible.has(entry.householdId)
+        ? "No longer eligible; review workspace."
+        : "");
     const unavailable =
       returned ||
       (own
         ? own.status === "mailed" || letterAppealsFinished(own)
-        : currentRows.get(entry.householdId)?.status !== "ready");
+        : Boolean(issue || blocker));
     return {
       ...entry,
       unavailable,
@@ -69,7 +84,7 @@ export default function CsvRunManager({
               : returned
                 ? "Returned to review; use a new tracked CSV"
                 : unavailable
-                  ? "No longer eligible; review workspace"
+                  ? issue || blocker.message
                   : "Not yet confirmed created",
     };
   });
@@ -209,6 +224,16 @@ export default function CsvRunManager({
       {run && (
         <>
           <button
+            className={`${button} mt-3 mr-2`}
+            disabled={disabled}
+            onClick={async () => {
+              if (onReload && !(await onReload())) return;
+              await open(run.id);
+            }}
+          >
+            Refresh saved CSV status
+          </button>
+          <button
             className={`${button} mt-3`}
             disabled={disabled}
             onClick={async () => {
@@ -233,6 +258,23 @@ export default function CsvRunManager({
             </p>
           ) : (
             <>
+              {blocker && (
+                <div
+                  role="status"
+                  className="my-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950"
+                >
+                  <p>{blocker.message} Your original CSV stays saved.</p>
+                  {onResolveBlocker && (
+                    <button
+                      className={`${button} mt-2`}
+                      disabled={disabled}
+                      onClick={() => onResolveBlocker(blocker)}
+                    >
+                      {blocker.label}
+                    </button>
+                  )}
+                </div>
+              )}
               <label className="mt-3 block text-sm">
                 Find recipient{" "}
                 <input

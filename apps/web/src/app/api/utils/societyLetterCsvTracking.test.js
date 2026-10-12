@@ -17,6 +17,10 @@ import {
   mailSelectedCsvLetters,
 } from "./societyLetterCsvTracking";
 import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
+import { csvRunReview } from "./societyLetterCsvTracking";
+import { finishSelectedLetterAppeals } from "./societyLetterBulkAppeals";
+import { syncLetterAppeals } from "./societyLetterFinalization";
+import { completedCsvLetter } from "@/utils/societyLetterCsvTracking";
 
 vi.mock("./blackbaud", () => ({
   blackbaudApiFetch: vi.fn(() => {
@@ -68,6 +72,18 @@ async function fixture(count = 1) {
     rows: Array.from({ length: count }, (_, index) => ({
       householdId: String(10 + index * 2),
       members: [String(10 + index * 2), String(11 + index * 2)],
+      memberNames: [
+        {
+          constituentId: String(10 + index * 2),
+          firstName: "Alex",
+          lastName: "Example",
+        },
+        {
+          constituentId: String(11 + index * 2),
+          firstName: "Pat",
+          lastName: "Example",
+        },
+      ],
       address: "10 Test St\nJacksonville, FL 32211",
       period,
       sourceMode: "society_queries",
@@ -134,7 +150,283 @@ async function fixture(count = 1) {
   return { state, store, run, body };
 }
 beforeEach(() => vi.clearAllMocks());
+function simulatedNxt(state, store) {
+  const members = Object.fromEntries(
+    state.snapshot.rows.flatMap((row) =>
+      row.members.map((id) => [
+        id,
+        {
+          profile: {
+            id,
+            type: "Individual",
+            is_constituent: true,
+            inactive: false,
+            deceased: false,
+            no_valid_address: false,
+            first: row.memberNames.find((name) => name.constituentId === id)
+              .firstName,
+            last: "Example",
+            spouse: { id: row.members.find((other) => other !== id) },
+            address: {
+              id: `address-${id}`,
+              constituent_id: id,
+              address_lines: "10 Test St",
+              city: "Jacksonville",
+              state: "FL",
+              postal_code: "32211",
+              inactive: false,
+              do_not_mail: false,
+            },
+          },
+          appeals: [],
+          preferences: [],
+          consents: [],
+        },
+      ]),
+    ),
+  );
+  store.saveLetterAppeals = vi.fn(async (item) => {
+    state.history[state.history.findIndex((saved) => saved.id === item.id)] =
+      structuredClone(item);
+  });
+  const reader = { member: vi.fn(async (id) => structuredClone(members[id])) };
+  const client = {
+    catalog: vi.fn(async () =>
+      Object.values(state.readiness.policy.appeals).map((appeal) => ({
+        ...appeal,
+        inactive: false,
+      })),
+    ),
+    appeals: vi.fn(async (id) => structuredClone(members[id].appeals)),
+    create: vi.fn(async (id, appeal, date, comments) => {
+      expect(comments.length).toBeLessThanOrEqual(50);
+      const record = {
+        id: String(200 + Number(id)),
+        constituent_id: id,
+        appeal: { id: appeal.id },
+        date,
+        comments,
+      };
+      members[id].appeals.push(record);
+      return { id: record.id };
+    }),
+  };
+  const finish = (ids, id = ids[0]) =>
+    finishSelectedLetterAppeals(
+      state,
+      definitions,
+      today,
+      { deliveryIds: ids, deliveryId: id, confirm: true },
+      store,
+      ctx,
+      (...args) => syncLetterAppeals(...args, reader, client),
+      () => {
+        throw new Error("CSV must not render or fetch an application document");
+      },
+    );
+  return { members, reader, client, finish };
+}
 describe("durable CSV workflow", () => {
+  it("reports changed fields and expired reviews in the read-only saved-export manifest without blocking unchanged households", async () => {
+    const { state, store, run } = await fixture(3);
+    Object.values(state.recipient_reviews)[0].values.salutation =
+      "Changed greeting";
+    Object.values(state.recipient_reviews)[1].savedAt = "2025-01-01";
+    const review = csvRunReview(state, definitions, today, run);
+    expect(review.entries[0].confirmationIssue).toMatch(
+      /changed since this export/,
+    );
+    expect(review.entries[1].confirmationIssue).toMatch(/15 days/);
+    expect(review.entries[2].confirmationIssue).toBe("");
+    expect(review).not.toHaveProperty("csv");
+    expect(review.entries[0]).not.toHaveProperty("fingerprint");
+    expect(store.reserve).not.toHaveBeenCalled();
+  });
+  it("runs actual CSV reservation and appeal reconciliation for both household members, then dispatches only the selected completed letter", async () => {
+    const { state, store, run, body } = await fixture(2);
+    const ids = await confirmCsvLetters(
+      state,
+      definitions,
+      today,
+      body,
+      store,
+      ctx,
+      run,
+    );
+    const nxt = simulatedNxt(state, store);
+    expect(await nxt.finish(ids)).toMatchObject({
+      status: "complete",
+      stop: false,
+    });
+    expect(nxt.client.create.mock.calls.map(([id]) => id)).toEqual([
+      "10",
+      "11",
+    ]);
+    expect(
+      state.history[0].letterAppeals.members.every(
+        (member) => member.status === "verified",
+      ),
+    ).toBe(true);
+    expect(completedCsvLetter(state.history[0])).toBe(true);
+    expect(completedCsvLetter(state.history[1])).toBe(false);
+    expect(
+      state.history.every(
+        (item) => item.status === "prepared" && !item.postalDocument,
+      ),
+    ).toBe(true);
+    const review = csvRunReview(state, definitions, today, run);
+    expect(
+      review.entries.every((entry) => entry.confirmationIssue === ""),
+    ).toBe(true);
+    expect(await nxt.finish(ids)).toMatchObject({ status: "complete" });
+    expect(nxt.client.create).toHaveBeenCalledTimes(2);
+    store.mailSelectedLetters = vi.fn();
+    await mailSelectedCsvLetters(
+      state,
+      {
+        batchId: state.history[0].batchId,
+        deliveryIds: [ids[0]],
+        confirm: true,
+      },
+      store,
+    );
+    expect(store.mailSelectedLetters).toHaveBeenCalledWith(
+      state.history[0].batchId,
+      [state.history[0]],
+      "csv",
+    );
+    expect(await nxt.finish(ids, ids[1])).toMatchObject({
+      status: "complete",
+      stop: false,
+    });
+    expect(nxt.client.create.mock.calls.map(([id]) => id)).toEqual([
+      "10",
+      "11",
+      "12",
+      "13",
+    ]);
+  });
+  it.each([true, false])(
+    "reconciles a lost NXT response without blind retries (assignment exists: %s)",
+    async (accepted) => {
+      const { state, store, run, body } = await fixture();
+      const ids = await confirmCsvLetters(
+        state,
+        definitions,
+        today,
+        body,
+        store,
+        ctx,
+        run,
+      );
+      const nxt = simulatedNxt(state, store);
+      const create = nxt.client.create.getMockImplementation();
+      nxt.client.create.mockImplementationOnce(async (...args) => {
+        if (accepted) await create(...args);
+        throw new Error("Connection lost after NXT accepted the appeal");
+      });
+      expect(await nxt.finish(ids)).toMatchObject({
+        status: "needs_review",
+        stop: true,
+      });
+      expect(nxt.client.create).toHaveBeenCalledOnce();
+      expect(completedCsvLetter(state.history[0])).toBe(false);
+      expect(
+        await confirmCsvLetters(
+          state,
+          definitions,
+          today,
+          body,
+          store,
+          ctx,
+          run,
+        ),
+      ).toEqual(ids);
+      expect(store.reserve).toHaveBeenCalledOnce();
+      if (!accepted) {
+        expect(await nxt.finish(ids)).toMatchObject({ status: "needs_review" });
+        expect(nxt.client.create).toHaveBeenCalledOnce();
+        expect(nxt.members["10"].appeals).toHaveLength(0);
+        expect(completedCsvLetter(state.history[0])).toBe(false);
+        return;
+      }
+      expect(await nxt.finish(ids)).toMatchObject({
+        status: "complete",
+        stop: false,
+      });
+      expect(nxt.client.create.mock.calls.map(([id]) => id)).toEqual([
+        "10",
+        "11",
+      ]);
+      expect(nxt.members["10"].appeals).toHaveLength(1);
+      expect(nxt.members["11"].appeals).toHaveLength(1);
+    },
+  );
+  it("honors an NXT pause without attempting another selected household", async () => {
+    const { state, store, run, body } = await fixture(2);
+    const ids = await confirmCsvLetters(
+      state,
+      definitions,
+      today,
+      body,
+      store,
+      ctx,
+      run,
+    );
+    const nxt = simulatedNxt(state, store);
+    nxt.client.create.mockRejectedValueOnce(
+      Object.assign(new Error("Rate limit"), {
+        httpStatus: 429,
+        retryAfterMs: 300000,
+      }),
+    );
+    expect(await nxt.finish(ids)).toMatchObject({
+      status: "needs_review",
+      stop: true,
+    });
+    await expect(nxt.finish(ids, ids[1])).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(nxt.client.create).toHaveBeenCalledOnce();
+    expect(
+      state.history.every(
+        (item) => item.status === "prepared" && !item.mailDispatch,
+      ),
+    ).toBe(true);
+  });
+  it("leaves a real prior-appeal conflict untouched while a different household finishes", async () => {
+    const { state, store, run, body } = await fixture(2);
+    const ids = await confirmCsvLetters(
+      state,
+      definitions,
+      today,
+      body,
+      store,
+      ctx,
+      run,
+    );
+    const nxt = simulatedNxt(state, store);
+    nxt.members["10"].appeals.push({
+      id: "999",
+      appeal: state.history[0].letterAppeals.appeal,
+      date: today,
+      comments: "Entered separately",
+    });
+    expect(await nxt.finish(ids)).toMatchObject({
+      status: "needs_review",
+      stop: false,
+    });
+    expect(nxt.client.create).not.toHaveBeenCalled();
+    expect(await nxt.finish(ids, ids[1])).toMatchObject({
+      status: "complete",
+      stop: false,
+    });
+    expect(nxt.client.create.mock.calls.map(([id]) => id)).toEqual([
+      "12",
+      "13",
+    ]);
+    expect(nxt.members["10"].appeals[0].comments).toBe("Entered separately");
+  });
   it("saves all merge rows without reserving letters, marking mailed or contacting NXT", async () => {
     const { state, store, run } = await fixture(2);
     expect(assertCsvRun(run)).toBe(run);

@@ -208,7 +208,13 @@ describe("stewardship API authorization and delivery boundaries", () => {
     const manifest = await (
       await GET(new Request(`${url}?csvRun=${run().id}`))
     ).json();
-    expect(manifest.entries).toEqual([{ householdId: "10", name: "Example" }]);
+    expect(manifest.entries).toEqual([
+      {
+        householdId: "10",
+        name: "Example",
+        confirmationIssue: expect.any(String),
+      },
+    ]);
     expect(manifest).not.toHaveProperty("csv");
     expect(mocks.acquire).not.toHaveBeenCalled();
     expect(mocks.letterSync).not.toHaveBeenCalled();

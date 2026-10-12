@@ -38,8 +38,8 @@ export default function LetterCsvExport({
       });
       setMessage(
         tracked
-          ? `Tracked CSV saved for ${plan.entries.length} households. After merging in Word, open Saved CSV exports to confirm which letters you created and apply their appeals. Nothing is marked mailed.`
-          : `CSV download started for ${plan.entries.length} households. No appeals, letter statuses, or mailing statuses changed.`,
+          ? `Tracked CSV saved for ${plan.entries.length} ${plan.entries.length === 1 ? "household" : "households"}. After merging in Word, open Saved CSV exports to confirm which letters you created and apply their appeals. Nothing is marked mailed.`
+          : `CSV download started for ${plan.entries.length} ${plan.entries.length === 1 ? "household" : "households"}. No appeals, letter statuses, or mailing statuses changed.`,
       );
     } catch (err) {
       setError(
@@ -111,8 +111,9 @@ export default function LetterCsvExport({
         ) : (
           <>
             <p role="status" className="text-sm font-semibold">
-              {plan.entries.length} households ready for CSV;{" "}
-              {plan.omitted.length} not included.
+              {plan.entries.length}{" "}
+              {plan.entries.length === 1 ? "household" : "households"} ready for
+              CSV; {plan.omitted.length} not included.
             </p>
             {plan.omitted.length > 0 && (
               <details className="my-2 text-sm">
@@ -192,7 +193,10 @@ export default function LetterCsvExport({
           <li>
             Insert native Word merge fields using the CSV column names. Saved
             field mappings are included; typed placeholders such as{" "}
-            {"{salutation}"} or {"«First_Name»"} do not merge automatically.
+            {"{salutation}"} or {"«First_Name»"} do not merge automatically. A
+            standalone "Date" also needs a Word merge field for the CSV's letter
+            date. This is a one-time setup in your Word copy; the app's merge
+            settings do not convert those placeholders in Word.
           </li>
           <li>
             Preview results and use Finish &amp; Merge to create one document
