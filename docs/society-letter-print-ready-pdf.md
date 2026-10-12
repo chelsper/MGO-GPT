@@ -1,10 +1,22 @@
 # Society letter print ready PDF
 
-Deployed and verified on JU production on October 8, 2026. Sandbox unchanged.
+Base combined-PDF feature deployed and verified on JU production on October 8, 2026. Sandbox unchanged. The October 12 society-specific download improvement below is implemented locally, not yet deployed.
+
+## Society-specific downloads (October 12)
+
+The primary controls now offer **Download [society] print-ready PDF**, with the number of letters included in each file. A mixed batch therefore has separate downloads for Order of the Dolphin and President's Society. Grouping uses the letter's saved society key, not its lower-tier acknowledgment coverage. It does not prepare another batch or require a new approval.
+
+Completed batches offer these controls directly. Partially blocked batches and batches containing mailed letters retain the existing completed-letter selector; society downloads use exactly the selected completed IDs. Blocked, cancelled, and deselected letters are not silently included. Mailed letters can still be downloaded. When all selected documents are PDFs, the secondary **Download all these societies in one PDF** option preserves the previous mixed-society download. Individual downloads, ZIP downloads, and explicit mailing confirmations remain available.
+
+The server returns a safe, society-specific filename based on saved metadata, and the browser uses it. The download still calls the existing authenticated GET endpoint with `selectedDeliveryId` parameters. Approval hashes, exact household-member receipts, batch boundaries, source/output size checks, and page limits remain unchanged. No additional converter call, NXT write, approval, schema change, or mailing-status update occurs.
+
+Each approved letter keeps its saved letterhead, even when templates were changed between approvals. Downloads do not silently replace an older letterhead or convert saved Word documents. Groups containing Word letters keep their ZIP/individual options. Downloads remain scoped to one existing batch, not all batches in the recognition period.
+
+Local verification: 6,443 tests passed, including 26 isolated PGlite database checks; 193 unrelated or externally dependent opt-in tests skipped. Typecheck and production build passed. New regressions cover exact society/recipient selection, lower-tier coverage not creating extra letters, blocked/cancelled/deselected exclusions, mailed re-downloads, mixed-format fallback, safe filenames, original multipage order, and unchanged saved documents. No live NXT/converter calls, production downloads, or mailing-status changes were used. Logs: `/tmp/ju-society-pdf-group-full-tests.log`, `/tmp/ju-society-pdf-group-typecheck.log`, `/tmp/ju-society-pdf-group-build.log`.
 
 ## Staff workflow
 
-Choose PDF when preparing a batch, approve the documents, and finish the saved NXT appeal updates as before. In the current letter workspace or Letter history, **Download print-ready PDF** combines that batch's approved PDFs into one file. Existing PDF batches qualify too; no new approval is required just to combine them.
+Choose PDF when preparing a batch, approve the documents, and finish the saved NXT appeal updates as before. In the current letter workspace or Letter history, the print-ready PDF controls combine the chosen approved PDFs into one file. Existing PDF batches qualify too; no new approval is required just to combine them.
 
 Each letter begins on a new page. Multi-page letters remain together in the original approval order. Print single-sided at actual size to avoid placing another household's letter on the back. PDF viewer preferences request these settings, but printer/viewer support varies.
 
@@ -12,7 +24,7 @@ The button stays disabled until appeal receipts are complete. Downloading does n
 
 ## Implementation and limits
 
-- Authenticated reviewer-only `GET /api/stewardship/society-letters?download=<batchId>&format=combined-pdf` returns `society-letters-print-ready.pdf` with private, no-store headers.
+- Authenticated reviewer-only `GET /api/stewardship/society-letters?download=<batchId>&format=combined-pdf` returns a PDF with private, no-store headers. Optional repeated `selectedDeliveryId` parameters select completed letters. A single-society file has the society name in its filename; mixed/legacy files retain the generic filename.
 - `societyLetterPrintPdf.js` reads only the selected non-cancelled postal batch and copies existing pages with pinned `pdf-lib` 1.17.1. It uses no converter, external service, write lease, or database mutation.
 - Every saved PDF is checked against its approved SHA-256 and byte size. Only approved, prepared/mailed PDF letters with completed member receipts are accepted. Duplicate letter/document/order identities and mixed batches are rejected.
 - All original pages, font resources, images, page dimensions, rotations, and letter dates remain intact. There is no rasterization, image downsampling, cover page, or inserted separator page. Object-stream compression does not change the printed content. Source files remain unchanged.

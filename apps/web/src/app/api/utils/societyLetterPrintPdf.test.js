@@ -11,6 +11,7 @@ import {
 } from "pdf-lib";
 import { documentHash, POSTAL_DOCUMENT_LIMIT } from "./societyLetterPdf";
 import { postalBatchPrintPdf } from "./societyLetterPrintPdf";
+import { groupLettersBySociety } from "@/utils/societyLetterDownloads";
 
 async function fixture(count = 2) {
   const records = new Map();
@@ -44,6 +45,32 @@ async function fixture(count = 2) {
 }
 
 describe("print-ready approved PDF batches", () => {
+  it("assembles separate societies using their approved pages, including multipage letters and older templates", async () => {
+    const f = await fixture(4);
+    f.items.forEach((item, index) => {
+      item.societyKey = index % 2 ? "presidents" : "ood";
+      item.societyName =
+        index % 2 ? "President's Society" : "Order of the Dolphin";
+      item.templateVersion = `saved-template-${index}`;
+    });
+    const before = structuredClone({ items: f.items, records: f.records });
+    const groups = groupLettersBySociety([...f.items].reverse());
+    for (const group of groups) {
+      const merged = await PDFDocument.load(
+        await postalBatchPrintPdf(group.items, f.read),
+      );
+      const pages = merged
+        .getPages()
+        .map((page) => page.node.get(PDFName.of("TestOrder")).decodeText());
+      expect(pages).toEqual(
+        group.key === "presidents"
+          ? ["1-0", "1-1", "3-0", "3-1"]
+          : ["0-0", "2-0"],
+      );
+    }
+    expect(f.read).toHaveBeenCalledTimes(4);
+    expect({ items: f.items, records: f.records }).toEqual(before);
+  });
   it("combines an explicit completed subset in approved order without reading a blocked document", async () => {
     const f = await fixture(3);
     f.items[1].letterAppeals.status = "pending";

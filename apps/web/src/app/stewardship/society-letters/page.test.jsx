@@ -385,7 +385,7 @@ describe("society letter workspace", () => {
           preparedAt: "2026-10-08T12:00:00Z",
           period: base.period,
           coveredKeys: ["presidents_society"],
-          postalDocument: { format: "pdf" },
+          postalDocument: { id: "saved-pdf", format: "pdf" },
           postalApproval: { index: 0 },
           letterAppeals: {
             status,
@@ -451,7 +451,7 @@ describe("society letter workspace", () => {
     render(<Page />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Download selected print-ready PDF",
+        name: "Download President's Society print-ready PDF",
       }),
     );
     await waitFor(() => expect(anchorClick).toHaveBeenCalledOnce());
@@ -550,7 +550,7 @@ describe("society letter workspace", () => {
     );
     await waitFor(() => {
       for (const download of screen.getAllByRole("button", {
-        name: "Download print-ready PDF",
+        name: "Download President's Society print-ready PDF",
       }))
         expect(download).toBeEnabled();
       expect(screen.getByLabelText("Find in letter history")).toBeEnabled();
@@ -683,14 +683,20 @@ describe("society letter workspace", () => {
     fetchMock.mockImplementation(async (url) =>
       String(url).includes("format=combined-pdf")
         ? new Response("saved PDF pages", {
-            headers: { "content-type": "application/pdf" },
+            headers: {
+              "content-type": "application/pdf",
+              "content-disposition":
+                'attachment; filename="society-letters-presidents-society-selected-print-ready.pdf"',
+            },
           })
         : Response.json(savedBatch("complete")),
     );
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(function () {
-        expect(this.download).toBe("society-letters-print-ready.pdf");
+        expect(this.download).toBe(
+          "society-letters-presidents-society-selected-print-ready.pdf",
+        );
       });
     render(<Page />);
     fireEvent.click(
@@ -700,12 +706,14 @@ describe("society letter workspace", () => {
       }),
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: "Download print-ready PDF" }),
+      await screen.findByRole("button", {
+        name: "Download President's Society print-ready PDF",
+      }),
     );
     await waitFor(() => expect(click).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]).toEqual([
-      "/api/stewardship/society-letters?download=saved-batch&format=combined-pdf",
+      "/api/stewardship/society-letters?download=saved-batch&selectedDeliveryId=letter&format=combined-pdf",
       { cache: "no-store" },
     ]);
     expect(

@@ -213,6 +213,41 @@ describe("stewardship API authorization and delivery boundaries", () => {
       expect(mocks.mailSelected).not.toHaveBeenCalled();
     },
   );
+  it("downloads a society's exact completed IDs with its saved name, without changing either society", async () => {
+    const first = completedLetter({ id: "pres-1" });
+    const second = completedLetter({
+      id: "pres-2",
+      status: "mailed",
+      postalApproval: { index: 2 },
+    });
+    const ood = completedLetter({
+      id: "ood",
+      societyKey: "ood",
+      societyName: "Order of the Dolphin",
+      postalApproval: { index: 1 },
+    });
+    const blocked = { ...unsubmittedLetter(), id: "blocked" };
+    const history = [first, ood, blocked, second];
+    const before = structuredClone(history);
+    mocks.read.mockResolvedValue({ history });
+    mocks.printPdf.mockResolvedValue(Buffer.from("approved pages"));
+    const response = await GET(
+      new Request(
+        `${url}?download=${first.batchId}&format=combined-pdf&selectedDeliveryId=pres-2&selectedDeliveryId=pres-1`,
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="society-letters-presidents-society-selected-print-ready.pdf"',
+    );
+    expect(mocks.printPdf).toHaveBeenCalledExactlyOnceWith([first, second]);
+    expect(history).toEqual(before);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+    expect(mocks.postalApprove).not.toHaveBeenCalled();
+  });
   it("marks the exact completed selection mailed with confirmation and no NXT write", async () => {
     const ready = completedLetter();
     mocks.read.mockResolvedValue({

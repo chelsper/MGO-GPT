@@ -529,14 +529,18 @@ export default function SocietyLettersPage() {
         cache: "no-store",
       });
       if (!response.ok) throw new Error((await response.json()).error);
+      const pdfFilename = response.headers
+        ?.get("Content-Disposition")
+        ?.match(/^attachment; filename="([a-z0-9-]+\.pdf)"$/i)?.[1];
       saveBlob(
         await response.blob(),
         deliveryId
           ? `society-letter.${format}`
           : format === "combined-pdf"
-            ? selectedIds
-              ? "society-letters-selected-print-ready.pdf"
-              : "society-letters-print-ready.pdf"
+            ? pdfFilename ||
+              (selectedIds
+                ? "society-letters-selected-print-ready.pdf"
+                : "society-letters-print-ready.pdf")
             : selectedIds
               ? "society-letters-selected.zip"
               : "society-letters.zip",

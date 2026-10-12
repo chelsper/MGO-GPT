@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { completedPostalLetter } from "@/utils/societyLetterDispatch";
+import SocietyPdfDownloads from "./SocietyPdfDownloads";
 
 const button =
   "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50";
@@ -32,21 +33,11 @@ export default function CompletedLetterActions({
     (!blocked.length && !mailed.length)
   )
     return null;
-  const pdf =
-    items.length > 0 &&
-    items.every(
-      (item) => item.postalApproval && item.postalDocument?.format === "pdf",
-    );
   const disabled = busy || downloading;
-  async function download(format) {
+  async function download(format, ids = items.map((item) => item.id)) {
     setDownloading(true);
     try {
-      await downloadBatch(
-        batch.id,
-        undefined,
-        format,
-        items.map((item) => item.id),
-      );
+      await downloadBatch(batch.id, undefined, format, ids);
     } finally {
       setDownloading(false);
     }
@@ -128,16 +119,12 @@ export default function CompletedLetterActions({
           </ul>
         </details>
       )}
+      <SocietyPdfDownloads
+        items={items}
+        disabled={disabled}
+        onDownload={(ids) => download("combined-pdf", ids)}
+      />
       <div className="mt-4 flex flex-wrap gap-2">
-        {pdf && (
-          <button
-            className={button}
-            disabled={disabled || !items.length}
-            onClick={() => download("combined-pdf")}
-          >
-            Download selected print-ready PDF
-          </button>
-        )}
         <button
           className={button}
           disabled={disabled || !items.length}

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { PostalBatchRunner } from "./PostalBatchApproval";
 import LetterBatchSummary from "./LetterBatchSummary";
 import { LetterAppealStatus } from "./FinalPostalLetterDialog";
@@ -5,6 +6,8 @@ import { canReturnLetterToReview } from "@/utils/societyLetterRecovery";
 import { letterAppealRecovery } from "@/utils/societyLetterVerification";
 import { focusSavedLetter, savedLetterElementId } from "./letterHistoryFocus";
 import CompletedLetterActions from "./CompletedLetterActions";
+import SocietyPdfDownloads from "./SocietyPdfDownloads";
+import { completedPostalLetter } from "@/utils/societyLetterDispatch";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
@@ -40,6 +43,7 @@ export default function LetterBatchCard({
   setReceiptIds,
   onReload,
 }) {
+  const [downloading, setDownloading] = useState(false);
   const printableItems = batch.items.filter(
     (item) => item.status !== "cancelled",
   );
@@ -67,6 +71,19 @@ export default function LetterBatchCard({
     printableItems.every(
       (item) => item.postalApproval && item.postalDocument?.format === "pdf",
     );
+  const hasSubsetActions =
+    printableItems.some(completedPostalLetter) &&
+    printableItems.some(
+      (item) => item.status === "mailed" || !completedPostalLetter(item),
+    );
+  async function downloadSociety(ids) {
+    setDownloading(true);
+    try {
+      await downloadBatch(batch.id, undefined, "combined-pdf", ids);
+    } finally {
+      setDownloading(false);
+    }
+  }
   return (
     <article className={card}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -79,21 +96,14 @@ export default function LetterBatchCard({
             Prepared {new Date(batch.date).toLocaleString()}
           </p>
         </div>
+        {batch.channel === "post" && !hasSubsetActions && (
+          <SocietyPdfDownloads
+            items={printableItems}
+            disabled={busy || !!sendingBatch || downloading}
+            onDownload={downloadSociety}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
-          {printReadyPdf && (
-            <button
-              className={primary}
-              disabled={
-                busy ||
-                printableItems.some(
-                  (item) => item.letterAppeals?.status !== "complete",
-                )
-              }
-              onClick={() => downloadBatch(batch.id, undefined, "combined-pdf")}
-            >
-              Download print-ready PDF
-            </button>
-          )}
           {batch.channel === "post" &&
             batch.items.some((i) => i.status !== "cancelled") && (
               <button
@@ -185,13 +195,6 @@ export default function LetterBatchCard({
             )}
         </div>
       </div>
-      {printReadyPdf && (
-        <p className="mt-3 text-sm text-gray-600">
-          One PDF in approved order, using the saved letters without changing
-          their layout or dates. Print single-sided at actual size. Downloading
-          does not update NXT or mark letters mailed.
-        </p>
-      )}
       {batch.items.some((item) => item.returnToReview) && (
         <p className="mt-3 text-sm text-gray-600">
           {batch.items.filter((item) => item.returnToReview).length} returned to

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import LetterBatchCard from "./LetterBatchCard";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 
@@ -15,7 +15,7 @@ function fixture(status = "complete", channel = "post") {
     members: ["10"],
     period: { start: "2026-01-01", end: "2026-12-31" },
     coveredKeys: ["sample"],
-    postalDocument: { format: "pdf" },
+    postalDocument: { id: "saved-pdf", format: "pdf" },
     ...(channel === "post"
       ? {
           postalApproval: { index: 0 },
@@ -175,7 +175,9 @@ describe("shared letter batch actions", () => {
     render(<LetterBatchCard {...props} />);
     expect(screen.getByText(/1 returned to review/)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Download print-ready PDF" }),
+      screen.getByRole("button", {
+        name: "Download Sample Society print-ready PDF",
+      }),
     ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
@@ -194,16 +196,26 @@ describe("shared letter batch actions", () => {
       }),
     ).not.toBeInTheDocument();
   });
-  it("downloads confirmed batches and individual documents without marking them mailed", () => {
+  it("downloads confirmed batches and individual documents without marking them mailed", async () => {
     const props = fixture();
     render(<LetterBatchCard {...props} guided />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Download print-ready PDF" }),
+      screen.getByRole("button", {
+        name: "Download Sample Society print-ready PDF",
+      }),
     );
     expect(props.downloadBatch).toHaveBeenCalledWith(
       "batch",
       undefined,
       "combined-pdf",
+      ["letter"],
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Download Sample Society print-ready PDF",
+        }),
+      ).toBeEnabled(),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
@@ -234,7 +246,9 @@ describe("shared letter batch actions", () => {
     });
     expect(download).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Download print-ready PDF" }),
+      screen.getByRole("button", {
+        name: "Download Sample Society print-ready PDF",
+      }),
     ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Mark batch mailed" }),
@@ -273,14 +287,55 @@ describe("shared letter batch actions", () => {
         props.batch.items.push({
           ...props.batch.items[0],
           id: "word",
-          postalDocument: { format: "docx" },
+          postalDocument: { id: "saved-word", format: "docx" },
         });
       if (kind === "unapproved") delete props.batch.items[0].postalApproval;
       if (kind === "cancelled") props.batch.items[0].status = "cancelled";
       render(<LetterBatchCard {...props} />);
       expect(
-        screen.queryByRole("button", { name: "Download print-ready PDF" }),
+        screen.queryByRole("button", {
+          name: "Download Sample Society print-ready PDF",
+        }),
       ).not.toBeInTheDocument();
     },
   );
+  it("offers society-specific primary downloads on a completed mixed batch and preserves the ZIP", async () => {
+    const props = fixture();
+    props.batch.items.push({
+      ...props.batch.items[0],
+      id: "ood",
+      societyKey: "ood",
+      societyName: "Order of the Dolphin",
+      postalDocument: { id: "saved-ood", format: "pdf" },
+      postalApproval: { index: 1 },
+    });
+    render(<LetterBatchCard {...props} />);
+    expect(
+      screen.getAllByRole("region", { name: "Print-ready PDFs by society" }),
+    ).toHaveLength(1);
+    expect(props.downloadBatch).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Download Order of the Dolphin print-ready PDF",
+      }),
+    );
+    expect(props.downloadBatch).toHaveBeenCalledExactlyOnceWith(
+      "batch",
+      undefined,
+      "combined-pdf",
+      ["ood"],
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Download Order of the Dolphin print-ready PDF",
+        }),
+      ).toBeEnabled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
+    ).toBeEnabled();
+    expect(props.act).not.toHaveBeenCalled();
+    expect(props.setConfirmation).not.toHaveBeenCalled();
+  });
 });

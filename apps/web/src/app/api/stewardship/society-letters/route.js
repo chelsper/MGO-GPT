@@ -68,6 +68,7 @@ import {
 import { returnLetterToReview } from "@/app/api/utils/societyLetterRecovery";
 import { mailSelectedLetters } from "@/app/api/utils/societyLetterDispatch";
 import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
+import { printReadyPdfFilename } from "@/utils/societyLetterDownloads";
 
 export const maxDuration = 120;
 const headers = {
@@ -169,9 +170,7 @@ export async function GET(request) {
           headers: {
             ...headers,
             "Content-Type": "application/pdf",
-            "Content-Disposition": selectedIds.length
-              ? 'attachment; filename="society-letters-selected-print-ready.pdf"'
-              : 'attachment; filename="society-letters-print-ready.pdf"',
+            "Content-Disposition": `attachment; filename="${printReadyPdfFilename(items, selectedIds.length > 0)}"`,
           },
         });
       }

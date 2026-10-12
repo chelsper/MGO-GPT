@@ -45,7 +45,9 @@ describe("completed letter subset controls", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("checkbox", { name: /Pat Example/ }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Download selected print-ready PDF" }),
+      screen.getByRole("button", {
+        name: "Download President's Society print-ready PDF",
+      }),
     );
     await waitFor(() =>
       expect(f.downloadBatch).toHaveBeenCalledExactlyOnceWith(
@@ -132,7 +134,9 @@ describe("completed letter subset controls", () => {
     f.batch.items[0].status = "mailed";
     render(<CompletedLetterActions {...f} />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Download selected print-ready PDF" }),
+      screen.getByRole("button", {
+        name: "Download President's Society print-ready PDF",
+      }),
     );
     await waitFor(() =>
       expect(f.downloadBatch).toHaveBeenCalledExactlyOnceWith(
@@ -164,7 +168,7 @@ describe("completed letter subset controls", () => {
     render(<CompletedLetterActions {...f} />);
     expect(
       screen.queryByRole("button", {
-        name: "Download selected print-ready PDF",
+        name: "Download President's Society print-ready PDF",
       }),
     ).not.toBeInTheDocument();
     fireEvent.click(
@@ -190,7 +194,9 @@ describe("completed letter subset controls", () => {
     );
     const { rerender } = render(<CompletedLetterActions {...f} />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Download selected print-ready PDF" }),
+      screen.getByRole("button", {
+        name: "Download President's Society print-ready PDF",
+      }),
     );
     for (const control of [
       ...screen.getAllByRole("button"),
@@ -204,9 +210,57 @@ describe("completed letter subset controls", () => {
       ).toBeEnabled(),
     );
     rerender(<CompletedLetterActions {...f} busy />);
-    for (const control of within(screen.getByRole("region")).getAllByRole(
-      "button",
-    ))
+    for (const control of within(
+      screen.getByRole("region", { name: "Completed letters" }),
+    ).getAllByRole("button"))
       expect(control).toBeDisabled();
+  });
+  it("separates societies within the completed selection without including blocked, cancelled, or deselected letters", async () => {
+    const f = fixture();
+    f.batch.items[0].status = "mailed";
+    f.batch.items[1].societyKey = "ood";
+    f.batch.items[1].societyName = "Order of the Dolphin";
+    f.batch.items.push(
+      completedLetter({ id: "cancelled", status: "cancelled" }),
+    );
+    const before = structuredClone(f.batch);
+    render(<CompletedLetterActions {...f} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Download Order of the Dolphin print-ready PDF",
+      }),
+    );
+    await waitFor(() =>
+      expect(f.downloadBatch).toHaveBeenCalledExactlyOnceWith(
+        f.batch.id,
+        undefined,
+        "combined-pdf",
+        ["second"],
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("checkbox", { name: /Pat Example/ }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /Pat Example/ }));
+    expect(
+      screen.queryByRole("button", { name: /Download Order of the Dolphin/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Download President's Society print-ready PDF",
+      }),
+    );
+    await waitFor(() =>
+      expect(f.downloadBatch).toHaveBeenLastCalledWith(
+        f.batch.id,
+        undefined,
+        "combined-pdf",
+        [f.batch.items[0].id],
+      ),
+    );
+    expect(f.setConfirmation).not.toHaveBeenCalled();
+    expect(f.batch).toEqual(before);
   });
 });
