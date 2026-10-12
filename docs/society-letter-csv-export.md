@@ -83,6 +83,8 @@ Local verification on October 12: 6,542 tests passed, including all 30 isolated 
 
 ## Developer Notes
 
+The separate-address preview and exception-focused bulk review were deployed to JU on October 12 as `cef4059db7aff1a47632225b48696a2b4fd2ed5c`. See [exception review release notes](society-letter-exception-review.md#ju-deployment-october-12) for deployment, rollback, verification and version-pin details. Existing CSV column generation and document/appeal boundaries are unchanged.
+
 `POST /api/stewardship/society-letters` accepts `action: export_merge_csv` in the read-only branch before workflow lease acquisition. The existing staff authorization, same-origin checks, body-size limit, private/no-store headers, and nosniff response handling apply.
 
 The request contains the displayed workspace revision, period key, society key, ISO letter date, and full eligible household ID set. The server reloads the saved workspace and recomputes eligibility. Stale revisions, changed periods or eligible sets, duplicate IDs, and excess source capacity fail without producing a partial CSV. The operation does not acquire a workflow lease or write application state.
