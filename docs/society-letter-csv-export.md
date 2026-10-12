@@ -20,7 +20,7 @@ CSV values preserve quotes, commas, Unicode, line breaks, and leading-zero ZIP c
 - Existing PDF/Word approval, appeal reconciliation, and downloads are unchanged. Their existing limits still apply.
 - A tracked CSV is an additional opt-in workflow. The original read-only export retains its no-write behavior.
 
-## Tracked CSV Workflow (Implemented, Not Yet Deployed)
+## Tracked CSV Workflow
 
 1. Choose **Save tracked CSV & download**. This saves the exact CSV, its digest, recipient manifest, society, template version, and letter date. It does not reserve recipients or change NXT.
 2. Merge in Word and check the results. In **Saved CSV exports** (available in Letter workspace and Letter history), open that export and select only the households whose letters were actually created. Selection is limited to 50 at a time for safe appeal processing; the CSV itself still exports all eligible households, up to 5,000.
@@ -41,7 +41,7 @@ Before any NXT submission attempt, a CSV letter can return to review. Its old tr
 - Document download and completion validators remain separate: a CSV receipt is not proof of an app-generated PDF. Existing PDF/Word documents continue to require their saved bytes and original approval safeguards.
 - Local tests cover real workspace export/confirmation, stale values and membership, exact selection, lost-response retries, both household appeals, role/CSRF boundaries, no document fallback, UI confirmation/pagination/stop behavior, and isolated PGlite storage/mailing/correction races. No live donor changes are made by these tests.
 
-Local verification on October 12: 6,542 tests passed, including all 30 isolated PGlite letter-store tests and the full screen-level tracked export/creation/appeal/mailing sequence. The existing 193 opt-in tests remain skipped; no live-service tests were enabled. Typecheck, production build, and whitespace checks passed. Evidence is in `/tmp/ju-tracked-csv-tests.log`, `/tmp/ju-tracked-csv-typecheck.log`, and `/tmp/ju-tracked-csv-build.log`. This change has not been deployed, and no live appeals, letters, or mailing statuses were changed.
+Local verification on October 12: 6,542 tests passed, including all 30 isolated PGlite letter-store tests and the full screen-level tracked export/creation/appeal/mailing sequence. The existing 193 opt-in tests remain skipped; no live-service tests were enabled. Typecheck, production build, and whitespace checks passed. Evidence is in `/tmp/ju-tracked-csv-tests.log`, `/tmp/ju-tracked-csv-typecheck.log`, and `/tmp/ju-tracked-csv-build.log`. Deployment verification is recorded below; no live appeals, letters, or mailing statuses were changed during verification.
 
 ## Developer Notes
 
@@ -69,3 +69,17 @@ Tests cover 5,000-household exports, saved-value/rendering parity, joint and org
 - This release requires no schema migration, new environment variables, or converter deployment. CSV export is read-only; external merge-completion tracking and appeal confirmation remain future work.
 
 Release evidence uses the `/tmp/ju-letter-csv-deploy-` prefix: `tests.log`, `typecheck.log`, `release.json`, `dry.json`, `candidate.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, `production-verification.log`, and the before/after project snapshots. The strict comparison exception is retained in `after.log` rather than overwritten as a pass.
+
+## October 12 JU Tracked CSV Release
+
+- Application SHA: `179eb5e23e2be6b6978a5cdf53f4cb0293557f0b`.
+- JU deployment: `dpl_m5NCNEksqyYvWcEYfD1fYEZJJ5cn`, candidate `https://mgo-5my0qbip4-chelspers-projects.vercel.app`, live `https://www.jumgogpt.app`.
+- Rollback: `dpl_BNZNaFcH8jMgGPDBWrDMMzqapiJT`, application SHA `563d2c393af28ce33a555360064f8b8e64d7cbed`. The additive CSV-run table can remain if application rollback is needed; do not delete saved exports or receipts.
+- Fresh release checks passed: 6,542 tests, including 30 isolated PGlite storage tests; 193 opt-in tests skipped. Typecheck, release-worktree guard, whitespace check, hosted production build, and production identity/assets verifier passed. Existing dependency deprecation, install-script policy, and optional `canvas` warnings remained non-blocking.
+- The isolated archive matched all 1,248 tracked web files. Dry upload verified all 25 intended release files among 1,379 uploaded files, without real environment files. No Git push was used and unrelated working-tree changes were excluded.
+- Candidate and live checks verified the exact release identity, eight page shells, published assets with old and new letter controls, unauthorized GET/POST rejection, cross-site rejection for all three new mutations, and synthetic old-version recovery. These checks made no authenticated writes.
+- An authenticated, read-only browser check loaded the saved production workspace successfully with the new schema-backed state. Selecting Order of the Dolphin enabled **Save tracked CSV & download** for the eligible reviewed recipient. No export was created or downloaded and no recipient data, appeals, or mailing statuses were changed. Saved CSV confirmation and dispatch were exercised with fictional data in automated tests, not live donors.
+- The strict before/after project comparison passed: only JU's production identity changed. Sandbox remained `dpl_2L2K7Y8vFuJPw87orsVjdjCoVii8`; other projects, Git connections, project settings, cron schedules, and PDF settings were unchanged.
+- The existing schema initializer adds `stewardship_letter_csv_runs`. No destructive migration, new environment variables, additional NXT permissions, or converter deployment was needed.
+
+Tracked-release evidence uses the `/tmp/ju-tracked-csv-deploy-` prefix: `tests.log`, `typecheck.log`, `release.json`, `dry.json`, `candidate.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, `production-verification.log`, `after.log`, and the before/after project snapshots.
