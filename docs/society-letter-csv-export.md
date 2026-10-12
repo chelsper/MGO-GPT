@@ -86,7 +86,7 @@ Tracked-release evidence uses the `/tmp/ju-tracked-csv-deploy-` prefix: `tests.l
 
 ## October 12 CSV Workflow Audit
 
-The following usability fixes are local and not yet deployed. The deployed version remains `179eb5e23e2be6b6978a5cdf53f4cb0293557f0b`.
+The following usability fixes were deployed to JU as `a7313f8e0adbd18684e08fb758f569504d3e133a`. Release evidence and remaining verification limits are recorded below.
 
 ### Step By Step
 
@@ -109,4 +109,18 @@ The following usability fixes are local and not yet deployed. The deployed versi
 - Live, read-only downloads passed for both societies: one OOD row and three President's Society rows were eligible at audit time. CSV parsing found no errors; rows were unique by household, all required name/date/address values were populated, the full address retained the city/state comma, and both single-record and joint households were represented. No tracked export, letter reservation, appeal assignment, or mailing change was created during live checking.
 - New tests use the actual CSV reservation, finalization/reconciliation, and selected-dispatch validation functions with a simulated NXT transport. They cover both spouses, compact appeal comments, duplicate prevention, lost write responses both with and without a saved NXT assignment, throttling, a conflicting prior appeal, and independent completion of another household. UI tests cover failed downloads, lost save responses, stale exports, early blockers, and read-only refresh.
 - Full local verification: 6,554 tests passed, including all 30 isolated PGlite letter-store tests; 193 existing opt-in tests remained skipped. Typecheck, production build, and whitespace checks passed. Logs: `/tmp/ju-csv-audit-tests.log`, `/tmp/ju-csv-audit-typecheck.log`, `/tmp/ju-csv-audit-build.log`; reproduced failures before fixes: `/tmp/ju-csv-audit-repro.log`.
-- A native Word merge/print was not executed, and live NXT write permissions or end-to-end appeal writes were not exercised on donors. The full saved-template browser download was not verified. These are verification limits, not claims that external Word or NXT can never fail. The recommended next step is to prepare and verify CSV-ready Word copies for both societies, deploy the local usability fixes, then conduct one explicitly authorized tracked pilot before a large mailing.
+- A native Word merge/print was not executed, and live NXT write permissions or end-to-end appeal writes were not exercised on donors. The full saved-template browser download was not verified. These are verification limits, not claims that external Word or NXT can never fail. The recommended next step is to prepare and verify CSV-ready Word copies for both societies, then conduct one explicitly authorized tracked pilot before a large mailing.
+
+## October 12 JU CSV Usability Release
+
+- Application SHA: `a7313f8e0adbd18684e08fb758f569504d3e133a`.
+- JU deployment: `dpl_5RftrEt5MMXBWi4tA14vuQaN4Heb`, candidate `https://mgo-aji3bvecp-chelspers-projects.vercel.app`, live `https://www.jumgogpt.app`.
+- Rollback: `dpl_m5NCNEksqyYvWcEYfD1fYEZJJ5cn`, application SHA `179eb5e23e2be6b6978a5cdf53f4cb0293557f0b`. This release adds no schema or environment changes.
+- Fresh verification passed: 6,554 tests, including all 30 isolated PGlite letter-store tests; 193 existing opt-in tests skipped. Typecheck, local and hosted production builds, release-worktree guard, and whitespace checks passed. Existing dependency deprecation, install-script policy, and optional `canvas` warnings remained non-blocking.
+- The isolated archive matched all 1,248 tracked web files. Dry upload verified all 10 intended changed files among 1,379 uploaded files, without real environment files. No Git push was used; unrelated working-tree changes were excluded.
+- Candidate and live checks verified exact release identity, eight page shells, valid JavaScript assets containing the new saved-status refresh and existing CSV/PDF controls, unauthenticated rejection, cross-site mutation rejection, and synthetic old-version recovery. The repository's production identity/assets verifier also passed.
+- The authenticated browser loaded saved records read-only and offered the new-version banner after promotion. Its safe reload confirmation could not be completed reliably through browser automation; Chrome use interrupted the final check. No browser bypass or credential change was used. A final authenticated view of the new controls remains unverified; the deployed asset markers and automated UI tests passed. Use **Load latest version** before working from an already-open older tab.
+- No live tracked exports, reservations, appeals, sends, or mailing-status changes were made by release verification. Native Word merging and live appeal writes remain outside these checks.
+- The strict project comparison flagged a concurrent CLI deployment on `lotura-ju-pilot`: `dpl_FXyMdrWyFeJHtFWYQHiHzAPfoAEs`, project `prj_DdASIYnIZWIqlayZTgH29A4TRVCJ`. Safe metadata was inspected read-only and that project was left untouched. Only JU and that separate project's production identities differed; all project settings, Git connections, schedules, and PDF settings were unchanged. Sandbox remained `dpl_2L2K7Y8vFuJPw87orsVjdjCoVii8`.
+
+Local test evidence: `/tmp/ju-csv-usability-tests.log`, `/tmp/ju-csv-usability-typecheck.log`, and `/tmp/ju-csv-usability-build.log`. Deployment evidence uses `/tmp/ju-csv-usability-deploy-`: `release.json`, `dry.json`, `candidate.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, `production-verification.log`, and project snapshots. The strict comparison exception remains in `after.log`; independent deployment metadata is in `concurrent-project.log`.
