@@ -33,3 +33,16 @@ Original Word field aliases take precedence. Canonical or metadata column collis
 Formula-like values and disallowed control characters are omitted with an explicit reason. The export never adds hidden apostrophes or silently rewrites approved wording to escape spreadsheet formulas.
 
 Tests cover 5,000-household exports, saved-value/rendering parity, joint and organization addressing, omissions, field aliases/collisions, CSV round trips, stale requests, authorization, UI single-flight behavior, unchanged PDF controls, and real-workspace review expiry. Tests use fictional data only.
+
+## October 12 JU Release
+
+- Application SHA: `563d2c393af28ce33a555360064f8b8e64d7cbed`.
+- JU deployment: `dpl_BNZNaFcH8jMgGPDBWrDMMzqapiJT`, candidate `https://mgo-ic77mu4m3-chelspers-projects.vercel.app`, live `https://www.jumgogpt.app`.
+- Rollback: `dpl_6AdSzTU3PovRpvJog78s9YBsbHVp`, application SHA `78e188f8b7e17915dcd369354d4349cfb8681e0e`.
+- Release verification: 6,483 tests passed, including 26 isolated PGlite database tests; 193 opt-in tests skipped. Typecheck, release-worktree guard, whitespace check, hosted production build, and the repository's production verifier passed. Existing dependency deprecation, install-script policy, and optional `canvas` resolution warnings remained non-blocking.
+- An isolated Git archive matched all 1,241 tracked web files. Dry upload verified all 13 intended release files among 1,372 total files, with no real environment files. No Git push was used and unrelated worktree changes were not packaged.
+- Candidate and live smoke checks confirmed the exact SHA/deployment, eight page shells, referenced JavaScript assets containing both CSV and existing PDF controls, unauthenticated API rejection, CSV cross-site rejection, and synthetic old-version recovery. No authenticated exports, NXT queries/writes, letter approvals, downloads of real letters, sends, or mailing-status changes were performed.
+- The sandbox remained `dpl_2L2K7Y8vFuJPw87orsVjdjCoVii8`. No project settings, Git connections, schedules, or PDF settings changed. The strict all-project identity comparison flagged an independent concurrent CLI deployment on `lotura-ju-pilot`: `dpl_8r5rnPgjXSmrsZKev9LNSX2uUj4X`, commit `ca1282e597e2e0b300997d1bcd78dffe8ffc0682`, project `prj_DdASIYnIZWIqlayZTgH29A4TRVCJ`. It was inspected read-only and left untouched; all remaining non-JU project identities were unchanged.
+- This release requires no schema migration, new environment variables, or converter deployment. CSV export is read-only; external merge-completion tracking and appeal confirmation remain future work.
+
+Release evidence uses the `/tmp/ju-letter-csv-deploy-` prefix: `tests.log`, `typecheck.log`, `release.json`, `dry.json`, `candidate.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, `production-verification.log`, and the before/after project snapshots. The strict comparison exception is retained in `after.log` rather than overwritten as a pass.
