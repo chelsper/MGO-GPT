@@ -13,6 +13,7 @@ import { societyQuerySettings } from "../../../../test/societyQueryFixture";
 import { sourceForSociety } from "./SocietyQueryEditors";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
+import { csvWorkspace } from "../../../../test/societyLetterCsvFixture";
 const household = {
   householdId: "10",
   name: "Sample Household",
@@ -115,6 +116,76 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("downloads every eligible reviewed household as CSV independently of table filters and selections", async () => {
+    const csv = csvWorkspace(60);
+    const payload = {
+      ...base,
+      ...csv,
+      settings: {
+        ...societyQuerySettings(),
+        societyKeys: csv.settings.societyKeys,
+      },
+      rows: csv.rows.map((row) => ({
+        ...row,
+        issues: { post: null, email: null },
+      })),
+    };
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => "blob:csv"),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    fetchMock.mockImplementation(async (url, options) => {
+      if (options?.method === "POST") {
+        expect(JSON.parse(options.body)).toMatchObject({
+          action: "export_merge_csv",
+          revision: 7,
+          householdIds: csv.rows.map((row) => row.householdId),
+        });
+        return new Response("synthetic CSV", {
+          headers: {
+            "Content-Disposition":
+              'attachment; filename="ood-2026-10-12-mail-merge.csv"',
+          },
+        });
+      }
+      return Response.json(payload);
+    });
+    render(<Page />);
+    fireEvent.change(
+      await screen.findByRole("searchbox", { name: "Find a household" }),
+      { target: { value: "no matching rows" } },
+    );
+    fireEvent.change(screen.getByLabelText("Society for CSV"), {
+      target: { value: "ood" },
+    });
+    expect(
+      screen.getByText("60 households ready for CSV; 0 not included."),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Download reviewed households (.csv)",
+      }),
+    );
+    await waitFor(() => expect(anchorClick).toHaveBeenCalledOnce());
+    expect(anchorClick.mock.instances[0].download).toBe(
+      "ood-2026-10-12-mail-merge.csv",
+    );
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Select ready households (up to 10)",
+      }),
+    ).toBeDisabled();
+  });
   const cityBlocker = {
     code: "missing_merge_field",
     action: "recipient",

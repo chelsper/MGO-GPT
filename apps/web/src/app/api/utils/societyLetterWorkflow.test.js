@@ -30,6 +30,9 @@ import {
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
 import { contactChoiceKey } from "@/utils/societyLetterContacts";
+import { societyQuerySettings } from "../../../../test/societyQueryFixture";
+import { exportSocietyLetterCsv } from "./societyLetterCsvExport";
+import Papa from "papaparse";
 
 vi.mock("./constituentQueryList", () => ({ advanceQueryList: vi.fn() }));
 vi.mock("./blackbaud", () => ({ getBlackbaudSavedQueryById: vi.fn() }));
@@ -143,6 +146,56 @@ function draftSetup() {
   };
 }
 describe("society letter workflow", () => {
+  it("exports saved recipient overrides through the real workspace without touching history, and enforces review expiry", async () => {
+    const { state, store, body } = draftSetup();
+    state.settings = societyQuerySettings();
+    state.snapshot.rows[0].sourceMode = "society_queries";
+    state.snapshot.signature = letterSourceSignature(state, definitions);
+    body.reviewToken = letterWorkspace(
+      state,
+      definitions,
+      today,
+    ).rows[0].recipientReview.token;
+    body.confirm = true;
+    await updateLetterRecipient(state, definitions, today, body, store, 7);
+    const workspace = letterWorkspace(state, definitions, today);
+    expect(workspace.setup.membershipCurrent).toBe(true);
+    const request = {
+      revision: workspace.revision,
+      societyKey: "presidents_society",
+      periodKey: workspace.period.key,
+      householdIds: ["10"],
+      letterDate: today,
+    };
+    const before = structuredClone(state);
+    store.save.mockClear();
+    const exported = exportSocietyLetterCsv(workspace, request);
+    const parsed = Papa.parse(exported.csv, { header: true });
+    expect(parsed.data[0]).toMatchObject({
+      addressee: "Alex & Pat Sample",
+      salutation: "Alex and Pat",
+      address: "Updated draft address",
+      app_member_ids: "10|11",
+    });
+    expect(state).toEqual(before);
+    expect(store.save).not.toHaveBeenCalled();
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(store.transition).not.toHaveBeenCalled();
+    const saved = Object.values(state.recipient_reviews)[0];
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse(saved.savedAt) + 16 * 86400000);
+    try {
+      expect(() =>
+        exportSocietyLetterCsv(
+          letterWorkspace(state, definitions, today),
+          request,
+        ),
+      ).toThrow("eligible recipients changed");
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("publishes actual Word requirements for both document readiness and the recipient editor", () => {
     const { state } = draftSetup();
     state.settings.sourceMode = "society_queries";

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { unsubmittedLetter } from "../../../../../test/societyLetterRecoveryFixture";
 import { completedLetter } from "../../../../../test/societyLetterDispatchFixture";
+import {
+  csvRequest,
+  csvWorkspace,
+} from "../../../../../test/societyLetterCsvFixture";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   workspace: vi.fn(),
@@ -162,6 +166,63 @@ beforeEach(() => {
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("exports a fresh read-only CSV without acquiring a write lease, rendering documents, or touching NXT", async () => {
+    const workspace = csvWorkspace(60);
+    mocks.view.mockReturnValue(workspace);
+    const response = await POST(request(csvRequest(workspace)));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(
+      "text/csv; charset=utf-8",
+    );
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="ood-2026-10-12-mail-merge.csv"',
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.text()).toContain('"Example 59"');
+    expect(mocks.read).toHaveBeenCalledOnce();
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+    expect(mocks.printPdf).not.toHaveBeenCalled();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+  it("rejects a stale CSV request without acquiring the workflow", async () => {
+    const workspace = csvWorkspace();
+    mocks.view.mockReturnValue(workspace);
+    const response = await POST(
+      request({ ...csvRequest(workspace), revision: 6 }),
+    );
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("Reload Society Letters");
+    expect(mocks.acquire).not.toHaveBeenCalled();
+  });
+  it.each(["anonymous", "mgo", "inactive", "cross-site"])(
+    "rejects unauthorized CSV access: %s",
+    async (mode) => {
+      const workspace = csvWorkspace();
+      mocks.view.mockReturnValue(workspace);
+      if (mode === "anonymous") mocks.auth.mockResolvedValue(null);
+      if (mode === "mgo" || mode === "inactive")
+        mocks.workspace.mockResolvedValue({
+          sessionUser: {
+            id: 1,
+            active: mode !== "inactive",
+            role: mode === "mgo" ? "mgo" : "admin",
+          },
+        });
+      const response = await POST(
+        request(
+          csvRequest(workspace),
+          mode === "cross-site" ? { Origin: "https://other.example.org" } : {},
+        ),
+      );
+      expect(response.status).toBe(mode === "anonymous" ? 401 : 403);
+      expect(mocks.read).not.toHaveBeenCalled();
+      expect(mocks.acquire).not.toHaveBeenCalled();
+    },
+  );
   it("downloads only explicit completed IDs while the full batch remains blocked", async () => {
     const ready = completedLetter();
     const blocked = { ...unsubmittedLetter(), id: "blocked" };

@@ -69,6 +69,7 @@ import { returnLetterToReview } from "@/app/api/utils/societyLetterRecovery";
 import { mailSelectedLetters } from "@/app/api/utils/societyLetterDispatch";
 import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
 import { printReadyPdfFilename } from "@/utils/societyLetterDownloads";
+import { exportSocietyLetterCsv } from "@/app/api/utils/societyLetterCsvExport";
 
 export const maxDuration = 120;
 const headers = {
@@ -254,6 +255,21 @@ export async function POST(request) {
       return json(await inspectLetterQueryFields(body, ctx));
     if (body?.action === "inspect_appeals")
       return json(await letterAppealChoices(ctx));
+    if (body?.action === "export_merge_csv") {
+      const state = await readSocietyLetterState();
+      const exported = exportSocietyLetterCsv(
+        letterWorkspace(state, ctx.definitions, ctx.today),
+        body,
+      );
+      return new Response(exported.csv, {
+        headers: {
+          ...headers,
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${exported.filename}"`,
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
     if (body?.action === "preview_template_sample") {
       const state = await readSocietyLetterState();
       const template = /^[a-f0-9]{64}$/.test(body.templateVersion || "")

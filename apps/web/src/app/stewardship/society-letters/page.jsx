@@ -47,6 +47,7 @@ import LetterSetupChecklist from "./LetterSetupChecklist";
 import PostalBatchApproval from "./PostalBatchApproval";
 import LetterHistoryFilters from "./LetterHistoryFilters";
 import LetterReleaseNotice from "./LetterReleaseNotice";
+import LetterCsvExport from "./LetterCsvExport";
 import {
   matchesLetterHistory,
   searchLetterHistory,
@@ -506,6 +507,32 @@ export default function SocietyLettersPage() {
     } catch (err) {
       setError(err.message || "Could not load stewardship.");
       return null;
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+  async function exportMergeCsv(body) {
+    if (inFlight.current)
+      throw new Error("Wait for the current operation to finish.");
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error((await response.json()).error);
+      const filename = response.headers
+        .get("Content-Disposition")
+        ?.match(/^attachment; filename="([a-z0-9-]+\.csv)"$/i)?.[1];
+      if (!filename)
+        throw new Error(
+          "The CSV response could not be verified. Reload before trying again.",
+        );
+      saveBlob(await response.blob(), filename);
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -1633,6 +1660,14 @@ export default function SocietyLettersPage() {
                     >
                       {reviewNotice}
                     </p>
+                  )}
+                  {queryPostal && (
+                    <LetterCsvExport
+                      key={data.period?.key}
+                      data={data}
+                      busy={selectionBusy || sourceDirty}
+                      onExport={exportMergeCsv}
+                    />
                   )}
                   {queryPostal && (
                     <section
