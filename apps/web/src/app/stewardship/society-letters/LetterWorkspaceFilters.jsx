@@ -1,4 +1,5 @@
 import { ATTENTION_FILTERS, REVIEW_FILTERS } from "./letterWorkspaceView";
+import { QUESTIONABLE_FILTERS } from "@/utils/societyLetterReviewTriage";
 
 export default function LetterWorkspaceFilters({
   value,
@@ -11,6 +12,18 @@ export default function LetterWorkspaceFilters({
 }) {
   return (
     <div className="mt-5 space-y-3">
+      {value === "questionable" && (
+        <p
+          role="status"
+          className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950"
+        >
+          Only recipients with a possible data issue are shown. Shared addresses
+          are a warning, not a reason to combine households. Hidden recipients
+          are not automatically approved: confirm straightforward suggestions
+          together, or return to All recipients. These are saved-data checks,
+          not address validation or a live NXT check.
+        </p>
+      )}
       <div
         role="group"
         aria-label="Recipient review filters"
@@ -47,13 +60,25 @@ export default function LetterWorkspaceFilters({
             className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal text-gray-900 sm:min-w-64"
           >
             <option value="all">All issues / no issue filter</option>
-            {ATTENTION_FILTERS.filter(([key]) =>
-              channel === "post" ? key !== "email" : key !== "address",
-            ).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label} ({attentionCounts[key] || 0})
-              </option>
-            ))}
+            {(value === "questionable"
+              ? QUESTIONABLE_FILTERS
+              : ATTENTION_FILTERS
+            )
+              .filter(([key]) =>
+                channel === "post"
+                  ? !["email", "email_choices"].includes(key)
+                  : ![
+                      "address",
+                      "address_parts",
+                      "address_choices",
+                      "shared_address",
+                    ].includes(key),
+              )
+              .map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label} ({attentionCounts[key] || 0})
+                </option>
+              ))}
           </select>
         </label>
       </div>

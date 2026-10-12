@@ -32,6 +32,14 @@ import LetterReadinessPanel, {
 } from "./LetterReadinessPanel";
 import LetterWorkspaceFilters from "./LetterWorkspaceFilters";
 import LetterWorkspaceRow from "./LetterWorkspaceRow";
+import RecipientSuggestionsDialog from "./RecipientSuggestionsDialog";
+import {
+  BULK_RECIPIENT_REVIEW_LIMIT,
+  QUESTIONABLE_FILTERS,
+  sharedLetterAddresses,
+  letterReviewExceptions,
+  straightforwardRecipient,
+} from "@/utils/societyLetterReviewTriage";
 import LetterBatchCard from "./LetterBatchCard";
 import LetterBatchSummary from "./LetterBatchSummary";
 import LetterWorkflow from "./LetterWorkflow";
@@ -429,6 +437,7 @@ export default function SocietyLettersPage() {
   const [reviewingRecipient, setReviewingRecipient] = useState(null);
   const [reviewFocus, setReviewFocus] = useState(null);
   const [reviewQueue, setReviewQueue] = useState(null);
+  const [recipientSuggestions, setRecipientSuggestions] = useState(null);
   const [queueStart, setQueueStart] = useState(0);
   const [reviewConflict, setReviewConflict] = useState(false);
   const recovery = useLetterReviewRecovery(reviewScope(data));
@@ -475,6 +484,7 @@ export default function SocietyLettersPage() {
     ) {
       setReviewQueue(null);
       setReviewingRecipient(null);
+      setRecipientSuggestions(null);
       setReviewConflict(false);
       setSelected([]);
       setPreview(null);
@@ -833,6 +843,7 @@ export default function SocietyLettersPage() {
       !!finalPreview ||
       !!excluding ||
       !!reviewingRecipient ||
+      !!recipientSuggestions ||
       !!reviewQueue,
     verify: act,
   });
@@ -851,10 +862,25 @@ export default function SocietyLettersPage() {
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
+  const sharedAddresses = sharedLetterAddresses(ready);
+  const templateFields = new Map(
+    (data?.templates || []).map((template) => [
+      template.societyKey,
+      template.usedFields,
+    ]),
+  );
   const views = new Map(
     matching.map((row) => [
       row.householdId,
-      letterReviewView(row, channel, data?.sourceIssue, queryPostal),
+      {
+        ...letterReviewView(row, channel, data?.sourceIssue, queryPostal),
+        exceptions: letterReviewExceptions(
+          row,
+          channel,
+          sharedAddresses.get(row.householdId),
+          templateFields.get(row.societyKey),
+        ),
+      },
     ]),
   );
   const counts = letterReviewCounts([...views.values()]);
@@ -862,18 +888,43 @@ export default function SocietyLettersPage() {
     matchesLetterReview(views.get(row.householdId), reviewFilter),
   );
   const attentionCounts = Object.fromEntries(
-    ATTENTION_FILTERS.map(([key]) => [
+    (reviewFilter === "questionable"
+      ? QUESTIONABLE_FILTERS
+      : ATTENTION_FILTERS
+    ).map(([key]) => [
       key,
       reviewMatches.filter((row) =>
-        views.get(row.householdId).attention.includes(key),
+        reviewFilter === "questionable"
+          ? views
+              .get(row.householdId)
+              .exceptions.some((issue) => issue.key === key)
+          : views.get(row.householdId).attention.includes(key),
       ).length,
     ]),
   );
   const filtered = reviewMatches.filter(
     (row) =>
       attentionFilter === "all" ||
-      views.get(row.householdId).attention.includes(attentionFilter),
+      (reviewFilter === "questionable"
+        ? views
+            .get(row.householdId)
+            .exceptions.some((issue) => issue.key === attentionFilter)
+        : views.get(row.householdId).attention.includes(attentionFilter)),
   );
+  const suggestions =
+    queryPostal && channel === "post"
+      ? matching
+          .flatMap((row) => {
+            if (recovery.drafts[row.householdId]) return [];
+            const values = straightforwardRecipient(
+              row,
+              sharedAddresses.get(row.householdId),
+              templateFields.get(row.societyKey),
+            );
+            return values ? [{ row, values }] : [];
+          })
+          .slice(0, BULK_RECIPIENT_REVIEW_LIMIT)
+      : [];
   const reviewingUnreviewed =
     reviewFilter === "all" && attentionFilter === "all";
   const reviewedView = reviewFilter === "reviewed";
@@ -1621,6 +1672,41 @@ export default function SocietyLettersPage() {
                     attentionCounts={attentionCounts}
                     channel={channel}
                   />
+                  {queryPostal && channel === "post" && (
+                    <section
+                      aria-label="Quick recipient review"
+                      className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+                    >
+                      <h3 className="font-semibold text-emerald-950">
+                        Review exceptions, confirm the rest together
+                      </h3>
+                      <p className="mt-2 text-sm text-emerald-950">
+                        {suggestions.length} straightforward{" "}
+                        {suggestions.length === 1 ? "recipient" : "recipients"}{" "}
+                        can be confirmed together. Saved reviews and unsaved
+                        individual edits are left alone. This count uses your
+                        search and society, not the issue filter.
+                      </p>
+                      <button
+                        type="button"
+                        className={`${button} mt-3`}
+                        disabled={
+                          selectionBusy ||
+                          sourceDirty ||
+                          !suggestions.length ||
+                          (data.job && data.job.status !== "complete")
+                        }
+                        onClick={() =>
+                          setRecipientSuggestions({
+                            suggestions,
+                            revision: data.revision,
+                          })
+                        }
+                      >
+                        Confirm straightforward recipients
+                      </button>
+                    </section>
+                  )}
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
                     <p role="status">
                       Showing {filtered.length} of {matching.length} matching
@@ -1693,7 +1779,9 @@ export default function SocietyLettersPage() {
                       >
                         {reviewedView
                           ? "Edit reviewed recipients"
-                          : "Review recipients in bulk"}
+                          : reviewFilter === "questionable"
+                            ? "Review questionable recipients"
+                            : "Review recipients in bulk"}
                       </button>
                       <span className="text-sm text-gray-500">
                         {reviewable.length}{" "}
@@ -2103,6 +2191,29 @@ export default function SocietyLettersPage() {
                               key={row.householdId}
                               row={row}
                               view={views.get(row.householdId)}
+                              questionableOnly={reviewFilter === "questionable"}
+                              sharedAddresses={sharedAddresses.get(
+                                row.householdId,
+                              )}
+                              onReviewPeer={(id) => {
+                                const peer = ready.find(
+                                  (item) => item.householdId === id,
+                                );
+                                if (
+                                  !peer?.recipientReview?.editable ||
+                                  selectionBusy
+                                )
+                                  return;
+                                setError("");
+                                setReviewFocus("address");
+                                setReviewConflict(false);
+                                setReviewingRecipient(peer);
+                                recovery.remember({
+                                  ids: [id],
+                                  currentId: id,
+                                  channel,
+                                });
+                              }}
                               channel={channel}
                               definitions={data.definitions}
                               sourceIssue={data.sourceIssue}
@@ -2933,6 +3044,20 @@ export default function SocietyLettersPage() {
                 if (result) {
                   setExcluding(null);
                 }
+              }}
+            />
+          )}
+          {recipientSuggestions && (
+            <RecipientSuggestionsDialog
+              {...recipientSuggestions}
+              busy={busy}
+              onClose={() => setRecipientSuggestions(null)}
+              onSave={async (body) => {
+                await act(body, false, { throwOnError: true });
+                setRecipientSuggestions(null);
+                setReviewNotice(
+                  `${body.recipients.length} recipient ${body.recipients.length === 1 ? "review" : "reviews"} saved. No letters were created, sent, or marked mailed, and no NXT appeals were applied.`,
+                );
               }}
             />
           )}

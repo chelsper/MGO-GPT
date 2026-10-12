@@ -17,6 +17,17 @@ import { letterPeriod } from "@/utils/societyLetters";
 import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
 import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
 import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
+import {
+  triageState,
+  triageRequest,
+  triageDefinitions,
+  triageToday,
+} from "../../../../test/societyLetterTriageStateFixture";
+import { confirmStraightforwardRecipients } from "./societyLetterBulkRecipientReviews";
+import {
+  letterSourceSignature,
+  letterWorkspace,
+} from "./societyLetterWorkflow";
 
 const database = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({
@@ -164,6 +175,61 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     await store.release();
     await expect(store.save({ ...saved, csv_formats: {} })).rejects.toThrow();
     expect((await readSocietyLetterState()).csv_formats).toEqual(csv_formats);
+  });
+  it("persists a bulk recipient confirmation atomically and rejects stale retries without reserving letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const source = {
+      ...(await readSocietyLetterState()),
+      ...triageState(3),
+      revision: 0,
+    };
+    await store.save(source);
+    const configured = await readSocietyLetterState();
+    // Production refreshes are signed against already-persisted JSONB settings.
+    configured.snapshot.signature = letterSourceSignature(
+      configured,
+      triageDefinitions,
+    );
+    await store.save(configured);
+    const state = await readSocietyLetterState(),
+      request = triageRequest(state);
+    await confirmStraightforwardRecipients(
+      state,
+      triageDefinitions,
+      triageToday,
+      request,
+      store,
+      1,
+    );
+    const saved = await readSocietyLetterState();
+    expect(Object.values(saved.recipient_reviews)).toHaveLength(3);
+    expect(
+      Object.values(saved.recipient_reviews).every(
+        (review) => review.values.salutation === "Al" && review.savedBy === 1,
+      ),
+    ).toBe(true);
+    expect(saved.history).toEqual([]);
+    expect(saved.csvRuns).toEqual([]);
+    expect(saved.revision).toBe(request.revision + 1);
+    expect(
+      letterWorkspace(saved, triageDefinitions, triageToday).rows.every(
+        (row) => row.recipientReview.status === "saved",
+      ),
+    ).toBe(true);
+    await expect(
+      confirmStraightforwardRecipients(
+        saved,
+        triageDefinitions,
+        triageToday,
+        request,
+        store,
+        1,
+      ),
+    ).rejects.toThrow("workspace changed");
+    expect((await readSocietyLetterState()).recipient_reviews).toEqual(
+      saved.recipient_reviews,
+    );
+    await store.release();
   });
   async function dispatchFixture() {
     const store = await acquireSocietyLetters(1, 0);

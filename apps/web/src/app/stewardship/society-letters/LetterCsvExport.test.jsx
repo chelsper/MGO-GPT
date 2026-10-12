@@ -10,6 +10,71 @@ import { csvWorkspace } from "../../../../test/societyLetterCsvFixture";
 import LetterCsvExport from "./LetterCsvExport";
 
 describe("mail merge export controls", () => {
+  it("shows separate address columns in mailing order with an optional second line and leading-zero ZIP", () => {
+    render(<LetterCsvExport data={csvWorkspace()} onExport={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Society for CSV"), {
+      target: { value: "ood" },
+    });
+    const fields = within(
+      screen.getByRole("region", { name: "Separate address fields in CSV" }),
+    );
+    expect(fields.getAllByRole("term").map((node) => node.textContent)).toEqual([
+      "Address Line 1address_line_1",
+      "Address Line 2 (optional)address_line_2",
+      "Citycity",
+      "Statestate",
+      "ZIPzip",
+    ]);
+    expect(
+      fields.getAllByRole("definition").map((node) => node.textContent),
+    ).toEqual([
+      "10 Test Street",
+      "Blank (optional)",
+      "Example City",
+      "FL",
+      "00123",
+    ]);
+    expect(
+      fields.queryByText(/Missing separate fields/),
+    ).not.toBeInTheDocument();
+  });
+  it("previews line 2 and the actual collision-safe ZIP column name", () => {
+    const data = csvWorkspace();
+    data.rows[0].addressParts.address_line_2 = "Suite 200";
+    data.templates[0].wordFields.fields.push({
+      name: "Zip",
+      suggestedField: "salutation",
+    });
+    render(<LetterCsvExport data={data} onExport={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Society for CSV"), {
+      target: { value: "ood" },
+    });
+    const fields = within(
+      screen.getByRole("region", { name: "Separate address fields in CSV" }),
+    );
+    expect(fields.getByText("Suite 200")).toBeVisible();
+    expect(fields.getByText("app_zip")).toBeVisible();
+    expect(fields.getByText("00123")).toBeVisible();
+  });
+  it("warns about missing structured fields without guessing from or blocking an existing full address", () => {
+    const data = csvWorkspace();
+    data.rows[0].addressParts = null;
+    render(<LetterCsvExport data={data} onExport={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Society for CSV"), {
+      target: { value: "ood" },
+    });
+    const fields = within(
+      screen.getByRole("region", { name: "Separate address fields in CSV" }),
+    );
+    expect(fields.getByRole("status")).toHaveTextContent(
+      "Missing separate fields: Address Line 1, City, State, ZIP.",
+    );
+    expect(fields.getAllByText("Not available")).toHaveLength(4);
+    expect(fields.queryByText("Example City")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Download reviewed households (.csv)" }),
+    ).toBeEnabled();
+  });
   it("previews date and name options and saves per-society defaults without exporting", async () => {
     const data = csvWorkspace(),
       onSaveFormat = vi.fn().mockResolvedValue({}),

@@ -111,6 +111,7 @@ describe("saved-data letter workspace facets", () => {
     );
     expect(letterReviewCounts(views)).toEqual({
       all: 3,
+      questionable: 0,
       needs_review: 1,
       reviewed: 2,
       attention: 1,

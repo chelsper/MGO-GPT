@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   release: vi.fn(),
   exclusion: vi.fn(),
   recipient: vi.fn(),
+  recipientSuggestions: vi.fn(),
   inspect: vi.fn(),
   appealChoices: vi.fn(),
   readiness: vi.fn(),
@@ -53,6 +54,9 @@ const mocks = vi.hoisted(() => ({
   postalContinue: vi.fn(),
   postalDocument: vi.fn(),
   printPdf: vi.fn(),
+}));
+vi.mock("@/app/api/utils/societyLetterBulkRecipientReviews", () => ({
+  confirmStraightforwardRecipients: mocks.recipientSuggestions,
 }));
 vi.mock("@/app/api/utils/societyLetterPrintPdf", () => ({
   postalBatchPrintPdf: mocks.printPdf,
@@ -174,6 +178,53 @@ beforeEach(() => {
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("saves explicitly confirmed suggestions under a lease without delivery actions", async () => {
+    const body = {
+      action: "confirm_recipient_suggestions",
+      revision: 3,
+      suggestionsRevision: 3,
+      confirm: true,
+      recipients: [{ householdId: "10", reviewToken: "token" }],
+    };
+    const response = await POST(request(body));
+    expect(response.status).toBe(200);
+    expect(mocks.acquire).toHaveBeenCalledWith(1, 3);
+    expect(mocks.recipientSuggestions).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 3 }),
+      [],
+      expect.any(String),
+      body,
+      expect.any(Object),
+      1,
+    );
+    expect(mocks.release).toHaveBeenCalledOnce();
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+    expect(mocks.mailSelected).not.toHaveBeenCalled();
+  });
+  it.each(["anonymous", "mgo", "inactive"])(
+    "rejects unauthorized bulk review: %s",
+    async (mode) => {
+      if (mode === "anonymous") mocks.auth.mockResolvedValue(null);
+      else
+        mocks.workspace.mockResolvedValue({
+          sessionUser: {
+            id: 1,
+            role: mode === "mgo" ? "mgo" : "admin",
+            active: mode !== "inactive",
+          },
+        });
+      expect(
+        (
+          await POST(
+            request({ action: "confirm_recipient_suggestions", revision: 3 }),
+          )
+        ).status,
+      ).toBe(mode === "anonymous" ? 401 : 403);
+      expect(mocks.recipientSuggestions).not.toHaveBeenCalled();
+      expect(mocks.acquire).not.toHaveBeenCalled();
+    },
+  );
   it("saves validated CSV defaults under the workspace lease without NXT or document mutations", async () => {
     mocks.read.mockResolvedValue({
       revision: 3,
@@ -272,6 +323,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
     "save_csv_format",
     "confirm_csv_letters",
     "mail_selected_csv_letters",
+    "confirm_recipient_suggestions",
   ])("rejects automatic and cross-site CSV mutations: %s", async (action) => {
     expect(
       (

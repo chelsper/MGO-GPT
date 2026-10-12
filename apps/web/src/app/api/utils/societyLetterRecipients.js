@@ -234,27 +234,44 @@ export async function saveLetterRecipientReview(
   store,
   userId,
 ) {
-  const values = validateLetterRecipientChoices(
+  return saveLetterRecipientReviews(
     state,
-    row,
+    [{ row, body }],
     sourceSignature,
-    body,
+    store,
+    userId,
   );
-  if (body.confirm !== true)
-    throw letterError(
-      "Confirm that you reviewed the letter recipient and wording.",
+}
+
+export async function saveLetterRecipientReviews(
+  state,
+  selections,
+  sourceSignature,
+  store,
+  userId,
+) {
+  const reviews = { ...(state.recipient_reviews || {}) };
+  const savedAt = new Date().toISOString();
+  for (const { row, body } of selections) {
+    const values = validateLetterRecipientChoices(
+      state,
+      row,
+      sourceSignature,
+      body,
     );
-  const reviews = {
-    ...(state.recipient_reviews || {}),
-    [reviewKey(row)]: {
+    if (body.confirm !== true)
+      throw letterError(
+        "Confirm that you reviewed the letter recipient and wording.",
+      );
+    reviews[reviewKey(row)] = {
       period: { ...row.period },
       members: membersFor(row),
       token: body.reviewToken,
       values,
       savedBy: userId,
-      savedAt: new Date().toISOString(),
-    },
-  };
+      savedAt,
+    };
+  }
   if (
     Object.keys(reviews).length > 10000 ||
     Buffer.byteLength(JSON.stringify(reviews), "utf8") > 8 * 1024 * 1024

@@ -3,6 +3,7 @@ import { LETTER_ADDRESS_TAGS, LETTER_NAME_TAGS } from "@/utils/societyLetters";
 
 export const REVIEW_FILTERS = [
   ["all", "All recipients"],
+  ["questionable", "Questionable only"],
   ["needs_review", "Needs review"],
   ["reviewed", "Reviewed"],
   ["attention", "Needs attention"],
@@ -95,6 +96,7 @@ export function letterReviewView(
 }
 
 export function matchesLetterReview(view, filter) {
+  if (filter === "questionable") return (view.exceptions?.length || 0) > 0;
   if (filter === "needs_review") return view.needsReview;
   if (filter === "reviewed") return view.reviewed;
   if (filter === "attention") return view.attention.length > 0;

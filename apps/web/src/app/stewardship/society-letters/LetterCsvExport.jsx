@@ -253,8 +253,11 @@ export default function LetterCsvExport({
           </li>
           <li>
             Preview results and use Finish &amp; Merge to create one document
-            for this society. Use the full address field to preserve a manually
-            edited address block.
+            for this society. For separate address fields, insert Address Line 1,
+            Address Line 2, then City, State and ZIP using the column names shown
+            in the CSV preview. Add the comma between City and State in Word;
+            leave Address Line 2 blank when it is not applicable. The combined
+            address field remains available for a manually edited address block.
           </li>
         </ol>
         <p className="mt-2">

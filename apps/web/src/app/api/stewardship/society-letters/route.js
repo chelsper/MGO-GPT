@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { confirmStraightforwardRecipients } from "@/app/api/utils/societyLetterBulkRecipientReviews";
 import { finishSelectedLetterAppeals } from "@/app/api/utils/societyLetterBulkAppeals";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
@@ -404,6 +405,7 @@ export async function POST(request) {
       "exclude_recipient",
       "restore_recipient",
       "save_recipient",
+      "confirm_recipient_suggestions",
       "readiness_settings",
       "check_readiness",
       "resume_readiness",
@@ -680,6 +682,16 @@ export async function POST(request) {
         break;
       case "save_recipient":
         await updateLetterRecipient(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx.user.id,
+        );
+        break;
+      case "confirm_recipient_suggestions":
+        await confirmStraightforwardRecipients(
           state,
           ctx.definitions,
           ctx.today,

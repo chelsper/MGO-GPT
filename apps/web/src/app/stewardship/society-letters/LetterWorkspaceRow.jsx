@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { ATTENTION_FILTERS } from "./letterWorkspaceView";
 import { readinessLabels } from "./LetterReadinessPanel";
+import {
+  QUESTIONABLE_FILTERS,
+  sharedAddressPeers,
+} from "@/utils/societyLetterReviewTriage";
 
 const button =
   "min-h-11 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:border-emerald-600 disabled:cursor-not-allowed disabled:opacity-50";
@@ -12,10 +16,24 @@ const issueActions = {
   greeting: "Review greeting",
   contacts: "Choose letter contact",
 };
+const exceptionActions = {
+  organization_contact: "Choose contact or organization wording",
+  contact_choices: "Choose letter contact",
+  name_details: "Review names and greeting",
+  address_parts: "Review separate address fields",
+  address_choices: "Review mailing address",
+  shared_address: "Review mailing address",
+  email_choices: "Choose email",
+  review_changed: "Review saved choices",
+  recipient_choice: "Choose recipient",
+};
 
 export default function LetterWorkspaceRow({
   row,
   view,
+  questionableOnly = false,
+  sharedAddresses,
+  onReviewPeer,
   channel,
   definitions,
   checked,
@@ -35,6 +53,10 @@ export default function LetterWorkspaceRow({
   onRepair,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showAddressPeers, setShowAddressPeers] = useState(false);
+  const peers = showAddressPeers
+    ? sharedAddressPeers(sharedAddresses, row.householdId)
+    : [];
   const readiness = row.readiness?.[channel];
   const automatic = automaticPostalChecks && channel === "post";
   const issueLabels = ATTENTION_FILTERS.filter(([key]) =>
@@ -104,7 +126,64 @@ export default function LetterWorkspaceRow({
               Recipient choices saved
             </p>
           )}
-          {issueLabels.length > 0 && (
+          {questionableOnly && view.exceptions?.length > 0 && (
+            <ul className="mt-3 max-w-sm space-y-3 text-xs text-amber-900">
+              {view.exceptions.map((issue) => (
+                <li key={issue.key}>
+                  <p className="font-semibold">
+                    {
+                      QUESTIONABLE_FILTERS.find(
+                        ([key]) => key === issue.key,
+                      )?.[1]
+                    }
+                  </p>
+                  <p className="mt-1">{issue.detail}</p>
+                  {issue.focus && row.recipientCandidates && (
+                    <button
+                      type="button"
+                      className="min-h-11 font-semibold text-emerald-800 underline"
+                      disabled={reviewDisabled}
+                      onClick={() => onReview(issue.focus)}
+                      aria-label={`${exceptionActions[issue.key]} for ${row.name}`}
+                    >
+                      {exceptionActions[issue.key]}
+                    </button>
+                  )}
+                  {issue.key === "shared_address" && (
+                    <details
+                      onToggle={(event) =>
+                        setShowAddressPeers(event.currentTarget.open)
+                      }
+                    >
+                      <summary className="min-h-11 cursor-pointer py-3 font-semibold text-emerald-800">
+                        See matching recipients
+                      </summary>
+                      {peers.slice(0, 20).map((peer) => (
+                        <p key={peer.householdId} className="mt-1">
+                          <button
+                            type="button"
+                            className="min-h-11 text-left font-semibold text-emerald-800 underline"
+                            disabled={reviewDisabled}
+                            onClick={() => onReviewPeer?.(peer.householdId)}
+                          >
+                            {peer.name}
+                          </button>{" "}
+                          ({peer.societyName}; household {peer.householdId})
+                        </p>
+                      ))}
+                      {peers.length > 20 && (
+                        <p>
+                          {peers.length - 20} more matches. Use the
+                          shared-address issue filter to see the full list.
+                        </p>
+                      )}
+                    </details>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!questionableOnly && issueLabels.length > 0 && (
             <ul className="mt-2 space-y-1 text-xs text-amber-900">
               {issueLabels.map(([key, label]) => (
                 <li key={key}>
@@ -146,7 +225,15 @@ export default function LetterWorkspaceRow({
                   : "Review recipient"}
               </span>
               {row.documentReadiness?.blockers
-                ?.filter((item) => item.code !== "recipient_review_required")
+                ?.filter(
+                  (item) =>
+                    item.code !== "recipient_review_required" &&
+                    !(
+                      questionableOnly &&
+                      !view.reviewed &&
+                      item.code === "missing_merge_field"
+                    ),
+                )
                 .map((item, index) => (
                   <p
                     key={`${item.code}-${item.field || index}`}

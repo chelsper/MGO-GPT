@@ -2,6 +2,13 @@ import { CSV_NAME_FORMATS } from "@/utils/societyLetterCsvFormat";
 
 const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal";
+const addressFields = [
+  ["address_line_1", "Address Line 1"],
+  ["address_line_2", "Address Line 2 (optional)"],
+  ["city", "City"],
+  ["state", "State"],
+  ["zip", "ZIP"],
+];
 
 export default function LetterCsvFormat({
   format,
@@ -42,6 +49,19 @@ export default function LetterCsvFormat({
     Object.fromEntries(
       plan.columns.map((column, index) => [column.source, entry.cells[index]]),
     );
+  const addressColumns = addressFields.map(([source, label]) => ({
+    source,
+    label,
+    name: (
+      plan.columns.find(
+        (column) =>
+          column.source === source && column.name.toLowerCase() === source,
+      ) || plan.columns.find((column) => column.source === source)
+    )?.name,
+  }));
+  const missingAddress = addressColumns
+    .filter(({ source }) => source !== "address_line_2" && !values?.[source])
+    .map(({ label }) => label);
   return (
     <div className="my-4 border-t border-emerald-200 pt-4">
       <h4 className="font-semibold">CSV wording and date format</h4>
@@ -127,6 +147,47 @@ export default function LetterCsvFormat({
             field to include the organization line. Review the merged Word
             document before printing.
           </p>
+          <section
+            aria-label="Separate address fields in CSV"
+            className="mt-4 border-t border-emerald-100 pt-4 text-sm"
+          >
+            <h5 className="font-semibold">Separate address fields in your CSV</h5>
+            <p className="mt-2 text-gray-600">
+              Use these column names as individual Word merge fields instead of
+              the combined address field. Address Line 2 stays blank when it is
+              not needed. Put a comma between the City and State fields in Word.
+            </p>
+            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+              {addressColumns.map(({ source, label, name }) => (
+                <div key={source} className="min-w-0">
+                  <dt className="font-semibold">
+                    {label}
+                    <code className="block break-all text-xs font-normal text-gray-600">
+                      {name}
+                    </code>
+                  </dt>
+                  <dd className="mt-1 whitespace-pre-line break-words">
+                    {values[source] ||
+                      (source === "address_line_2"
+                        ? "Blank (optional)"
+                        : "Not available")}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {missingAddress.length > 0 && (
+              <p role="status" className="mt-3 text-amber-900">
+                Missing separate fields: {missingAddress.join(", ")}. Open this
+                recipient's review and complete Separate address merge fields
+                before merging these columns. A manually edited full address
+                is not split automatically.
+              </p>
+            )}
+            <p className="mt-3 text-xs text-gray-600">
+              Street columns do not include the organization name. If opening
+              the CSV in Excel first, import ZIP as text to keep leading zeros.
+            </p>
+          </section>
         </section>
       )}
     </div>

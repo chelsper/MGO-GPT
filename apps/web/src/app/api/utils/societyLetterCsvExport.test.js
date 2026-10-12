@@ -7,6 +7,74 @@ import {
 import { exportSocietyLetterCsv } from "./societyLetterCsvExport";
 
 describe("read-only society CSV serialization", () => {
+  it.each([undefined, { salutation: "household_preferred" }])(
+    "includes separate address columns even when the saved template only uses a full address: %j",
+    (csvFormat) => {
+      const workspace = csvWorkspace(2);
+      workspace.rows[0].addressParts.address_line_2 = "Suite 200";
+      const result = exportSocietyLetterCsv(workspace, {
+        ...csvRequest(workspace),
+        csvFormat,
+      });
+      const parsed = Papa.parse(result.csv, { header: true });
+      expect(parsed.errors).toEqual([]);
+      const fields = [
+        "address_line_1",
+        "address_line_2",
+        "city",
+        "state",
+        "zip",
+      ];
+      expect(
+        parsed.meta.fields.filter((field) => fields.includes(field)),
+      ).toEqual(fields);
+      expect(parsed.data[0]).toMatchObject({
+        address_line_1: "10 Test Street",
+        address_line_2: "Suite 200",
+        city: "Example City",
+        state: "FL",
+        zip: "00123",
+      });
+      expect(parsed.data[1].address_line_2).toBe("");
+    },
+  );
+  it("uses only the selected household member's matching address components", () => {
+    const workspace = csvWorkspace();
+    const row = workspace.rows[0];
+    Object.assign(row, {
+      members: ["1000", "2000"],
+      addressConstituentId: "2000",
+      addressParts: undefined,
+      address: "20 Test Lane\nUnit 5\nOther City, MA 02108-1234",
+      recipientCandidates: [
+        {
+          constituentId: "1000",
+          address: row.address,
+          addressParts: row.addressParts,
+        },
+        {
+          constituentId: "2000",
+          address: "20 Test Lane\nUnit 5\nOther City, MA 02108-1234",
+          addressParts: {
+            address_line_1: "20 Test Lane",
+            address_line_2: "Unit 5",
+            city: "Other City",
+            state: "MA",
+            zip: "02108-1234",
+          },
+        },
+      ],
+    });
+    const result = exportSocietyLetterCsv(workspace, csvRequest(workspace));
+    expect(Papa.parse(result.csv, { header: true }).data[0]).toMatchObject({
+      address_line_1: "20 Test Lane",
+      address_line_2: "Unit 5",
+      city: "Other City",
+      state: "MA",
+      zip: "02108-1234",
+      app_member_ids: "1000|2000",
+    });
+  });
   it("round trips Unicode, commas, quotes, newlines, ZIPs and long IDs exactly", () => {
     const workspace = csvWorkspace(70);
     Object.assign(workspace.rows[0], {

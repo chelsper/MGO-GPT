@@ -15,6 +15,8 @@ import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture
 import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
 import { csvWorkspace } from "../../../../test/societyLetterCsvFixture";
 import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
+import { triageRow } from "../../../../test/societyLetterTriageFixture";
+import { straightforwardRecipient } from "@/utils/societyLetterReviewTriage";
 const household = {
   householdId: "10",
   name: "Sample Household",
@@ -117,6 +119,150 @@ async function setupTab(name) {
   return screen.findByRole("button", { name, exact: true });
 }
 describe("society letter workspace", () => {
+  it("reviews exceptions only, including a shared address hidden by the society filter, without saving or checking NXT", async () => {
+    const clean = triageRow("10"),
+      organization = triageRow("20"),
+      shared = triageRow("30"),
+      peer = triageRow("40");
+    organization.recipientCandidates[0].organizationContacts = {
+      keyIndicator: "organization",
+      contacts: [],
+    };
+    peer.societyKey = "order_of_the_dolphin";
+    peer.societyName = "Order of the Dolphin";
+    peer.recipientCandidates[0] = {
+      ...shared.recipientCandidates[0],
+      constituentId: "40",
+    };
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        settings: societyQuerySettings(),
+        rows: [clean, organization, shared, peer],
+        definitions: [
+          ...base.definitions,
+          { key: "order_of_the_dolphin", name: "Order of the Dolphin" },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Questionable only 3" }),
+    );
+    expect(
+      screen.queryByLabelText(`Select ${clean.name}`),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText(`Select ${organization.name}`)).toBeVisible();
+    expect(
+      screen.getByText(
+        /No Main contact or Society letter contact was returned/,
+      ),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Society letter"), {
+      target: { value: "presidents_society" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Questionable only 2" }),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Focus on an issue"), {
+      target: { value: "shared_address" },
+    });
+    expect(
+      screen.getByText("Showing 1 of 3 matching recipients"),
+    ).toBeVisible();
+    const details = screen
+      .getByText("See matching recipients")
+      .closest("details");
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    fireEvent.click(await screen.findByRole("button", { name: peer.name }));
+    expect(screen.getByLabelText("Mailing address")).toHaveValue(
+      peer.recipientCandidates[0].address,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("confirms only selected straightforward suggestions with one explicit save, preserving questionable and reviewed records", async () => {
+    const rows = [
+      triageRow("10"),
+      triageRow("20"),
+      triageRow("30"),
+      triageRow("40"),
+    ];
+    rows[2].recipientCandidates[0].addressParts.zip = "";
+    rows[3].recipientReview.status = "saved";
+    let payload = { ...base, settings: societyQuerySettings(), rows };
+    fetchMock.mockImplementation(async (_url, options) => {
+      const body = options?.body && JSON.parse(options.body);
+      if (body) {
+        expect(body.action).toBe("confirm_recipient_suggestions");
+        payload = {
+          ...payload,
+          revision: 2,
+          rows: rows.map((row) =>
+            body.recipients.some((item) => item.householdId === row.householdId)
+              ? {
+                  ...row,
+                  ...straightforwardRecipient(row),
+                  recipientReview: {
+                    ...row.recipientReview,
+                    status: "saved",
+                    values: straightforwardRecipient(row),
+                  },
+                  documentReadiness: { status: "ready", blockers: [] },
+                }
+              : row,
+          ),
+        };
+      }
+      return Response.json(payload);
+    });
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Confirm straightforward recipients",
+      }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", {
+        name: "Confirm straightforward recipients",
+      }),
+    );
+    expect(
+      dialog.getByRole("table", { name: "Suggested recipient wording" }),
+    ).toBeVisible();
+    expect(dialog.getAllByText("Al Example")).toHaveLength(2);
+    expect(
+      dialog.queryByLabelText(`Confirm ${rows[2].name}`),
+    ).not.toBeInTheDocument();
+    expect(
+      dialog.queryByLabelText(`Confirm ${rows[3].name}`),
+    ).not.toBeInTheDocument();
+    expect(
+      dialog.getByRole("button", { name: "Save 2 recipient reviews" }),
+    ).toBeDisabled();
+    fireEvent.click(dialog.getByLabelText(`Confirm ${rows[1].name}`));
+    fireEvent.click(
+      dialog.getByLabelText(/I accept the suggested names and addresses/),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Save 1 recipient review" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      action: "confirm_recipient_suggestions",
+      confirm: true,
+      revision: 1,
+      suggestionsRevision: 1,
+      recipients: [{ householdId: "10", reviewToken: "token-10" }],
+    });
+    expect(
+      screen.getByText(/1 recipient review saved. No letters were created/),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
   it.each(["stale", "download_failed", "lost_save_response"])(
     "keeps tracked CSV recovery actionable after %s without a second export",
     async (mode) => {
