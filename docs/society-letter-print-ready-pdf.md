@@ -1,6 +1,6 @@
 # Society letter print ready PDF
 
-Base combined-PDF feature deployed and verified on JU production on October 8, 2026. Sandbox unchanged. The October 12 society-specific download improvement below is implemented locally, not yet deployed.
+Base combined-PDF feature deployed and verified on JU production on October 8, 2026. The October 12 society-specific download improvement below is also deployed and verified on JU. Sandbox unchanged.
 
 ## Society-specific downloads (October 12)
 
@@ -55,3 +55,19 @@ Local evidence: `/tmp/ju-print-pdf-full-tests.log`, `/tmp/ju-print-pdf-typecheck
 - Rollback target: previous JU deployment `dpl_HBzGwMMtSE2TAUEnRqCNxo5HcxRf`, application SHA `899afcb72627967e282c5e640258e0704abf1a80`. This release contains no schema or data migration.
 
 Release evidence: `/tmp/ju-print-pdf-release-tests.log`, `/tmp/ju-print-pdf-release-typecheck.log`, `/tmp/ju-print-pdf-release-build.log`, `/tmp/ju-print-pdf-release.json`, `/tmp/ju-print-pdf-dry.json`, `/tmp/ju-print-pdf-deploy.log`, `/tmp/ju-print-pdf-candidate-smoke.log`, `/tmp/ju-print-pdf-promote.log`, `/tmp/ju-print-pdf-live-smoke.log`, and `/tmp/ju-print-pdf-projects-after-check.log`.
+
+## October 12 society download release
+
+- Application SHA: `78e188f8b7e17915dcd369354d4349cfb8681e0e`.
+- JU deployment: `dpl_6AdSzTU3PovRpvJog78s9YBsbHVp`, candidate `https://mgo-qepc0o0s2-chelspers-projects.vercel.app`, live `https://www.jumgogpt.app`.
+- Rollback deployment: `dpl_4qpdAkg9NRGULz2LKJZrHMWZTocc`, application SHA `03bb6c70353dd2dbe006a0ebb1e008b3e3f54add`.
+- Release tests: 6,443 passed, including 26 isolated PGlite database checks; 193 opt-in tests skipped. Typecheck, release-worktree check, whitespace check, and hosted production build passed. Existing dependency/install-script warnings did not prevent the build.
+- Packaged an isolated Git archive and compared all 1,234 tracked web files against the tested checkout. Dry upload included all changed application files, 1,364 total files, and no real environment files. No Git push or unrelated dirty files were included.
+- Candidate and live smoke checks verified exact release identity, page shells, JavaScript assets containing the society-download controls, and unauthenticated API rejection. Explicit-header JSON recovery with a synthetic previous-release cookie passed; invalid and cross-site reset attempts were rejected. This did not alter any user's browser cookies.
+- Before/after project comparison passed: only JU's production deployment identity changed. Sandbox `dpl_2L2K7Y8vFuJPw87orsVjdjCoVii8`, all other projects, Git links, schedules, and PDF settings remained unchanged.
+- No authenticated letter downloads, NXT writes, query refreshes, letter approvals, emails, or mailing-status changes were performed during deployment verification. There is no schema migration.
+- Capacity is unchanged: ten letters per batch; combined PDFs are limited to 100 pages and four MiB of source/output. Word downloads remain separate approved Word files in a ZIP, not one merged Word document.
+
+Release evidence uses the `/tmp/ju-society-group-deploy-` prefix: `tests.log`, `typecheck.log`, `release.json`, `dry.json`, `candidate.log`, `candidate-smoke.log`, `promote.log`, `live-smoke.log`, and `after.log`.
+
+Suggested follow-up, not implemented: a read-only society print run across completed batches, with deterministic ordering and automatic splitting at safe page/byte limits. Keep letter preparation and NXT writes in their existing bounded batches; do not repeat them merely to assemble a larger download.
