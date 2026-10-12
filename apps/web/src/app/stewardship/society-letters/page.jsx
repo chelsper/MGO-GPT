@@ -682,6 +682,7 @@ export default function SocietyLettersPage() {
               "refresh",
               "resume",
               "save_recipient",
+              "save_csv_format",
             ].includes(body.action)
           )
             setSelected([]);
@@ -1718,6 +1719,9 @@ export default function SocietyLettersPage() {
                       busy={selectionBusy || sourceDirty}
                       onExport={exportMergeCsv}
                       onTrackedExport={trackedCsvExport}
+                      onSaveFormat={(body) =>
+                        act(body, false, { throwOnError: true })
+                      }
                     />
                   )}
                   {queryPostal && (

@@ -42,7 +42,7 @@ export default function CsvRunManager({
     return () => onActiveChange(false);
   }, [working, onActiveChange]);
   const plan = run
-    ? societyLetterCsvPlan(data, run.societyKey, run.letterDate)
+    ? societyLetterCsvPlan(data, run.societyKey, run.letterDate, run.csvFormat)
     : null;
   const eligible = new Set(plan?.entries.map((entry) => entry.householdId));
   const omitted = new Map(

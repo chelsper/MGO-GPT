@@ -6,6 +6,11 @@ import {
   normalizeLetterMergeSettings,
 } from "./societyLetters";
 import { letterMergeBlockers } from "./societyLetterDocumentReadiness";
+import {
+  csvRecipientWording,
+  formatCsvLetterDate,
+  normalizeCsvFormat,
+} from "./societyLetterCsvFormat";
 
 const dateFields = ["letter_date", "period_start", "period_end"];
 const metadata = [
@@ -22,7 +27,7 @@ const unsafeCell = (value) =>
   /^\s*[=+@-]/u.test(value) ||
   /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value);
 
-function csvColumns(template, settings) {
+function csvColumns(template, settings, format) {
   const columns = [];
   const names = new Map();
   function add(name, source, exact = false) {
@@ -38,7 +43,21 @@ function csvColumns(template, settings) {
     columns.push(column);
   }
   for (const field of template.wordFields?.fields || []) {
-    const source = settings.wordBindings?.[field.name] || field.suggestedField;
+    const standardField =
+      format &&
+      ["addressee", "salutation", "address", "letter_date"].includes(
+        String(field.name).toLowerCase(),
+      )
+        ? field.name.toLowerCase()
+        : null;
+    const source =
+      format &&
+      format.greetingField !== "saved" &&
+      field.name === format.greetingField
+        ? "salutation"
+        : standardField ||
+          settings.wordBindings?.[field.name] ||
+          field.suggestedField;
     if (
       !/^[A-Za-z][A-Za-z0-9_ .-]{0,79}$/.test(field.name) ||
       !LETTER_TAGS.includes(source)
@@ -48,6 +67,8 @@ function csvColumns(template, settings) {
       );
     add(field.name, source, true);
   }
+  if (format && format.greetingField !== "saved")
+    add(format.greetingField, "salutation", true);
   for (const field of LETTER_TAGS) add(field, field);
   for (const field of metadata) add(`app_${field}`, `metadata:${field}`);
   return columns;
@@ -55,7 +76,12 @@ function csvColumns(template, settings) {
 
 // This is a saved-data export, not delivery authorization. Use the workspace's
 // existing hierarchy, exclusions and review validity, but never request NXT writes.
-export function societyLetterCsvPlan(workspace, societyKey, letterDate) {
+export function societyLetterCsvPlan(
+  workspace,
+  societyKey,
+  letterDate,
+  csvFormat,
+) {
   const result = { columns: [], entries: [], omitted: [], issue: "" };
   const fail = (issue) => ({ ...result, issue });
   if (!societyKey) return fail("Choose a society to export.");
@@ -83,14 +109,21 @@ export function societyLetterCsvPlan(workspace, societyKey, letterDate) {
   );
   if (!template?.version)
     return fail("Save this society's Word letter and merge settings first.");
-  let settings, formattedDates;
+  let settings, formattedDates, format;
   try {
+    format =
+      csvFormat === undefined ? undefined : normalizeCsvFormat(csvFormat);
     settings = normalizeLetterMergeSettings(template.mergeSettings);
-    result.columns = csvColumns(template, settings);
+    result.columns = csvColumns(template, settings, format);
     formattedDates = letterMergeData({ period: workspace.period }, letterDate, {
       fields: dateFields,
       dateFormat: settings.dateFormat,
     });
+    if (format)
+      formattedDates.letter_date = formatCsvLetterDate(
+        letterDate,
+        format.dateFormat,
+      );
   } catch (error) {
     return fail(error.message || "Check the saved letter's merge settings.");
   }
@@ -149,7 +182,17 @@ export function societyLetterCsvPlan(workspace, societyKey, letterDate) {
       reason =
         row.documentReadiness?.blockers?.[0]?.message ||
         "Check this recipient's saved letter fields.";
-    const missing = reason ? [] : letterMergeBlockers(row, requiredFields);
+    let wording;
+    if (!reason && format) {
+      try {
+        wording = csvRecipientWording(row, format);
+      } catch (error) {
+        reason = error.message;
+      }
+    }
+    const missing = reason
+      ? []
+      : letterMergeBlockers({ ...row, ...wording }, requiredFields);
     if (missing.length) reason = missing[0].message;
     if (!reason) {
       const values = {
@@ -158,6 +201,7 @@ export function societyLetterCsvPlan(workspace, societyKey, letterDate) {
           dateFormat: "iso",
         }),
         ...formattedDates,
+        ...wording,
       };
       const details = {
         household_id: row.householdId,
@@ -179,7 +223,12 @@ export function societyLetterCsvPlan(workspace, societyKey, letterDate) {
       const unsafeIndex = cells.findIndex(unsafeCell);
       if (unsafeIndex !== -1)
         reason = `The ${result.columns[unsafeIndex].name} value starts like a spreadsheet formula or contains unsupported control characters. Review it before exporting; no wording was changed.`;
-      else result.entries.push({ householdId: row.householdId, cells });
+      else
+        result.entries.push({
+          householdId: row.householdId,
+          cells,
+          ...(wording ? { wording } : {}),
+        });
     }
     if (reason)
       result.omitted.push({

@@ -76,6 +76,7 @@ import {
   confirmCsvLetters,
   assertCsvRun,
   csvRunReview,
+  saveCsvFormat,
   mailSelectedCsvLetters,
 } from "@/app/api/utils/societyLetterCsvTracking";
 
@@ -395,6 +396,7 @@ export async function POST(request) {
       "mailed",
       "mail_selected_letters",
       "create_csv_run",
+      "save_csv_format",
       "confirm_csv_letters",
       "mail_selected_csv_letters",
       "cancel",
@@ -440,6 +442,9 @@ export async function POST(request) {
     let bulkAppealUpdate;
     let csvRunId, csvDeliveryIds;
     switch (body.action) {
+      case "save_csv_format":
+        await saveCsvFormat(state, ctx.definitions, body, store);
+        break;
       case "create_csv_run":
         csvRunId = await createTrackedCsvRun(
           state,

@@ -15,6 +15,7 @@ import {
   assertCsvRun,
   confirmCsvLetters,
   mailSelectedCsvLetters,
+  saveCsvFormat,
 } from "./societyLetterCsvTracking";
 import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
 import { csvRunReview } from "./societyLetterCsvTracking";
@@ -33,7 +34,7 @@ const today = "2026-10-12",
 const definitions = getDefaultGivingSocietyConfigurations();
 const hash = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
-async function fixture(count = 1) {
+async function fixture(count = 1, csvFormat) {
   const settings = societyQuerySettings(),
     period = letterPeriod(settings, today);
   const template = {
@@ -138,6 +139,7 @@ async function fixture(count = 1) {
     letterDate: today,
     periodKey: period.key,
     householdIds: state.snapshot.rows.map((row) => row.householdId),
+    ...(csvFormat ? { csvFormat } : {}),
   };
   await createTrackedCsvRun(state, definitions, today, request, store, ctx);
   const run = store.createCsvRun.mock.calls[0][0];
@@ -227,6 +229,96 @@ function simulatedNxt(state, store) {
   return { members, reader, client, finish };
 }
 describe("durable CSV workflow", () => {
+  it("freezes CSV formats and records actual wording while keeping both appeal targets and the verified street address", async () => {
+    const { state, store, run, body } = await fixture(1, {
+      salutation: "individual_preferred",
+      addressee: "household_first",
+      dateFormat: "short_us",
+    });
+    expect(run.csvFormat).toMatchObject({
+      salutation: "individual_preferred",
+      dateFormat: "short_us",
+    });
+    state.csv_formats = {
+      presidents_society: { salutation: "record", addressee: "record" },
+    };
+    expect(
+      csvRunReview(state, definitions, today, run).entries[0].confirmationIssue,
+    ).toBe("");
+    const ids = await confirmCsvLetters(
+      state,
+      definitions,
+      today,
+      body,
+      store,
+      ctx,
+      run,
+    );
+    expect(state.history[0]).toMatchObject({
+      addressee: "Alex & Pat Example",
+      salutation: "Alex",
+      address: "10 Test St\nJacksonville, FL 32211",
+      members: ["10", "11"],
+      csvMailMerge: {
+        csvFormat: run.csvFormat,
+        wording: { salutation: "Alex" },
+      },
+    });
+    const nxt = simulatedNxt(state, store);
+    expect(await nxt.finish(ids)).toMatchObject({ status: "complete" });
+    expect(nxt.client.create.mock.calls.map(([id]) => id)).toEqual([
+      "10",
+      "11",
+    ]);
+    expect(state.history[0].status).toBe("prepared");
+  });
+  it("rejects changed output data in formatted tracked exports before reserving or writing appeals", async () => {
+    const { state, store, run, body } = await fixture(1, {
+      salutation: "household_preferred",
+    });
+    Object.values(state.recipient_reviews)[0].values.nameOverrides = {
+      first_names: "Changed wording",
+    };
+    expect(
+      csvRunReview(state, definitions, today, run).entries[0].confirmationIssue,
+    ).toMatch(/changed since this export/);
+    await expect(
+      confirmCsvLetters(state, definitions, today, body, store, ctx, run),
+    ).rejects.toThrow(/changed/);
+    expect(store.reserve).not.toHaveBeenCalled();
+  });
+  it("saves per-society defaults separately from source signatures, reviews and existing runs", async () => {
+    const { state, store, run } = await fixture();
+    const before = structuredClone(state),
+      signature = letterSourceSignature(state, definitions);
+    await saveCsvFormat(
+      state,
+      definitions,
+      {
+        societyKey: "presidents_society",
+        csvFormat: { salutation: "individual_preferred" },
+      },
+      store,
+    );
+    const saved = store.save.mock.lastCall[0];
+    expect(saved.csv_formats.presidents_society.salutation).toBe(
+      "individual_preferred",
+    );
+    expect(saved.recipient_reviews).toEqual(before.recipient_reviews);
+    expect(letterSourceSignature(saved, definitions)).toBe(signature);
+    expect(
+      csvRunReview(saved, definitions, today, run).entries[0].confirmationIssue,
+    ).toBe("");
+    expect(run).not.toHaveProperty("csvFormat");
+    await expect(
+      saveCsvFormat(
+        state,
+        definitions,
+        { societyKey: "not-configured", csvFormat: {} },
+        store,
+      ),
+    ).rejects.toThrow(/configured/);
+  });
   it("reports changed fields and expired reviews in the read-only saved-export manifest without blocking unchanged households", async () => {
     const { state, store, run } = await fixture(3);
     Object.values(state.recipient_reviews)[0].values.salutation =

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { letterError } from "@/utils/societyLetters";
 import { societyLetterCsvPlan } from "@/utils/societyLetterCsvExport";
+import { normalizeCsvFormat } from "@/utils/societyLetterCsvFormat";
 import { selectedCsvLetters } from "@/utils/societyLetterCsvTracking";
 import { LETTER_APPEAL_SELECTION_LIMIT } from "@/utils/societyLetterBulkAppeals";
 import { exportSocietyLetterCsv } from "./societyLetterCsvExport";
@@ -46,7 +47,24 @@ export function csvRunSummary(run) {
     count,
     filename,
     sha256,
+    ...(run.csvFormat ? { csvFormat: run.csvFormat } : {}),
   };
+}
+
+export async function saveCsvFormat(state, definitions, body, store) {
+  if (
+    !state.settings?.societyKeys?.includes(body.societyKey) ||
+    !definitions.some(
+      (item) =>
+        item.key === body.societyKey && item.active && item.basis === "annual",
+    )
+  )
+    throw letterError("Choose a configured annual giving society.");
+  const csvFormat = normalizeCsvFormat(body.csvFormat);
+  await store.save({
+    ...state,
+    csv_formats: { ...(state.csv_formats || {}), [body.societyKey]: csvFormat },
+  });
 }
 
 export function assertCsvRun(run) {
@@ -70,7 +88,12 @@ export function assertCsvRun(run) {
 export function csvRunReview(state, definitions, today, run) {
   assertCsvRun(run);
   const workspace = letterWorkspace(state, definitions, today);
-  const plan = societyLetterCsvPlan(workspace, run.societyKey, run.letterDate);
+  const plan = societyLetterCsvPlan(
+    workspace,
+    run.societyKey,
+    run.letterDate,
+    run.csvFormat,
+  );
   const current = new Map(
     plan.entries.map((entry) => [entry.householdId, entry]),
   );
@@ -125,6 +148,7 @@ export async function createTrackedCsvRun(
     workspace,
     body.societyKey,
     body.letterDate,
+    body.csvFormat,
   );
   const run = {
     id: randomUUID(),
@@ -136,6 +160,9 @@ export async function createTrackedCsvRun(
     )?.name,
     periodKey: workspace.period.key,
     letterDate: body.letterDate,
+    ...(body.csvFormat !== undefined
+      ? { csvFormat: normalizeCsvFormat(body.csvFormat) }
+      : {}),
     createdAt: new Date().toISOString(),
     createdBy: ctx.user.id,
     entries: plan.entries.map((entry) => ({
@@ -184,7 +211,12 @@ export async function confirmCsvLetters(
       "This CSV belongs to a different recognition period. Use Letter history for letters already recorded.",
       409,
     );
-  const plan = societyLetterCsvPlan(workspace, run.societyKey, run.letterDate);
+  const plan = societyLetterCsvPlan(
+    workspace,
+    run.societyKey,
+    run.letterDate,
+    run.csvFormat,
+  );
   const batchId = randomUUID();
   const pending = [],
     deliveries = [];
@@ -236,11 +268,18 @@ export async function confirmCsvLetters(
       run.letterDate,
     );
     const item = reservePostalLetter(preview, state, today, ctx, batchId);
+    if (entry.wording) {
+      item.addressee = entry.wording.addressee;
+      item.salutation = entry.wording.salutation;
+    }
     item.csvMailMerge = {
       runId: run.id,
       csvSha256: run.sha256,
       confirmedAt: new Date().toISOString(),
       confirmedBy: ctx.user.id,
+      ...(run.csvFormat
+        ? { csvFormat: run.csvFormat, wording: entry.wording }
+        : {}),
     };
     pending.push(item);
     deliveries.push(item);

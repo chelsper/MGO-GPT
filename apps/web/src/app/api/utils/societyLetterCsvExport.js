@@ -35,6 +35,7 @@ export function exportSocietyLetterCsv(workspace, body) {
     workspace,
     body.societyKey,
     body.letterDate,
+    body.csvFormat,
   );
   if (plan.issue) throw letterError(plan.issue, 409);
   const requested = new Set(ids);

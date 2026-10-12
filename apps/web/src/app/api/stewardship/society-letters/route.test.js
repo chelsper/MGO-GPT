@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   readCsv: vi.fn(),
   createCsv: vi.fn(),
+  save: vi.fn(),
   acquire: vi.fn(),
   view: vi.fn(),
   send: vi.fn(),
@@ -167,11 +168,40 @@ beforeEach(() => {
     mailSelectedLetters: mocks.mailSelected,
     returnLetterToReview: mocks.returnLetter,
     createCsvRun: mocks.createCsv,
+    save: mocks.save,
   });
   mocks.exclusionRemoval.mockResolvedValue(undefined);
   mocks.validateTemplate.mockImplementation((template) => template);
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("saves validated CSV defaults under the workspace lease without NXT or document mutations", async () => {
+    mocks.read.mockResolvedValue({
+      revision: 3,
+      settings: { societyKeys: ["ood"] },
+      templates: {},
+      history: [],
+    });
+    mocks.definitions.mockResolvedValue([
+      { key: "ood", active: true, basis: "annual" },
+    ]);
+    const response = await POST(
+      request({
+        action: "save_csv_format",
+        revision: 3,
+        societyKey: "ood",
+        csvFormat: { salutation: "household_preferred" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.save.mock.calls[0][0].csv_formats.ood.salutation).toBe(
+      "household_preferred",
+    );
+    expect(mocks.acquire).toHaveBeenCalledWith(1, 3);
+    expect(mocks.letterSync).not.toHaveBeenCalled();
+    expect(mocks.createCsv).not.toHaveBeenCalled();
+    expect(mocks.postalPrepare).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
   const run = () => ({
     id: "33333333-3333-4333-8333-333333333333",
     filename: "ood-2026-10-12-mail-merge.csv",
@@ -239,6 +269,7 @@ describe("stewardship API authorization and delivery boundaries", () => {
   );
   it.each([
     "create_csv_run",
+    "save_csv_format",
     "confirm_csv_letters",
     "mail_selected_csv_letters",
   ])("rejects automatic and cross-site CSV mutations: %s", async (action) => {

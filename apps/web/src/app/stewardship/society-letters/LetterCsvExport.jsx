@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { societyLetterCsvPlan } from "@/utils/societyLetterCsvExport";
 import { MAX_COMBINED_LETTER_HOUSEHOLDS } from "@/utils/societyLetters";
+import { DEFAULT_CSV_FORMAT } from "@/utils/societyLetterCsvFormat";
+import LetterCsvFormat from "./LetterCsvFormat";
 
 const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal";
@@ -10,15 +12,20 @@ export default function LetterCsvExport({
   busy,
   onExport,
   onTrackedExport,
+  onSaveFormat,
 }) {
   const [societyKey, setSocietyKey] = useState("");
   const [dateOverride, setDateOverride] = useState("");
+  const [formats, setFormats] = useState({});
+  const [previewId, setPreviewId] = useState("");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const inFlight = useRef(false);
   const letterDate = dateOverride || data.today;
-  const plan = societyLetterCsvPlan(data, societyKey, letterDate);
+  const csvFormat =
+    formats[societyKey] || data.csvFormats?.[societyKey] || DEFAULT_CSV_FORMAT;
+  const plan = societyLetterCsvPlan(data, societyKey, letterDate, csvFormat);
   const disabled = busy || working;
   async function download(tracked = false) {
     if (disabled || inFlight.current || plan.issue || !plan.entries.length)
@@ -34,6 +41,7 @@ export default function LetterCsvExport({
         periodKey: data.period.key,
         societyKey,
         letterDate,
+        csvFormat,
         householdIds: plan.entries.map((entry) => entry.householdId),
       });
       setMessage(
@@ -46,6 +54,24 @@ export default function LetterCsvExport({
         err.message ||
           "The CSV could not be downloaded. Saved letters are unchanged.",
       );
+    } finally {
+      inFlight.current = false;
+      setWorking(false);
+    }
+  }
+  async function saveFormat() {
+    if (disabled || inFlight.current || !societyKey || !onSaveFormat) return;
+    inFlight.current = true;
+    setWorking(true);
+    setError("");
+    setMessage("");
+    try {
+      await onSaveFormat({ action: "save_csv_format", societyKey, csvFormat });
+      setMessage(
+        "CSV format saved for this society. Choose the letter date for each export. Existing exports and recipient reviews are unchanged.",
+      );
+    } catch (err) {
+      setError(err.message || "CSV format could not be saved.");
     } finally {
       inFlight.current = false;
       setWorking(false);
@@ -103,6 +129,33 @@ export default function LetterCsvExport({
           />
         </label>
       </div>
+      {societyKey && (
+        <>
+          <LetterCsvFormat
+            format={csvFormat}
+            disabled={disabled}
+            plan={plan}
+            rows={data.rows || []}
+            previewId={previewId}
+            onPreview={setPreviewId}
+            onChange={(format) => {
+              setFormats({ ...formats, [societyKey]: format });
+              setError("");
+              setMessage("");
+            }}
+          />
+          {onSaveFormat && (
+            <button
+              type="button"
+              disabled={disabled}
+              className="mb-3 min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"
+              onClick={saveFormat}
+            >
+              Save CSV format for this society
+            </button>
+          )}
+        </>
+      )}
       {societyKey &&
         (plan.issue ? (
           <p role="status" className="text-sm text-amber-900">

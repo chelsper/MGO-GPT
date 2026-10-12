@@ -72,6 +72,7 @@ async function execute(statement) {
               "exclusions",
               "recipient_reviews",
               "readiness",
+              "csv_formats",
               "period",
               "rows",
               "history",
@@ -130,7 +131,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   });
   beforeEach(async () => {
     await execute(
-      "TRUNCATE data_change_requests, stewardship_letter_csv_runs, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
+      "TRUNCATE data_change_requests, stewardship_letter_csv_runs, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', csv_formats='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -145,6 +146,25 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("persists CSV defaults without touching source settings, reviews, deliveries or existing CSV bytes", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = await readSocietyLetterState();
+    const csv_formats = {
+      ood: { salutation: "household_preferred" },
+      presidents: { salutation: "record" },
+    };
+    await store.save({ ...original, csv_formats });
+    const saved = await readSocietyLetterState();
+    expect(saved.csv_formats).toEqual(csv_formats);
+    expect(saved.recipient_reviews).toEqual(original.recipient_reviews);
+    expect(saved.settings).toEqual(original.settings);
+    expect(saved.history).toEqual([]);
+    expect(saved.csvRuns).toEqual([]);
+    expect(saved.revision).toBe(1);
+    await store.release();
+    await expect(store.save({ ...saved, csv_formats: {} })).rejects.toThrow();
+    expect((await readSocietyLetterState()).csv_formats).toEqual(csv_formats);
+  });
   async function dispatchFixture() {
     const store = await acquireSocietyLetters(1, 0);
     const first = completedLetter();

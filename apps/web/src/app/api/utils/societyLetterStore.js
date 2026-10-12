@@ -27,6 +27,7 @@ export function ensureSocietyLetterSchema() {
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS exclusions JSONB NOT NULL DEFAULT '[]'::jsonb`;
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS recipient_reviews JSONB NOT NULL DEFAULT '{}'::jsonb`;
     await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS readiness JSONB NOT NULL DEFAULT '{}'::jsonb`;
+    await sql`ALTER TABLE stewardship_letters ADD COLUMN IF NOT EXISTS csv_formats JSONB NOT NULL DEFAULT '{}'::jsonb`;
     await sql`CREATE TABLE IF NOT EXISTS stewardship_letter_postal_batches (
       id UUID PRIMARY KEY, status TEXT NOT NULL, payload JSONB NOT NULL,
       created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -55,7 +56,7 @@ export function ensureSocietyLetterSchema() {
 
 export async function readSocietyLetterState() {
   const [state] =
-    await sql`SELECT revision, settings, templates, snapshot, job, exclusions, recipient_reviews, readiness FROM stewardship_letters WHERE id = 1`;
+    await sql`SELECT revision, settings, templates, snapshot, job, exclusions, recipient_reviews, readiness, csv_formats FROM stewardship_letters WHERE id = 1`;
   const deliveries =
     await sql`SELECT payload, status, provider_id, updated_at, updated_by FROM stewardship_letter_deliveries ORDER BY created_at DESC, id`;
   const drafts =
@@ -170,6 +171,7 @@ export async function acquireSocietyLetters(userId, revision) {
         job = ${JSON.stringify(state.job)}::jsonb, exclusions = ${JSON.stringify(state.exclusions || [])}::jsonb,
         recipient_reviews = ${JSON.stringify(state.recipient_reviews || {})}::jsonb,
         readiness = ${JSON.stringify(state.readiness || {})}::jsonb,
+        csv_formats = ${JSON.stringify(state.csv_formats || {})}::jsonb,
         revision = revision + 1, updated_by = ${userId}, updated_at = NOW()
         WHERE id = 1 AND lease_token = ${token} AND lease_until > NOW() RETURNING revision`;
       if (!rows.length)
