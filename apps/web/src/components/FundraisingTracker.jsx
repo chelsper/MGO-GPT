@@ -1,10 +1,57 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { presentFundraisingTracker, TRACKER_BASIS } from "@/utils/fundraisingTracker";
 import styles from "./fundraisingTracker.module.css";
 
 const currency = (amount) => amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: amount % 1 ? 2 : 0 });
+
+function CampaignDonors({ result }) {
+  const headingId = useId();
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("committedCents");
+  const [page, setPage] = useState(0);
+  const query = search.trim().toLocaleLowerCase("en-US");
+  const matches = (result.donors || []).filter((row) => `${row.name} ${row.constituentId || ""}`.toLocaleLowerCase("en-US").includes(query))
+    .sort((a, b) => (sort === "name" ? 0 : b[sort] - a[sort]) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+  const pageCount = Math.max(1, Math.ceil(matches.length / 25));
+  const currentPage = Math.min(page, pageCount - 1);
+  const rows = matches.slice(currentPage * 25, (currentPage + 1) * 25);
+  return <section className={styles.donors} aria-labelledby={headingId}>
+    <h4 id={headingId}>Campaign donors</h4>
+    {result.donors === null ? <p>{result.pending ? "Donor details are loading with the campaign refresh. Saved results stay visible until the refresh is complete." :
+      "Donor details have not been loaded yet. A report manager can use Refresh data to load them with the campaign totals."}</p> : <>
+      <p>One entry per donor, using the same funds and giving dates as the totals above. Pledged is the original pledge amount, not the unpaid balance. Received includes outright gifts and pledge payments; committed includes outright gifts and pledges. These columns overlap and should not be added together.</p>
+      {result.donorNamesIncomplete && <p className={styles.donorNotice} role="status">Some donor names could not be loaded. Their giving is included under Donor unavailable. A report manager can refresh again to retry.</p>}
+      {!result.donors.length ? <p>No countable gifts were found for these funds and giving dates.</p> : <>
+        <div className={styles.donorTools}>
+          <label>Find a donor<input type="search" placeholder="Name or constituent ID" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} /></label>
+          <label>Sort donors<select value={sort} onChange={(event) => { setSort(event.target.value); setPage(0); }}>
+            <option value="committedCents">Committed: highest first</option><option value="receivedCents">Received: highest first</option>
+            <option value="pledgedCents">Pledged: highest first</option><option value="name">Donor name</option>
+          </select></label>
+        </div>
+        <div className={styles.donorTableWrap} role="region" aria-label="Campaign donor amounts" tabIndex={0}>
+          <table className={styles.donorTable}>
+            <caption>Giving by donor. Totals include all entries, even when searching or viewing another page.</caption>
+            <thead><tr><th scope="col">Donor</th><th scope="col">Pledged</th><th scope="col">Received</th><th scope="col">Committed</th></tr></thead>
+            <tbody>{rows.map((row) => <tr key={row.key}>
+              <th scope="row">{row.name}{row.constituentId && <small>ID {row.constituentId}</small>}
+                {row.kind !== "constituent" && <small>Combined giving</small>}</th>
+              <td>{currency(row.pledgedCents / 100)}</td><td>{currency(row.receivedCents / 100)}</td><td>{currency(row.committedCents / 100)}</td>
+            </tr>)}{!rows.length && <tr><td colSpan={4}>No donors match your search.</td></tr>}</tbody>
+            <tfoot><tr><th scope="row">All campaign giving</th><td>{currency(result.pledgedCents / 100)}</td><td>{currency(result.receivedCents / 100)}</td><td>{currency(result.committedCents / 100)}</td></tr></tfoot>
+          </table>
+        </div>
+        <div className={styles.donorPagination}>
+          <span role="status">{matches.length ? `${currentPage * 25 + 1}-${Math.min((currentPage + 1) * 25, matches.length)} of ${matches.length} entries` : "0 matching entries"}</span>
+          {pageCount > 1 && <div><button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous donors</button>
+            <button type="button" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next donors</button></div>}
+        </div>
+      </>}
+    </>}
+  </section>;
+}
 
 export function FundraisingTrackerCard({ panel, saved }) {
   const result = presentFundraisingTracker(panel, saved);
@@ -26,6 +73,7 @@ export function FundraisingTrackerCard({ panel, saved }) {
         </section>;
       })}
     </div>
+    {panel.funds.length > 0 && <CampaignDonors key={result.fingerprint} result={result} />}
     <div className={styles.footer}><p>{panel.period === "all_time" ? "All-time giving (no date filter)" : `Giving dates: ${panel.startDate} to ${panel.endDate}`}</p>
       <p>{panel.funds.length ? panel.funds.map((fund) => fund.name).join(" · ") : "Choose the campaign fund or funds in Configure."}</p>
       {known && <p>Updated {new Date(result.refreshedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</p>}

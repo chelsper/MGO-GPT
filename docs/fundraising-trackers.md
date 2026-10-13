@@ -54,14 +54,16 @@ are available in the campaign's expandable explanation.
 - A campaign refresh verifies selected fund IDs before listing gifts filtered to
   those IDs. No funds selected means no gift request and no implied zero.
 - A request shares the existing two-source refresh budget: each query execution
-  uses one slot; each tracker fund verification or gift page uses one slot.
+  uses one slot; each tracker fund verification, gift page, or donor-name batch
+  uses one slot.
   Gift pages contain at most 500 records; complete passes are capped at 20,000
   records and 100 pages. No automatic per-request retries are introduced.
 - Continuations must preserve fund and date filters and the trusted API host.
   Duplicated gifts, changed counts, incomplete pagination, malformed money, or
   split totals that do not reconcile with the gift amount reject the pass.
-- In-progress totals stay server-side. The last complete totals remain visible
-  until every page is verified. Transient failures keep the last verified page;
+- In-progress totals and donor rows stay server-side. The last complete snapshot
+  remains visible until every gift page and donor-name batch has been processed.
+  Transient failures keep the last verified page or name batch;
   validation failures discard the partial pass. Checkpoints expire after 24 hours
   and are restarted when a different refresh user takes over.
 - Fund/date edits invalidate old totals; display, goal, milestone and label edits
@@ -74,7 +76,53 @@ are available in the campaign's expandable explanation.
 
 API contracts reviewed:
 [Blackbaud Gifts connector](https://learn.microsoft.com/en-us/connectors/blackbaudgifts/#list-gifts),
-[Blackbaud Fundraising connector](https://learn.microsoft.com/en-us/connectors/blackbaudfundraising/#list-funds).
+[Blackbaud Fundraising connector](https://learn.microsoft.com/en-us/connectors/blackbaudfundraising/#list-funds),
+[Blackbaud constituent list](https://learn.microsoft.com/en-us/connectors/blackbaudraisersedge/#list-constituents).
+
+## Donor Breakdown
+
+The A-Train Campaign and other fundraising trackers include a **Campaign donors**
+table beneath their totals. Search names or constituent system IDs, sort by name
+or amount, and page through 25 entries at a time. Searching, sorting and paging
+use saved data only. The table footer always shows all campaign giving, not just
+the visible page or search results. The table includes all three columns even
+when the summary cards are configured to show only one revenue view.
+
+- **Pledged:** selected-fund allocations on Pledge and MatchingGiftPledge records.
+  This is original gross pledging, not unpaid balance; write-offs are not netted.
+- **Received:** selected-fund outright gifts and actual payments, using the same
+  recorded-value basis as the summary card.
+- **Committed:** selected-fund outright gifts plus pledges. Payments against those
+  pledges do not count a second time. The columns overlap; do not add them.
+
+Rows aggregate by the gift's hard-credit constituent system ID, not name or
+household. Different constituents sharing a name stay separate. Payments credited
+to a different constituent remain on that constituent; no household or matching
+donor attribution is inferred. Date filters apply to each gift's date, so subtracting
+received from pledged/committed does not establish an outstanding pledge balance.
+
+Names are resolved only for donors found in the selected gifts, through explicit
+ID-filtered constituent requests of at most 50 IDs per call. Include inactive and
+deceased records for historical identity, without changing gift eligibility.
+Only the display name and system ID are retained, not contact details. Gift-level
+anonymous giving never triggers a name request; constituent-level anonymity is
+also respected. Anonymous amounts are consolidated without IDs in **Anonymous
+giving**. Missing or inaccessible identities are consolidated in **Donor
+unavailable**, with an explanatory notice; their amounts still count.
+
+Throttled/transient name reads retain the checkpoint without an immediate retry.
+A permanent or malformed name response stops name reads for that pass, retains
+verified names from earlier batches, and publishes all unresolved giving without
+identities. A fresh refresh can retry. An invalid gift collection still rejects
+the pass and retains the entire last-good snapshot. Each public donor table must
+reconcile exactly to all three totals before it is shown. Permissions remain
+those of the shared dashboard: selected viewers and manager-only preview/refresh.
+
+No migration or source reconfiguration is needed. On release, existing saved
+totals remain visible, with a prompt to refresh for donor details. Complete one
+**Refresh data** cycle (using **Continue refresh** when offered), or allow the
+configured scheduled refresh to complete. Pre-donor partial checkpoints restart
+safely. Loading this feature does not read or change live NXT records by itself.
 
 Automated coverage includes schema validation, fund permissions, bounded reads,
 split accounting, source invalidation, partial failure/recovery, mixed query and

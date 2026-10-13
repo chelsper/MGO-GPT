@@ -49,4 +49,25 @@ describe("dashboard tracker integration", () => {
     expect(presentDashboardSnapshot(renamed, saved).trackers[0].receivedCents).toBeNull();
     expect(presentDashboardSnapshot(renamed, saved).status).toBe("refresh_required");
   });
+  it("continues name hydration under the shared budget without re-running completed trackers", async () => {
+    const reader = vi.fn(async (url) => {
+      if (url.startsWith("/fundraising/")) return { id: url.split("/").at(-1) };
+      if (url.startsWith("/constituent/")) return { value: [{ id: "42", name: "Example Donor" }], count: 1 };
+      const fund = new URL(url, "https://example.test").searchParams.get("fund_id");
+      return { value: [{ id: "1", constituent_id: "42", type: "Donation", date: "2026-10-01T00:00:00Z", amount: { value: 100 },
+        gift_splits: [{ id: "11", fund_id: fund, amount: { value: 100 } }] }], count: 1 };
+    });
+    let snapshot = await run(definition, null, reader);
+    expect(snapshot.refreshStatus).toBe("pending");
+    expect(publicDashboardSnapshot(snapshot).trackers[0].donors).toBeNull();
+    snapshot = await run(definition, snapshot, reader);
+    expect(snapshot.trackers[0].donors[0].name).toBe("Example Donor");
+    expect(snapshot.trackers[1].donors).toBeNull();
+    snapshot = await run(definition, snapshot, reader);
+    expect(snapshot.refreshStatus).toBe("complete");
+    expect(reader).toHaveBeenCalledTimes(6);
+    const visible = publicDashboardSnapshot(presentDashboardSnapshot(definition, snapshot));
+    expect(visible.trackers.map((t) => t.donors[0].receivedCents)).toEqual([10000, 10000]);
+    expect(JSON.stringify(visible)).not.toMatch(/trackerState|ownerId|nameIds|seen|visited/);
+  });
 });
