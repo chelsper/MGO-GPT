@@ -130,3 +130,35 @@ tracker continuation, safe layout transfer, and component behavior. Desktop and
 390px mobile rendering were checked using sample amounts. Live NXT totals and the
 production A-Train fund binding still require the first configured refresh after
 deployment; no production records or settings were changed during implementation.
+
+## JU Donor Table Release - 2026-10-13
+
+- Source: `9b24cbd3669ca35ce9b6fc6cc38ff6a733b2f625`.
+- Production: `https://www.jumgogpt.app`, deployment
+  `dpl_5tVz8mDnE9UKH5dLznKwvw5UB5pg`.
+- Rollback: `dpl_6HsA3JoYNpFCL1GiM9AvSivkN9yg`, source
+  `cef4059db7aff1a47632225b48696a2b4fd2ed5c`.
+- Deployed an isolated Git archive to JU only, built without assigning domains,
+  smoke-tested the candidate, then promoted it. No Git push, migration,
+  environment edit, authenticated report refresh, or NXT mutation was performed.
+- The implementation's full suite passed 6,671 tests with 193 existing opt-in
+  skips. The release rerun passed all 82 focused tests, typecheck, release checks,
+  and the hosted build. Desktop and mobile checks used fictional donors.
+- Candidate and live checks verified page shells, 35 published assets, donor
+  controls, and HTTP 401 for unauthenticated report/stewardship requests. These
+  are release checks, not authenticated acceptance of live A-Train donor totals.
+- The strict production-version check passed, including routing a synthetic
+  previous-release cookie to this release. JU project settings and all five cron
+  schedules were unchanged. The conference sandbox stayed at
+  `dpl_GZ5Xb6o8Fo7NkhqkrkRXBFhZNSMW`.
+- The account-wide unchanged-project check flagged a separate concurrent `prj`
+  deployment, `dpl_12d7BEANnDifvXXe1BJMa7o2ghj9`. Read-only inspection identified
+  repository `PRJ`, branch `main`, commit
+  `0af3992e9c94039c4e5b5e066d2391ad456731c6`, not this JU release. This task did
+  not target or alter that project. The original strict check failure is retained;
+  separate JU-settings and sandbox comparisons passed.
+
+After release, open A-Train and complete **Refresh data**, followed by
+**Continue refresh** when offered. Existing totals remain visible until the donor
+snapshot is complete. This first authenticated refresh remains the live-data
+acceptance step.
