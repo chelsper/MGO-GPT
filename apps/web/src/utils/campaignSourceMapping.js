@@ -1,4 +1,4 @@
-import { CAMPAIGN_FIELDS } from "./campaignPriorities";
+import { CAMPAIGN_FIELDS, campaignUsesNxtFinancials, campaignUsesCsvWriteOffs } from "./campaignPriorities";
 
 const normalize = value => String(value || "").trim().toLowerCase().replace(/[_./>-]+/g, " ").replace(/\s+/g, " ");
 const aliases = {
@@ -26,7 +26,7 @@ export const CAMPAIGN_FIELD_HELP = {
   pledgeBalance: "Current outstanding pledge balance, not the original pledge amount. Blank means no outstanding balance. Received equals net campaign amount minus this balance. In split mode use the balance for that split.",
 };
 
-export const campaignRequiredFields = mode => ["giftId", ...(mode === "split" ? ["splitId"] : []), "fundId", "fundName", "amount"];
+export const campaignRequiredFields = (mode, financialSource) => ["giftId", ...(mode === "split" ? ["splitId"] : []), "fundId", "fundName", "amount", ...(["nxt","csv"].includes(financialSource) ? ["giftType"] : []), ...(financialSource === "csv" ? ["pledgeBalance"] : [])];
 
 export function campaignFieldCandidates(key, fields, mode) {
   if (mode === "split" && ["writeOff", "pledgeBalance"].includes(key)) {
@@ -54,10 +54,12 @@ export function suggestCampaignColumns(fields, mode, existing = {}) {
 }
 
 export function campaignMappingIssues(source, fields, loaded) {
-  const required = campaignRequiredFields(source.mode), columns = source.columns || {};
+  const required = campaignRequiredFields(source.mode, source.financialSource), columns = source.columns || {};
   const issues = [];
   for (const key of required) if (!columns[key]) issues.push({ key, message: `Choose ${CAMPAIGN_FIELDS[key]}.` });
   for (const [key, value] of Object.entries(columns)) {
+    if (campaignUsesNxtFinancials(source) && ["writeOff", "pledgeBalance"].includes(key)) continue;
+    if (campaignUsesCsvWriteOffs(source) && key === "writeOff") continue;
     if (!value || (key === "splitId" && source.mode !== "split")) continue;
     if (loaded && !fields.includes(value)) issues.push({ key, message: `The query no longer returns "${value}". Choose a current field or clear this optional mapping.` });
     if (Object.entries(columns).some(([other, name]) => other !== key && name === value))

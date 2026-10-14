@@ -29,4 +29,17 @@ describe("campaign split lookup transport", () => {
     await expect(campaignTransport("https://fictional.invalid")).rejects.toThrow(/authorized/);
     expect(mocks.read).not.toHaveBeenCalled();
   });
+  it.each(["installments", "pledgepayments"])("reads only the selected pledge's %s with no write or retry", async section => {
+    const transport = await campaignTransport("https://fictional.invalid");
+    await transport.pledge("11", section);
+    expect(mocks.read.mock.calls).toEqual([[`/gft-gifts/v2/gifts/11/${section}`, {
+      userId:7,authUserId:7,origin:"https://fictional.invalid",maxRetries:0,timeoutMs:12000,method:"GET",
+    }]]);
+  });
+  it("rejects unapproved pledge endpoints and malformed IDs without a request", async () => {
+    const transport = await campaignTransport("https://fictional.invalid");
+    expect(() => transport.pledge("11", "writeoff")).toThrow();
+    expect(() => transport.pledge("../11", "installments")).toThrow();
+    expect(mocks.read).not.toHaveBeenCalled();
+  });
 });

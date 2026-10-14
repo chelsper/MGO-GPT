@@ -9,6 +9,7 @@ import { campaignHash, campaignBaseHash } from "./campaignPriorityQuery";
 import { BlackbaudQuotaExceededError } from "./blackbaud";
 import { campaignRow } from "@/utils/campaignPriorities";
 import { LEGACY_CAMPAIGN_IMPORT_ERROR } from "./campaignPriorityDiagnostics";
+import { saveCampaignWriteOffs } from "./campaignWriteOffImport";
 
 // Optional local PostgreSQL WASM runtime, never a DATABASE_URL or production connection.
 const modulePath = process.env.CAMPAIGN_PGLITE_MODULE;
@@ -84,11 +85,102 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
   }, 30000);
   afterAll(async () => { await pg?.close(); });
   beforeEach(async () => {
-    await pg.exec("TRUNCATE campaign_priority_rows,campaign_priority_runs,campaign_priority_overrides,campaign_priority_funds,campaign_priority_events; UPDATE users SET role='admin',active=true WHERE id=1");
+    await pg.exec("TRUNCATE campaign_priority_pledge_checks,campaign_priority_rows,campaign_priority_runs,campaign_priority_overrides,campaign_priority_funds,campaign_priority_events; UPDATE users SET role='admin',active=true WHERE id=1");
     run = randomUUID();
     await db`UPDATE campaign_priority_state SET version=1,config=${JSON.stringify(config)}::jsonb,published_run=${run}::uuid,job=NULL,lease=NULL,lease_until=NULL WHERE id=1`;
     await db`INSERT INTO campaign_priority_runs(id,source_key,query_id,config,created_by,status,raw_rows,unique_rows,completed_at) VALUES(${run}::uuid,'source-a','27460',${JSON.stringify(config)}::jsonb,1,'complete',2,2,NOW())`;
     await stage([row(1), row(2,4000,"5")]);
+  });
+  const csvHeader="Gift Amount,Gift Type,Pledge Balance,Gf_System_ID,Write off\n";
+  const csvInput=(content="100,Pledge,0,10,25")=>({csv:csvHeader+content,asOf:"2026-10-14",complete:true,confirmed:true,balanceColumn:"Split Pledge Balance"});
+  async function prepareCsv() {
+    const source={...config,columns:{...config.columns,giftType:"Gift Type"}};
+    await saveCampaignConfig(actor,(await read()).version,source,db);
+    await db`UPDATE campaign_priority_rows SET gift_type='Pledge' WHERE run_id=${run}::uuid`;
+    const t=transport();
+    t.metadata.mockResolvedValue({...metadata,select_fields:[...Object.values(source.columns),"Split Pledge Balance"].map(name=>({query_field:{selected_field_name:name}}))});
+    return t;
+  }
+  const importCsv=async(t,input=csvInput(),version)=>saveCampaignWriteOffs(actor,version??(await read()).version,input,t,db);
+  const csvRows=()=>[financialRow({...row(1),giftType:"Pledge"},null,1800),financialRow({...row(2,4000,"5"),giftType:"Pledge"},null,1200)];
+  it("imports a CSV once by gift ID, publishes current query balances and preserves fund assignments",async()=>{
+    await edit("funds",{fundIds:["4"],priority:"scholarships"});
+    const t=await prepareCsv(),oldRun=run;
+    await importCsv(t);
+    const pending=await read();
+    expect(pending).toMatchObject({runId:oldRun,sourceChanged:true,effectiveCents:10000,writeOffSource:null});
+    expect(pending.config.writeOffLedger).toMatchObject({count:1,writeOffCents:2500});
+    expect(pending.config.writeOffLedger.entries).toBeUndefined();
+    await expect(edit("funds",{fundIds:["4"],priority:"campus-planning"})).rejects.toMatchObject({status:409});
+    t.read.mockImplementation(async(_url,_source,_count,save)=>{await save(csvRows());return {rawRows:2};});
+    await start(t);
+    await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    const result=await read();
+    expect(result).toMatchObject({sourceChanged:false,writeOffCents:2500,effectiveCents:7500,pledgeBalanceCents:3000});
+    expect(result.segments.received).toMatchObject({status:"ready",cents:4500});
+    expect(result.writeOffSource).toMatchObject({count:1,completeAsOf:"2026-10-14"});
+    expect(result.funds.find(f=>f.fund_id==="4").fund_priority).toBe("scholarships");
+    expect(result.rows.map(r=>r.write_off_cents)).toEqual([1500,1000]);
+    expect((await db`SELECT operation FROM campaign_priority_events WHERE operation='write_off_csv'`)).toHaveLength(1);
+    expect(t.gift).toBeUndefined(); expect(t.pledge).toBeUndefined();
+  });
+  it("re-imports cumulative totals without doubling and prevents older or incomplete replacements",async()=>{
+    const t=await prepareCsv(); await importCsv(t);
+    const first=(await read()).config.writeOffLedger;
+    await importCsv(t);
+    expect((await read()).config.writeOffLedger).toMatchObject({revision:first.revision,count:1,writeOffCents:2500});
+    await importCsv(t,{...csvInput("100,Pledge,0,10,30"),complete:false});
+    expect((await read()).config.writeOffLedger.writeOffCents).toBe(3000);
+    await expect(importCsv(t,{...csvInput(),asOf:"2026-10-13"})).rejects.toThrow(/predates/);
+    await importCsv(t,{...csvInput("100,Pledge,0,10,0"),complete:false});
+    expect((await read()).config.writeOffLedger.writeOffCents).toBe(0);
+  });
+  it.each(["100,Pledge,0,999,25","101,Pledge,0,10,25","100,MG Pledge,0,10,25"])("rejects unmatched IDs, wrong amounts or wrong pledge types atomically: %s",async content=>{
+    const t=await prepareCsv(),before=await read();
+    await expect(importCsv(t,csvInput(content))).rejects.toThrow(/does not match/);
+    expect((await read()).version).toBe(before.version);
+    expect((await read()).config.writeOffLedger).toBeUndefined();
+    expect((await db`SELECT id FROM campaign_priority_events WHERE operation='write_off_csv'`)).toHaveLength(0);
+  });
+  it("accepts matching-gift pledges without installment API calls",async()=>{
+    const t=await prepareCsv();
+    await db`UPDATE campaign_priority_rows SET gift_type='Matching Gift Pledge' WHERE run_id=${run}::uuid`;
+    await importCsv(t,csvInput("100,MG Pledge,0,10,100"));
+    t.read.mockImplementation(async(_url,_source,_count,save)=>{await save(csvRows().map(r=>financialRow({...r,giftType:"Matching Gift Pledge"},null,0)));return {rawRows:2};});
+    await start(t); await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    expect(await read()).toMatchObject({writeOffCents:10000,effectiveCents:0,pledgeBalanceCents:0,job:{stage:"complete"}});
+  });
+  it("retains CSV register across same-source edits but not a different campaign",async()=>{
+    const t=await prepareCsv(); await importCsv(t);
+    const source=(await read()).config;
+    const {writeOffLedger,...withoutLedger}=source;
+    await saveCampaignConfig(actor,(await read()).version,withoutLedger,db);
+    expect((await read()).config.writeOffLedger.revision).toBe(writeOffLedger.revision);
+    await saveCampaignConfig(actor,(await read()).version,{...withoutLedger,sourceKey:"other-source"},db);
+    expect((await read()).config.writeOffLedger).toBeUndefined();
+  });
+  it("requires live editor permission, matching version and an idle refresh for imports",async()=>{
+    const t=await prepareCsv(),version=(await read()).version;
+    await expect(saveCampaignWriteOffs({...actor,role:"mgo"},version,csvInput(),t,db)).rejects.toMatchObject({status:403});
+    await expect(importCsv(t,csvInput(),version-1)).rejects.toMatchObject({status:409});
+    await db`UPDATE users SET active=false WHERE id=1`;
+    await expect(importCsv(t)).rejects.toMatchObject({status:409});
+    expect((await read()).config.writeOffLedger).toBeUndefined();
+    await db`UPDATE users SET active=true WHERE id=1`;
+    await db`UPDATE campaign_priority_state SET job='{"stage":"waiting"}'::jsonb WHERE id=1`;
+    await expect(importCsv(t)).rejects.toMatchObject({status:409});
+  });
+  it("keeps published totals if current balances conflict with a saved CSV write-off",async()=>{
+    const t=await prepareCsv(); await importCsv(t,csvInput("100,Pledge,0,10,100"));
+    t.read.mockImplementation(async(_url,_source,_count,save)=>{await save(csvRows());return {rawRows:2};});
+    const oldRun=run; await start(t); await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    expect(await read()).toMatchObject({runId:oldRun,effectiveCents:10000,job:{stage:"failed",error:expect.stringContaining("current pledge balance")}});
+  });
+  it("blocks an inconsistent refreshed pledge amount rather than applying a stale CSV to it",async()=>{
+    const t=await prepareCsv(); await importCsv(t);
+    t.read.mockImplementation(async(_url,_source,_count,save)=>{await save([financialRow({...row(1,6100),giftType:"Pledge"},null,0),csvRows()[1]]);return {rawRows:2};});
+    await start(t); await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    expect(await read()).toMatchObject({runId:run,job:{stage:"failed",error:expect.stringContaining("does not match")}});
   });
   it("deduplicates by allocation and reconciles fund moves, overrides, zero, and revert", async () => {
     await stage([row(1),row(1)]);
@@ -104,6 +196,122 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await edit("override", { itemKey: "10:1", revert: true, reason: "Restore original" });
     expect((await read()).effectiveCents).toBe(10000);
     expect((await db`SELECT * FROM campaign_priority_events`)).toHaveLength(4);
+  });
+  const directConfig = { ...giftConfig,financialSource:"nxt",columns:{ ...giftConfig.columns,giftType:"Gift Type",writeOff:"",pledgeBalance:"" } };
+  async function startDirect({ fail=false,matching=false,withMatching=false }={}) {
+    const original={...wholeGift("10","4",75000000),giftType:matching ? "Matching Gift Pledge" : "Pledge"};
+    const rows=[financialRow(original,null,null),financialRow(wholeGift("11","5",10000),null,null)];
+    if (withMatching) rows.push(financialRow({...wholeGift("9","4",10000),giftType:"Matching Gift Pledge"},null,null));
+    const t=transport(rows);
+    t.gift=vi.fn(async id=>id==="9" ? {id,type:"MatchingGiftPledge",amount:{value:100},balance:{value:0},gift_splits:[{id:"70",fund_id:"4",amount:{value:100}}]} : id==="10" ? { id,type:matching ? "MatchingGiftPledge" : "Pledge",amount:{value:750000},balance:{value:0},gift_splits:[{id:"71",fund_id:"4",amount:{value:750000}}] }
+      : {id,type:id==="22" ? (matching ? "MatchingGiftWriteOff" : "PledgeWriteOff") : (matching ? "MatchingGiftPayment" : "PledgePayment"),amount:{value:id==="22" ? (fail ? 1 : 450000) : 150000},linked_gifts:["10"]});
+    t.pledge=vi.fn(async(_id,section)=>section==="installments" ? {installments:Array.from({length:5},(_,i)=>({id:String(i+1),amount:{value:150000},balance:0}))}
+      : {pledge_id:"10",pledge_payments:Array.from({length:5},(_,i)=>({installment_id:String(i+1),payment_gift_id:String(i<2 ? 20+i : 22),amount_applied:{value:150000}}))});
+    await publishFinancial(rows,directConfig,t);
+    expect((await read()).job.stage).toBe("financial");
+    return t;
+  }
+  async function continueDirect(t) {
+    await db`UPDATE campaign_priority_state SET job=jsonb_set(job,'{nextCheckAt}','null'::jsonb) WHERE id=1`;
+    return advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+  }
+  it("publishes reconciled zero-balance pledges atomically",async()=>{
+    await edit("funds",{fundIds:["4"],priority:"scholarships"});
+    const oldRun=run,t=await startDirect();
+    expect((await read()).runId).toBe(oldRun);
+    expect((await read()).sourceChanged).toBe(true);
+    await expect(edit("funds",{fundIds:["4"],priority:"campus-planning"})).rejects.toMatchObject({status:409});
+    await continueDirect(t);
+    expect((await read()).runId).toBe(oldRun);
+    await continueDirect(t);
+    const saved=await read();
+    expect(saved.job).toMatchObject({stage:"complete",financial:{total:1,checked:1,withWriteOffs:1}});
+    expect(saved.runId).not.toBe(oldRun);
+    expect(saved).toMatchObject({sourceChanged:false,originalCents:75010000,writeOffCents:45000000,effectiveCents:30010000,pledgeBalanceCents:0});
+    expect(saved.segments.received).toMatchObject({status:"ready",cents:30010000});
+    expect(saved.funds.find(f=>f.fund_id==="4").fund_priority).toBe("scholarships");
+    const receipts=await db`SELECT stage,draft,result,checked_at FROM campaign_priority_pledge_checks`;
+    expect(receipts).toHaveLength(1); expect(receipts[0]).toMatchObject({stage:"complete",draft:{},result:{writeOffCents:45000000}});
+    expect(receipts[0].checked_at).toBeTruthy();
+    expect(t.gift.mock.calls.filter(([id])=>id==="22")).toHaveLength(1);
+  });
+  it("records unsupported matching pledges for attention without assuming zero write-offs or publishing",async()=>{
+    const oldRun=run,t=await startDirect({matching:true});
+    await continueDirect(t);
+    const saved=await read();
+    expect(saved.job).toMatchObject({stage:"failed",financial:{total:1,checked:0,blocked:1,withWriteOffs:0,
+      issues:[{giftId:"10",message:expect.stringContaining("does not support matching")}]}});
+    expect(saved.runId).toBe(oldRun); expect(saved.effectiveCents).toBe(10000);
+    expect(t.pledge).not.toHaveBeenCalled();
+  });
+  it("finds other write-offs after an unsupported matching pledge, but withholds incomplete totals",async()=>{
+    const oldRun=run,t=await startDirect({withMatching:true});
+    await continueDirect(t); await continueDirect(t);
+    const saved=await read();
+    expect(saved.job).toMatchObject({stage:"failed",financial:{total:2,checked:1,blocked:1,withWriteOffs:1,
+      issues:[{giftId:"9"}]}});
+    expect(saved.runId).toBe(oldRun);
+    expect(t.pledge.mock.calls.every(([id])=>id==="10")).toBe(true);
+    expect((await db`SELECT result FROM campaign_priority_pledge_checks WHERE gift_id='10'`)[0].result.writeOffCents).toBe(45000000);
+    expect((await db`SELECT write_off_cents FROM campaign_priority_rows WHERE gift_id='9'`)[0].write_off_cents).toBeNull();
+  });
+  it("retries server failures only after cooldown and stops after three attempts",async()=>{
+    const t=await startDirect(); t.gift.mockRejectedValue(Object.assign(new Error("unavailable"),{httpStatus:503}));
+    await continueDirect(t); expect((await read()).job.stage).toBe("financial");
+    await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    expect(t.gift).toHaveBeenCalledTimes(1);
+    await continueDirect(t); expect((await read()).job.stage).toBe("financial");
+    await continueDirect(t); expect((await read()).job.stage).toBe("failed");
+    expect(t.gift).toHaveBeenCalledTimes(3); expect((await read()).runId).toBe(run);
+  });
+  it("requires the same connection, protects source settings, and cancels financial checks without NXT reads",async()=>{
+    const t=await startDirect();
+    await expect(saveCampaignConfig(actor,(await read()).version,directConfig,db)).rejects.toThrow();
+    await advanceCampaignRefresh(actor,(await read()).version,"cancel",null,db);
+    expect((await read()).job.stage).toBe("cancelled"); expect((await read()).runId).toBe(run);
+    expect(t.gift).not.toHaveBeenCalled(); expect(t.pledge).not.toHaveBeenCalled();
+    const next=await startDirect();
+    await continueDirect({...next,connectionKey:"different"});
+    expect((await read()).job.stage).toBe("failed"); expect(next.gift).not.toHaveBeenCalled();
+  });
+  it.each([{rows:[]},{rows:[financialRow(wholeGift("11","5",10000),null,null)]}])("completes a direct-source query with no pledges",async({rows})=>{
+    const t=transport(rows); await publishFinancial(rows,directConfig,t);
+    await continueDirect(t);
+    expect((await read()).job).toMatchObject({stage:"complete",financial:{total:0,checked:0,blocked:0}});
+    expect((await read()).segments.received).toMatchObject({status:"ready",cents:rows.length ? 10000 : 0});
+  });
+  it("does not publish any financial totals when a linked write-off fails reconciliation",async()=>{
+    const oldRun=run,t=await startDirect({fail:true});
+    await continueDirect(t); await continueDirect(t);
+    const saved=await read();
+    expect(saved.job).toMatchObject({stage:"failed"}); expect(saved.job.error).toContain("Pledge 10");
+    expect(saved.runId).toBe(oldRun); expect(saved.effectiveCents).toBe(10000);
+  });
+  it("keeps financial checkpoints on a provider pause and resumes without repeating prior reads",async()=>{
+    const t=await startDirect();
+    const original=t.gift.getMockImplementation();
+    let paused=false;
+    t.gift.mockImplementation(async id=>{
+      if(id==="21" && !paused) {paused=true;throw Object.assign(new Error("Rate limited"),{httpStatus:429,retryAfterMs:60000});}
+      return original(id);
+    });
+    await continueDirect(t);
+    expect((await read()).job).toMatchObject({stage:"financial"});
+    expect((await read()).job.nextCheckAt).toBeTruthy();
+    await continueDirect(t);
+    expect((await read()).job.stage).toBe("complete");
+    expect(t.gift.mock.calls.filter(([id])=>id==="20")).toHaveLength(1);
+  });
+  it("stops safely after losing its lease during a financial read",async()=>{
+    const t=await startDirect(),old=run;
+    const original=t.gift.getMockImplementation();
+    t.gift.mockImplementationOnce(async id=>{
+      await db`UPDATE campaign_priority_state SET lease=${randomUUID()}::uuid WHERE id=1`;
+      return original(id);
+    });
+    await expect(continueDirect(t)).rejects.toMatchObject({status:409});
+    expect((await read()).runId).toBe(old);
+    expect((await db`SELECT stage FROM campaign_priority_pledge_checks`)[0].stage).toBe("gift");
   });
   it("reconciles write-offs, committed and received across funds, priorities and original-gift fiscal years", async () => {
     await edit("funds", { fundIds: ["4"], priority: "scholarships" });

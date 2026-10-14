@@ -85,3 +85,24 @@ it("adds financial mappings in gift mode, saves no NXT changes and explains exac
   expect(command).toHaveBeenCalledWith("source", expect.objectContaining({ columns: expect.objectContaining({ writeOff: "Gift Write-off Amount", pledgeBalance: "Gift Pledge Balance" }) }));
   expect(command).toHaveBeenCalledTimes(1);
 });
+it("enables read-only pledge reconciliation without a write-off query field, after explicit confirmation", async () => {
+  const { command } = setup({ readFields: vi.fn().mockResolvedValue(result(completeFields)) });
+  fireEvent.click(screen.getByRole("button", { name: "Load query fields" })); await screen.findByRole("status");
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.change(screen.getByLabelText("Write-offs and pledge balances"), { target: { value: "nxt" } });
+  expect(screen.getByLabelText("Gift type (required)")).toHaveValue("Gift Type");
+  expect(screen.queryByLabelText("Write-off amount")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Pledge balance")).not.toBeInTheDocument();
+  expect(screen.getByText(/No write-off output column is needed/)).toHaveTextContent(/including zero balances/);
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Save source settings" })).toBeDisabled();
+  expect(command).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Gift type (required)"), { target: { value: "" } });
+  expect(screen.getByRole("checkbox")).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Gift type (required)"), { target: { value: "Gift Type" } });
+  fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(screen.getByRole("button", { name: "Save source settings" }));
+  await act(async () => {});
+  expect(command).toHaveBeenCalledTimes(1);
+  expect(command).toHaveBeenCalledWith("source", expect.objectContaining({ financialSource:"nxt", confirmed:true,
+    columns:expect.objectContaining({ giftType:"Gift Type",writeOff:"",pledgeBalance:"" }) }));
+});

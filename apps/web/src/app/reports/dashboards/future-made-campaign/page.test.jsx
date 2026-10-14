@@ -23,6 +23,29 @@ it("hides editing and query controls from read-only viewers", async () => {
   expect(screen.queryByRole("button",{ name: "Adjust allocation" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button",{ name: "Source & refresh" })).not.toBeInTheDocument();
   expect(screen.queryByText("Refresh campaign data")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"Manage write-offs"})).not.toBeInTheDocument();
+});
+it("saves a CSV then starts one refresh with the returned version, even after a previous failed job",async()=>{
+  current.config={...current.config,queryId:"27460",mode:"gift",columns:{giftType:"Gift Type"}};
+  current.job={stage:"failed",error:"Old check failed"};
+  fetch.mockImplementation(async(_url,options)=>{
+    if (!options?.method) return json(current);
+    const body=JSON.parse(options.body); calls.push(body);
+    if (body.operation==="fields") return json({fields:["Gift Pledge Balance"]});
+    if (body.operation==="writeOffs") {current={...current,version:8};return json({version:8});}
+    if (body.operation==="start") {current={...current,version:9,job:{stage:"waiting",nextCheckAt:new Date(Date.now()+60000).toISOString()}};return json({version:9,stage:"waiting"});}
+    throw new Error("Unexpected operation");
+  });
+  render(<Page/>); fireEvent.click(await screen.findByRole("button",{name:"Manage write-offs"}));
+  const csv="Gift Amount,Gift Type,Pledge Balance,Gf_System_ID,Write off\n100,Pledge,0,11,25";
+  fireEvent.change(screen.getByLabelText("Write-off CSV"),{target:{files:[{size:csv.length,text:async()=>csv}]}});
+  await screen.findByText(/1 unique pledges/);
+  await waitFor(()=>expect(screen.getByLabelText("Current balance field in campaign query")).toHaveValue("Gift Pledge Balance"));
+  fireEvent.click(screen.getByLabelText(/I reviewed these cumulative/));
+  fireEvent.click(screen.getByRole("button",{name:"Save write-offs and refresh campaign"}));
+  await screen.findByText(/Write-offs saved/);
+  expect(calls.filter(call=>call.operation==="writeOffs")).toHaveLength(1);
+  expect(calls.filter(call=>call.operation==="start")).toEqual([{operation:"start",version:8,runId:"run-a",input:{confirmed:true}}]);
 });
 it("can close and reopen first-time setup without losing the dashboard or running NXT", async () => {
   current.config = {}; current.runId = null;
@@ -72,6 +95,19 @@ it("shows split verification as resumable work, not a new refresh, without start
   fireEvent.click(screen.getByRole("button",{name:"Continue refresh"}));
   await waitFor(() => expect(calls.some(call => call.options?.method === "POST")).toBe(true));
   expect(JSON.parse(calls.find(call => call.options?.method === "POST").options.body)).toMatchObject({operation:"continue"});
+});
+it("shows saved financial progress and unresolved pledges without auto-starting NXT reads",async()=>{
+  current.job={stage:"financial",nextCheckAt:null,financial:{checked:1,total:3,withWriteOffs:1,blocked:1,
+    issues:[{giftId:"9",message:"Pledge 9 requires a matching-gift write-off source."}]}};
+  render(<Page />);
+  expect(await screen.findByText(/Pledge checks: 1 of 3 verified/)).toHaveTextContent("1 need attention");
+  expect(screen.getByText("Pledge 9 requires a matching-gift write-off source.")).toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"Continue refresh"})).toBeEnabled();
+  expect(screen.queryByRole("button",{name:"Refresh campaign",exact:true})).not.toBeInTheDocument();
+  expect(calls.every(call=>call.options?.method!=="POST")).toBe(true);
+  fireEvent.click(screen.getByRole("button",{name:"Continue refresh"}));
+  await waitFor(()=>expect(calls.some(call=>call.options?.method==="POST")).toBe(true));
+  expect(JSON.parse(calls.find(call=>call.options?.method==="POST").options.body)).toMatchObject({operation:"continue"});
 });
 it("saves fund assignments against the current dataset and moves them only after reloading saved data", async () => {
   fetch.mockImplementation(async (_url, options) => {

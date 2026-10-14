@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => Object.fromEntries(["auth","user","schema","access","read","save","edit","advance","transport","metadata","sql"].map(key => [key,vi.fn()])));
+const mocks = vi.hoisted(() => Object.fromEntries(["auth","user","schema","access","read","save","edit","advance","transport","metadata","sql","writeOffs"].map(key => [key,vi.fn()])));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: mocks.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
@@ -8,6 +8,7 @@ vi.mock("@/app/api/utils/sql", () => ({ default: mocks.sql }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: mocks.access }));
 vi.mock("@/app/api/utils/campaignPriorityStore", () => ({ campaignRead: mocks.read, saveCampaignConfig: mocks.save, editCampaign: mocks.edit }));
 vi.mock("@/app/api/utils/campaignPriorityRefresh", () => ({ advanceCampaignRefresh: mocks.advance }));
+vi.mock("@/app/api/utils/campaignWriteOffImport", () => ({ saveCampaignWriteOffs:mocks.writeOffs }));
 vi.mock("@/app/api/utils/campaignPriorityQuery", async original => ({ ...await original(), campaignTransport: mocks.transport }));
 import { GET, POST } from "./route";
 const url = "https://app.example/api/reports/campaign-priorities";
@@ -31,7 +32,7 @@ describe("campaign dashboard authorization and read/write boundaries", () => {
   });
   it.each(["mgo","executive"])("prevents %s from editing, refreshing, loading query metadata or reading audit history", async role => {
     mocks.user.mockResolvedValue({ id: 2, role, active: true });
-    for (const operation of ["fields","source","funds","override","start","continue","cancel"]) expect((await POST(request({ operation,version: 1 }))).status).toBe(403);
+    for (const operation of ["fields","source","funds","override","start","continue","cancel","writeOffs"]) expect((await POST(request({ operation,version: 1 }))).status).toBe(403);
     expect((await GET(new Request(`${url}?history=10:1`))).status).toBe(403);
     expect(mocks.transport).not.toHaveBeenCalled(); expect(mocks.edit).not.toHaveBeenCalled(); expect(mocks.sql).not.toHaveBeenCalled();
   });
@@ -58,6 +59,14 @@ describe("campaign dashboard authorization and read/write boundaries", () => {
   });
   it("requires explicit confirmation to run the campaign query", async () => {
     expect((await POST(request({ operation: "start",version: 1 }))).status).toBe(400); expect(mocks.advance).not.toHaveBeenCalled();
+  });
+  it("accepts bounded CSV uploads only for the dedicated manager import operation",async()=>{
+    mocks.writeOffs.mockResolvedValue(2);
+    const input={csv:"x".repeat(20000)};
+    expect((await POST(request({operation:"writeOffs",version:1,input}))).status).toBe(200);
+    expect(mocks.writeOffs).toHaveBeenCalledWith(expect.objectContaining({role:"admin"}),1,input,expect.objectContaining({connectionKey:"fixture-connection"}));
+    expect((await POST(request({operation:"source",version:1,input}))).status).toBe(413);
+    expect((await POST(request({operation:"writeOffs",version:1,input:{csv:"x".repeat(2*1024*1024)}}))).status).toBe(413);
   });
   it("rejects a known lookup ID even if submitted directly past the mapping UI", async () => {
     mocks.metadata.mockResolvedValue({ id: "27460", name: "Campaign", type: "Gift", select_fields: ["Gift ID", "Fund System Record ID", "Fund", "Gift Amount"].map(name => ({ query_field: { selected_field_name: name } })) });

@@ -13,7 +13,8 @@ export const campaignHash = value => createHash("sha256").update(JSON.stringify(
 // Financial mappings enrich the same source; they must not discard fund assignments.
 export function campaignSourceKey(config) {
   const { writeOff, pledgeBalance, ...columns } = config.columns;
-  return campaignHash({ ...config, columns });
+  const { financialSource, writeOffLedger, ...source } = config;
+  return campaignHash({ ...source, columns });
 }
 export function campaignBaseHash(row) {
   const basis = [row.giftId, row.splitId, row.fundId, row.amountCents];
@@ -36,6 +37,10 @@ export async function campaignTransport(origin) {
     gift: giftId => {
       if (!campaignId(giftId)) throw campaignError("A valid gift system record ID is required.");
       return blackbaudApiFetch(`/gift/v1/gifts/${giftId}`, { ...options, method: "GET" });
+    },
+    pledge: (giftId, section) => {
+      if (!campaignId(giftId) || !["installments", "pledgepayments"].includes(section)) throw campaignError("A valid pledge read is required.");
+      return blackbaudApiFetch(`/gft-gifts/v2/gifts/${giftId}/${section}`, { ...options, method: "GET" });
     },
     read: (url, config, expected, saveBatch) => readCampaignQuery(url, options, config, expected, saveBatch),
   };

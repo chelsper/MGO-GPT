@@ -8,6 +8,7 @@ import { CAMPAIGN_REPORT_KEY, campaignError, campaignId, validateCampaignSource 
 import { campaignTransport, inspectCampaignQuery, campaignSourceKey } from "@/app/api/utils/campaignPriorityQuery";
 import { campaignRead, saveCampaignConfig, editCampaign } from "@/app/api/utils/campaignPriorityStore";
 import { advanceCampaignRefresh } from "@/app/api/utils/campaignPriorityRefresh";
+import { saveCampaignWriteOffs } from "@/app/api/utils/campaignWriteOffImport";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -51,16 +52,18 @@ export async function POST(request) {
     const origin = new URL(request.url).origin;
     if ((request.headers.get("origin") && request.headers.get("origin") !== origin) || !request.headers.get("content-type")?.startsWith("application/json")) throw campaignError("Open this form in the app before saving.", 403);
     const text = await request.text();
-    if (Buffer.byteLength(text) > 16000) throw campaignError("This campaign request is too large.", 413);
+    if (Buffer.byteLength(text) > 2*1024*1024) throw campaignError("This campaign request is too large.", 413);
     let body; try { body = JSON.parse(text); } catch { throw campaignError("Invalid campaign request."); }
     if (!body || Array.isArray(body) || Object.keys(body).some(k => !["operation", "version", "runId", "input"].includes(k))) throw campaignError("Unknown campaign request field.");
     const { operation, version, runId, input } = body;
+    if (operation !== "writeOffs" && Buffer.byteLength(text)>16000) throw campaignError("This campaign request is too large.",413);
     if (operation === "fields") {
       if (!campaignId(input?.queryId)) throw campaignError("Enter a query system record ID.");
       const transport = await campaignTransport(origin);
       return Response.json(inspectCampaignQuery(await transport.metadata(input.queryId), input.queryId), { headers });
     }
     if (!Number.isSafeInteger(version) || version < 1) throw campaignError("Reload saved campaign settings before continuing.", 409);
+    if (operation === "writeOffs") return Response.json({ version:await saveCampaignWriteOffs(user,version,input,await campaignTransport(origin)) },{ headers });
     if (operation === "source") {
       const config = validateCampaignSource(input);
       const transport = await campaignTransport(origin);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campaignCents, campaignRow, validateCampaignSource, validateCampaignOverride } from "./campaignPriorities";
+import { campaignCents, campaignRow, validateCampaignSource, validateCampaignOverride, campaignFinancialKind } from "./campaignPriorities";
 
 const source = { queryId: "27460", queryName: "FM Campaign Gifts - Same as Dashboard", mode: "split", confirmed: true,
   columns: { giftId: "Gift ID", splitId: "Split ID", fundId: "Fund ID", fundName: "Fund", amount: "Amount" } };
@@ -43,5 +43,23 @@ describe("campaign accounting input", () => {
       .toMatchObject({ writeOffCents: null, pledgeBalanceCents: null });
     for (const [writeOff, balance] of [["oops","0"],["-1","0"],["0","-1"],["0","1.001"],["10001","0"]])
       expect(() => campaignRow(["10", "3", "4", "Fund", "10000", writeOff, balance], headers, config)).toThrow();
+  });
+  it("requires gift type for direct checks and never trusts missing or stale financial query fields", () => {
+    expect(() => validateCampaignSource({...source,financialSource:"nxt"})).toThrow(/Gift type/);
+    expect(() => validateCampaignSource({...source,financialSource:"unknown"})).toThrow();
+    const config=validateCampaignSource({...source,financialSource:"nxt",columns:{...source.columns,giftType:"Gift Type",writeOff:"Old writeoff",pledgeBalance:"Old balance"}});
+    expect(config).toMatchObject({financialSource:"nxt",columns:{writeOff:"",pledgeBalance:""}});
+    const headers=[...Object.values(source.columns),"Gift Type"];
+    expect(campaignRow(["10","3","4","Fund","750000","Pledge"],headers,config))
+      .toMatchObject({amountCents:75000000,writeOffCents:null,pledgeBalanceCents:null});
+  });
+  it.each(["Pledge","Matching Gift Pledge","MatchingGiftPledge"])("includes every %s regardless of balance", type=>{
+    expect(campaignFinancialKind(type)).toBe("pledge");
+  });
+  it.each(["One-Time Gift","Stock/Property","Gift-in-Kind","Recurring Gift Payment","Planned Gift"])("recognizes the campaign gift type %s", type=>{
+    expect(campaignFinancialKind(type)).toBe("other");
+  });
+  it.each(["","Unknown","Pledge Payment","Matching Gift Payment","PledgeWriteOff"])("does not silently count unsupported or duplicate commitment type %s", type=>{
+    expect(()=>campaignFinancialKind(type)).toThrow(/cannot be reconciled/);
   });
 });

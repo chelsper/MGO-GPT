@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import sql from "./sql";
-import { campaignError, validPriority, validateCampaignOverride } from "@/utils/campaignPriorities";
+import { campaignError, validPriority, validateCampaignOverride, campaignUsesNxtFinancials, campaignUsesCsvWriteOffs, campaignFinancialIdentity } from "@/utils/campaignPriorities";
+import { campaignWriteOffSummary } from "@/utils/campaignWriteOffCsv";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { describeLegacyCampaignFailure } from "./campaignPriorityDiagnostics";
 import { campaignFiscalYearQuery } from "./campaignPrioritySegments";
@@ -55,7 +56,7 @@ export async function campaignRead(filters, canManage, db = sql) {
     campaignFiscalYearQuery(db),
   ], { isolationLevel: "RepeatableRead", readOnly: true });
   const [state] = results[0];
-  const job = state.job && { stage: state.job.stage, error: state.job.error || null, nextCheckAt: state.job.nextCheckAt || null };
+  const job = state.job && { stage: state.job.stage, error: state.job.error || null, nextCheckAt: state.job.nextCheckAt || null, financial: state.job.financial || null };
   if (canManage && job) job.error = await describeLegacyCampaignFailure(state.job, state.config.mode, db).catch(() => state.job.error) || null;
   const numeric = rows => rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => {
     if (!key.endsWith("_cents") || value === null) return [key, value];
@@ -67,12 +68,14 @@ export async function campaignRead(filters, canManage, db = sql) {
     .map(key => results[1].reduce((sum, row) => sum + BigInt(row[key] ?? 0), 0n));
   if ([...sums, sums[1]-sums[2]].some(sum => sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)))
     throw campaignError("The campaign total exceeds the supported exact-amount range.", 409);
-  const committedReady = Boolean(state.published_run && state.saved_config?.columns?.writeOff) && results[1].every(row => row.missing_write_off === 0);
-  const receivedReady = committedReady && Boolean(state.saved_config?.columns?.pledgeBalance) && results[1].every(row => row.missing_balance === 0);
+  const automatic = campaignUsesNxtFinancials(state.saved_config);
+  const csv = campaignUsesCsvWriteOffs(state.saved_config);
+  const committedReady = Boolean(state.published_run && (automatic || csv || state.saved_config?.columns?.writeOff)) && results[1].every(row => row.missing_write_off === 0);
+  const receivedReady = committedReady && Boolean(automatic || state.saved_config?.columns?.pledgeBalance) && results[1].every(row => row.missing_balance === 0);
   return { version: Number(state.version), canManage, runId: state.published_run, busy: state.busy === true,
-    sourceChanged: Boolean(state.published_run && (state.config.sourceKey !== state.source_key ||
-      ["writeOff", "pledgeBalance"].some(key => (state.config.columns?.[key] || "") !== (state.saved_config?.columns?.[key] || "")))),
-    config: canManage ? state.config : undefined, job: canManage ? job : null,
+    sourceChanged: Boolean(state.published_run && (state.config.sourceKey !== state.source_key || campaignFinancialIdentity(state.config)!==campaignFinancialIdentity(state.saved_config))),
+    config: canManage ? { ...state.config,...(state.config.writeOffLedger ? { writeOffLedger:campaignWriteOffSummary(state.config.writeOffLedger) } : {}) } : undefined, job: canManage ? job : null,
+    writeOffSource: csv ? campaignWriteOffSummary(state.saved_config.writeOffLedger) : null,
     updatedAt: state.completed_at, rawRows: state.raw_rows, uniqueRows: state.unique_rows,
     priorities: numeric(results[1]), funds: numeric(results[2]), rows: numeric(results[3]),
     originalCents: Number(sums[0]), effectiveCents: Number(sums[1]),
@@ -81,23 +84,25 @@ export async function campaignRead(filters, canManage, db = sql) {
     segments: { fiscalYearStartMonth: ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth,
       fiscalYears: numeric(results[6]),
       committed: { status: committedReady ? "ready" : "source_needed", cents: committedReady ? Number(sums[1]) : null,
-        description: committedReady ? "Full gift amounts less write-offs, including approved campaign-only adjustments." : "Map total write-offs and refresh the campaign. Previous totals remain unchanged until the refresh completes." },
+        description: committedReady ? "Full gift amounts less write-offs, including approved campaign-only adjustments." : "Choose a write-off source and current pledge balances, then refresh. Previous totals remain unchanged until checks finish." },
       received: { status: receivedReady ? "ready" : "source_needed", cents: receivedReady ? Number(sums[5]) : null,
-        description: receivedReady ? "Committed less outstanding pledge balances. Paid to date, not receipts during a particular fiscal year." : "Map write-offs and current pledge balances, then refresh. An unmapped field is not a zero balance." } },
+        description: receivedReady ? "Committed less outstanding pledge balances. Paid to date, not receipts during a particular fiscal year." : "Complete the write-off and balance checks to calculate Received. Missing financial data is not treated as zero." } },
     total: results[4][0]?.total || 0, gifts: results[4][0]?.gifts || 0, orphaned: results[5][0]?.orphaned || 0, page };
 }
 
-export async function saveCampaignConfig(actor, version, config, db = sql) {
+export async function saveCampaignConfig(actor, version, config, db = sql, audit = { operation:"source",reason:"Campaign source settings" }) {
   assertCampaignEditor(actor);
   const rows = await db`WITH prior AS MATERIALIZED (SELECT * FROM campaign_priority_state WHERE id=1),
     updated AS (
-      UPDATE campaign_priority_state s SET config=${JSON.stringify(config)}::jsonb,version=s.version+1
+      UPDATE campaign_priority_state s SET config=${JSON.stringify(config)}::jsonb ||
+        CASE WHEN s.config->>'sourceKey'=${config.sourceKey} AND s.config ? 'writeOffLedger' AND NOT ${Boolean(config.writeOffLedger)}
+          THEN jsonb_build_object('writeOffLedger',s.config->'writeOffLedger') ELSE '{}'::jsonb END,version=s.version+1
       FROM users u WHERE s.id=1 AND s.version=${version} AND (s.lease_until IS NULL OR s.lease_until<=NOW())
         AND (s.job IS NULL OR s.job->>'stage' IN ('complete','failed','cancelled'))
         AND u.id=${actor.id} AND u.role=${actor.role} AND u.active=TRUE RETURNING s.*
     ), audited AS (
       INSERT INTO campaign_priority_events(actor_id,actor_name,operation,source_key,reason,before_value,after_value)
-      SELECT ${actor.id},${actor.name},'source',${config.sourceKey},'Campaign source settings',prior.config,updated.config
+      SELECT ${actor.id},${actor.name},${audit.operation},${config.sourceKey},${audit.reason},prior.config,updated.config
       FROM updated CROSS JOIN prior RETURNING id
     ) SELECT version FROM updated`;
   if (!rows.length) throw campaignError("The source changed or a refresh is running. Reload saved data before saving.", 409);
@@ -121,8 +126,11 @@ export async function editCampaign(actor, version, runId, operation, input, db =
     FROM users u WHERE s.id=1 AND s.version=${version} AND s.published_run=${runId}::uuid AND s.config->>'sourceKey'=${key}
       AND (s.lease_until IS NULL OR s.lease_until<=NOW()) AND u.id=${actor.id} AND u.role=${actor.role} AND u.active=TRUE
       AND EXISTS(SELECT 1 FROM campaign_priority_runs r WHERE r.id=s.published_run
+        AND COALESCE(r.config->>'financialSource','query')=COALESCE(s.config->>'financialSource','query')
         AND COALESCE(r.config->'columns'->>'writeOff','')=COALESCE(s.config->'columns'->>'writeOff','')
         AND COALESCE(r.config->'columns'->>'pledgeBalance','')=COALESCE(s.config->'columns'->>'pledgeBalance',''))
+      AND (COALESCE(s.config->>'financialSource','query')<>'csv' OR EXISTS(SELECT 1 FROM campaign_priority_runs r WHERE r.id=s.published_run
+        AND r.config->'writeOffLedger'->>'revision'=s.config->'writeOffLedger'->>'revision'))
       AND (${operation}='override' AND EXISTS(SELECT 1 FROM campaign_priority_rows WHERE run_id=${runId}::uuid AND item_key=${override?.itemKey || ""})
         OR ${operation}='funds' AND (SELECT COUNT(DISTINCT fund_id) FROM campaign_priority_rows WHERE run_id=${runId}::uuid AND fund_id=ANY(${fundIds}))=${fundIds.length})
     RETURNING version`;

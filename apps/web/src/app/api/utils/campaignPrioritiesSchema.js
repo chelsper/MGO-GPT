@@ -24,6 +24,11 @@ export default async function campaignPrioritiesSchema(db) {
     CREATE INDEX IF NOT EXISTS campaign_priority_row_gift ON campaign_priority_rows(run_id,gift_id);
     ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS write_off_cents BIGINT;
     ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS pledge_balance_cents BIGINT;
+    CREATE TABLE IF NOT EXISTS campaign_priority_pledge_checks (
+      run_id UUID NOT NULL REFERENCES campaign_priority_runs(id) ON DELETE CASCADE,
+      gift_id TEXT NOT NULL,stage TEXT NOT NULL DEFAULT 'gift',draft JSONB NOT NULL DEFAULT '{}',
+      result JSONB,checked_at TIMESTAMPTZ,PRIMARY KEY(run_id,gift_id)
+    );
     CREATE TABLE IF NOT EXISTS campaign_priority_funds (
       source_key TEXT NOT NULL, fund_id TEXT NOT NULL, priority TEXT NOT NULL,
       PRIMARY KEY(source_key,fund_id)
