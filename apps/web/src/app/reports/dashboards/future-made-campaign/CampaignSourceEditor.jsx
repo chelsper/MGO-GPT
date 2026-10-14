@@ -35,8 +35,8 @@ export default function CampaignSourceEditor({ data, pending, command, onClose, 
     setFields([]); setLoaded(false); setSuggested([]); setLoading(false); setError("");
   }
   function changeMode(mode) {
-    setSource(current => ({ ...current, mode, columns: { ...current.columns, splitId: "", amount: "" }, confirmed: false }));
-    setSuggested(current => current.filter(key => !["splitId", "amount"].includes(key)));
+    setSource(current => ({ ...current, mode, columns: { ...current.columns, splitId: "", amount: "", writeOff: "", pledgeBalance: "" }, confirmed: false }));
+    setSuggested(current => current.filter(key => !["splitId", "amount", "writeOff", "pledgeBalance"].includes(key)));
   }
   function fieldControl(key) {
     const value = source.columns[key] || "", fieldIssues = issues.filter(issue => issue.key === key);
@@ -73,15 +73,17 @@ export default function CampaignSourceEditor({ data, pending, command, onClose, 
       <p className={styles.fieldHelp}>{source.mode === "split" ? "Keep this selected when gifts can support multiple funds. Each allocation needs its own ID and amount." : "Use the whole Gift Amount and return every fund for each gift. Most gifts import directly. For occasional multi-fund gifts, the app reads their actual NXT split IDs and amounts and checks that they reconcile before counting them. It never assumes an equal split or changes NXT."}</p>
       {issues.length > 0 && <div className={styles.notice} aria-label="Mapping still needed"><strong>Before you can save</strong><ul>{[...new Set(issues.map(issue => issue.message))].map(message => <li key={message}>{message}</li>)}</ul><p>If a required field is not available in NXT, leave it unresolved. We need to verify the source rather than guess or divide gift amounts.</p></div>}
       <div className={styles.formGrid}>{required.map(fieldControl)}</div>
+      <h3>Committed and Received</h3><p className={styles.fieldHelp}>Net gift amount = full gift amount minus total write-offs. Committed uses that net amount, including approved local adjustments. Received = Committed minus outstanding pledge balance. Use totals for the selected gift or split, not repeating write-off transactions. Blank mapped cells mean zero; unmapped fields keep these metrics unavailable.</p>
+      <div className={styles.formGrid}>{["writeOff", "pledgeBalance"].map(fieldControl)}</div>
+      <p className={styles.fieldHelp}>{source.mode === "gift" ? "For verified multi-fund gifts, write-offs and balances are distributed proportionally using actual fund amounts, with exact cent reconciliation." : "Use split-level write-off and balance amounts. To use whole-gift totals, select whole-gift mode above and remap the amounts."}</p>
       <h3>Optional display fields</h3><p className={styles.fieldHelp}>These add context. They do not change campaign credit.</p>
-      <div className={styles.formGrid}>{Object.keys(CAMPAIGN_FIELDS).filter(key => !required.includes(key) && key !== "splitId").map(fieldControl)}</div>
+      <div className={styles.formGrid}>{Object.keys(CAMPAIGN_FIELDS).filter(key => !required.includes(key) && !["splitId", "writeOff", "pledgeBalance"].includes(key)).map(fieldControl)}</div>
       <details className={styles.returnedFields}><summary>All returned query fields ({fields.length})</summary><ul>{fields.map(field => <li key={field}>{field}</li>)}</ul></details>
-      {fields.some(field => /pledge.*balance/i.test(field)) && <p className={styles.muted}>Pledge balance is available in your query, but the current dashboard does not import it. It must not replace or be added to campaign credit without a separate agreed calculation.</p>}
       <h3>3. Review and save</h3>
       <p className={styles.fieldHelp}>Saving remembers these choices. After saving, use Refresh campaign to import gifts; then assign the returned funds to priorities.</p>
       <label className={styles.check}><input type="checkbox" checked={source.confirmed} disabled={pending || loading || issues.length > 0}
-        onChange={e => setSource(current => ({ ...current, confirmed: e.target.checked }))} />I reviewed the system IDs and campaign-countable amount. The query includes the gifts that should count for this campaign.</label>
-      {data.runId && <p className={styles.muted}>Changing mappings keeps the last complete results visible, but fund assignments and exceptions do not transfer automatically to a different source.</p>}
+        onChange={e => setSource(current => ({ ...current, confirmed: e.target.checked }))} />I reviewed the IDs and amount mappings. Gift amounts are before write-offs, mapped blank deductions mean zero, and this query does not count both a pledge and its payments as separate commitments.</label>
+      {data.runId && <p className={styles.muted}>Adding or changing only write-off and balance mappings preserves fund assignments. A changed write-off makes an affected local exception require review. Other source changes do not transfer assignments automatically. Previous complete results stay visible until refresh finishes.</p>}
       <button className={styles.primary} disabled={pending || loading || !source.confirmed || issues.length > 0} onClick={async () => { if (await command("source", source)) onClose(); }}>Save source settings</button>
     </>}
   </section>;

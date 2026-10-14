@@ -32,4 +32,16 @@ describe("campaign accounting input", () => {
     expect(() => validateCampaignOverride({ ...input, reason: "" })).toThrow();
     expect(() => validateCampaignOverride({ ...input, priority: "invented" })).toThrow();
   });
+  it("imports separate write-offs and pledge balances without modifying the original amount", () => {
+    const config = { ...source, columns: { ...source.columns, writeOff: "Write-off Amount", pledgeBalance: "Pledge Balance" } };
+    const headers = Object.values(config.columns);
+    expect(campaignRow(["10", "3", "4", "Fund", "10000", "1000", "2500"], headers, config))
+      .toMatchObject({ amountCents: 1000000, writeOffCents: 100000, pledgeBalanceCents: 250000 });
+    expect(campaignRow(["10", "3", "4", "Fund", "10000", "", ""], headers, config))
+      .toMatchObject({ writeOffCents: 0, pledgeBalanceCents: 0 });
+    expect(campaignRow(["10", "3", "4", "Fund", "10000"], Object.values(source.columns), source))
+      .toMatchObject({ writeOffCents: null, pledgeBalanceCents: null });
+    for (const [writeOff, balance] of [["oops","0"],["-1","0"],["0","-1"],["0","1.001"],["10001","0"]])
+      expect(() => campaignRow(["10", "3", "4", "Fund", "10000", writeOff, balance], headers, config)).toThrow();
+  });
 });

@@ -10,6 +10,18 @@ import { pledgeQueryResultUrl } from "./pledgeQuerySource";
 
 export const CAMPAIGN_LIMITS = { rows: 300000, bytes: 128 * 1024 * 1024, batch: 500 };
 export const campaignHash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+// Financial mappings enrich the same source; they must not discard fund assignments.
+export function campaignSourceKey(config) {
+  const { writeOff, pledgeBalance, ...columns } = config.columns;
+  return campaignHash({ ...config, columns });
+}
+export function campaignBaseHash(row) {
+  const basis = [row.giftId, row.splitId, row.fundId, row.amountCents];
+  // Zero write-offs preserve legacy overrides. Balance changes are not changes
+  // to the approved campaign amount; a new write-off does require review.
+  if (row.writeOffCents) basis.push(row.writeOffCents);
+  return campaignHash(basis);
+}
 export async function campaignTransport(origin) {
   const user = await getReportRefreshUser();
   if (!user?.id || user.active === false || !canManageWorkspaceRole(user.role)) throw campaignError("Connect an authorized shared NXT reporting account first.", 409);
@@ -56,7 +68,7 @@ export async function readCampaignQuery(url, options, config, expectedRows, save
       },
       onRow: (row, headers) => {
         const normalized = campaignRow(row, headers, config);
-        const baseHash = campaignHash([normalized.giftId, normalized.splitId, normalized.fundId, normalized.amountCents]);
+        const baseHash = campaignBaseHash(normalized);
         pending.push({ ...normalized, baseHash, rowHash: campaignHash(normalized) });
       },
     });

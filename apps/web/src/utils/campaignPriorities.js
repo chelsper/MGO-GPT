@@ -10,6 +10,7 @@ export const CAMPAIGN_FIELDS = Object.freeze({
   giftId: "Gift system record ID", splitId: "Gift split system record ID",
   fundId: "Fund system record ID", fundName: "Fund name", amount: "Campaign-countable amount",
   donorName: "Donor name (optional)", giftDate: "Gift date (optional)", giftType: "Gift type (optional)",
+  writeOff: "Write-off amount", pledgeBalance: "Pledge balance",
 });
 export const campaignError = (message, status = 400) => Object.assign(new Error(message), { campaignSafe: true, status });
 export const campaignId = value => /^[1-9]\d{0,18}$/.test(String(value ?? "").trim()) ? String(value).trim() : null;
@@ -55,8 +56,17 @@ export function campaignRow(row, headers, config) {
   if (!giftId || !fundId || (config.mode === "split" && !splitId)) throw campaignError("Every row needs valid gift, fund and (for split amounts) split system IDs. No IDs are inferred.");
   const fundName = get("fundName"), donorName = get("donorName"), giftType = get("giftType");
   if (!fundName || [fundName, donorName, giftType].some(v => v.length > 250)) throw campaignError("A fund name is missing or a campaign label is too long.");
+  const amountCents = campaignCents(get("amount"));
+  const adjustment = key => {
+    if (!config.columns[key]) return null;
+    const value = campaignCents(get(key) || "0");
+    if (value < 0) throw campaignError(`Gift ${giftId}: ${CAMPAIGN_FIELDS[key]} must be zero or a positive amount. No new totals were published.`);
+    return value;
+  };
+  const writeOffCents = adjustment("writeOff"), pledgeBalanceCents = adjustment("pledgeBalance");
+  if (writeOffCents > Math.max(0, amountCents)) throw campaignError(`Gift ${giftId}: the write-off exceeds the mapped gift amount. Review the amount basis; no new totals were published.`);
   return { itemKey: config.mode === "split" ? `${giftId}:${splitId}` : giftId, giftId, splitId, fundId, fundName,
-    donorName, giftDate: get("giftDate"), giftType, amountCents: campaignCents(get("amount")) };
+    donorName, giftDate: get("giftDate"), giftType, amountCents, writeOffCents, pledgeBalanceCents };
 }
 
 export function validateCampaignOverride(input) {

@@ -5,7 +5,7 @@ import sql from "@/app/api/utils/sql";
 import { getReportAccessForUser } from "@/app/api/utils/reportAccess";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { CAMPAIGN_REPORT_KEY, campaignError, campaignId, validateCampaignSource } from "@/utils/campaignPriorities";
-import { campaignTransport, inspectCampaignQuery, campaignHash } from "@/app/api/utils/campaignPriorityQuery";
+import { campaignTransport, inspectCampaignQuery, campaignSourceKey } from "@/app/api/utils/campaignPriorityQuery";
 import { campaignRead, saveCampaignConfig, editCampaign } from "@/app/api/utils/campaignPriorityStore";
 import { advanceCampaignRefresh } from "@/app/api/utils/campaignPriorityRefresh";
 
@@ -66,7 +66,7 @@ export async function POST(request) {
       const transport = await campaignTransport(origin);
       inspectCampaignQuery(await transport.metadata(config.queryId), config.queryId, config);
       config.connectionKey = transport.connectionKey;
-      config.sourceKey = campaignHash(config);
+      config.sourceKey = campaignSourceKey(config);
       return Response.json({ version: await saveCampaignConfig(user, version, config) }, { headers });
     }
     if (["start", "continue", "cancel"].includes(operation)) {

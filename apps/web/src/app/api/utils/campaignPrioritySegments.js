@@ -5,7 +5,7 @@ import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy
 export function campaignFiscalYearQuery(db) {
   const startMonth = ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth;
   return db`WITH dated AS (
-      SELECT e.amount_cents,e.effective_cents,
+      SELECT e.amount_cents,e.effective_cents,e.net_cents,e.write_off_cents,e.pledge_balance_cents,e.received_cents,
         regexp_match(trim(e.gift_date),'^([0-9]{4})-([0-9]{2})-([0-9]{2})$') AS iso,
         regexp_match(trim(e.gift_date),'^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})$') AS us
       FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id
@@ -17,6 +17,9 @@ export function campaignFiscalYearQuery(db) {
         THEN make_date(year,month,1)+(day-1) ELSE NULL END AS date FROM parts
     ) SELECT CASE WHEN EXTRACT(MONTH FROM date)=month
         THEN year+CASE WHEN ${startMonth}<>1 AND month>=${startMonth} THEN 1 ELSE 0 END ELSE NULL END AS fiscal_year,
-      COUNT(*)::int AS allocations,SUM(amount_cents)::text AS original_cents,SUM(effective_cents)::text AS effective_cents
+      COUNT(*)::int AS allocations,SUM(amount_cents)::text AS original_cents,SUM(effective_cents)::text AS effective_cents,
+      SUM(net_cents)::text AS net_cents,SUM(write_off_cents)::text AS write_off_cents,
+      SUM(pledge_balance_cents)::text AS pledge_balance_cents,
+      CASE WHEN COUNT(received_cents)=COUNT(*) THEN SUM(received_cents)::text END AS received_cents
     FROM checked GROUP BY fiscal_year ORDER BY fiscal_year DESC NULLS LAST`;
 }

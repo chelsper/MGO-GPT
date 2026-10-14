@@ -34,4 +34,19 @@ describe("campaign source mapping guidance", () => {
     expect(issues.some(issue => issue.key === "giftType" && issue.message.includes("more than once"))).toBe(true);
     expect(source.columns.donorName).toBe("Missing Name");
   });
+  it("suggests whole-gift financial totals only in whole-gift mode and never replaces saved mappings", () => {
+    const fields = ["Gift Write-off Amount", "Gift Pledge Balance"];
+    expect(suggestCampaignColumns(fields, "gift").columns).toEqual({ writeOff: fields[0], pledgeBalance: fields[1] });
+    expect(suggestCampaignColumns(fields, "split").columns).toEqual({});
+    expect(suggestCampaignColumns(fields, "gift", { writeOff: "Saved total" }).columns.writeOff).toBe("Saved total");
+    expect(suggestCampaignColumns(["Write-off Amount", "Gift Write-off Amount"], "gift").columns.writeOff).toBeUndefined();
+  });
+  it("requires split-level corrections with split amounts and prevents a write-off being the base gift amount", () => {
+    expect(campaignMappingIssues({ ...complete, columns: { ...complete.columns, writeOff: "Gift Write-off Amount", pledgeBalance: "Gift Pledge Balance" } }, [], false).map(issue => issue.key))
+      .toEqual(["writeOff", "pledgeBalance"]);
+    const columns = { ...complete.columns, writeOff: "Gift Split Write-off Amount", pledgeBalance: "Gift Split Pledge Balance" };
+    expect(campaignMappingIssues({ ...complete, columns }, Object.values(columns), true)).toEqual([]);
+    expect(campaignMappingIssues({ mode: "gift", columns: { ...complete.columns, splitId: "", amount: "Gift Write-off Amount" } }, [], false))
+      .toContainEqual(expect.objectContaining({ key: "amount" }));
+  });
 });

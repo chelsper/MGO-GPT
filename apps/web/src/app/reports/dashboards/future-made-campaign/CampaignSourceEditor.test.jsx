@@ -72,3 +72,16 @@ it("requires a fresh field load after a failed recheck, without saving", async (
   expect(await screen.findByRole("alert")).toHaveTextContent("cooldown");
   expect(screen.queryByRole("button", { name: "Save source settings" })).not.toBeInTheDocument(); expect(command).not.toHaveBeenCalled();
 });
+it("adds financial mappings in gift mode, saves no NXT changes and explains exact totals", async () => {
+  const saved = { sourceKey: "same", queryId: "27460", queryName: "Fictional Campaign", mode: "gift", columns: {
+    giftId: "Gift System Record ID", fundId: "Fund System Record ID", fundName: "Fund Description", amount: "Gift Amount" } };
+  const { command } = setup({ data: { config: saved, runId: "published" }, readFields: vi.fn().mockResolvedValue(result([...completeFields,"Gift Write-off Amount"])) });
+  fireEvent.click(screen.getByRole("button", { name: "Load query fields" })); await screen.findByRole("status");
+  expect(screen.getByLabelText("Write-off amount")).toHaveValue("Gift Write-off Amount");
+  expect(screen.getByLabelText("Pledge balance")).toHaveValue("Gift Pledge Balance");
+  expect(screen.getByText(/preserves fund assignments/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(screen.getByRole("button", { name: "Save source settings" }));
+  await act(async () => {});
+  expect(command).toHaveBeenCalledWith("source", expect.objectContaining({ columns: expect.objectContaining({ writeOff: "Gift Write-off Amount", pledgeBalance: "Gift Pledge Balance" }) }));
+  expect(command).toHaveBeenCalledTimes(1);
+});

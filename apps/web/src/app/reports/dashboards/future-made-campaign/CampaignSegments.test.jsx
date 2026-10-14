@@ -20,7 +20,7 @@ it("does not relabel recognition or show unconfigured revenue metrics as zero", 
   render(<CampaignOverview data={data} />);
   expect(within(screen.getByRole("group", { name: "Campaign recognition total" })).getByRole("heading", { name: "$140.00" })).toBeInTheDocument();
   expect(screen.getByRole("article", { name: "Committed campaign total" })).toHaveTextContent("Not set up yet");
-  expect(screen.getByRole("article", { name: "Received campaign total" })).toHaveTextContent("Payment data needed");
+  expect(screen.getByRole("article", { name: "Received campaign total" })).toHaveTextContent("Balance data needed");
   expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
 });
 it("only displays a configured exact-cent revenue metric, including a valid zero", () => {
@@ -53,4 +53,18 @@ it("handles an empty snapshot and old API responses without inventing zero year 
   expect(screen.getByText("No gifts in the saved campaign results.")).toBeInTheDocument();
   rerender(<CampaignFiscalYears data={{ ...data, segments: undefined }} />);
   expect(screen.getByText("Reload saved data to load the fiscal-year breakdown.")).toBeInTheDocument();
+});
+it("separates write-offs from local adjustments and labels annual received amounts as paid to date", () => {
+  const financial = { ...data, originalCents: 1000000, netCents: 900000, writeOffCents: 100000,
+    effectiveCents: 850000, pledgeBalanceCents: 250000,
+    segments: { ...data.segments, committed: { status: "ready", cents: 850000 }, received: { status: "ready", cents: 600000 },
+      fiscalYears: [{ fiscal_year: 2027, original_cents: 1000000, net_cents: 900000, write_off_cents: 100000,
+        effective_cents: 850000, pledge_balance_cents: 250000, received_cents: 600000 }] } };
+  render(<><CampaignOverview data={financial} /><CampaignFiscalYears data={financial} /></>);
+  expect(screen.getByRole("article", { name: "Committed campaign total" })).toHaveTextContent("$8,500.00");
+  expect(screen.getByRole("article", { name: "Received campaign total" })).toHaveTextContent("$6,000.00");
+  const table = screen.getByRole("table");
+  expect(within(table).getByRole("columnheader", { name: "Received to date" })).toBeInTheDocument();
+  expect(within(table).getAllByRole("row")[1]).toHaveTextContent("$10,000.00$1,000.00-$500.00$8,500.00$2,500.00$6,000.00");
+  expect(screen.getByText(/not cash received during that fiscal year/)).toBeInTheDocument();
 });

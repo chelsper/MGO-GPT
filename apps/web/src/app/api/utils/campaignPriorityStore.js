@@ -27,10 +27,18 @@ export async function campaignRead(filters, canManage, db = sql) {
       (s.lease_until>NOW()) AS busy FROM campaign_priority_state s LEFT JOIN campaign_priority_runs r ON r.id=s.published_run WHERE s.id=1`,
     db`SELECT e.priority,COUNT(*)::int AS allocations,COUNT(DISTINCT e.gift_id)::int AS gifts,
       SUM(e.amount_cents)::text AS original_cents,SUM(e.effective_cents)::text AS effective_cents,
+      SUM(e.net_cents)::text AS net_cents,SUM(e.write_off_cents)::text AS write_off_cents,
+      SUM(e.pledge_balance_cents)::text AS pledge_balance_cents,
+      CASE WHEN COUNT(e.received_cents)=COUNT(*) THEN SUM(e.received_cents)::text END AS received_cents,
+      COUNT(*) FILTER(WHERE e.write_off_cents IS NULL)::int AS missing_write_off,
+      COUNT(*) FILTER(WHERE e.pledge_balance_cents IS NULL)::int AS missing_balance,
       COUNT(*) FILTER(WHERE e.has_override)::int AS exceptions,COUNT(*) FILTER(WHERE e.needs_review)::int AS needs_review
       FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id GROUP BY e.priority`,
     db`SELECT e.fund_id,MIN(e.fund_name) AS fund_name,e.fund_priority,COUNT(*)::int AS allocations,
-      SUM(e.amount_cents)::text AS original_cents,SUM(e.effective_cents)::text AS effective_cents
+      SUM(e.amount_cents)::text AS original_cents,SUM(e.effective_cents)::text AS effective_cents,
+      SUM(e.net_cents)::text AS net_cents,SUM(e.write_off_cents)::text AS write_off_cents,
+      SUM(e.pledge_balance_cents)::text AS pledge_balance_cents,
+      CASE WHEN COUNT(e.received_cents)=COUNT(*) THEN SUM(e.received_cents)::text END AS received_cents
       FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id
       GROUP BY e.fund_id,e.fund_priority ORDER BY MIN(e.fund_name),e.fund_id`,
     db`SELECT e.* FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id
@@ -55,19 +63,27 @@ export async function campaignRead(filters, canManage, db = sql) {
     if (!Number.isSafeInteger(amount)) throw campaignError("The campaign total exceeds the supported exact-amount range.", 409);
     return [key, amount];
   })));
-  const sums = ["original_cents", "effective_cents"].map(key => results[1].reduce((sum, row) => sum + BigInt(row[key]), 0n));
-  if ([...sums, sums[1]-sums[0]].some(sum => sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)))
+  const sums = ["original_cents", "effective_cents", "net_cents", "write_off_cents", "pledge_balance_cents", "received_cents"]
+    .map(key => results[1].reduce((sum, row) => sum + BigInt(row[key] ?? 0), 0n));
+  if ([...sums, sums[1]-sums[2]].some(sum => sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)))
     throw campaignError("The campaign total exceeds the supported exact-amount range.", 409);
+  const committedReady = Boolean(state.published_run && state.saved_config?.columns?.writeOff) && results[1].every(row => row.missing_write_off === 0);
+  const receivedReady = committedReady && Boolean(state.saved_config?.columns?.pledgeBalance) && results[1].every(row => row.missing_balance === 0);
   return { version: Number(state.version), canManage, runId: state.published_run, busy: state.busy === true,
-    sourceChanged: Boolean(state.published_run && state.config.sourceKey !== state.source_key),
+    sourceChanged: Boolean(state.published_run && (state.config.sourceKey !== state.source_key ||
+      ["writeOff", "pledgeBalance"].some(key => (state.config.columns?.[key] || "") !== (state.saved_config?.columns?.[key] || "")))),
     config: canManage ? state.config : undefined, job: canManage ? job : null,
     updatedAt: state.completed_at, rawRows: state.raw_rows, uniqueRows: state.unique_rows,
     priorities: numeric(results[1]), funds: numeric(results[2]), rows: numeric(results[3]),
     originalCents: Number(sums[0]), effectiveCents: Number(sums[1]),
+    netCents: Number(sums[2]), writeOffCents: committedReady ? Number(sums[3]) : null,
+    pledgeBalanceCents: receivedReady ? Number(sums[4]) : null,
     segments: { fiscalYearStartMonth: ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth,
       fiscalYears: numeric(results[6]),
-      committed: { status: "definition_needed", cents: null },
-      received: { status: "source_needed", cents: null } },
+      committed: { status: committedReady ? "ready" : "source_needed", cents: committedReady ? Number(sums[1]) : null,
+        description: committedReady ? "Full gift amounts less write-offs, including approved campaign-only adjustments." : "Map total write-offs and refresh the campaign. Previous totals remain unchanged until the refresh completes." },
+      received: { status: receivedReady ? "ready" : "source_needed", cents: receivedReady ? Number(sums[5]) : null,
+        description: receivedReady ? "Committed less outstanding pledge balances. Paid to date, not receipts during a particular fiscal year." : "Map write-offs and current pledge balances, then refresh. An unmapped field is not a zero balance." } },
     total: results[4][0]?.total || 0, gifts: results[4][0]?.gifts || 0, orphaned: results[5][0]?.orphaned || 0, page };
 }
 
@@ -104,6 +120,9 @@ export async function editCampaign(actor, version, runId, operation, input, db =
   const eligible = () => db`UPDATE campaign_priority_state s SET version=s.version+1,lease=${guard}::uuid,lease_until=NOW()+INTERVAL '30 seconds'
     FROM users u WHERE s.id=1 AND s.version=${version} AND s.published_run=${runId}::uuid AND s.config->>'sourceKey'=${key}
       AND (s.lease_until IS NULL OR s.lease_until<=NOW()) AND u.id=${actor.id} AND u.role=${actor.role} AND u.active=TRUE
+      AND EXISTS(SELECT 1 FROM campaign_priority_runs r WHERE r.id=s.published_run
+        AND COALESCE(r.config->'columns'->>'writeOff','')=COALESCE(s.config->'columns'->>'writeOff','')
+        AND COALESCE(r.config->'columns'->>'pledgeBalance','')=COALESCE(s.config->'columns'->>'pledgeBalance',''))
       AND (${operation}='override' AND EXISTS(SELECT 1 FROM campaign_priority_rows WHERE run_id=${runId}::uuid AND item_key=${override?.itemKey || ""})
         OR ${operation}='funds' AND (SELECT COUNT(DISTINCT fund_id) FROM campaign_priority_rows WHERE run_id=${runId}::uuid AND fund_id=ANY(${fundIds}))=${fundIds.length})
     RETURNING version`;
@@ -142,7 +161,8 @@ export async function editCampaign(actor, version, runId, operation, input, db =
   // can lose integer-cent precision, including positive/negative allocations.
   statements.push(db`DO $exact_amounts$ BEGIN
     IF EXISTS(SELECT 1 FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id
-      HAVING SUM(ABS(e.amount_cents::numeric)+ABS(e.effective_cents::numeric))>9007199254740991) THEN
+      HAVING SUM(ABS(e.amount_cents::numeric)+ABS(e.effective_cents::numeric)+ABS(COALESCE(e.write_off_cents,0)::numeric)
+        +ABS(COALESCE(e.pledge_balance_cents,0)::numeric)+ABS(COALESCE(e.received_cents,0)::numeric))>9007199254740991) THEN
       RAISE EXCEPTION 'Campaign amount precision limit' USING ERRCODE='22003';
     END IF;
   END $exact_amounts$`);

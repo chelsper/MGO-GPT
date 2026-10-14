@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 vi.mock("./sql", () => ({ default: vi.fn(() => { throw new Error("Live SQL forbidden"); }) }));
-import { inspectCampaignQuery, readCampaignQuery } from "./campaignPriorityQuery";
+import { inspectCampaignQuery, readCampaignQuery, campaignHash, campaignBaseHash, campaignSourceKey } from "./campaignPriorityQuery";
+import { validateCampaignSource } from "@/utils/campaignPriorities";
 
 const config = { queryId: "27460", queryName: "Campaign", mode: "split", columns: { giftId: "Gift", splitId: "Split", fundId: "Fund System Record ID", fundName: "Fund", amount: "Amount" } };
 const metadata = { id: "27460", name: "Campaign", type: "Gift", select_fields: Object.values(config.columns).map(name => ({ query_field: { selected_field_name: name } })) };
@@ -46,5 +47,29 @@ describe("bounded campaign query import", () => {
   });
   it("accepts a confirmed empty query without inventing gifts", async () => {
     expect(await readCampaignQuery(url, {}, config, 0, vi.fn(), streamCsv("Gift,Split,Fund System Record ID,Fund,Amount\n"))).toEqual({ rawRows: 0 });
+  });
+  it("preserves the legacy source key when only financial mappings are added or changed", () => {
+    const before = validateCampaignSource({ ...config, confirmed: true });
+    delete before.columns.writeOff; delete before.columns.pledgeBalance;
+    before.connectionKey = "connection";
+    const enriched = { ...before, columns: { ...before.columns, writeOff: "Write-off Amount", pledgeBalance: "Pledge Balance" } };
+    expect(campaignSourceKey(enriched)).toBe(campaignHash(before));
+    expect(campaignSourceKey({ ...enriched, columns: { ...enriched.columns, writeOff: "Other total" } })).toBe(campaignHash(before));
+    expect(campaignSourceKey({ ...enriched, queryId: "999" })).not.toBe(campaignHash(before));
+    expect(campaignSourceKey({ ...enriched, columns: { ...enriched.columns, amount: "Different amount" } })).not.toBe(campaignHash(before));
+  });
+  it("invalidates overrides for write-off changes, but not balance changes or newly mapped zero write-offs", () => {
+    const row = { giftId: "1", splitId: null, fundId: "2", amountCents: 10000 };
+    const legacy = campaignHash(["1", null, "2", 10000]);
+    expect(campaignBaseHash({ ...row, writeOffCents: 0, pledgeBalanceCents: 5000 })).toBe(legacy);
+    expect(campaignBaseHash({ ...row, writeOffCents: 1000 })).not.toBe(legacy);
+    expect(campaignBaseHash({ ...row, writeOffCents: 1000, pledgeBalanceCents: 2000 }))
+      .toBe(campaignBaseHash({ ...row, writeOffCents: 1000, pledgeBalanceCents: 4000 }));
+  });
+  it("streams blank deductions as zero and preserves positive financial values in hashes", async () => {
+    const financial = { ...config, mode: "gift", columns: { ...config.columns, splitId: "", writeOff: "Write-off", pledgeBalance: "Balance" } };
+    const batches = [];
+    await readCampaignQuery(url, {}, financial, 2, async rows => batches.push(...rows), streamCsv("Gift,Fund System Record ID,Fund,Amount,Write-off,Balance\n1,3,Fund,10000,1000,2500\n2,3,Fund,100,,"));
+    expect(batches).toMatchObject([{ amountCents: 1000000, writeOffCents: 100000, pledgeBalanceCents: 250000 }, { writeOffCents: 0, pledgeBalanceCents: 0 }]);
   });
 });

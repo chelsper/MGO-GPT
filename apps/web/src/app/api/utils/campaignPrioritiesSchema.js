@@ -22,6 +22,8 @@ export default async function campaignPrioritiesSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS campaign_priority_row_fund ON campaign_priority_rows(run_id,fund_id);
     CREATE INDEX IF NOT EXISTS campaign_priority_row_gift ON campaign_priority_rows(run_id,gift_id);
+    ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS write_off_cents BIGINT;
+    ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS pledge_balance_cents BIGINT;
     CREATE TABLE IF NOT EXISTS campaign_priority_funds (
       source_key TEXT NOT NULL, fund_id TEXT NOT NULL, priority TEXT NOT NULL,
       PRIMARY KEY(source_key,fund_id)
@@ -37,16 +39,24 @@ export default async function campaignPrioritiesSchema(db) {
       reason TEXT NOT NULL, before_value JSONB, after_value JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS campaign_priority_events_item ON campaign_priority_events(source_key,item_key,id);
-    IF to_regclass('campaign_priority_effective') IS NULL THEN
-    CREATE VIEW campaign_priority_effective AS
-    SELECT g.*, r.source_key, COALESCE(f.priority,'unassigned') AS fund_priority,
+    IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+      AND table_name='campaign_priority_effective' AND column_name='received_cents') THEN
+    CREATE OR REPLACE VIEW campaign_priority_effective AS
+    SELECT g.run_id,g.item_key,g.gift_id,g.split_id,g.fund_id,g.fund_name,g.donor_name,g.gift_date,g.gift_type,
+      g.amount_cents,g.base_hash,g.row_hash,g.conflict, r.source_key, COALESCE(f.priority,'unassigned') AS fund_priority,
       CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.priority,f.priority,'unassigned') ELSE COALESCE(f.priority,'unassigned') END AS priority,
-      CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.amount_cents,g.amount_cents) ELSE g.amount_cents END AS effective_cents,
+      calculated.effective_cents,
       o.item_key IS NOT NULL AS has_override, (o.item_key IS NOT NULL AND o.base_hash<>g.base_hash) AS needs_review,
-      o.priority AS override_priority,o.amount_cents AS override_cents,o.reason,o.updated_by_name,o.updated_at AS override_updated_at
+      o.priority AS override_priority,o.amount_cents AS override_cents,o.reason,o.updated_by_name,o.updated_at AS override_updated_at,
+      g.write_off_cents,g.pledge_balance_cents,net.net_cents,
+      CASE WHEN g.write_off_cents IS NOT NULL AND g.pledge_balance_cents IS NOT NULL
+        THEN calculated.effective_cents-g.pledge_balance_cents END AS received_cents
     FROM campaign_priority_rows g JOIN campaign_priority_runs r ON r.id=g.run_id
       LEFT JOIN campaign_priority_funds f ON f.source_key=r.source_key AND f.fund_id=g.fund_id
-      LEFT JOIN campaign_priority_overrides o ON o.source_key=r.source_key AND o.item_key=g.item_key;
+      LEFT JOIN campaign_priority_overrides o ON o.source_key=r.source_key AND o.item_key=g.item_key
+      CROSS JOIN LATERAL (SELECT g.amount_cents-COALESCE(g.write_off_cents,0) AS net_cents) net
+      CROSS JOIN LATERAL (SELECT CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.amount_cents,net.net_cents)
+        ELSE net.net_cents END AS effective_cents) calculated;
     END IF;
   END $campaign_schema$`;
 }

@@ -25,9 +25,9 @@ export async function stageCampaignRows(state, rows, db) {
   const result = await db`WITH eligible AS (
       SELECT 1 FROM campaign_priority_state WHERE id=1 AND lease=${state.lease}::uuid AND lease_until>NOW()
     ), inserted AS (
-      INSERT INTO campaign_priority_rows(run_id,item_key,gift_id,split_id,fund_id,fund_name,donor_name,gift_date,gift_type,amount_cents,base_hash,row_hash,conflict)
-      SELECT ${state.job.runId}::uuid,x."itemKey",x."giftId",x."splitId",x."fundId",x."fundName",x."donorName",x."giftDate",x."giftType",x."amountCents",x."baseHash",x."rowHash",x.conflict
-      FROM jsonb_to_recordset(${JSON.stringify([...unique.values()])}::jsonb) AS x("itemKey" text,"giftId" text,"splitId" text,"fundId" text,"fundName" text,"donorName" text,"giftDate" text,"giftType" text,"amountCents" bigint,"baseHash" text,"rowHash" text,conflict boolean)
+      INSERT INTO campaign_priority_rows(run_id,item_key,gift_id,split_id,fund_id,fund_name,donor_name,gift_date,gift_type,amount_cents,base_hash,row_hash,conflict,write_off_cents,pledge_balance_cents)
+      SELECT ${state.job.runId}::uuid,x."itemKey",x."giftId",x."splitId",x."fundId",x."fundName",x."donorName",x."giftDate",x."giftType",x."amountCents",x."baseHash",x."rowHash",x.conflict,x."writeOffCents",x."pledgeBalanceCents"
+      FROM jsonb_to_recordset(${JSON.stringify([...unique.values()])}::jsonb) AS x("itemKey" text,"giftId" text,"splitId" text,"fundId" text,"fundName" text,"donorName" text,"giftDate" text,"giftType" text,"amountCents" bigint,"baseHash" text,"rowHash" text,conflict boolean,"writeOffCents" bigint,"pledgeBalanceCents" bigint)
       CROSS JOIN eligible ON CONFLICT(run_id,item_key) DO UPDATE SET conflict=campaign_priority_rows.conflict OR EXCLUDED.conflict OR campaign_priority_rows.row_hash<>EXCLUDED.row_hash
       RETURNING item_key
     ) SELECT COUNT(*)::int AS count FROM inserted`;
@@ -101,7 +101,8 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
     if (state.config.mode === "gift") await finishCampaignGiftKeys(state, db);
     const [counts] = await db`SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE conflict)::int AS conflicts,
       COUNT(DISTINCT fund_id)::int AS funds,
-      COALESCE(SUM(ABS(amount_cents::numeric)+ABS(effective_cents::numeric)),0)::text AS absolute_cents
+      COALESCE(SUM(ABS(amount_cents::numeric)+ABS(effective_cents::numeric)+ABS(COALESCE(write_off_cents,0)::numeric)
+        +ABS(COALESCE(pledge_balance_cents,0)::numeric)+ABS(COALESCE(received_cents,0)::numeric)),0)::text AS absolute_cents
       FROM campaign_priority_effective WHERE run_id=${job.runId}::uuid`;
     if (BigInt(counts.absolute_cents)>BigInt(Number.MAX_SAFE_INTEGER)) throw campaignError("The query exceeds the campaign's exact-amount limit. The previous dataset is unchanged.");
     const conflictIds = counts.conflicts > 0 ? await campaignConflictGiftIds(job.runId, db) : [];

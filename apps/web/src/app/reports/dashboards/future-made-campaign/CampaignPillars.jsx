@@ -10,6 +10,7 @@ export default function CampaignPillars({ data, selectedPriority, onSelect }) {
         const bucket = data.priorities.find(p => p.priority === priority.key);
         return <button key={priority.key} className={styles.priority} onClick={() => onSelect(selectedPriority === priority.key ? "" : priority.key)} aria-pressed={selectedPriority === priority.key}>
           <span>{priority.label}</span><strong>{campaignMoney(ready ? bucket?.effective_cents || 0 : null)}</strong><small>{ready ? `${bucket?.allocations || 0} allocations` : "Awaiting first refresh"}</small>
+          {ready && data.segments?.received?.status === "ready" && <small>Received to date: {campaignMoney(bucket?.received_cents ?? 0)}</small>}
         </button>;
       })}
     </div>

@@ -5,7 +5,7 @@ vi.mock("./sql", () => ({ default: vi.fn(() => { throw new Error("Live SQL forbi
 import schema from "./campaignPrioritiesSchema";
 import { campaignRead, editCampaign, saveCampaignConfig } from "./campaignPriorityStore";
 import { advanceCampaignRefresh, stageCampaignRows } from "./campaignPriorityRefresh";
-import { campaignHash } from "./campaignPriorityQuery";
+import { campaignHash, campaignBaseHash } from "./campaignPriorityQuery";
 import { BlackbaudQuotaExceededError } from "./blackbaud";
 import { campaignRow } from "@/utils/campaignPriorities";
 import { LEGACY_CAMPAIGN_IMPORT_ERROR } from "./campaignPriorityDiagnostics";
@@ -48,6 +48,22 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await advanceCampaignRefresh(actor, (await read()).version, "start", t, db);
     await db`UPDATE campaign_priority_state SET job=jsonb_set(job,'{nextCheckAt}','"2000-01-01T00:00:00Z"') WHERE id=1`;
   }
+  const financialConfig = { ...config, columns: { ...config.columns, writeOff: "Split Write-off Amount", pledgeBalance: "Split Pledge Balance" } };
+  function financialRow(value, writeOffCents, pledgeBalanceCents) {
+    const { rowHash: _rowHash, baseHash: _baseHash, ...original } = value;
+    const financial = { ...original, writeOffCents, pledgeBalanceCents };
+    return { ...financial, rowHash: campaignHash(financial), baseHash: campaignBaseHash(financial) };
+  }
+  async function publishFinancial(rows, source = financialConfig, t = transport(rows)) {
+    t.metadata.mockResolvedValue({ ...metadata, select_fields: Object.values(source.columns).filter(Boolean).map(name => ({ query_field: { selected_field_name: name } })) });
+    await saveCampaignConfig(actor, (await read()).version, source, db);
+    await start(t);
+    await advanceCampaignRefresh(actor, (await read()).version, "continue", t, db);
+    if ((await read()).job.stage === "resolving") await advanceCampaignRefresh(actor, (await read()).version, "continue", t, db);
+    const saved = await read();
+    if (saved.job.stage === "complete") run = saved.runId;
+    return saved;
+  }
   beforeAll(async () => {
     if (!modulePath?.startsWith("/tmp/") || !modulePath.endsWith("/dist/index.js")) throw new Error("Use an isolated /tmp PGlite runtime");
     const { PGlite } = await import(/* @vite-ignore */ modulePath);
@@ -89,22 +105,124 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     expect((await read()).effectiveCents).toBe(10000);
     expect((await db`SELECT * FROM campaign_priority_events`)).toHaveLength(4);
   });
+  it("reconciles write-offs, committed and received across funds, priorities and original-gift fiscal years", async () => {
+    await edit("funds", { fundIds: ["4"], priority: "scholarships" });
+    const a = financialRow({ ...row(1,600000), giftDate: "2026-06-30" }, 100000, 200000);
+    const b = financialRow(row(2,400000,"5"), 0, 50000);
+    const saved = await publishFinancial([a,a,b]);
+    expect(saved.job.stage).toBe("complete");
+    expect(saved.uniqueRows).toBe(2); expect(saved.rawRows).toBe(3);
+    expect(saved).toMatchObject({ originalCents: 1000000, writeOffCents: 100000, netCents: 900000, effectiveCents: 900000, pledgeBalanceCents: 250000, sourceChanged: false });
+    expect(saved.segments.committed).toMatchObject({ status: "ready", cents: 900000 });
+    expect(saved.segments.received).toMatchObject({ status: "ready", cents: 650000 });
+    expect(saved.priorities.find(p => p.priority === "scholarships")).toMatchObject({ effective_cents: 500000, received_cents: 300000 });
+    expect(saved.funds.find(f => f.fund_id === "4")).toMatchObject({ fund_priority: "scholarships", original_cents: 600000, write_off_cents: 100000, pledge_balance_cents: 200000, received_cents: 300000 });
+    expect(saved.segments.fiscalYears).toMatchObject([
+      { fiscal_year: 2027, effective_cents: 400000, received_cents: 350000 },
+      { fiscal_year: 2026, effective_cents: 500000, received_cents: 300000 },
+    ]);
+    const filtered = await campaignRead(new URLSearchParams({ fund: "4" }), false, db);
+    expect(filtered.rows).toHaveLength(1); expect(filtered.segments).toEqual(saved.segments);
+    expect(filtered.rows[0]).toMatchObject({ amount_cents: 600000, net_cents: 500000, effective_cents: 500000, received_cents: 300000 });
+  });
+  it("preserves assignments but blocks edits against an older snapshot until financial mapping refresh completes", async () => {
+    await edit("funds", { fundIds: ["4"], priority: "healthcare-business" });
+    await saveCampaignConfig(actor, (await read()).version, financialConfig, db);
+    const saved = await read();
+    expect(saved.sourceChanged).toBe(true);
+    expect(saved.effectiveCents).toBe(10000); expect(saved.segments.committed.status).toBe("source_needed");
+    await expect(edit("funds", { fundIds: ["4"], priority: "scholarships" })).rejects.toMatchObject({ status: 409 });
+    expect((await read()).funds.find(f => f.fund_id === "4").fund_priority).toBe("healthcare-business");
+    const refreshed = await publishFinancial([financialRow(row(1),0,1000),financialRow(row(2,4000,"5"),0,0)]);
+    expect(refreshed.sourceChanged).toBe(false);
+    expect(refreshed.funds.find(f => f.fund_id === "4").fund_priority).toBe("healthcare-business");
+    await expect(edit("funds", { fundIds: ["4"], priority: "scholarships" })).resolves.toBeTypeOf("number");
+  });
+  it("keeps legacy and partial snapshots unavailable instead of assuming missing write-offs or balances are zero", async () => {
+    expect((await read()).writeOffCents).toBeNull();
+    expect((await read()).segments.received.cents).toBeNull();
+    const partial = await publishFinancial([financialRow(row(1),0,null)], { ...financialConfig, columns: { ...financialConfig.columns, pledgeBalance: "" } });
+    expect(partial.segments.committed).toMatchObject({ status: "ready", cents: 6000 });
+    expect(partial.segments.received).toMatchObject({ status: "source_needed", cents: null });
+    expect(partial.rows[0].received_cents).toBeNull();
+    const zero = await publishFinancial([financialRow(row(1),0,0)]);
+    expect(zero.segments.received).toMatchObject({ status: "ready", cents: 6000 });
+    const empty = await publishFinancial([]);
+    expect(empty.segments.committed).toMatchObject({ status: "ready", cents: 0 });
+    expect(empty.segments.received).toMatchObject({ status: "ready", cents: 0 });
+  });
+  it("keeps approved net overrides across balance changes but requires review after a new write-off", async () => {
+    await edit("override", { itemKey: "10:1", priority: "scholarships", amount: "50", reason: "Net campaign recognition" });
+    let saved = await publishFinancial([financialRow(row(1),0,1000)]);
+    expect(saved.rows[0]).toMatchObject({ effective_cents: 5000, received_cents: 4000, needs_review: false });
+    saved = await publishFinancial([financialRow(row(1),1000,1000)]);
+    expect(saved.rows[0]).toMatchObject({ net_cents: 5000, effective_cents: 5000, received_cents: 4000, needs_review: true });
+    await edit("override", { itemKey: "10:1", priority: "scholarships", amount: "45", reason: "Reviewed net amount" });
+    expect((await read()).rows[0]).toMatchObject({ effective_cents: 4500, received_cents: 3500, needs_review: false });
+    saved = await publishFinancial([financialRow(row(1),1000,500)]);
+    expect(saved.rows[0]).toMatchObject({ effective_cents: 4500, received_cents: 4000, needs_review: false });
+    await edit("override", { itemKey: "10:1", revert: true, reason: "Use net NXT value" });
+    expect((await read()).rows[0]).toMatchObject({ effective_cents: 5000, received_cents: 4500, has_override: false });
+  });
+  it("leaves the published snapshot intact when duplicate rows disagree on deductions", async () => {
+    const priorRun = run;
+    const saved = await publishFinancial([financialRow(row(1),0,1000),financialRow(row(1),0,2000)]);
+    expect(saved.job.stage).toBe("failed"); expect(saved.job.error).toContain("conflicting");
+    expect(saved.runId).toBe(priorRun); expect(saved.effectiveCents).toBe(10000);
+    expect(saved.segments.received.status).toBe("source_needed");
+  });
+  it("allocates whole-gift deductions once, with exact cents, during verified split publication", async () => {
+    const rows = twoSplitGifts().map(value => financialRow(value, value.giftId === "11" ? 1001 : 0, value.giftId === "11" ? 3001 : 0));
+    const source = { ...giftConfig, columns: { ...giftConfig.columns, writeOff: "Gift Write-off Amount", pledgeBalance: "Gift Pledge Balance" } };
+    const saved = await publishFinancial(rows, source, giftTransport(rows));
+    expect(saved.job.stage).toBe("complete"); expect(saved.gifts).toBe(2); expect(saved.uniqueRows).toBe(4);
+    expect(saved).toMatchObject({ originalCents: 15300, writeOffCents: 1001, effectiveCents: 14299, pledgeBalanceCents: 3001 });
+    expect(saved.segments.received.cents).toBe(11298);
+    expect(saved.rows.reduce((sum,r) => sum+r.write_off_cents,0)).toBe(1001);
+    expect(saved.rows.reduce((sum,r) => sum+r.pledge_balance_cents,0)).toBe(3001);
+    expect(saved.rows.every(r => r.received_cents >= 0)).toBe(true);
+  });
+  it("retains negative received results for review rather than silently clamping balances", async () => {
+    const saved = await publishFinancial([financialRow(row(1),1000,6000)]);
+    expect(saved.segments.received.cents).toBe(-1000);
+    expect(saved.rows[0].received_cents).toBe(-1000);
+  });
+  it("upgrades the existing PostgreSQL view without changing historical amounts, assignments or exceptions", async () => {
+    await edit("funds", { fundIds: ["4"], priority: "scholarships" });
+    await edit("override", { itemKey: "10:1", priority: null, amount: "50", reason: "Existing approved exception" });
+    await pg.exec(`DROP VIEW campaign_priority_effective;
+      ALTER TABLE campaign_priority_rows DROP COLUMN write_off_cents, DROP COLUMN pledge_balance_cents;
+      CREATE VIEW campaign_priority_effective AS
+      SELECT g.*,r.source_key,COALESCE(f.priority,'unassigned') AS fund_priority,
+        CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.priority,f.priority,'unassigned') ELSE COALESCE(f.priority,'unassigned') END AS priority,
+        CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.amount_cents,g.amount_cents) ELSE g.amount_cents END AS effective_cents,
+        o.item_key IS NOT NULL AS has_override,(o.item_key IS NOT NULL AND o.base_hash<>g.base_hash) AS needs_review,
+        o.priority AS override_priority,o.amount_cents AS override_cents,o.reason,o.updated_by_name,o.updated_at AS override_updated_at
+      FROM campaign_priority_rows g JOIN campaign_priority_runs r ON r.id=g.run_id
+        LEFT JOIN campaign_priority_funds f ON f.source_key=r.source_key AND f.fund_id=g.fund_id
+        LEFT JOIN campaign_priority_overrides o ON o.source_key=r.source_key AND o.item_key=g.item_key`);
+    await schema(db); await schema(db);
+    const saved = await read();
+    expect(saved).toMatchObject({ originalCents: 10000, netCents: 10000, effectiveCents: 9000, writeOffCents: null, pledgeBalanceCents: null });
+    expect(saved.rows.find(r => r.item_key === "10:1")).toMatchObject({ effective_cents: 5000, priority: "scholarships", needs_review: false, received_cents: null });
+    expect(await db`SELECT * FROM campaign_priority_events`).toHaveLength(2);
+  });
   it("groups the entire snapshot by JU fiscal year, independently of gift detail filters", async () => {
     await db`UPDATE campaign_priority_rows SET gift_date=CASE WHEN item_key='10:1' THEN '6/30/2026' ELSE '2026-07-01' END WHERE run_id=${run}::uuid`;
     const saved = await campaignRead(new URLSearchParams({ fund: "4" }), true, db);
     expect(saved.rows).toHaveLength(1);
     expect(saved.segments.fiscalYearStartMonth).toBe(7);
-    expect(saved.segments.fiscalYears).toEqual([
+    expect(saved.segments.fiscalYears).toMatchObject([
       { fiscal_year: 2027, allocations: 1, original_cents: 4000, effective_cents: 4000 },
       { fiscal_year: 2026, allocations: 1, original_cents: 6000, effective_cents: 6000 },
     ]);
-    expect(saved.segments.committed).toEqual({ status: "definition_needed", cents: null });
-    expect(saved.segments.received).toEqual({ status: "source_needed", cents: null });
+    expect(saved.segments.committed).toMatchObject({ status: "source_needed", cents: null });
+    expect(saved.segments.received).toMatchObject({ status: "source_needed", cents: null });
   });
   it("fiscal-year recognition includes local exceptions but does not rewrite original amounts", async () => {
     await edit("override", { itemKey: "10:1", priority: "scholarships", amount: "50", reason: "Approved recognition" });
     const saved = await read();
-    expect(saved.segments.fiscalYears).toEqual([{ fiscal_year: 2027, allocations: 2, original_cents: 10000, effective_cents: 9000 }]);
+    expect(saved.segments.fiscalYears).toMatchObject([{ fiscal_year: 2027, allocations: 2, original_cents: 10000, effective_cents: 9000 }]);
     expect(saved.segments.fiscalYears.reduce((sum, year) => sum+year.effective_cents, 0)).toBe(saved.effectiveCents);
   });
   it("keeps missing and invalid dates visible without normalizing impossible days into another year", async () => {
@@ -112,7 +230,7 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     const dates = ["", "not a date", "2026-02-29", "02/30/2024", "2026-13-01", "2026-00-01", "2026-01-00", "0000-01-01", "9999-12-31", "2026-07-01junk", "2026-06-31", "2024-02-29", " 2/29/2024 "];
     await stage(dates.map((date, i) => ({ ...row(i+1,100), giftDate: date })));
     const saved = await read();
-    expect(saved.segments.fiscalYears).toEqual([
+    expect(saved.segments.fiscalYears).toMatchObject([
       { fiscal_year: 2024, allocations: 2, original_cents: 200, effective_cents: 200 },
       { fiscal_year: null, allocations: 11, original_cents: 1100, effective_cents: 1100 },
     ]);
