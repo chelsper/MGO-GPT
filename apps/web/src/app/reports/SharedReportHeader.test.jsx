@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import SharedReportHeader from "./SharedReportHeader";
 afterEach(() => {
   cleanup();
@@ -112,5 +113,30 @@ it("keeps long report names within the navigation and preserves the selected des
     minHeight: "44px",
     overflowWrap: "anywhere",
   });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("can compact report navigation without removing authorized dashboard destinations or actions", () => {
+  const fetch = vi.spyOn(globalThis, "fetch");
+  render(<MemoryRouter><SharedReportHeader compact title="Future. Made. Campaign"
+    activeReportKey="future-made-campaign" reportSection="dashboards"
+    action={<button>Manage dashboard</button>}
+    accessibleReports={[
+      { key: "future-made-campaign", title: "Future. Made. Campaign", canView: true },
+      { key: "alumni-family-engagement", title: "Alumni & Family Engagement", canView: true },
+      { key: "list-hidden", title: "Hidden dashboard", configurationSchema: "query-count-dashboard-v1", canView: false },
+      { key: "portfolio-fy-giving", title: "My FY27 Portfolio Giving", canView: true },
+    ]} /></MemoryRouter>);
+  expect(screen.getByRole("heading", { name: "Future. Made. Campaign" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Manage dashboard" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "Back to My Dashboards" })).toHaveAttribute("href", "/reports/dashboards");
+  const disclosure = screen.getByText("Reports & dashboards").closest("details");
+  expect(disclosure).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByText("Reports & dashboards"));
+  expect(disclosure).toHaveAttribute("open");
+  expect(screen.getByRole("navigation", { name: "Reports" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "My Dashboards" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("combobox", { name: "Dashboard" })).toHaveValue("future-made-campaign");
+  expect(screen.getAllByRole("option")).toHaveLength(2);
   expect(fetch).not.toHaveBeenCalled();
 });

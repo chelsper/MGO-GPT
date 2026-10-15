@@ -11,25 +11,34 @@ export default function CampaignOverview({ data }) {
     <div className={styles.overviewMetrics}>
       <article className={styles.metric} aria-label="Committed campaign total">
         <h3>Committed</h3><strong className={metricReady(committed) ? styles.metricAmount : styles.metricPending}>{metricReady(committed) ? campaignMoney(committed.cents) : "Not set up yet"}</strong>
-        <p>{committed?.description || "Map write-offs and refresh the campaign to calculate Committed."}</p>
+        <p>{metricReady(committed) ? "After write-offs and campaign-only adjustments." : committed?.description || "Map write-offs and refresh the campaign to calculate Committed."}</p>
       </article>
       <article className={styles.metric} aria-label="Received campaign total">
-        <h3>Received</h3><strong className={metricReady(received) ? styles.metricAmount : styles.metricPending}>{metricReady(received) ? campaignMoney(received.cents) : "Balance data needed"}</strong>
-        <p>{received?.description || "Map write-offs and current pledge balances, then refresh. This is not a zero balance."}</p>
+        <h3>Received to date</h3><strong className={metricReady(received) ? styles.metricAmount : styles.metricPending}>{metricReady(received) ? campaignMoney(received.cents) : "Balance data needed"}</strong>
+        <p>{metricReady(received) ? "Committed less outstanding pledge balances." : received?.description || "Map write-offs and current pledge balances, then refresh. This is not a zero balance."}</p>
+      </article>
+      <article className={styles.metric} aria-label="Outstanding pledge balance">
+        <h3>Outstanding pledges</h3><strong className={metricReady(received) && Number.isSafeInteger(data.pledgeBalanceCents) ? styles.metricAmount : styles.metricPending}>{metricReady(received) && Number.isSafeInteger(data.pledgeBalanceCents) ? campaignMoney(data.pledgeBalanceCents) : "Balance data needed"}</strong>
+        <p>Remaining pledge balances, already included in Committed.</p>
       </article>
     </div>
+    <p className={styles.muted}>Received is paid to date on campaign gifts, not cash receipts within a particular fiscal year.</p>
+    {ready && !metricReady(committed) && <div className={styles.recognition} role="group" aria-label="Campaign recognition total"><h3>Campaign recognition</h3><strong className={styles.metricAmount}>{campaignMoney(data.effectiveCents)}</strong><p className={styles.muted}>Saved campaign amount. Committed and Received need the financial setup above.</p></div>}
     <CampaignClassification data={data} />
-    <div className={styles.hero} role="group" aria-label="Campaign recognition total">
-      <div><p className={styles.eyebrow}>CAMPAIGN RECOGNITION</p><h2>{campaignMoney(ready ? data.effectiveCents : null)}</h2><p>Your saved campaign definition, less mapped write-offs and including local adjustments.</p></div>
+    <details className={styles.calculations}>
+      <summary>How these totals are calculated</summary>
+      <p>Committed is the original gift amount less write-offs, plus approved campaign-only adjustments. Received is Committed less outstanding pledge balances. It is not a cash-ledger report.</p>
       <div className={styles.reconciliation}>
         <span>Original allocation total <strong>{campaignMoney(ready ? data.originalCents : null)}</strong></span>
         <span>Write-offs <strong>{campaignMoney(ready ? data.writeOffCents : null)}</strong></span>
         <span>Net gift amount <strong>{campaignMoney(ready ? data.netCents ?? data.originalCents : null)}</strong></span>
         <span>Local adjustments <strong>{campaignMoney(ready ? data.effectiveCents-(data.netCents ?? data.originalCents) : null)}</strong></span>
-        <span>Outstanding pledge balance <strong>{campaignMoney(ready ? data.pledgeBalanceCents : null)}</strong></span>
         <small>{ready ? `${data.uniqueRows.toLocaleString()} unique allocations from ${data.rawRows.toLocaleString()} query rows` : "Connect the query to build the first complete snapshot."}</small>
       </div>
-    </div>
-    <p className={styles.muted}>Received is calculated from current pledge balances, not payment dates. It includes approved campaign-only adjustments and is not a cash-ledger report. Unmapped deductions are not treated as verified zeros.</p>
+      <p>Philanthropic is the campaign total minus Comprehensive Investment. The classification query identifies gifts already included in the campaign; its amounts are not added again.</p>
+      <p>Multi-fund gifts use verified NXT allocations and proportionally allocated deductions. Local adjustments affect this dashboard only; original NXT amounts remain visible. Missing deductions or balances are not treated as verified zeros.</p>
+      {data.writeOffSource && <p>Write-offs use the saved CSV register: complete list through {data.writeOffSource.completeAsOf}; additions/corrections through {data.writeOffSource.latestAsOf}. New NXT write-offs require an updated upload.</p>}
+      {data.orphaned > 0 && <p>{data.orphaned} saved exceptions belong to allocations no longer in this query. They are retained in history but excluded from totals.</p>}
+    </details>
   </section>;
 }

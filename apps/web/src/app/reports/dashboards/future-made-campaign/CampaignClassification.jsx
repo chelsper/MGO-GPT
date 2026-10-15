@@ -11,8 +11,7 @@ export default function CampaignClassification({data}) {
         ["Comprehensive Investment",classification.investmentCents,classification.investmentReceivedCents],
         ["Philanthropic",classification.philanthropicCents,classification.philanthropicReceivedCents],
       ].map(([label,amount,paid])=><tr key={label}><th scope="row">{label}</th><td>{campaignMoney(amount)}</td>{received && <td>{campaignMoney(paid)}</td>}</tr>)}</tbody>
-      <tfoot><tr><th scope="row">Campaign total</th><td><strong>{campaignMoney(data.effectiveCents)}</strong></td>{received && <td><strong>{campaignMoney(data.segments.received.cents)}</strong></td>}</tr></tfoot>
     </table>
-    <p className={styles.muted}>Philanthropic is the campaign total minus Comprehensive Investment. Query {classification.queryId} classifies gifts; its amounts are not added again. Both categories include applicable write-offs and campaign-only adjustments.</p>
+    <p className={styles.muted}>These two categories make up the campaign totals above.</p>
   </div>;
 }

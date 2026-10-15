@@ -18,7 +18,7 @@ afterEach(cleanup);
 
 it("does not relabel recognition or show unconfigured revenue metrics as zero", () => {
   render(<CampaignOverview data={data} />);
-  expect(within(screen.getByRole("group", { name: "Campaign recognition total" })).getByRole("heading", { name: "$140.00" })).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "Campaign recognition total" })).toHaveTextContent("$140.00");
   expect(screen.getByRole("article", { name: "Committed campaign total" })).toHaveTextContent("Not set up yet");
   expect(screen.getByRole("article", { name: "Received campaign total" })).toHaveTextContent("Balance data needed");
   expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
@@ -85,7 +85,8 @@ it("shows the category breakdown overall and by fiscal year, without replacing t
   const summary = within(screen.getByRole("table", { name: "Campaign investment and philanthropic totals" })).getAllByRole("row");
   expect(summary[1]).toHaveTextContent("Comprehensive Investment$90.00$60.00");
   expect(summary[2]).toHaveTextContent("Philanthropic$50.00$50.00");
-  expect(summary[3]).toHaveTextContent("Campaign total$140.00$110.00");
+  expect(summary).toHaveLength(3);
+  expect(screen.queryByRole("group", { name: "Campaign recognition total" })).not.toBeInTheDocument();
   const years = within(screen.getByRole("table", { name: "Fiscal-year investment and philanthropic totals" })).getAllByRole("row");
   expect(years[1]).toHaveTextContent("FY2027"); expect(years[1]).toHaveTextContent("$50.00$0.00$50.00$50.00$0.00$50.00");
   expect(years[2]).toHaveTextContent("FY2026"); expect(years[2]).toHaveTextContent("$90.00$90.00$0.00$60.00$60.00$0.00");
@@ -93,6 +94,31 @@ it("shows the category breakdown overall and by fiscal year, without replacing t
   fireEvent.change(screen.getByLabelText("Fiscal-year view"), { target: { value: "amounts" } });
   expect(screen.getByRole("table", { name: "Fiscal-year campaign recognition" })).toBeInTheDocument();
   expect(screen.queryByRole("table", { name: "Fiscal-year investment and philanthropic totals" })).not.toBeInTheDocument();
+});
+
+it("shows the saved outstanding balance without inventing a zero or calculating another metric", () => {
+  const { rerender } = render(<CampaignOverview data={{ ...data, pledgeBalanceCents: 3000, segments: {
+    ...data.segments, committed: { status: "ready", cents: 14000 }, received: { status: "ready", cents: 11000 },
+  } }} />);
+  expect(screen.getByRole("article", { name: "Outstanding pledge balance" })).toHaveTextContent("$30.00");
+  expect(screen.getByRole("article", { name: "Outstanding pledge balance" })).toHaveTextContent("already included in Committed");
+  rerender(<CampaignOverview data={{ ...data, pledgeBalanceCents: 0 }} />);
+  expect(screen.getByRole("article", { name: "Outstanding pledge balance" })).toHaveTextContent("Balance data needed");
+  expect(screen.getByRole("article", { name: "Outstanding pledge balance" })).not.toHaveTextContent("$0.00");
+  rerender(<CampaignOverview data={{ ...data, pledgeBalanceCents: 0, segments: { ...data.segments, received: { status: "ready", cents: 0 } } }} />);
+  expect(screen.getByRole("article", { name: "Outstanding pledge balance" })).toHaveTextContent("$0.00");
+});
+
+it("retains calculation and write-off source details in a collapsed disclosure", () => {
+  render(<CampaignOverview data={{ ...data, writeOffSource: { completeAsOf: "2026-10-14", latestAsOf: "2026-10-15" }, orphaned: 2 }} />);
+  const details = screen.getByText("How these totals are calculated").closest("details");
+  expect(details).not.toHaveAttribute("open");
+  expect(details).toHaveTextContent("Original allocation total");
+  expect(details).toHaveTextContent("its amounts are not added again");
+  expect(details).toHaveTextContent("complete list through 2026-10-14");
+  expect(details).toHaveTextContent("additions/corrections through 2026-10-15");
+  expect(details).toHaveTextContent("2 saved exceptions");
+  expect(screen.getByText(/not cash receipts within a particular fiscal year/)).toBeVisible();
 });
 it("distinguishes an unconfigured category from a verified zero without inventing received totals", () => {
   const { rerender } = render(<CampaignOverview data={data} />);

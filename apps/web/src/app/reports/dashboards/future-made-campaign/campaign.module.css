@@ -10,3 +10,22 @@
 .segmentNav{display:flex;flex-wrap:wrap;gap:12px 24px;padding:18px 0;margin:12px 0 24px;border-block:1px solid var(--line)}.segmentNav a{font-weight:700;padding:8px 0;min-height:44px}.overview,.pillarSection{margin:32px 0;scroll-margin-top:100px}.page section[id]{scroll-margin-top:100px}.overviewMetrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.metric{padding:24px;border:1px solid var(--line);border-radius:16px;background:#fff}.metric h3{margin:0 0 16px;font-size:19px}.metric p{font-size:14px;color:var(--muted);margin:12px 0 0}.metricPending{font-size:clamp(21px,2vw,28px);color:#58736b}.overview .hero{margin:18px 0}.yearPeriod{display:block;font-weight:400;letter-spacing:0;margin-top:8px;line-height:1.6}.page tbody th{font-size:14px;background:transparent;min-width:200px;color:var(--ink)}.page tfoot{border-top:2px solid var(--line)}.page tfoot th{font-size:14px;color:var(--ink)}.pillarSection>.muted{margin-top:0;margin-bottom:20px}
 @media(max-width:650px){.overviewMetrics{grid-template-columns:1fr}.metric{padding:20px}.segmentNav{gap:4px 22px}.reconciliation{min-width:0;width:100%}.reconciliation span{flex-wrap:wrap;gap:6px 16px}}
 .metricAmount{display:block;font-size:clamp(28px,3vw,40px);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.page .manageButton{align-self:center}
+.dashboardStatus p{margin:0;font-size:13px}
+.management{padding:24px;border:1px solid var(--line);border-radius:16px;background:#f8fbfa;margin:20px 0}
+.management[hidden]{display:none}
+.management>.toolbar{margin:12px 0}
+.overview{margin:20px 0 24px}
+.overviewMetrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.metric{padding:24px 22px;border-top:3px solid #739e8d;min-width:0}
+.metric:first-child{border-top-color:var(--green);background:linear-gradient(135deg,#eaf5ef,#fff)}
+.metric:last-child{border-top-color:#ad9659}
+.metricAmount{font-size:clamp(24px,2.55vw,38px);letter-spacing:-.03em}
+.calculations{border-block:1px solid var(--line);margin-top:20px;font-size:14px}
+.calculations>summary{cursor:pointer;min-height:44px;padding:14px 0;font-weight:700}
+.calculations p{max-width:900px;color:var(--muted)}
+.calculations .reconciliation{max-width:620px;padding:12px 0;gap:12px}
+.calculations .reconciliation small{color:var(--muted)}
+.recognition{padding:20px 0}.recognition h3{margin:0 0 8px}
+.page summary:focus-visible,.page a:focus-visible{outline:3px solid #16878a;outline-offset:3px;border-radius:4px}
+@media(max-width:900px){.overviewMetrics{grid-template-columns:1fr}.metricAmount{font-size:32px}.metric{padding:20px}.management{padding:18px}}
