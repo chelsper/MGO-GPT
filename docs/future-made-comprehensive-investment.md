@@ -67,8 +67,8 @@ changes are needed. The existing idempotent schema initializer handles upgrade.
 
 ## Verification And Release Status
 
-Implemented locally on 2026-10-15; not deployed or configured in production by
-this change. The only live NXT request was a read-only query metadata check:
+Implemented and deployed to JU on 2026-10-15; classification is not yet configured
+in production. The only live NXT request was a read-only query metadata check:
 query 31071 is an executable Gift query, has no prompted criteria, and returns
 `Name`, `Gift Amount`, `Gift Date`, `Gift Type`, `Gift Pledge Balance`, and
 `System Record ID`. Its actual membership has not yet been executed/validated
@@ -89,8 +89,8 @@ Verification passed:
   including setup confirmation and the fiscal-year view toggle. At 390px the
   page has no horizontal overflow; tables scroll inside their containers.
 
-After a separately authorized JU deployment, save query 31071's classification
-settings and complete a campaign refresh. Confirm the category sums reconcile
+To activate the deployed feature, save query 31071's classification settings and
+complete a campaign refresh. Confirm the category sums reconcile
 with campaign totals overall and in each fiscal year. Keep the sandbox unchanged.
 
 ## Authorized Release Preparation
@@ -110,6 +110,33 @@ Do not push Git or deploy the sandbox as part of this release. The schema change
 is additive and compatible with the previous application version; rolling back
 code does not remove the new column or any later classification configuration.
 
-Deployment evidence will be appended after production verification. Local
-release artifacts and safe deployment metadata use
-`/private/tmp/ju-investment-deploy-*`.
+## Production Verification
+
+Deployed on 2026-10-15 from source
+`302bb3bcf9fc501c84b8de1a15e2d62285392b11` as JU deployment
+`dpl_CBbdokcKc5L9XV6ccRNsCoPnCNEb`.
+
+- The committed archive upload was verified before a JU-only hosted candidate
+  was created with domain assignment deferred. Clean hosted build passed.
+- Candidate and promoted live smoke checks passed: exact source/deployment
+  identity, public pages, classification and existing campaign assets, and
+  unauthenticated API access guards. The standard production verifier passed.
+- JU project settings and all five cron schedules were preserved. Cron hosts
+  track the new release. Sandbox settings and deployment stayed unchanged.
+- Read-only repeatable-read database checks verified the same published run,
+  87,906 allocations, 170 fund assignments, saved write-off ledger revision, and
+  local overrides before and after promotion. Both classification schema
+  columns are present.
+- Financial totals remained unchanged and reconcile exactly: gross
+  $187,992,667.88 less $1,000,158.89 write-offs = $186,992,508.99 committed;
+  less $18,675,155.87 pledge balance = $168,317,353.12 received.
+- No authenticated campaign refresh, classification settings save, NXT record
+  write, letter operation, Git push, or sandbox deployment was performed.
+
+Classification remains unset pending setup and the first complete refresh.
+Production category membership is therefore not yet verified. Deployment checks
+used fresh requests; pre-existing browser version pins were not modified.
+
+Local evidence uses `/private/tmp/ju-investment-deploy-*` and
+`/private/tmp/ju-investment-db-*`. This documentation update is separate from
+the deployed application source.
