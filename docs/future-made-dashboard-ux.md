@@ -92,3 +92,35 @@ unchanged. No Git push, NXT write, letter operation, or live refresh was perform
 Release evidence uses `/private/tmp/ju-campaign-ux-deploy-*` and read-only
 database evidence uses `/private/tmp/ju-campaign-ux-db-*`. This documentation
 update is separate from the deployed application source.
+
+## Next Pass: Campaign Composition
+
+Implemented locally on 2026-10-15; not deployed. Recommendation 2 adds a
+proportional bar for Philanthropic and Comprehensive Investment. The local
+Committed / Received to date toggle changes only this chart, never the saved
+data, fiscal-year breakdown, pillars, or gift-detail filters. Both exact amount
+columns remain visible below it. Comprehensive Investment remains a subset of
+the campaign, not an additional amount.
+
+- Uses existing saved integer-cent amounts. The chart requires a published
+  snapshot, configured classification, and nonnegative categories that exactly
+  reconcile to the chosen saved total. Missing, invalid, negative, unreconciled,
+  and all-zero values show explanations and available exact amounts, not a
+  misleading bar. Verified zero categories within a positive total remain zero.
+- Legacy snapshots retain the Campaign recognition label. Received is disabled
+  without saved balance data; losing that data safely falls back to the primary
+  view. Small positive shares are not mislabeled as zero.
+- Labels, exact accessible descriptions, and a patterned segment supplement
+  color. Native view buttons and the horizontally scrollable exact-amount table
+  work with the keyboard. Mobile controls remain at least 44px high.
+- No new dependency, API, database, permissions, calculation, or NXT changes.
+
+Verification: 25 new component tests; 84 focused dashboard/header tests;
+full regression 6,850 passed with 192 existing opt-in/external-service skips,
+including all 74 campaign PostgreSQL tests. Typecheck, production build, and
+release guard passed. Desktop and 390px fictional-data browser checks verified
+both views, keyboard activation, keyboard table scrolling, and no horizontal
+page overflow or browser errors. The local fixture cannot contact live services.
+
+Evidence: `/private/tmp/ju-campaign-composition-*`. The live release remains the
+deployment identified in Live Verification above until separately authorized.
