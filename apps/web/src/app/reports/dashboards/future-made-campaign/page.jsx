@@ -8,6 +8,8 @@ import CampaignOverview from "./CampaignOverview";
 import CampaignFiscalYears from "./CampaignFiscalYears";
 import CampaignPillars from "./CampaignPillars";
 import CampaignWriteOffs from "./CampaignWriteOffs";
+import CampaignInvestmentSetup from "./CampaignInvestmentSetup";
+import { campaignRefreshStages } from "@/utils/campaignInvestment";
 import styles from "./campaign.module.css";
 
 const API = "/api/reports/campaign-priorities";
@@ -53,6 +55,7 @@ export default function CampaignPrioritiesPage() {
   const [search, setSearch] = useState(""), [filter, setFilter] = useState({ search: "", fund: "", priority: "", page: 1 });
   const [autoContinue, setAutoContinue] = useState(false), [confirmed, setConfirmed] = useState(false);
   const [writeOffs, setWriteOffs] = useState(false);
+  const [investmentSetup,setInvestmentSetup] = useState(false);
   const requestId = useRef(0);
   async function load() {
     const id = ++requestId.current;
@@ -75,13 +78,13 @@ export default function CampaignPrioritiesPage() {
     } catch (e) { setAutoContinue(false); setError(e.message); return false; } finally { setPending(false); }
   }
   useEffect(() => {
-    if (!autoContinue || pending || !data || !["waiting", "downloading", "resolving", "financial"].includes(data.job?.stage)) return;
+    if (!autoContinue || pending || !data || !campaignRefreshStages.includes(data.job?.stage)) return;
     const timer = setTimeout(() => command("continue"), Math.max(1500, Date.parse(data.job.nextCheckAt || "") - Date.now() || 1500));
     return () => clearTimeout(timer);
   }, [autoContinue, pending, data]);
   const ready = Boolean(data?.runId);
   const reviewCount = data?.priorities.reduce((sum, p) => sum + p.needs_review, 0) || 0;
-  const active = ["starting", "waiting", "downloading", "resolving", "financial"].includes(data?.job?.stage);
+  const active = ["starting", "investment_starting", ...campaignRefreshStages].includes(data?.job?.stage);
   const setupOpen = setup ?? !data?.config?.sourceKey;
   return <main className={styles.page}><div className={styles.content}>
     <SharedReportHeader activeReportKey={CAMPAIGN_REPORT_KEY} reportSection="dashboards" title={data?.title || "Future. Made. Campaign"} description="The whole campaign, year by year, and the five priorities it supports." />
@@ -92,6 +95,8 @@ export default function CampaignPrioritiesPage() {
       {data.sourceChanged && <p className={styles.notice}>Source settings changed. These are the previous complete results; finish a refresh before making assignments or exceptions.</p>}
       {data.writeOffSource && <p className={styles.muted}>Write-offs use the saved CSV register: complete list through {data.writeOffSource.completeAsOf}; additions/corrections through {data.writeOffSource.latestAsOf}. New NXT write-offs require an updated upload.</p>}
       {data.canManage && data.config?.sourceKey && <div className={styles.toolbar}><button disabled={pending || !ready} onClick={()=>setWriteOffs(!writeOffs)}>{writeOffs ? "Hide write-offs" : "Manage write-offs"}</button></div>}
+      {data.canManage && data.config?.sourceKey && <div className={styles.toolbar}><button disabled={pending || active} onClick={()=>setInvestmentSetup(!investmentSetup)}>{investmentSetup ? "Hide classification setup" : "Comprehensive Investment setup"}</button></div>}
+      {investmentSetup && data.canManage && <CampaignInvestmentSetup data={data} pending={pending} active={active} readFields={readCampaignFields} command={command} onClose={()=>setInvestmentSetup(false)} />}
       {data.canManage && writeOffs && <CampaignWriteOffs data={data} pending={pending} active={active} saveError={error} readFields={readCampaignFields} onClose={()=>setWriteOffs(false)} onSave={async(input,version)=>{
         const latest=await command("writeOffs",input,{_version:version});
         if (!latest) return false;
@@ -105,7 +110,7 @@ export default function CampaignPrioritiesPage() {
         {data.job?.error && <p role="alert" className={styles.error}>{data.job.error}</p>}
         {data.job?.financial && <><p role="status">Pledge checks: {data.job.financial.checked} of {data.job.financial.total} verified. {data.job.financial.withWriteOffs} with write-offs found. {data.job.financial.blocked || 0} need attention. Includes zero-balance pledges.</p>
           {data.job.financial.issues?.length > 0 && <details className={styles.notice}><summary>Pledges needing attention ({data.job.financial.blocked})</summary><ul>{data.job.financial.issues.map(issue=><li key={issue.giftId}>{issue.message}</li>)}</ul>{data.job.financial.blocked>data.job.financial.issues.length && <p>Showing the first {data.job.financial.issues.length} issues. No incomplete campaign totals will be published.</p>}</details>}</>}
-        {active ? <><p role="status">{pending ? "Loading campaign data..." : data.job.stage === "waiting" ? "NXT is preparing the campaign query." : data.job.stage === "resolving" ? "Checking split gifts against their NXT fund allocations." : data.job.stage === "financial" ? "Checking pledge payments, write-offs and balances in NXT. Saved checkpoints let you leave and resume." : "Campaign refresh is in progress."} {autoContinue ? "This page will continue automatically." : "Resume when you are ready."}</p><div className={styles.toolbar}><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(true); await command("continue"); }}>Continue refresh</button><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(false); await command("cancel"); }}>Cancel this refresh</button><button disabled={pending} onClick={load}>Reload saved status</button></div></>
+        {active ? <><p role="status">{pending ? "Loading campaign data..." : data.job.stage.startsWith("investment_") ? "Checking Comprehensive Investment gift IDs. Both categories will publish together when validation finishes." : data.job.stage === "waiting" ? "NXT is preparing the campaign query." : data.job.stage === "resolving" ? "Checking split gifts against their NXT fund allocations." : data.job.stage === "financial" ? "Checking pledge payments, write-offs and balances in NXT. Saved checkpoints let you leave and resume." : "Campaign refresh is in progress."} {autoContinue ? "This page will continue automatically." : "Resume when you are ready."}</p><div className={styles.toolbar}><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(true); await command("continue"); }}>Continue refresh</button><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(false); await command("cancel"); }}>Cancel this refresh</button><button disabled={pending} onClick={load}>Reload saved status</button></div></>
           : <><label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />This query defines our campaign. I reviewed the mapped gift IDs, funds, and amount basis.</label><button className={styles.primary} disabled={pending || data.busy || !confirmed} onClick={async () => { setAutoContinue(true); await command("start", { confirmed: true }); }}>Refresh campaign</button></>}
       </details></section>}
       {funds && data.canManage && ready && <CampaignFundAssignments key={data.runId} data={data} command={command} pending={pending} />}

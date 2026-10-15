@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import CampaignOverview from "./CampaignOverview";
 import CampaignFiscalYears from "./CampaignFiscalYears";
 
@@ -67,4 +67,41 @@ it("separates write-offs from local adjustments and labels annual received amoun
   expect(within(table).getByRole("columnheader", { name: "Received to date" })).toBeInTheDocument();
   expect(within(table).getAllByRole("row")[1]).toHaveTextContent("$10,000.00$1,000.00-$500.00$8,500.00$2,500.00$6,000.00");
   expect(screen.getByText(/not cash received during that fiscal year/)).toBeInTheDocument();
+});
+
+it("shows the category breakdown overall and by fiscal year, without replacing the deduction view", () => {
+  const classified = { ...data, netCents: 14000, writeOffCents: 1000, pledgeBalanceCents: 3000, segments: { ...data.segments,
+    committed: { status: "ready", cents: 14000 }, received: { status: "ready", cents: 11000 },
+    classification: { status: "ready", queryId: "31071", investmentCents: 9000, philanthropicCents: 5000,
+      investmentReceivedCents: 6000, philanthropicReceivedCents: 5000 },
+    fiscalYears: [
+      { fiscal_year: 2027, effective_cents: 5000, investment_cents: 0, philanthropic_cents: 5000,
+        received_cents: 5000, investment_received_cents: 0, philanthropic_received_cents: 5000 },
+      { fiscal_year: 2026, effective_cents: 9000, investment_cents: 9000, philanthropic_cents: 0,
+        received_cents: 6000, investment_received_cents: 6000, philanthropic_received_cents: 0 },
+    ],
+  } };
+  render(<><CampaignOverview data={classified} /><CampaignFiscalYears data={classified} /></>);
+  const summary = within(screen.getByRole("table", { name: "Campaign investment and philanthropic totals" })).getAllByRole("row");
+  expect(summary[1]).toHaveTextContent("Comprehensive Investment$90.00$60.00");
+  expect(summary[2]).toHaveTextContent("Philanthropic$50.00$50.00");
+  expect(summary[3]).toHaveTextContent("Campaign total$140.00$110.00");
+  const years = within(screen.getByRole("table", { name: "Fiscal-year investment and philanthropic totals" })).getAllByRole("row");
+  expect(years[1]).toHaveTextContent("FY2027"); expect(years[1]).toHaveTextContent("$50.00$0.00$50.00$50.00$0.00$50.00");
+  expect(years[2]).toHaveTextContent("FY2026"); expect(years[2]).toHaveTextContent("$90.00$90.00$0.00$60.00$60.00$0.00");
+  expect(years[3]).toHaveTextContent("Campaign total$140.00$90.00$50.00$110.00$60.00$50.00");
+  fireEvent.change(screen.getByLabelText("Fiscal-year view"), { target: { value: "amounts" } });
+  expect(screen.getByRole("table", { name: "Fiscal-year campaign recognition" })).toBeInTheDocument();
+  expect(screen.queryByRole("table", { name: "Fiscal-year investment and philanthropic totals" })).not.toBeInTheDocument();
+});
+it("distinguishes an unconfigured category from a verified zero without inventing received totals", () => {
+  const { rerender } = render(<CampaignOverview data={data} />);
+  expect(screen.getByText(/They are not assumed to be zero/)).toBeInTheDocument();
+  expect(screen.queryByRole("table", { name: "Campaign investment and philanthropic totals" })).not.toBeInTheDocument();
+  rerender(<CampaignOverview data={{ ...data, segments: { ...data.segments,
+    classification: { status: "ready", queryId: "31071", investmentCents: 0, philanthropicCents: 14000 },
+  } }} />);
+  const table = screen.getByRole("table", { name: "Campaign investment and philanthropic totals" });
+  expect(within(table).getAllByRole("row")[1]).toHaveTextContent("Comprehensive Investment$0.00");
+  expect(within(table).queryByRole("columnheader", { name: "Received to date" })).not.toBeInTheDocument();
 });

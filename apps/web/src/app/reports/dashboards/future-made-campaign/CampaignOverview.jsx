@@ -1,5 +1,6 @@
 import { campaignMoney } from "@/utils/campaignPriorities";
 import styles from "./campaign.module.css";
+import CampaignClassification from "./CampaignClassification";
 
 export default function CampaignOverview({ data }) {
   const ready = Boolean(data.runId);
@@ -17,6 +18,7 @@ export default function CampaignOverview({ data }) {
         <p>{received?.description || "Map write-offs and current pledge balances, then refresh. This is not a zero balance."}</p>
       </article>
     </div>
+    <CampaignClassification data={data} />
     <div className={styles.hero} role="group" aria-label="Campaign recognition total">
       <div><p className={styles.eyebrow}>CAMPAIGN RECOGNITION</p><h2>{campaignMoney(ready ? data.effectiveCents : null)}</h2><p>Your saved campaign definition, less mapped write-offs and including local adjustments.</p></div>
       <div className={styles.reconciliation}>

@@ -56,6 +56,7 @@ describe("bounded campaign query import", () => {
     expect(campaignSourceKey(enriched)).toBe(campaignHash(before));
     expect(campaignSourceKey({ ...enriched, financialSource:"nxt" })).toBe(campaignHash(before));
     expect(campaignSourceKey({ ...enriched, financialSource:"csv",writeOffLedger:{revision:"new-csv"} })).toBe(campaignHash(before));
+    expect(campaignSourceKey({ ...enriched, investment:{queryId:"31071",queryName:"Investment",giftIdColumn:"System Record ID"} })).toBe(campaignHash(before));
     expect(campaignSourceKey({ ...enriched, columns: { ...enriched.columns, writeOff: "Other total" } })).toBe(campaignHash(before));
     expect(campaignSourceKey({ ...enriched, queryId: "999" })).not.toBe(campaignHash(before));
     expect(campaignSourceKey({ ...enriched, columns: { ...enriched.columns, amount: "Different amount" } })).not.toBe(campaignHash(before));

@@ -6,6 +6,7 @@ import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { describeLegacyCampaignFailure } from "./campaignPriorityDiagnostics";
 import { campaignFiscalYearQuery } from "./campaignPrioritySegments";
 import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy";
+import { campaignInvestmentIdentity } from "@/utils/campaignInvestment";
 
 export function assertCampaignEditor(actor) {
   if (!actor?.id || actor.active === false || !canManageWorkspaceRole(actor.role))
@@ -29,6 +30,8 @@ export async function campaignRead(filters, canManage, db = sql) {
     db`SELECT e.priority,COUNT(*)::int AS allocations,COUNT(DISTINCT e.gift_id)::int AS gifts,
       SUM(e.amount_cents)::text AS original_cents,SUM(e.effective_cents)::text AS effective_cents,
       SUM(e.net_cents)::text AS net_cents,SUM(e.write_off_cents)::text AS write_off_cents,
+      COALESCE(SUM(e.effective_cents) FILTER(WHERE e.is_investment),0)::text AS investment_cents,
+      COALESCE(SUM(e.received_cents) FILTER(WHERE e.is_investment),0)::text AS investment_received_cents,
       SUM(e.pledge_balance_cents)::text AS pledge_balance_cents,
       CASE WHEN COUNT(e.received_cents)=COUNT(*) THEN SUM(e.received_cents)::text END AS received_cents,
       COUNT(*) FILTER(WHERE e.write_off_cents IS NULL)::int AS missing_write_off,
@@ -72,8 +75,13 @@ export async function campaignRead(filters, canManage, db = sql) {
   const csv = campaignUsesCsvWriteOffs(state.saved_config);
   const committedReady = Boolean(state.published_run && (automatic || csv || state.saved_config?.columns?.writeOff)) && results[1].every(row => row.missing_write_off === 0);
   const receivedReady = committedReady && Boolean(automatic || state.saved_config?.columns?.pledgeBalance) && results[1].every(row => row.missing_balance === 0);
+  const classified = Boolean(state.published_run && state.saved_config?.investment);
+  const investmentCents = results[1].reduce((sum, row) => sum+BigInt(row.investment_cents || 0),0n);
+  const investmentReceived = results[1].reduce((sum, row) => sum+BigInt(row.investment_received_cents || 0),0n);
+  if ([investmentCents,investmentReceived,sums[1]-investmentCents,sums[5]-investmentReceived].some(value => value>BigInt(Number.MAX_SAFE_INTEGER) || value<BigInt(Number.MIN_SAFE_INTEGER)))
+    throw campaignError("The classification totals exceed the supported exact-amount range.",409);
   return { version: Number(state.version), canManage, runId: state.published_run, busy: state.busy === true,
-    sourceChanged: Boolean(state.published_run && (state.config.sourceKey !== state.source_key || campaignFinancialIdentity(state.config)!==campaignFinancialIdentity(state.saved_config))),
+    sourceChanged: Boolean(state.published_run && (state.config.sourceKey !== state.source_key || campaignFinancialIdentity(state.config)!==campaignFinancialIdentity(state.saved_config) || campaignInvestmentIdentity(state.config)!==campaignInvestmentIdentity(state.saved_config))),
     config: canManage ? { ...state.config,...(state.config.writeOffLedger ? { writeOffLedger:campaignWriteOffSummary(state.config.writeOffLedger) } : {}) } : undefined, job: canManage ? job : null,
     writeOffSource: csv ? campaignWriteOffSummary(state.saved_config.writeOffLedger) : null,
     updatedAt: state.completed_at, rawRows: state.raw_rows, uniqueRows: state.unique_rows,
@@ -82,6 +90,10 @@ export async function campaignRead(filters, canManage, db = sql) {
     netCents: Number(sums[2]), writeOffCents: committedReady ? Number(sums[3]) : null,
     pledgeBalanceCents: receivedReady ? Number(sums[4]) : null,
     segments: { fiscalYearStartMonth: ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth,
+      classification: { status: classified ? "ready" : "source_needed", queryId: state.saved_config?.investment?.queryId || null,
+        investmentCents: classified ? Number(investmentCents) : null, philanthropicCents: classified ? Number(sums[1]-investmentCents) : null,
+        investmentReceivedCents: classified && receivedReady ? Number(investmentReceived) : null,
+        philanthropicReceivedCents: classified && receivedReady ? Number(sums[5]-investmentReceived) : null },
       fiscalYears: numeric(results[6]),
       committed: { status: committedReady ? "ready" : "source_needed", cents: committedReady ? Number(sums[1]) : null,
         description: committedReady ? "Full gift amounts less write-offs, including approved campaign-only adjustments." : "Choose a write-off source and current pledge balances, then refresh. Previous totals remain unchanged until checks finish." },
@@ -96,7 +108,9 @@ export async function saveCampaignConfig(actor, version, config, db = sql, audit
     updated AS (
       UPDATE campaign_priority_state s SET config=${JSON.stringify(config)}::jsonb ||
         CASE WHEN s.config->>'sourceKey'=${config.sourceKey} AND s.config ? 'writeOffLedger' AND NOT ${Boolean(config.writeOffLedger)}
-          THEN jsonb_build_object('writeOffLedger',s.config->'writeOffLedger') ELSE '{}'::jsonb END,version=s.version+1
+          THEN jsonb_build_object('writeOffLedger',s.config->'writeOffLedger') ELSE '{}'::jsonb END ||
+        CASE WHEN s.config->>'sourceKey'=${config.sourceKey} AND s.config ? 'investment' AND NOT ${Object.hasOwn(config,"investment")}
+          THEN jsonb_build_object('investment',s.config->'investment') ELSE '{}'::jsonb END,version=s.version+1
       FROM users u WHERE s.id=1 AND s.version=${version} AND (s.lease_until IS NULL OR s.lease_until<=NOW())
         AND (s.job IS NULL OR s.job->>'stage' IN ('complete','failed','cancelled'))
         AND u.id=${actor.id} AND u.role=${actor.role} AND u.active=TRUE RETURNING s.*
@@ -129,6 +143,7 @@ export async function editCampaign(actor, version, runId, operation, input, db =
         AND COALESCE(r.config->>'financialSource','query')=COALESCE(s.config->>'financialSource','query')
         AND COALESCE(r.config->'columns'->>'writeOff','')=COALESCE(s.config->'columns'->>'writeOff','')
         AND COALESCE(r.config->'columns'->>'pledgeBalance','')=COALESCE(s.config->'columns'->>'pledgeBalance',''))
+      AND EXISTS(SELECT 1 FROM campaign_priority_runs r WHERE r.id=s.published_run AND COALESCE(r.config->'investment','null'::jsonb)=COALESCE(s.config->'investment','null'::jsonb))
       AND (COALESCE(s.config->>'financialSource','query')<>'csv' OR EXISTS(SELECT 1 FROM campaign_priority_runs r WHERE r.id=s.published_run
         AND r.config->'writeOffLedger'->>'revision'=s.config->'writeOffLedger'->>'revision'))
       AND (${operation}='override' AND EXISTS(SELECT 1 FROM campaign_priority_rows WHERE run_id=${runId}::uuid AND item_key=${override?.itemKey || ""})

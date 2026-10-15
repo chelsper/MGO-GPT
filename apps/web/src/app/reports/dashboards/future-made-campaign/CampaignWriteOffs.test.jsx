@@ -28,7 +28,8 @@ it("supports incremental uploads but resets approval when the date changes",asyn
   render(<CampaignWriteOffs {...p}/>); await choose();
   expect(screen.getByLabelText("Upload contains")).toHaveValue("updates");
   fireEvent.click(screen.getByRole("checkbox"));
-  fireEvent.change(screen.getByLabelText("Write-offs through"),{target:{value:"2026-10-15"}});
+  const date=screen.getByLabelText("Write-offs through");
+  fireEvent.change(date,{target:{value:date.value==="2026-10-15" ? "2026-10-16" : "2026-10-15"}});
   expect(screen.getByRole("checkbox")).not.toBeChecked();
 });
 it("keeps a failed import draft and distinguishes a saved import from a failed refresh",async()=>{

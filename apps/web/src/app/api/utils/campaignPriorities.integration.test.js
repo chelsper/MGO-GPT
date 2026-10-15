@@ -10,6 +10,7 @@ import { BlackbaudQuotaExceededError } from "./blackbaud";
 import { campaignRow } from "@/utils/campaignPriorities";
 import { LEGACY_CAMPAIGN_IMPORT_ERROR } from "./campaignPriorityDiagnostics";
 import { saveCampaignWriteOffs } from "./campaignWriteOffImport";
+import { saveCampaignInvestment, classifyCampaignInvestment } from "./campaignInvestmentQuery";
 
 // Optional local PostgreSQL WASM runtime, never a DATABASE_URL or production connection.
 const modulePath = process.env.CAMPAIGN_PGLITE_MODULE;
@@ -90,6 +91,124 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await db`UPDATE campaign_priority_state SET version=1,config=${JSON.stringify(config)}::jsonb,published_run=${run}::uuid,job=NULL,lease=NULL,lease_until=NULL WHERE id=1`;
     await db`INSERT INTO campaign_priority_runs(id,source_key,query_id,config,created_by,status,raw_rows,unique_rows,completed_at) VALUES(${run}::uuid,'source-a','27460',${JSON.stringify(config)}::jsonb,1,'complete',2,2,NOW())`;
     await stage([row(1), row(2,4000,"5")]);
+  });
+  const investment={queryId:"31071",queryName:"Investment",giftIdColumn:"System Record ID"};
+  const investmentMetadata={id:"31071",name:"Investment",type:"Gift",select_fields:[{query_field:{selected_field_name:"System Record ID"}}]};
+  async function prepareInvestment(ids=["10"],rows=[financialRow({...row(1),giftDate:"2026-06-30"},1000,2000),financialRow({...row(2,4000,"5"),giftDate:"2026-06-30"},0,1000),financialRow(wholeGift("11","4",5000),0,0)]) {
+    const source={...financialConfig,investment};
+    await saveCampaignConfig(actor,(await read()).version,source,db);
+    const t=transport(rows);
+    t.metadata.mockImplementation(async id=>id==="31071" ? investmentMetadata : {...metadata,select_fields:Object.values(source.columns).filter(Boolean).map(name=>({query_field:{selected_field_name:name}}))});
+    t.create.mockImplementation(async id=>({id:id==="31071" ? "investment-job" : "job-1"}));
+    t.poll.mockImplementation(async id=>({id,status:"Completed",row_count:id==="investment-job" ? ids.length : rows.length,sas_uri:"https://nsa-pusa01.app.blackbaud.net/fixture.csv"}));
+    t.readInvestment=vi.fn(async()=>({giftIds:ids,rawRows:ids.length}));
+    await start(t);
+    await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    return t;
+  }
+  async function finishInvestment(t) {
+    await db`UPDATE campaign_priority_state SET job=jsonb_set(job,'{nextCheckAt}','"2000-01-01T00:00:00Z"') WHERE id=1`;
+    await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    return read();
+  }
+  it("publishes both queries atomically, with split/write-off/received and fiscal-year reconciliation",async()=>{
+    await edit("funds",{fundIds:["4"],priority:"scholarships"});
+    const old=run,t=await prepareInvestment(["10","10"]);
+    expect(await read()).toMatchObject({runId:old,sourceChanged:true,job:{stage:"investment_waiting"},segments:{classification:{status:"source_needed"}}});
+    const result=await finishInvestment(t);
+    expect(result.runId).not.toBe(old);
+    expect(result).toMatchObject({sourceChanged:false,effectiveCents:14000,writeOffCents:1000,segments:{received:{cents:11000},classification:{status:"ready",investmentCents:9000,philanthropicCents:5000,investmentReceivedCents:6000,philanthropicReceivedCents:5000}}});
+    expect(result.segments.fiscalYears).toMatchObject([{fiscal_year:2027,investment_cents:0,philanthropic_cents:5000},{fiscal_year:2026,investment_cents:9000,philanthropic_cents:0,investment_received_cents:6000}]);
+    expect(result.rows.filter(r=>r.is_investment)).toHaveLength(2);
+    expect(result.funds.find(f=>f.fund_id==="4").fund_priority).toBe("scholarships");
+    expect(t.read).toHaveBeenCalledTimes(1);expect(t.readInvestment).toHaveBeenCalledTimes(1);
+    run=result.runId;
+    await edit("override",{itemKey:"10:1",priority:null,amount:"35",reason:"Local correction"});
+    expect((await read()).segments.classification).toMatchObject({investmentCents:7500,philanthropicCents:5000,investmentReceivedCents:4500});
+  });
+  it("does not publish an unmatched classification gift or change old totals",async()=>{
+    const t=await prepareInvestment(["999"]),before=await read();
+    const result=await finishInvestment(t);
+    expect(result.runId).toBe(before.runId);expect(result.effectiveCents).toBe(10000);
+    expect(result.job).toMatchObject({stage:"failed",error:expect.stringMatching(/999/)});
+    expect(result.segments.classification.status).toBe("source_needed");
+  });
+  it("can publish a verified zero category and classify all gifts as philanthropic",async()=>{
+    const result=await finishInvestment(await prepareInvestment([]));
+    expect(result.segments.classification).toMatchObject({status:"ready",investmentCents:0,philanthropicCents:14000,investmentReceivedCents:0,philanthropicReceivedCents:11000});
+  });
+  it("keeps the last complete classification when the next query fails, then removes stale membership on a successful refresh",async()=>{
+    const prior=await finishInvestment(await prepareInvestment());
+    run=prior.runId;
+    const failed=await prepareInvestment();
+    failed.readInvestment.mockRejectedValueOnce(new Error("Download unavailable"));
+    const kept=await finishInvestment(failed);
+    expect(kept.job.stage).toBe("failed"); expect(kept.runId).toBe(prior.runId);
+    expect(kept.segments.classification).toEqual(prior.segments.classification);
+    const next=await finishInvestment(await prepareInvestment(["11"]));
+    expect(next.segments.classification).toMatchObject({investmentCents:5000,philanthropicCents:9000,investmentReceivedCents:5000,philanthropicReceivedCents:6000});
+    expect(next.effectiveCents).toBe(prior.effectiveCents);
+    expect(next.rows.filter(r=>r.is_investment).map(r=>r.gift_id)).toEqual(["11"]);
+  });
+  it("classifies CSV-reconciled pledges using their net amounts, without adding or subtracting write-offs twice",async()=>{
+    const t=await prepareCsv(); await importCsv(t);
+    const mainMetadata=await t.metadata("27460");
+    t.metadata.mockImplementation(async id=>id==="31071" ? investmentMetadata : mainMetadata);
+    await saveCampaignInvestment(actor,(await read()).version,{...investment,confirmed:true},t,db);
+    t.create.mockImplementation(async id=>({id:id==="31071" ? "investment-job" : "job-1"}));
+    t.poll.mockImplementation(async id=>({id,status:"Completed",row_count:id==="investment-job" ? 1 : 2,sas_uri:"https://nsa-pusa01.app.blackbaud.net/fixture.csv"}));
+    t.read.mockImplementation(async(_url,_source,_count,save)=>{await save(csvRows());return {rawRows:2};});
+    t.readInvestment=vi.fn(async()=>({giftIds:["10"],rawRows:1}));
+    await start(t); await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    const result=await finishInvestment(t);
+    expect(result).toMatchObject({writeOffCents:2500,effectiveCents:7500,pledgeBalanceCents:3000});
+    expect(result.segments.classification).toMatchObject({status:"ready",investmentCents:7500,investmentReceivedCents:4500,philanthropicCents:0,philanthropicReceivedCents:0});
+  });
+  it("includes undated classified gifts and uses complete totals even when detail rows are filtered",async()=>{
+    const rows=[financialRow({...row(1),giftDate:""},1000,2000),financialRow(wholeGift("11","5",5000),0,0)];
+    const result=await finishInvestment(await prepareInvestment(["10"],rows));
+    expect(result.segments.fiscalYears).toMatchObject([{fiscal_year:2027,investment_cents:0,philanthropic_cents:5000},{fiscal_year:null,investment_cents:5000,philanthropic_cents:0}]);
+    const filtered=await campaignRead(new URLSearchParams({fund:"5"}),false,db);
+    expect(filtered.rows).toHaveLength(1); expect(filtered.segments).toEqual(result.segments);
+    expect(filtered.config).toBeUndefined(); expect(filtered.job).toBeNull();
+  });
+  it("retains the category through ordinary source saves and CSV imports",async()=>{
+    await saveCampaignConfig(actor,1,{...config,investment},db);
+    await saveCampaignConfig(actor,2,config,db);
+    expect((await read()).config.investment).toEqual(investment);
+    const t=await prepareCsv();await importCsv(t);
+    expect((await read()).config.investment).toEqual(investment);
+  });
+  it("pauses the second query on throttling and resumes without rerunning the first",async()=>{
+    const t=await prepareInvestment();
+    t.poll.mockRejectedValueOnce(Object.assign(new Error("pause"),{httpStatus:429,retryAfterMs:60000}));
+    expect((await finishInvestment(t)).job.stage).toBe("investment_waiting");
+    expect(t.create).toHaveBeenCalledTimes(2);
+    expect((await finishInvestment(t)).job.stage).toBe("complete");expect(t.read).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a mismatched second job and preserves the prior snapshot",async()=>{
+    const t=await prepareInvestment();t.poll.mockResolvedValueOnce({id:"wrong",status:"Completed"});
+    expect((await finishInvestment(t)).job).toMatchObject({stage:"failed",error:expect.stringMatching(/different/)});
+    expect((await read()).runId).toBe(run);expect(t.readInvestment).not.toHaveBeenCalled();
+  });
+  it("cancels classification without publishing and blocks concurrent configuration",async()=>{
+    const t=await prepareInvestment();
+    await expect(saveCampaignInvestment(actor,(await read()).version,{...investment,confirmed:true},t,db)).rejects.toMatchObject({status:409});
+    await advanceCampaignRefresh(actor,(await read()).version,"cancel",null,db);
+    expect(await read()).toMatchObject({runId:run,job:{stage:"cancelled"}});
+  });
+  it("guards classification settings by permissions/version and audits successful saves",async()=>{
+    const t=transport();t.metadata.mockResolvedValue(investmentMetadata);
+    await expect(saveCampaignInvestment({...actor,role:"mgo"},1,{...investment,confirmed:true},t,db)).rejects.toMatchObject({status:403});
+    await expect(saveCampaignInvestment(actor,99,{...investment,confirmed:true},t,db)).rejects.toMatchObject({status:409});
+    await saveCampaignInvestment(actor,1,{...investment,confirmed:true},t,db);
+    expect((await read()).config.investment).toEqual(investment);
+    expect(await db`SELECT id FROM campaign_priority_events WHERE operation='investment_source'`).toHaveLength(1);
+    await expect(edit("funds",{fundIds:["4"],priority:"campus-planning"})).rejects.toMatchObject({status:409});
+  });
+  it("will not classify allocations under an expired lease",async()=>{
+    await expect(classifyCampaignInvestment({lease:randomUUID(),job:{runId:run}},{giftIds:["10"],rawRows:1},db)).rejects.toMatchObject({status:409});
+    expect((await read()).rows.some(r=>r.is_investment)).toBe(false);
   });
   const csvHeader="Gift Amount,Gift Type,Pledge Balance,Gf_System_ID,Write off\n";
   const csvInput=(content="100,Pledge,0,10,25")=>({csv:csvHeader+content,asOf:"2026-10-14",complete:true,confirmed:true,balanceColumn:"Split Pledge Balance"});
@@ -399,7 +518,7 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await edit("funds", { fundIds: ["4"], priority: "scholarships" });
     await edit("override", { itemKey: "10:1", priority: null, amount: "50", reason: "Existing approved exception" });
     await pg.exec(`DROP VIEW campaign_priority_effective;
-      ALTER TABLE campaign_priority_rows DROP COLUMN write_off_cents, DROP COLUMN pledge_balance_cents;
+      ALTER TABLE campaign_priority_rows DROP COLUMN write_off_cents, DROP COLUMN pledge_balance_cents, DROP COLUMN is_investment;
       CREATE VIEW campaign_priority_effective AS
       SELECT g.*,r.source_key,COALESCE(f.priority,'unassigned') AS fund_priority,
         CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.priority,f.priority,'unassigned') ELSE COALESCE(f.priority,'unassigned') END AS priority,
@@ -414,6 +533,25 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     expect(saved).toMatchObject({ originalCents: 10000, netCents: 10000, effectiveCents: 9000, writeOffCents: null, pledgeBalanceCents: null });
     expect(saved.rows.find(r => r.item_key === "10:1")).toMatchObject({ effective_cents: 5000, priority: "scholarships", needs_review: false, received_cents: null });
     expect(await db`SELECT * FROM campaign_priority_events`).toHaveLength(2);
+  });
+  it("upgrades the current financial view in place without altering deductions or approved exceptions", async () => {
+    await publishFinancial([financialRow(row(1),1000,2000),financialRow(row(2,4000,"5"),0,1000)]);
+    await edit("funds",{fundIds:["4"],priority:"scholarships"});
+    await edit("override",{itemKey:"10:1",priority:null,amount:"45",reason:"Approved net amount"});
+    const before=await read();
+    const [{definition}]=await db`SELECT pg_get_viewdef('campaign_priority_effective'::regclass,true) AS definition`;
+    const oldView=definition.replace(/,\s*g\.is_investment\s+FROM/i,"\nFROM");
+    expect(oldView).not.toContain("is_investment");
+    try {
+      await pg.exec(`DROP VIEW campaign_priority_effective;
+        ALTER TABLE campaign_priority_rows DROP COLUMN is_investment;
+        CREATE VIEW campaign_priority_effective AS ${oldView}`);
+      await schema(db); await schema(db);
+      const after=await read();
+      expect(after).toMatchObject({runId:before.runId,effectiveCents:8500,writeOffCents:1000,pledgeBalanceCents:3000});
+      expect(after.segments).toEqual(before.segments); expect(after.rows).toEqual(before.rows);
+      expect(after.funds).toEqual(before.funds);
+    } finally { await schema(db); }
   });
   it("groups the entire snapshot by JU fiscal year, independently of gift detail filters", async () => {
     await db`UPDATE campaign_priority_rows SET gift_date=CASE WHEN item_key='10:1' THEN '6/30/2026' ELSE '2026-07-01' END WHERE run_id=${run}::uuid`;

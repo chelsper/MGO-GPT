@@ -5,7 +5,7 @@ import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy
 export function campaignFiscalYearQuery(db) {
   const startMonth = ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth;
   return db`WITH dated AS (
-      SELECT e.amount_cents,e.effective_cents,e.net_cents,e.write_off_cents,e.pledge_balance_cents,e.received_cents,
+      SELECT e.amount_cents,e.effective_cents,e.net_cents,e.write_off_cents,e.pledge_balance_cents,e.received_cents,e.is_investment,
         regexp_match(trim(e.gift_date),'^([0-9]{4})-([0-9]{2})-([0-9]{2})$') AS iso,
         regexp_match(trim(e.gift_date),'^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})$') AS us
       FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id
@@ -20,6 +20,10 @@ export function campaignFiscalYearQuery(db) {
       COUNT(*)::int AS allocations,SUM(amount_cents)::text AS original_cents,SUM(effective_cents)::text AS effective_cents,
       SUM(net_cents)::text AS net_cents,SUM(write_off_cents)::text AS write_off_cents,
       SUM(pledge_balance_cents)::text AS pledge_balance_cents,
+      COALESCE(SUM(effective_cents) FILTER(WHERE is_investment),0)::text AS investment_cents,
+      COALESCE(SUM(effective_cents) FILTER(WHERE NOT is_investment),0)::text AS philanthropic_cents,
+      COALESCE(SUM(received_cents) FILTER(WHERE is_investment),0)::text AS investment_received_cents,
+      COALESCE(SUM(received_cents) FILTER(WHERE NOT is_investment),0)::text AS philanthropic_received_cents,
       CASE WHEN COUNT(received_cents)=COUNT(*) THEN SUM(received_cents)::text END AS received_cents
     FROM checked GROUP BY fiscal_year ORDER BY fiscal_year DESC NULLS LAST`;
 }

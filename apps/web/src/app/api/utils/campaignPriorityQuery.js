@@ -13,7 +13,7 @@ export const campaignHash = value => createHash("sha256").update(JSON.stringify(
 // Financial mappings enrich the same source; they must not discard fund assignments.
 export function campaignSourceKey(config) {
   const { writeOff, pledgeBalance, ...columns } = config.columns;
-  const { financialSource, writeOffLedger, ...source } = config;
+  const { financialSource, writeOffLedger, investment, ...source } = config;
   return campaignHash({ ...source, columns });
 }
 export function campaignBaseHash(row) {
@@ -43,6 +43,7 @@ export async function campaignTransport(origin) {
       return blackbaudApiFetch(`/gft-gifts/v2/gifts/${giftId}/${section}`, { ...options, method: "GET" });
     },
     read: (url, config, expected, saveBatch) => readCampaignQuery(url, options, config, expected, saveBatch),
+    readInvestment: (url, config, expected) => readInvestmentQuery(url, options, config, expected),
   };
 }
 
@@ -91,6 +92,35 @@ export async function readCampaignQuery(url, options, config, expectedRows, save
         if (rowCount !== expectedRows) throw campaignError("The completed query count does not match the downloaded rows. No partial results were published.");
         await flush(true);
         return { rawRows: rowCount };
+      },
+    };
+  });
+  return result;
+}
+
+export async function readInvestmentQuery(url, options, config, expectedRows, stream = streamBlackbaudQueryResultWithMetadata) {
+  if (!Number.isSafeInteger(expectedRows) || expectedRows < 0 || expectedRows > CAMPAIGN_LIMITS.rows)
+    throw campaignError("A completed Comprehensive Investment query count of 0-300,000 is required.");
+  const { result } = await stream(pledgeQueryResultUrl(url), { ...options, timeoutMs: 240000, maxBytes: CAMPAIGN_LIMITS.bytes, redirect: "error" }, ({ contentType }) => {
+    const decoder = createResultTextDecoder(contentType), ids = new Set();
+    const parser = createResultCsvVisitor({ maxRows: CAMPAIGN_LIMITS.rows,
+      onHeaders: headers => {
+        if (headers.filter(name => name === config.giftIdColumn).length !== 1)
+          throw campaignError("The Comprehensive Investment gift system ID column is missing or duplicated.");
+      },
+      onRow: (row, headers) => {
+        const id = campaignId(row[headers.indexOf(config.giftIdColumn)]);
+        if (!id) throw campaignError("Every Comprehensive Investment row needs a valid gift system record ID. No IDs were guessed.");
+        ids.add(id);
+      },
+    });
+    return {
+      async write(chunk) { parser.write(decoder.decode(chunk, { stream: true })); },
+      async finish() {
+        parser.write(decoder.decode());
+        const { rowCount } = parser.finish();
+        if (rowCount !== expectedRows) throw campaignError("The Comprehensive Investment download count does not match the completed query. Previous totals are unchanged.");
+        return { giftIds: [...ids], rawRows: rowCount };
       },
     };
   });
