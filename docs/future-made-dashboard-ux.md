@@ -2,7 +2,7 @@
 
 ## Scope
 
-Implemented 2026-10-15, not deployed. This is the first visual simplification
+Implemented and deployed to JU on 2026-10-15. This is the first visual simplification
 pass (recommendations 1 and 3), not a change to campaign accounting or refresh
 behavior.
 
@@ -45,6 +45,50 @@ filters, abbreviated currency, and presentation/print mode are deferred.
   including desktop and 390px mobile. No horizontal page overflow at 390px;
   management controls remain usable and read-only viewers cannot access them.
 - Preview data cannot submit changes or call live services. No live campaign
-  settings, records, or deployment were changed for this work.
+  settings or records were changed during verification.
 
 Local verification artifacts use `/private/tmp/ju-campaign-ux-*`.
+
+## Authorized Release
+
+The user authorized deployment on 2026-10-15. Release source is
+`dcac22672aab3de0532b7b3060123d01079214cd`. A fresh full regression run passed
+6,825 tests with 192 existing opt-in/external-service skips; all 74 campaign
+PostgreSQL tests ran. Release guard and scoped diff checks passed. A committed
+archive upload was verified (1,412 files, with no secrets, local builds, or
+unrelated service files).
+
+The prior JU release, also the rollback target, is
+`dpl_CBbdokcKc5L9XV6ccRNsCoPnCNEb`, source
+`302bb3bcf9fc501c84b8de1a15e2d62285392b11`. The sandbox baseline is
+`dpl_GZ5Xb6o8Fo7NkhqkrkRXBFhZNSMW`; its Git link remains disconnected.
+
+The read-only campaign baseline now includes the user's completed classification
+refresh (query 31071). It contains 87,913 allocations, 170 fund assignments, and
+no gift exceptions. Committed is $187,017,748.74, Received $168,342,592.87,
+Outstanding pledges $18,675,155.87, and Comprehensive Investment $61,507,291.00
+for both Committed and Received. The saved write-off register is unchanged.
+
+## Live Verification
+
+JU deployment `dpl_HGsXBUkhajgSJYsMFiuVATapGshY` was built from the committed
+archive with domain assignment deferred. Hosted build and candidate smoke
+checks passed before promotion. The same checks passed on the live domain,
+including exact source/deployment identity, public pages, new and existing
+campaign assets, and unauthenticated API guards. The standard production
+verifier passed.
+
+The signed-in browser loaded the normal JU campaign URL and showed the new
+summary, Outstanding pledges, collapsed management and calculation controls,
+and the existing overall/fiscal-year classification data. No browser version
+pin, authentication cookie, campaign setting, or refresh was changed.
+
+Read-only database comparison verified the same published run, campaign state,
+totals, classification, CSV revision, 170 fund assignments, and exceptions as
+the baseline. JU project settings and all five cron schedules are unchanged;
+cron hosts track the new deployment. The sandbox and all other projects remain
+unchanged. No Git push, NXT write, letter operation, or live refresh was performed.
+
+Release evidence uses `/private/tmp/ju-campaign-ux-deploy-*` and read-only
+database evidence uses `/private/tmp/ju-campaign-ux-db-*`. This documentation
+update is separate from the deployed application source.
