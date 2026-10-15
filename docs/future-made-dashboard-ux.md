@@ -93,9 +93,9 @@ Release evidence uses `/private/tmp/ju-campaign-ux-deploy-*` and read-only
 database evidence uses `/private/tmp/ju-campaign-ux-db-*`. This documentation
 update is separate from the deployed application source.
 
-## Next Pass: Campaign Composition
+## Campaign Composition
 
-Implemented locally on 2026-10-15; not deployed. Recommendation 2 adds a
+Implemented and deployed to JU on 2026-10-15. Recommendation 2 adds a
 proportional bar for Philanthropic and Comprehensive Investment. The local
 Committed / Received to date toggle changes only this chart, never the saved
 data, fiscal-year breakdown, pillars, or gift-detail filters. Both exact amount
@@ -122,5 +122,42 @@ release guard passed. Desktop and 390px fictional-data browser checks verified
 both views, keyboard activation, keyboard table scrolling, and no horizontal
 page overflow or browser errors. The local fixture cannot contact live services.
 
-Evidence: `/private/tmp/ju-campaign-composition-*`. The live release remains the
-deployment identified in Live Verification above until separately authorized.
+Evidence: `/private/tmp/ju-campaign-composition-*`.
+
+### Composition Release Verification
+
+The user authorized deployment on 2026-10-15. Application source is
+`2f3151bc288907f4a2946ce64117d717e1b6c177`, JU deployment
+`dpl_7pwLCBY4GWWdUiS1Pb4xseni9td4`, hosted at
+`mgo-fj1c1g352-chelspers-projects.vercel.app`. The rollback target is
+`dpl_HGsXBUkhajgSJYsMFiuVATapGshY`, source
+`dcac22672aab3de0532b7b3060123d01079214cd`.
+
+A fresh full regression run passed 6,850 tests with 192 existing opt-in skips,
+including all 74 campaign PostgreSQL tests. Typecheck, local production build,
+release guard, and hosted build passed. The committed archive upload contained
+1,413 verified files; unrelated worktree changes were excluded. Candidate
+checks passed before domain promotion, then passed again on the live domain:
+exact source/deployment identity, chart and existing campaign controls/assets,
+report pages, and unauthenticated API guards. The standard production verifier
+also passed.
+
+Signed-in browser checks verified both chart views with saved campaign totals.
+Committed composition is 67.1% Philanthropic and 32.9% Comprehensive Investment;
+Received composition is 63.5% and 36.5%, respectively. The saved totals remain
+$187,017,748.74 Committed and $168,342,592.87 Received. A read-only database
+comparison confirmed unchanged published run, configuration, financial totals,
+write-off revision, 170 fund assignments, and zero local exceptions. JU settings
+and all five cron schedules are unchanged; cron hosts follow the new deployment.
+The sandbox and other projects are unchanged. No Git push, live refresh, NXT
+write, letter operation, cookie edit, or authentication change was performed.
+
+Known pre-existing issue: browser startup emits React hydration errors 418/423.
+The same errors were reproduced on the previous immutable deployment without
+signing into it; similar warnings were already recorded in the 2026-10-14
+write-off release notes. This release does not fix their root cause. The live
+dashboard recovered and both chart views worked; no additional interaction
+errors appeared. Console evidence is saved in the composition artifacts.
+
+This release-verification documentation update is separate from the deployed
+application source.
