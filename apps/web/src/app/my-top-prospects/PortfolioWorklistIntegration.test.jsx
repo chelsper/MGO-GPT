@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {}, exportProps: null }));
+const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {}, queryLoading: {}, exportProps: null }));
 vi.mock("@/components/ProspectExport", () => ({ default: (props) => { state.exportProps = props; return null; } }));
 vi.mock("@/utils/useUser", () => ({
   default: () => ({ data: { id: 2 }, loading: false }),
@@ -19,7 +19,7 @@ vi.mock("@tanstack/react-query", () => ({
       queryKey[0] === "profile-sync-status"
         ? state.profile
         : state.data[queryKey[0]],
-    isLoading: false,
+    isLoading: Boolean(state.queryLoading[queryKey[0]]),
     isFetching: false,
     error: state.queryErrors[queryKey[0]],
     refetch: vi.fn(),
@@ -29,11 +29,12 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 import MyProspects from "./page";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
-import { PORTFOLIO_SORT_OPTIONS } from "@/utils/portfolioWorklist";
+import { PORTFOLIO_SORT_OPTIONS, portfolioViewKey } from "@/utils/portfolioWorklist";
 
 beforeEach(() => {
   localStorage.clear();
   state.queryErrors = {};
+  state.queryLoading = {};
   state.profile = {
     user: { id: 2, role: "admin", name: "Admin Author" },
     workspaceUser: {
@@ -562,6 +563,62 @@ it("filters actual category and solicitor groups without writes, fetching or ran
   expect(fetch).not.toHaveBeenCalled();
   expect(state.data.prospects[0].priority_order).toBe(1);
   expect(state.data["portfolio-categories"].assignments[0].category_id).toBe(9);
+});
+
+it("restores the selected category after leaving My Portfolio and reloading the page", () => {
+  state.data["portfolio-categories"] = {
+    categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],
+    assignments: [{ blackbaud_constituent_id: "100", category_id: 9 }],
+  };
+  const { unmount } = render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "category" } });
+  fireEvent.change(screen.getByLabelText("Show group"), { target: { value: "category-9" } });
+  fireEvent.click(screen.getByRole("button", { name: "Top Prospects" }));
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+  unmount();
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByLabelText("Organize by")).toHaveValue("category");
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(JSON.parse(localStorage.getItem(portfolioViewKey(2, 44))).selectedGroup).toBe("category-9");
+  expect(fetch).not.toHaveBeenCalled();
+  expect(state.data["portfolio-categories"].assignments[0].category_id).toBe(9);
+});
+
+it("loads each MGO's last view without overwriting it during profile or category loading", () => {
+  const firstProfile = state.profile;
+  localStorage.setItem(portfolioViewKey(2, 44), JSON.stringify({ group: "category", selectedGroup: "category-9" }));
+  localStorage.setItem(portfolioViewKey(2, 45), JSON.stringify({ group: "solicitor", selectedGroup: "supporting" }));
+  state.profile = null;
+  const { rerender } = render(<MyProspects />);
+  state.profile = firstProfile;
+  state.queryLoading["portfolio-categories"] = true;
+  rerender(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Loading saved categories");
+  expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument();
+  state.data["portfolio-categories"] = {
+    categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],
+    assignments: [{ blackbaud_constituent_id: "100", category_id: 9 }],
+  };
+  state.queryLoading["portfolio-categories"] = false;
+  rerender(<MyProspects />);
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+  state.profile = { ...firstProfile, workspaceUser: { ...firstProfile.workspaceUser, id: 45 } };
+  rerender(<MyProspects />);
+  expect(screen.getByLabelText("Organize by")).toHaveValue("solicitor");
+  expect(screen.getByLabelText("Show group")).toHaveValue("supporting");
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Amy Donor");
+  state.profile = firstProfile;
+  rerender(<MyProspects />);
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(JSON.parse(localStorage.getItem(portfolioViewKey(2, 45))).selectedGroup).toBe("supporting");
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it.each(["compact", "focus"])(

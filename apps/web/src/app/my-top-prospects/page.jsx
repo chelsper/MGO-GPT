@@ -5799,6 +5799,7 @@ export default function MyTopProspectsPage() {
 
   const {
     data: portfolioCategoryData = { categories: [], assignments: [] },
+    isLoading: isPortfolioCategoryLoading,
     isError: isPortfolioCategoryError,
   } = useQuery({
     queryKey: portfolioCategoryQueryKey,
@@ -7618,6 +7619,7 @@ export default function MyTopProspectsPage() {
                 signals={portfolioSignals}
                 matchesSearch={matchesPortfolioSearch}
                 categoryTiers={portfolioCategoryTiers}
+                categoriesLoading={isPortfolioCategoryLoading}
                 roleTiers={[
                   {
                     key: "lead",

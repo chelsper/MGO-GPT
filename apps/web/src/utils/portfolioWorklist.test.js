@@ -403,6 +403,7 @@ describe("worklist pagination and preferences", () => {
       density: "detailed",
       quickView: "all",
       group: "category",
+      selectedGroup: "",
       sort: "name",
       pageSize: 50,
     });
@@ -415,5 +416,21 @@ describe("worklist pagination and preferences", () => {
     expect(normalizePortfolioView({ quickView: "due" }).quickView).toBe("due");
     expect(normalizePortfolioView({ sort: "due" }).sort).toBe("due");
     expect(normalizePortfolioView({ sort: "pipeline" }).sort).toBe("pipeline");
+  });
+  it.each(["category-9", "category-123", "uncategorized", "lead", "supporting"])(
+    "keeps the opaque group key %s without saving names or searches",
+    (selectedGroup) => {
+      const normalized = normalizePortfolioView({ group: "category", selectedGroup, name: "Donor", search: "Private search", expandedIds: ["100"] });
+      expect(normalized.selectedGroup).toBe(selectedGroup);
+      expect(Object.keys(normalized).sort()).toEqual(["density", "group", "pageSize", "quickView", "selectedGroup", "sort"]);
+    },
+  );
+  it.each([null, 9, {}, ["category-9"], "Category name", "<script>", "a".repeat(81)])(
+    "rejects malformed stored group keys: %j",
+    (selectedGroup) => expect(normalizePortfolioView({ group: "category", selectedGroup }).selectedGroup).toBe(""),
+  );
+  it("does not apply a stored group filter in No grouping or an invalid mode", () => {
+    for (const group of ["all", "invalid", undefined])
+      expect(normalizePortfolioView({ group, selectedGroup: "category-9" }).selectedGroup).toBe("");
   });
 });
