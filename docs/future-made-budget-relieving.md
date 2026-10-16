@@ -107,5 +107,38 @@ operation is `budgetRelieving`. UI presentation fields are centralized in
   All 88 campaign PostgreSQL/PGlite tests ran and passed; no live NXT writes,
   production campaign refresh, or hosted PDF test was used for this change.
 
-This document records implementation, not production deployment. Live setup and
-the first classified campaign refresh still need to be performed after rollout.
+## JU deployment on 2026-10-16
+
+Deployed source: `aecc19b8525e5b9751687776a08fdeb098d667e3`.
+JU deployment: `dpl_3hSfwAKvpKmERfxZah5EEG8aQJFj`, hosted at
+`mgo-hg2yx35e5-chelspers-projects.vercel.app` and promoted to
+`https://www.jumgogpt.app` after candidate verification.
+
+Rollback target: `dpl_2QPJ8Jticept8sC8shEhorGreBWU`, source
+`b7b8beb9956f4ab219cf168aa9e75e243200cb79`.
+
+Fresh release verification passed: 6,922 tests, including all 88 isolated
+campaign PostgreSQL/PGlite checks; 192 existing environment-dependent tests
+remained skipped. Typecheck, release guard, scoped whitespace checks, and the
+hosted production build passed. The committed archive contained 1,418
+hash-verified upload files and excluded unrelated local changes.
+
+Both the protected candidate and live domain passed release identity, campaign
+pages/assets, existing dashboard feature markers, Budget Relieving controls,
+and unauthenticated GET/POST guards. The standard production verifier confirmed
+the exact source SHA and deployment ID. No authenticated refresh or NXT writes
+were used. JU project settings and all five cron schedules remained unchanged;
+cron hosts followed the promoted release. The sandbox and all other Vercel
+projects were unchanged. No Git push was performed.
+
+Live Budget Relieving setup and its first campaign refresh remain outstanding.
+Deploying the code does not automatically configure query 31072 or populate
+its totals. Existing campaign data, assignments, and financial adjustments were
+not changed by the release checks. The overlapping-subset interpretation is
+explicit in setup and must be confirmed when configuring the source.
+
+Evidence: `/private/tmp/ju-budget-release-*`,
+`/private/tmp/ju-budget-deploy-*`, `/private/tmp/ju-budget-candidate-smoke.log`,
+`/private/tmp/ju-budget-live-smoke.log`, and
+`/private/tmp/ju-budget-verify-prod.log`. This documentation update is separate
+from the deployed application source.
