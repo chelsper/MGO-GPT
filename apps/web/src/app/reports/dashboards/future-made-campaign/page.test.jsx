@@ -26,6 +26,7 @@ it("hides editing and query controls from read-only viewers", async () => {
   expect(screen.queryByText("Refresh campaign data")).not.toBeInTheDocument();
   expect(screen.queryByRole("button",{name:"Manage write-offs"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button",{name:"Manage dashboard"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"Budget Relieving setup"})).not.toBeInTheDocument();
 });
 it("saves a CSV then starts one refresh with the returned version, even after a previous failed job",async()=>{
   current.config={...current.config,queryId:"27460",mode:"gift",columns:{giftType:"Gift Type"}};
@@ -179,8 +180,34 @@ it("leads with saved totals and keeps management tools out of the default report
   await openManagement();
   expect(screen.getByRole("region", { name: "Dashboard management" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Comprehensive Investment setup" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Budget Relieving setup" })).toBeVisible();
   expect(screen.getByRole("link", { name: "Manage viewers" })).toHaveAttribute("href", expect.stringContaining("tab=Access"));
   expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
+});
+
+it("keeps classification drafts separate when switching between investment and budget setup", async () => {
+  render(<Page />); await openManagement();
+  fireEvent.click(screen.getByRole("button", { name: "Comprehensive Investment setup" }));
+  fireEvent.change(screen.getByLabelText("Comprehensive Investment query ID"), { target: { value: "999" } });
+  fireEvent.click(screen.getByRole("button", { name: "Budget Relieving setup" }));
+  expect(screen.queryByRole("region", { name: "Comprehensive Investment setup" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Budget Relieving query ID")).toHaveValue("31072");
+  expect(screen.getByRole("button", { name: "Save classification query" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Comprehensive Investment setup" }));
+  expect(screen.getByLabelText("Comprehensive Investment query ID")).toHaveValue("31071");
+  expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
+});
+
+it.each(["budget_waiting", "budget_downloading"])("resumes %s rather than starting another query", async stage => {
+  current.job = { stage, nextCheckAt: null };
+  render(<Page />); await openManagement();
+  expect(screen.getByText(/Checking Budget Relieving gift IDs/)).toHaveTextContent("All classifications will publish together");
+  expect(screen.queryByRole("button", { name: "Refresh campaign", exact: true })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Budget Relieving setup" })).toBeDisabled();
+  expect(calls.every(call => call.options?.method !== "POST")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Continue refresh" }));
+  await waitFor(() => expect(calls.some(call => call.options?.method === "POST")).toBe(true));
+  expect(JSON.parse(calls.find(call => call.options?.method === "POST").options.body)).toMatchObject({ operation: "continue", version: 7 });
 });
 
 it("keeps fund selections when hiding management and returns keyboard focus to its toggle", async () => {

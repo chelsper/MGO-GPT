@@ -125,7 +125,8 @@ it("retains calculation and write-off source details in a collapsed disclosure",
 });
 it("distinguishes an unconfigured category from a verified zero without inventing received totals", () => {
   const { rerender } = render(<CampaignOverview data={data} />);
-  expect(screen.getByText(/They are not assumed to be zero/)).toBeInTheDocument();
+  expect(screen.getByText(/Comprehensive Investment and Philanthropic totals appear/)).toHaveTextContent("They are not assumed to be zero");
+  expect(screen.getByText(/Budget Relieving totals appear/)).toHaveTextContent("They are not assumed to be zero");
   expect(screen.queryByRole("table", { name: "Campaign investment and philanthropic totals" })).not.toBeInTheDocument();
   rerender(<CampaignOverview data={{ ...data, segments: { ...data.segments,
     classification: { status: "ready", queryId: "31071", investmentCents: 0, philanthropicCents: 14000 },

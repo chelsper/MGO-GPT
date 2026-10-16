@@ -25,6 +25,7 @@ export default async function campaignPrioritiesSchema(db) {
     ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS write_off_cents BIGINT;
     ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS pledge_balance_cents BIGINT;
     ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS is_investment BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE campaign_priority_rows ADD COLUMN IF NOT EXISTS is_budget_relieving BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS campaign_priority_pledge_checks (
       run_id UUID NOT NULL REFERENCES campaign_priority_runs(id) ON DELETE CASCADE,
       gift_id TEXT NOT NULL,stage TEXT NOT NULL DEFAULT 'gift',draft JSONB NOT NULL DEFAULT '{}',
@@ -46,7 +47,7 @@ export default async function campaignPrioritiesSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS campaign_priority_events_item ON campaign_priority_events(source_key,item_key,id);
     IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
-      AND table_name='campaign_priority_effective' AND column_name='is_investment') THEN
+      AND table_name='campaign_priority_effective' AND column_name='is_budget_relieving') THEN
     CREATE OR REPLACE VIEW campaign_priority_effective AS
     SELECT g.run_id,g.item_key,g.gift_id,g.split_id,g.fund_id,g.fund_name,g.donor_name,g.gift_date,g.gift_type,
       g.amount_cents,g.base_hash,g.row_hash,g.conflict, r.source_key, COALESCE(f.priority,'unassigned') AS fund_priority,
@@ -56,7 +57,7 @@ export default async function campaignPrioritiesSchema(db) {
       o.priority AS override_priority,o.amount_cents AS override_cents,o.reason,o.updated_by_name,o.updated_at AS override_updated_at,
       g.write_off_cents,g.pledge_balance_cents,net.net_cents,
       CASE WHEN g.write_off_cents IS NOT NULL AND g.pledge_balance_cents IS NOT NULL
-        THEN calculated.effective_cents-g.pledge_balance_cents END AS received_cents,g.is_investment
+        THEN calculated.effective_cents-g.pledge_balance_cents END AS received_cents,g.is_investment,g.is_budget_relieving
     FROM campaign_priority_rows g JOIN campaign_priority_runs r ON r.id=g.run_id
       LEFT JOIN campaign_priority_funds f ON f.source_key=r.source_key AND f.fund_id=g.fund_id
       LEFT JOIN campaign_priority_overrides o ON o.source_key=r.source_key AND o.item_key=g.item_key

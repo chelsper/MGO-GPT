@@ -46,6 +46,7 @@
 .fiscalChart{margin-top:24px}.fiscalChartHead{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.fiscalChartHead p{margin:0}
 .fiscalLegend{display:flex;gap:12px 24px;flex-wrap:wrap;margin:20px 0;font-size:13px}.fiscalLegend span{display:flex;align-items:center;gap:8px}.fiscalLegend i{width:10px;height:10px;border-radius:2px;flex:none}
 .totalKey,.totalBar{background:#58766c}.fiscalChartRows{list-style:none;margin:16px 0 0;padding:0}
+.budgetKey{background:#23727c}.budgetBar{background:repeating-linear-gradient(135deg,#23727c 0,#23727c 5px,#32858f 5px,#32858f 7px)}
 .fiscalChartRows>li{padding:12px 0;border-bottom:1px solid #eef3ef}.fiscalChartRow{display:grid;grid-template-columns:90px minmax(0,1fr) 170px;align-items:center;gap:20px}
 .fiscalYearName{font-size:14px;font-weight:700}.fiscalYearAmount{font-size:15px;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .fiscalBarTrack{height:22px;border-left:1px solid #c7d9d0;background:repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),#e7eee9 calc(25% - 1px),#e7eee9 25%);display:flex;overflow:hidden;border-radius:0 5px 5px 0}

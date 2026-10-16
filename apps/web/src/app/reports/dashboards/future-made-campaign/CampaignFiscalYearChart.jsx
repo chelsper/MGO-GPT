@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { campaignMoney } from "@/utils/campaignPriorities";
 import styles from "./campaign.module.css";
+import { campaignBreakdown } from "./campaignBreakdown";
 
 const exactMoney = amount => campaignMoney(Number.isSafeInteger(amount) ? amount : null);
 const reconciles = (amounts, total) => Number.isSafeInteger(total) && amounts.every(Number.isSafeInteger)
   && amounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(total);
 
-export default function CampaignFiscalYearChart({ data, periodLabel }) {
+export default function CampaignFiscalYearChart({ data, periodLabel, breakdown = "investment", onBreakdownChange }) {
   const [view, setView] = useState("committed");
   const segments = data.segments;
   const years = segments?.fiscalYears;
@@ -32,15 +33,18 @@ export default function CampaignFiscalYearChart({ data, periodLabel }) {
   const scale = Math.max(0, ...years.flatMap(year => [
     ...(primaryDrawable ? [year.effective_cents] : []), ...(receivedDrawable ? [year.received_cents] : []),
   ]));
-  const philanthropicField = showReceived ? "philanthropic_received_cents" : "philanthropic_cents";
-  const investmentField = showReceived ? "investment_received_cents" : "investment_cents";
-  const classification = segments.classification;
-  const classified = classification?.status === "ready";
+  const budgetAvailable = segments.budgetRelieving?.status === "ready";
+  const investmentAvailable = segments.classification?.status === "ready";
+  const kind = budgetAvailable && (breakdown === "budgetRelieving" || !investmentAvailable) ? "budgetRelieving" : "investment";
+  const classification = campaignBreakdown(data,kind);
+  const philanthropicField = showReceived ? classification.otherReceivedField : classification.otherField;
+  const investmentField = showReceived ? classification.receivedField : classification.field;
+  const classified = classification.ready;
   const split = drawable && classified && years.every(year =>
     reconciles([year[philanthropicField], year[investmentField]], year[field])
     && year[philanthropicField] >= 0 && year[investmentField] >= 0)
-    && reconciles(years.map(year => year[philanthropicField]), showReceived ? classification.philanthropicReceivedCents : classification.philanthropicCents)
-    && reconciles(years.map(year => year[investmentField]), showReceived ? classification.investmentReceivedCents : classification.investmentCents);
+    && reconciles(years.map(year => year[philanthropicField]), showReceived ? classification.otherReceivedCents : classification.otherCents)
+    && reconciles(years.map(year => year[investmentField]), showReceived ? classification.receivedCents : classification.cents);
   const ordered = [...years].sort((a, b) => a.fiscal_year === null ? 1 : b.fiscal_year === null ? -1 : b.fiscal_year - a.fiscal_year);
   const issue = !valid ? "Some fiscal-year amounts are unavailable. Saved amounts remain visible; no missing value is treated as zero."
     : !complete ? "The fiscal-year amounts do not match the saved campaign total. Bars are hidden; check the details below."
@@ -55,11 +59,16 @@ export default function CampaignFiscalYearChart({ data, periodLabel }) {
         <button type="button" aria-pressed={showReceived} disabled={!receivedAvailable} onClick={() => setView("received")}>Received to date</button>
       </div>
     </div>
+    {budgetAvailable && <label>Fiscal-year chart breakdown<select value={kind} onChange={e=>onBreakdownChange(e.target.value)}>
+      {investmentAvailable && <option value="investment">Comprehensive Investment &amp; Philanthropic</option>}
+      <option value="budgetRelieving">Budget Relieving &amp; other campaign giving</option>
+    </select></label>}
+    {kind === "budgetRelieving" && <p className={styles.muted}>Budget Relieving is part of the same total and may overlap either investment/philanthropic category. This chart shows a separate breakdown, not an extra stacked amount.</p>}
     {!receivedAvailable && <p className={styles.muted}>The Received chart needs saved pledge-balance data.</p>}
     {issue && <p className={styles.notice}>{issue}</p>}
     {drawable && <>
       <div className={styles.fiscalLegend} aria-label="Fiscal-year chart legend">
-        {split ? <><span><i className={styles.philanthropicKey} aria-hidden="true" />Philanthropic</span><span><i className={styles.investmentKey} aria-hidden="true" />Comprehensive Investment</span></>
+        {split ? <><span><i className={styles[classification.otherMarker]} aria-hidden="true" />{classification.otherLabel}</span><span><i className={styles[classification.marker]} aria-hidden="true" />{classification.label}</span></>
           : <span><i className={styles.totalKey} aria-hidden="true" />Campaign total</span>}
       </div>
       {classified && !split && <p className={styles.muted}>Category amounts cannot be reconciled in this view. Bars show campaign totals only; category values remain in the details.</p>}
@@ -69,15 +78,15 @@ export default function CampaignFiscalYearChart({ data, periodLabel }) {
       {ordered.map((year, index) => {
         const name = year.fiscal_year === null ? "Date needed" : `FY${year.fiscal_year}`;
         const amount = year[field];
-        const breakdown = split ? ` Philanthropic ${exactMoney(year[philanthropicField])}; Comprehensive Investment ${exactMoney(year[investmentField])}.` : "";
+        const breakdown = split ? ` ${classification.otherLabel} ${exactMoney(year[philanthropicField])}; ${classification.label} ${exactMoney(year[investmentField])}.` : "";
         const description = `${name}: ${periodLabel(year.fiscal_year)}. ${label} ${exactMoney(amount)}.${breakdown}`;
         return <li key={`${year.fiscal_year ?? "unknown"}:${index}`} className={year.fiscal_year === null ? styles.fiscalUndated : undefined}>
           <div className={styles.fiscalChartRow} role="img" aria-label={description}>
             <span className={styles.fiscalYearName} aria-hidden="true">{name}</span>
             <div className={styles.fiscalBarTrack} aria-hidden="true">
               {drawable && scale > 0 && (split ? <>
-                <span className={styles.philanthropicBar} style={{ width: `${year[philanthropicField] / scale * 100}%` }} />
-                <span className={styles.investmentBar} style={{ width: `${year[investmentField] / scale * 100}%` }} />
+                <span className={styles[classification.otherBar]} style={{ width: `${year[philanthropicField] / scale * 100}%` }} />
+                <span className={styles[classification.bar]} style={{ width: `${year[investmentField] / scale * 100}%` }} />
               </> : <span className={styles.totalBar} style={{ width: `${amount / scale * 100}%` }} />)}
             </div>
             <strong className={styles.fiscalYearAmount} aria-hidden="true">{exactMoney(amount)}</strong>

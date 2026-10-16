@@ -66,6 +66,7 @@ export async function POST(request) {
     if (!Number.isSafeInteger(version) || version < 1) throw campaignError("Reload saved campaign settings before continuing.", 409);
     if (operation === "writeOffs") return Response.json({ version:await saveCampaignWriteOffs(user,version,input,await campaignTransport(origin)) },{ headers });
     if (operation === "investment") return Response.json({ version:await saveCampaignInvestment(user,version,input,await campaignTransport(origin),sql) },{ headers });
+    if (operation === "budgetRelieving") return Response.json({ version:await saveCampaignInvestment(user,version,input,await campaignTransport(origin),sql,"budgetRelieving") },{ headers });
     if (operation === "source") {
       const config = validateCampaignSource(input);
       const transport = await campaignTransport(origin);

@@ -2,6 +2,7 @@ import { campaignMoney } from "@/utils/campaignPriorities";
 import styles from "./campaign.module.css";
 import { useState } from "react";
 import CampaignFiscalYearChart from "./CampaignFiscalYearChart";
+import { campaignBreakdown } from "./campaignBreakdown";
 
 function periodLabel(year, startMonth) {
   if (year === null) return "Gift date missing or unrecognized";
@@ -14,30 +15,33 @@ function periodLabel(year, startMonth) {
 
 export default function CampaignFiscalYears({ data }) {
   const [view,setView] = useState("classification");
+  const [breakdown,setBreakdown] = useState("investment");
+  const chooseBreakdown = kind => { setBreakdown(kind); if (view !== "amounts") setView(kind === "investment" ? "classification" : kind); };
   const years = data.segments?.fiscalYears || [];
   const startMonth = data.segments?.fiscalYearStartMonth;
   const financial = data.segments?.committed?.status === "ready";
   const received = data.segments?.received?.status === "ready";
-  const classification = data.segments?.classification;
-  const classified = classification?.status === "ready";
+  const investment = campaignBreakdown(data), budget = campaignBreakdown(data,"budgetRelieving");
+  const selectedView = view === "amounts" ? "amounts" : view === "budgetRelieving" && budget.ready ? "budgetRelieving" : investment.ready ? "classification" : budget.ready ? "budgetRelieving" : "amounts";
+  const classification = selectedView === "budgetRelieving" ? budget : investment;
   return <section id="campaign-fiscal-years" className={styles.card} aria-label="Campaign by fiscal year">
     <div className={styles.sectionHead}><div><h2>By fiscal year</h2><p className={styles.muted}>Grouped by original gift date. Received is paid to date on those gifts, not cash received during that fiscal year.</p></div></div>
     {!data.runId ? <p>Fiscal years will appear after the first campaign refresh.</p>
       : !data.segments ? <p>Reload saved data to load the fiscal-year breakdown.</p>
         : !years.length ? <p>No gifts in the saved campaign results.</p>
-          : <><CampaignFiscalYearChart data={data} periodLabel={year => periodLabel(year, startMonth)} />
+          : <><CampaignFiscalYearChart data={data} periodLabel={year => periodLabel(year, startMonth)} breakdown={breakdown} onBreakdownChange={chooseBreakdown} />
           <details className={styles.fiscalDetails}>
           <summary>View fiscal-year details</summary>
-          {classified && <label>Fiscal-year view<select value={view} onChange={e=>setView(e.target.value)}><option value="classification">Comprehensive Investment &amp; Philanthropic</option><option value="amounts">Campaign amounts and deductions</option></select></label>}
-          {classified && view==="classification" ? <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Fiscal-year category details"><table aria-label="Fiscal-year investment and philanthropic totals">
-            <thead><tr><th scope="col">Fiscal year</th><th scope="col">Campaign {financial ? "committed" : "recognition"}</th><th scope="col">Comprehensive Investment</th><th scope="col">Philanthropic</th>{received && <><th scope="col">Campaign received</th><th scope="col">Investment received</th><th scope="col">Philanthropic received</th></>}</tr></thead>
+          {(investment.ready || budget.ready) && <label>Fiscal-year view<select value={selectedView} onChange={e=>{setView(e.target.value);if(e.target.value!=="amounts")setBreakdown(e.target.value==="classification" ? "investment" : e.target.value);}}>{investment.ready && <option value="classification">Comprehensive Investment &amp; Philanthropic</option>}{budget.ready && <option value="budgetRelieving">Budget Relieving &amp; other campaign giving</option>}<option value="amounts">Campaign amounts and deductions</option></select></label>}
+          {selectedView!=="amounts" ? <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Fiscal-year category details"><table aria-label={selectedView === "budgetRelieving" ? "Fiscal-year Budget Relieving totals" : "Fiscal-year investment and philanthropic totals"}>
+            <thead><tr><th scope="col">Fiscal year</th><th scope="col">Campaign {financial ? "committed" : "recognition"}</th><th scope="col">{classification.label}</th><th scope="col">{classification.otherLabel}</th>{received && <><th scope="col">Campaign received</th><th scope="col">{selectedView === "budgetRelieving" ? "Budget Relieving" : "Investment"} received</th><th scope="col">{classification.otherLabel} received</th></>}</tr></thead>
             <tbody>{years.map(year=><tr key={year.fiscal_year ?? "unknown"}>
               <th scope="row">{year.fiscal_year===null ? "Date needed" : `FY${year.fiscal_year}`}<small className={styles.yearPeriod}>{periodLabel(year.fiscal_year,startMonth)}</small></th>
-              <td>{campaignMoney(year.effective_cents)}</td><td>{campaignMoney(year.investment_cents)}</td><td>{campaignMoney(year.philanthropic_cents)}</td>
-              {received && <><td>{campaignMoney(year.received_cents)}</td><td>{campaignMoney(year.investment_received_cents)}</td><td>{campaignMoney(year.philanthropic_received_cents)}</td></>}
-            </tr>)}</tbody><tfoot><tr><th scope="row">Campaign total</th><td>{campaignMoney(data.effectiveCents)}</td><td>{campaignMoney(classification.investmentCents)}</td><td>{campaignMoney(classification.philanthropicCents)}</td>
-              {received && <><td>{campaignMoney(data.segments.received.cents)}</td><td>{campaignMoney(classification.investmentReceivedCents)}</td><td>{campaignMoney(classification.philanthropicReceivedCents)}</td></>}
-            </tr></tfoot></table><p className={styles.muted}>Each fiscal year's Philanthropic amount is its campaign total minus Comprehensive Investment. Both categories use the same post-write-off campaign amounts.</p></div>
+              <td>{campaignMoney(year.effective_cents)}</td><td>{campaignMoney(year[classification.field])}</td><td>{campaignMoney(year[classification.otherField])}</td>
+              {received && <><td>{campaignMoney(year.received_cents)}</td><td>{campaignMoney(year[classification.receivedField])}</td><td>{campaignMoney(year[classification.otherReceivedField])}</td></>}
+            </tr>)}</tbody><tfoot><tr><th scope="row">Campaign total</th><td>{campaignMoney(data.effectiveCents)}</td><td>{campaignMoney(classification.cents)}</td><td>{campaignMoney(classification.otherCents)}</td>
+              {received && <><td>{campaignMoney(data.segments.received.cents)}</td><td>{campaignMoney(classification.receivedCents)}</td><td>{campaignMoney(classification.otherReceivedCents)}</td></>}
+            </tr></tfoot></table><p className={styles.muted}>{selectedView === "budgetRelieving" ? "Budget Relieving and other campaign giving reconcile to each fiscal year's campaign total. This separate measure may overlap investment/philanthropic categories and is not added to them." : "Each fiscal year's Philanthropic amount is its campaign total minus Comprehensive Investment. Both categories use the same post-write-off campaign amounts."}</p></div>
             : <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Fiscal-year amount details"><table aria-label="Fiscal-year campaign recognition">
             <thead><tr><th scope="col">Fiscal year</th><th scope="col">Original amount</th>{financial && <th scope="col">Write-offs</th>}<th scope="col">Local adjustments</th><th scope="col">{financial ? "Committed" : "Campaign recognition"}</th>{received && <><th scope="col">Pledge balance</th><th scope="col">Received to date</th></>}</tr></thead>
             <tbody>{years.map(year => <tr key={year.fiscal_year ?? "unknown"}>

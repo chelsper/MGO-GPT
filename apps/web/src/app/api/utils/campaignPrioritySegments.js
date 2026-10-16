@@ -5,7 +5,7 @@ import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy
 export function campaignFiscalYearQuery(db) {
   const startMonth = ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth;
   return db`WITH dated AS (
-      SELECT e.amount_cents,e.effective_cents,e.net_cents,e.write_off_cents,e.pledge_balance_cents,e.received_cents,e.is_investment,
+      SELECT e.amount_cents,e.effective_cents,e.net_cents,e.write_off_cents,e.pledge_balance_cents,e.received_cents,e.is_investment,e.is_budget_relieving,
         regexp_match(trim(e.gift_date),'^([0-9]{4})-([0-9]{2})-([0-9]{2})$') AS iso,
         regexp_match(trim(e.gift_date),'^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})$') AS us
       FROM campaign_priority_effective e JOIN campaign_priority_state s ON s.id=1 AND s.published_run=e.run_id
@@ -24,6 +24,10 @@ export function campaignFiscalYearQuery(db) {
       COALESCE(SUM(effective_cents) FILTER(WHERE NOT is_investment),0)::text AS philanthropic_cents,
       COALESCE(SUM(received_cents) FILTER(WHERE is_investment),0)::text AS investment_received_cents,
       COALESCE(SUM(received_cents) FILTER(WHERE NOT is_investment),0)::text AS philanthropic_received_cents,
+      COALESCE(SUM(effective_cents) FILTER(WHERE is_budget_relieving),0)::text AS budget_relieving_cents,
+      COALESCE(SUM(effective_cents) FILTER(WHERE NOT is_budget_relieving),0)::text AS other_budget_cents,
+      COALESCE(SUM(received_cents) FILTER(WHERE is_budget_relieving),0)::text AS budget_relieving_received_cents,
+      COALESCE(SUM(received_cents) FILTER(WHERE NOT is_budget_relieving),0)::text AS other_budget_received_cents,
       CASE WHEN COUNT(received_cents)=COUNT(*) THEN SUM(received_cents)::text END AS received_cents
     FROM checked GROUP BY fiscal_year ORDER BY fiscal_year DESC NULLS LAST`;
 }

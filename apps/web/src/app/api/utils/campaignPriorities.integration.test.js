@@ -210,6 +210,135 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await expect(classifyCampaignInvestment({lease:randomUUID(),job:{runId:run}},{giftIds:["10"],rawRows:1},db)).rejects.toMatchObject({status:409});
     expect((await read()).rows.some(r=>r.is_investment)).toBe(false);
   });
+  const budgetRelieving={queryId:"31072",queryName:"Budget Relieving",giftIdColumn:"System Record ID"};
+  const budgetMetadata={...investmentMetadata,id:"31072",name:"Budget Relieving"};
+  async function prepareBudget({ids=["10"],investmentIds=["10"],only=false,rows=[financialRow({...row(1),giftDate:"2026-06-30"},1000,2000),financialRow({...row(2,4000,"5"),giftDate:"2026-06-30"},0,1000),financialRow(wholeGift("11","4",5000),0,0)]}={}) {
+    const source={...financialConfig,investment:only ? null : investment,budgetRelieving};
+    await saveCampaignConfig(actor,(await read()).version,source,db);
+    const t=transport(rows);
+    t.metadata.mockImplementation(async id=>id==="31072" ? budgetMetadata : id==="31071" ? investmentMetadata : {...metadata,select_fields:Object.values(source.columns).filter(Boolean).map(name=>({query_field:{selected_field_name:name}}))});
+    t.create.mockImplementation(async id=>({id:id==="31072" ? "budget-job" : id==="31071" ? "investment-job" : "job-1"}));
+    t.poll.mockImplementation(async id=>({id,status:"Completed",row_count:id==="budget-job" ? ids.length : id==="investment-job" ? investmentIds.length : rows.length,sas_uri:"https://nsa-pusa01.app.blackbaud.net/fixture.csv"}));
+    t.readInvestment=vi.fn(async()=>({giftIds:investmentIds,rawRows:investmentIds.length}));
+    t.readBudgetRelieving=vi.fn(async()=>({giftIds:ids,rawRows:ids.length}));
+    await start(t); await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    return t;
+  }
+  async function finishBudget(t) {
+    if ((await read()).job.stage==="investment_waiting") await finishInvestment(t);
+    return finishInvestment(t);
+  }
+  it("publishes all three queries together without adding overlapping or repeated budget gifts",async()=>{
+    await edit("funds",{fundIds:["4"],priority:"scholarships"});
+    const t=await prepareBudget({ids:["10","11","10"]});
+    expect((await finishInvestment(t))).toMatchObject({runId:run,job:{stage:"budget_waiting"},segments:{budgetRelieving:{status:"source_needed",cents:null}}});
+    const result=await finishBudget(t);
+    expect(result).toMatchObject({effectiveCents:14000,writeOffCents:1000,segments:{received:{cents:11000},
+      classification:{investmentCents:9000,philanthropicCents:5000},budgetRelieving:{status:"ready",queryId:"31072",cents:14000,otherCents:0,receivedCents:11000,otherReceivedCents:0}}});
+    expect(result.segments.fiscalYears).toMatchObject([{fiscal_year:2027,budget_relieving_cents:5000},{fiscal_year:2026,budget_relieving_cents:9000,budget_relieving_received_cents:6000}]);
+    expect(result.rows.filter(r=>r.is_budget_relieving)).toHaveLength(3); expect(result.rows.filter(r=>r.is_investment)).toHaveLength(2);
+    expect(result.funds.find(f=>f.fund_id==="4").fund_priority).toBe("scholarships");
+    expect(t.create.mock.calls.map(c=>c[0])).toEqual(["27460","31071","31072"]);
+    expect(t.read).toHaveBeenCalledTimes(1);expect(t.readInvestment).toHaveBeenCalledTimes(1);expect(t.readBudgetRelieving).toHaveBeenCalledTimes(1);
+    run=result.runId;await edit("override",{itemKey:"10:1",priority:null,amount:"35",reason:"Local correction"});
+    expect(await read()).toMatchObject({effectiveCents:12500,segments:{classification:{investmentCents:7500,philanthropicCents:5000},budgetRelieving:{cents:12500,receivedCents:9500}}});
+  });
+  it("keeps budget and investment membership independent, with unknown dates and filtered detail",async()=>{
+    const result=await finishBudget(await prepareBudget({ids:["11"],rows:[financialRow(row(1),1000,2000),financialRow({...wholeGift("11","5",5000),giftDate:""},0,0)]}));
+    expect(result.segments.budgetRelieving).toMatchObject({cents:5000,otherCents:5000,receivedCents:5000,otherReceivedCents:3000});
+    expect(result.segments.classification).toMatchObject({investmentCents:5000,philanthropicCents:5000});
+    expect(result.segments.fiscalYears).toMatchObject([{fiscal_year:2027,budget_relieving_cents:0,other_budget_cents:5000},{fiscal_year:null,budget_relieving_cents:5000}]);
+    const filtered=await campaignRead(new URLSearchParams({fund:"5"}),false,db);
+    expect(filtered.rows).toHaveLength(1);expect(filtered.segments).toEqual(result.segments);expect(filtered.config).toBeUndefined();
+  });
+  it("supports budget-only classification without inventing investment totals",async()=>{
+    const t=await prepareBudget({only:true}),result=await finishBudget(t);
+    expect(result.segments).toMatchObject({classification:{status:"source_needed",investmentCents:null},budgetRelieving:{status:"ready",cents:9000,receivedCents:6000}});
+    expect(t.create.mock.calls.map(c=>c[0])).toEqual(["27460","31072"]);expect(t.readInvestment).not.toHaveBeenCalled();
+  });
+  it("distinguishes a verified empty budget query from unconfigured classification",async()=>{
+    const result=await finishBudget(await prepareBudget({ids:[]}));
+    expect(result.segments.budgetRelieving).toMatchObject({status:"ready",cents:0,otherCents:14000,receivedCents:0,otherReceivedCents:11000});
+  });
+  it("keeps both saved categories on a budget failure and removes old membership on a later successful refresh",async()=>{
+    const prior=await finishBudget(await prepareBudget());run=prior.runId;
+    const t=await prepareBudget({ids:["999"]});
+    const failed=await finishBudget(t);
+    expect(failed).toMatchObject({runId:prior.runId,job:{stage:"failed",error:expect.stringContaining("Budget Relieving gifts are not in the main campaign")}});
+    expect(failed.segments).toEqual(prior.segments);
+    const next=await finishBudget(await prepareBudget({ids:["11"]}));
+    expect(next.segments.budgetRelieving).toMatchObject({cents:5000,otherCents:9000});
+    expect(next.segments.classification).toEqual(prior.segments.classification);expect(next.effectiveCents).toBe(prior.effectiveCents);
+    expect(next.rows.filter(r=>r.is_budget_relieving).map(r=>r.gift_id)).toEqual(["11"]);
+  });
+  it("pauses budget download on throttling and resumes without rerunning either previous query",async()=>{
+    const t=await prepareBudget();await finishInvestment(t);
+    t.readBudgetRelieving.mockRejectedValueOnce(Object.assign(new Error("pause"),{httpStatus:429,retryAfterMs:60000}));
+    expect((await finishBudget(t)).job.stage).toBe("budget_downloading");
+    expect((await finishBudget(t)).job.stage).toBe("complete");
+    expect(t.create).toHaveBeenCalledTimes(3);expect(t.read).toHaveBeenCalledTimes(1);expect(t.readInvestment).toHaveBeenCalledTimes(1);
+  });
+  it.each(["wrong-job","incomplete","lost-lease"])("does not publish after %s during budget classification",async problem=>{
+    const t=await prepareBudget();await finishInvestment(t);
+    if(problem==="wrong-job")t.poll.mockResolvedValueOnce({id:"wrong",status:"Completed"});
+    if(problem==="incomplete")t.readBudgetRelieving.mockResolvedValueOnce({giftIds:["10"],rawRows:0});
+    if(problem==="lost-lease")t.readBudgetRelieving.mockImplementationOnce(async()=>{await db`UPDATE campaign_priority_state SET lease=NULL,lease_until=NULL WHERE id=1`;return {giftIds:["10"],rawRows:1};});
+    if(problem==="lost-lease")await expect(finishBudget(t)).rejects.toThrow(/took over/);else expect((await finishBudget(t)).job.stage).toBe("failed");
+    expect((await read()).runId).toBe(run);
+  });
+  it("never automatically retries an uncertain budget query submission",async()=>{
+    const t=await prepareBudget();t.create.mockRejectedValueOnce(Object.assign(new Error("uncertain"),{httpStatus:429,retryAfterMs:60000}));
+    expect((await finishInvestment(t)).job.stage).toBe("failed");
+    expect((await finishInvestment(t)).job.stage).toBe("failed");expect(t.create).toHaveBeenCalledTimes(3);expect((await read()).runId).toBe(run);
+  });
+  it("preserves budget setup through main-source and write-off saves, and blocks stale edits until refreshed",async()=>{
+    await saveCampaignConfig(actor,1,{...config,investment,budgetRelieving},db);
+    await saveCampaignConfig(actor,2,config,db);
+    expect((await read()).config).toMatchObject({investment,budgetRelieving});
+    await expect(edit("funds",{fundIds:["4"],priority:"scholarships"})).rejects.toMatchObject({status:409});
+    const t=await prepareCsv();await importCsv(t);
+    expect((await read()).config).toMatchObject({investment,budgetRelieving});
+  });
+  it("checks budget setup permissions, source identity, versions, active jobs, and audit attribution",async()=>{
+    const t=transport();t.metadata.mockResolvedValue(budgetMetadata);
+    await expect(saveCampaignInvestment({...actor,role:"mgo"},1,{...budgetRelieving,confirmed:true},t,db,"budgetRelieving")).rejects.toMatchObject({status:403});
+    await expect(saveCampaignInvestment(actor,99,{...budgetRelieving,confirmed:true},t,db,"budgetRelieving")).rejects.toMatchObject({status:409});
+    await expect(saveCampaignInvestment(actor,1,{...budgetRelieving,queryId:"27460",confirmed:true},t,db,"budgetRelieving")).rejects.toThrow(/separate/);
+    await saveCampaignInvestment(actor,1,{...budgetRelieving,confirmed:true},t,db,"budgetRelieving");
+    expect((await read()).config.budgetRelieving).toEqual(budgetRelieving);
+    expect(await db`SELECT id FROM campaign_priority_events WHERE operation='budgetRelieving_source'`).toHaveLength(1);
+    const active=await prepareBudget();await finishInvestment(active);
+    await expect(saveCampaignInvestment(actor,(await read()).version,{...budgetRelieving,confirmed:true},t,db,"budgetRelieving")).rejects.toMatchObject({status:409});
+    await advanceCampaignRefresh(actor,(await read()).version,"cancel",null,db);
+    expect(await read()).toMatchObject({runId:run,job:{stage:"cancelled"}});expect(active.readBudgetRelieving).not.toHaveBeenCalled();
+  });
+  it("applies budget classification after the CSV ledger, keeping balances and write-offs counted once",async()=>{
+    const t=await prepareCsv();await importCsv(t);
+    const main=await t.metadata("27460");
+    t.metadata.mockImplementation(async id=>id==="31072" ? budgetMetadata : main);
+    await saveCampaignInvestment(actor,(await read()).version,{...budgetRelieving,confirmed:true},t,db,"budgetRelieving");
+    t.create.mockImplementation(async id=>({id:id==="31072" ? "budget-job" : "job-1"}));
+    t.poll.mockImplementation(async id=>({id,status:"Completed",row_count:id==="budget-job" ? 1 : 2,sas_uri:"https://nsa-pusa01.app.blackbaud.net/fixture.csv"}));
+    t.read.mockImplementation(async(_url,_source,_count,save)=>{await save(csvRows());return {rawRows:2};});
+    t.readBudgetRelieving=vi.fn(async()=>({giftIds:["10"],rawRows:1}));
+    await start(t);await advanceCampaignRefresh(actor,(await read()).version,"continue",t,db);
+    expect(await finishBudget(t)).toMatchObject({writeOffCents:2500,effectiveCents:7500,pledgeBalanceCents:3000,segments:{budgetRelieving:{cents:7500,receivedCents:4500,otherCents:0}}});
+  });
+  it("upgrades the deployed investment schema without erasing its membership, financials or overrides",async()=>{
+    const prior=await finishInvestment(await prepareInvestment());run=prior.runId;
+    await edit("override",{itemKey:"10:1",priority:null,amount:"45",reason:"Existing correction"});
+    const before=await read();
+    const [{definition}]=await db`SELECT pg_get_viewdef('campaign_priority_effective'::regclass,true) AS definition`;
+    const oldView=definition.replace(/,\s*g\.is_budget_relieving\s+FROM/i,"\nFROM");
+    expect(oldView).not.toContain("is_budget_relieving");expect(oldView).toContain("is_investment");
+    try {
+      await pg.exec(`DROP VIEW campaign_priority_effective; ALTER TABLE campaign_priority_rows DROP COLUMN is_budget_relieving; CREATE VIEW campaign_priority_effective AS ${oldView}`);
+      await schema(db);await schema(db);
+      const after=await read();
+      expect(after.segments).toEqual(before.segments);expect(after.rows).toEqual(before.rows);expect(after.runId).toBe(before.runId);
+      expect(after.segments.budgetRelieving).toMatchObject({status:"source_needed",cents:null,receivedCents:null});
+    } finally {await schema(db);}
+  });
   const csvHeader="Gift Amount,Gift Type,Pledge Balance,Gf_System_ID,Write off\n";
   const csvInput=(content="100,Pledge,0,10,25")=>({csv:csvHeader+content,asOf:"2026-10-14",complete:true,confirmed:true,balanceColumn:"Split Pledge Balance"});
   async function prepareCsv() {
@@ -518,7 +647,7 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await edit("funds", { fundIds: ["4"], priority: "scholarships" });
     await edit("override", { itemKey: "10:1", priority: null, amount: "50", reason: "Existing approved exception" });
     await pg.exec(`DROP VIEW campaign_priority_effective;
-      ALTER TABLE campaign_priority_rows DROP COLUMN write_off_cents, DROP COLUMN pledge_balance_cents, DROP COLUMN is_investment;
+      ALTER TABLE campaign_priority_rows DROP COLUMN write_off_cents, DROP COLUMN pledge_balance_cents, DROP COLUMN is_investment, DROP COLUMN is_budget_relieving;
       CREATE VIEW campaign_priority_effective AS
       SELECT g.*,r.source_key,COALESCE(f.priority,'unassigned') AS fund_priority,
         CASE WHEN o.base_hash=g.base_hash THEN COALESCE(o.priority,f.priority,'unassigned') ELSE COALESCE(f.priority,'unassigned') END AS priority,
@@ -540,11 +669,11 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     await edit("override",{itemKey:"10:1",priority:null,amount:"45",reason:"Approved net amount"});
     const before=await read();
     const [{definition}]=await db`SELECT pg_get_viewdef('campaign_priority_effective'::regclass,true) AS definition`;
-    const oldView=definition.replace(/,\s*g\.is_investment\s+FROM/i,"\nFROM");
+    const oldView=definition.replace(/,\s*g\.is_investment,\s*g\.is_budget_relieving\s+FROM/i,"\nFROM");
     expect(oldView).not.toContain("is_investment");
     try {
       await pg.exec(`DROP VIEW campaign_priority_effective;
-        ALTER TABLE campaign_priority_rows DROP COLUMN is_investment;
+        ALTER TABLE campaign_priority_rows DROP COLUMN is_investment, DROP COLUMN is_budget_relieving;
         CREATE VIEW campaign_priority_effective AS ${oldView}`);
       await schema(db); await schema(db);
       const after=await read();

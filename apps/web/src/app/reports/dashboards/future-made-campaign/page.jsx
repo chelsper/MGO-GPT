@@ -9,7 +9,7 @@ import CampaignFiscalYears from "./CampaignFiscalYears";
 import CampaignPillars from "./CampaignPillars";
 import CampaignWriteOffs from "./CampaignWriteOffs";
 import CampaignInvestmentSetup from "./CampaignInvestmentSetup";
-import { campaignRefreshStages } from "@/utils/campaignInvestment";
+import { CAMPAIGN_CLASSIFICATIONS, campaignRefreshStages, campaignStartingStages } from "@/utils/campaignInvestment";
 import styles from "./campaign.module.css";
 
 const API = "/api/reports/campaign-priorities";
@@ -55,7 +55,7 @@ export default function CampaignPrioritiesPage() {
   const [search, setSearch] = useState(""), [filter, setFilter] = useState({ search: "", fund: "", priority: "", page: 1 });
   const [autoContinue, setAutoContinue] = useState(false), [confirmed, setConfirmed] = useState(false);
   const [writeOffs, setWriteOffs] = useState(false);
-  const [investmentSetup,setInvestmentSetup] = useState(false);
+  const [investmentSetup,setInvestmentSetup] = useState(null);
   const [manage, setManage] = useState(null);
   const manageButton = useRef(null);
   const requestId = useRef(0);
@@ -86,7 +86,8 @@ export default function CampaignPrioritiesPage() {
   }, [autoContinue, pending, data]);
   const ready = Boolean(data?.runId);
   const reviewCount = data?.priorities.reduce((sum, p) => sum + p.needs_review, 0) || 0;
-  const active = ["starting", "investment_starting", ...campaignRefreshStages].includes(data?.job?.stage);
+  const active = [...campaignStartingStages, ...campaignRefreshStages].includes(data?.job?.stage);
+  const checkingClassification = CAMPAIGN_CLASSIFICATIONS.find(({ prefix }) => data?.job?.stage?.startsWith(`${prefix}_`));
   const setupOpen = setup ?? !data?.config?.sourceKey;
   const manageOpen = manage ?? !data?.config?.sourceKey;
   return <main className={styles.page}><div className={styles.content}>
@@ -106,10 +107,10 @@ export default function CampaignPrioritiesPage() {
         <button onClick={() => setFunds(!funds)} disabled={!ready || pending}>{funds ? "Hide fund assignments" : "Assign funds to priorities"}</button>
         <button onClick={() => setSetup(!setupOpen)} disabled={pending}>{setupOpen ? "Hide source setup" : "Source & refresh"}</button>
         {data.config?.sourceKey && <><button disabled={pending || !ready} onClick={()=>setWriteOffs(!writeOffs)}>{writeOffs ? "Hide write-offs" : "Manage write-offs"}</button>
-          <button disabled={pending || active} onClick={()=>setInvestmentSetup(!investmentSetup)}>{investmentSetup ? "Hide classification setup" : "Comprehensive Investment setup"}</button></>}
+          {CAMPAIGN_CLASSIFICATIONS.map(({ key, label }) => <button key={key} disabled={pending || active} onClick={()=>setInvestmentSetup(investmentSetup === key ? null : key)}>{investmentSetup === key ? "Hide classification setup" : `${label} setup`}</button>)}</>}
         <a href={`/report-configurations?report=${CAMPAIGN_REPORT_KEY}&tab=Access`}>Manage viewers</a>
       </div>
-      {investmentSetup && data.canManage && <CampaignInvestmentSetup data={data} pending={pending} active={active} readFields={readCampaignFields} command={command} onClose={()=>setInvestmentSetup(false)} />}
+      {investmentSetup && data.canManage && <CampaignInvestmentSetup key={investmentSetup} kind={investmentSetup} data={data} pending={pending} active={active} readFields={readCampaignFields} command={command} onClose={()=>setInvestmentSetup(null)} />}
       {data.canManage && writeOffs && <CampaignWriteOffs data={data} pending={pending} active={active} saveError={error} readFields={readCampaignFields} onClose={()=>setWriteOffs(false)} onSave={async(input,version)=>{
         const latest=await command("writeOffs",input,{_version:version});
         if (!latest) return false;
@@ -120,7 +121,7 @@ export default function CampaignPrioritiesPage() {
       {data.canManage && data.config?.sourceKey && <section className={styles.refresh} aria-label="Campaign refresh"><details open={setup || active || Boolean(data.job?.error)}><summary>Refresh campaign data</summary><p>Run the saved Gift query using the shared reporting account. Last complete results stay visible while it runs. No gifts, funds, or query settings in NXT are changed.</p>
         {data.job?.financial && <><p role="status">Pledge checks: {data.job.financial.checked} of {data.job.financial.total} verified. {data.job.financial.withWriteOffs} with write-offs found. {data.job.financial.blocked || 0} need attention. Includes zero-balance pledges.</p>
           {data.job.financial.issues?.length > 0 && <details className={styles.notice}><summary>Pledges needing attention ({data.job.financial.blocked})</summary><ul>{data.job.financial.issues.map(issue=><li key={issue.giftId}>{issue.message}</li>)}</ul>{data.job.financial.blocked>data.job.financial.issues.length && <p>Showing the first {data.job.financial.issues.length} issues. No incomplete campaign totals will be published.</p>}</details>}</>}
-        {active ? <><p role="status">{pending ? "Loading campaign data..." : data.job.stage.startsWith("investment_") ? "Checking Comprehensive Investment gift IDs. Both categories will publish together when validation finishes." : data.job.stage === "waiting" ? "NXT is preparing the campaign query." : data.job.stage === "resolving" ? "Checking split gifts against their NXT fund allocations." : data.job.stage === "financial" ? "Checking pledge payments, write-offs and balances in NXT. Saved checkpoints let you leave and resume." : "Campaign refresh is in progress."} {autoContinue ? "This page will continue automatically." : "Resume when you are ready."}</p><div className={styles.toolbar}><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(true); await command("continue"); }}>Continue refresh</button><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(false); await command("cancel"); }}>Cancel this refresh</button><button disabled={pending} onClick={load}>Reload saved status</button></div></>
+        {active ? <><p role="status">{pending ? "Loading campaign data..." : checkingClassification ? `Checking ${checkingClassification.label} gift IDs. All classifications will publish together when validation finishes.` : data.job.stage === "waiting" ? "NXT is preparing the campaign query." : data.job.stage === "resolving" ? "Checking split gifts against their NXT fund allocations." : data.job.stage === "financial" ? "Checking pledge payments, write-offs and balances in NXT. Saved checkpoints let you leave and resume." : "Campaign refresh is in progress."} {autoContinue ? "This page will continue automatically." : "Resume when you are ready."}</p><div className={styles.toolbar}><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(true); await command("continue"); }}>Continue refresh</button><button disabled={pending || data.busy} onClick={async () => { setAutoContinue(false); await command("cancel"); }}>Cancel this refresh</button><button disabled={pending} onClick={load}>Reload saved status</button></div></>
           : <><label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />This query defines our campaign. I reviewed the mapped gift IDs, funds, and amount basis.</label><button className={styles.primary} disabled={pending || data.busy || !confirmed} onClick={async () => { setAutoContinue(true); await command("start", { confirmed: true }); }}>Refresh campaign</button></>}
       </details></section>}
       {funds && data.canManage && ready && <CampaignFundAssignments key={data.runId} data={data} command={command} pending={pending} />}

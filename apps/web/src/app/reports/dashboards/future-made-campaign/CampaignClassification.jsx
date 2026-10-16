@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { campaignMoney } from "@/utils/campaignPriorities";
 import styles from "./campaign.module.css";
+import { campaignBreakdown } from "./campaignBreakdown";
 
 const exactMoney = cents => campaignMoney(Number.isSafeInteger(cents) ? cents : null);
 
@@ -12,18 +13,19 @@ function shareLabel(amount, total, tenths) {
   return `${tenths / 10}%`;
 }
 
-export default function CampaignClassification({data}) {
+export default function CampaignClassification({data,kind="investment"}) {
   const [view, setView] = useState("committed");
-  const classification=data.segments?.classification;
-  if (!data.runId || classification?.status!=="ready") return <p className={styles.muted}>Comprehensive Investment and Philanthropic totals appear after the classification query is connected and refreshed. They are not assumed to be zero.</p>;
+  const classification=campaignBreakdown(data,kind), budget=kind==="budgetRelieving";
+  const title=budget ? "Budget Relieving" : "Campaign composition";
+  if (!data.runId || !classification.ready) return <p className={styles.muted}>{budget ? "Budget Relieving" : "Comprehensive Investment and Philanthropic"} totals appear after the classification query is connected and refreshed. They are not assumed to be zero.</p>;
   const received=data.segments?.received?.status==="ready";
   const committed=data.segments?.committed?.status==="ready";
   const showReceived = view === "received" && received;
   const primaryLabel = committed ? "Committed" : "Campaign recognition";
   const label = showReceived ? "Received to date" : primaryLabel;
   const total = showReceived ? data.segments.received.cents : committed ? data.segments.committed.cents : data.effectiveCents;
-  const philanthropic = showReceived ? classification.philanthropicReceivedCents : classification.philanthropicCents;
-  const investment = showReceived ? classification.investmentReceivedCents : classification.investmentCents;
+  const philanthropic = showReceived ? classification.otherReceivedCents : classification.otherCents;
+  const investment = showReceived ? classification.receivedCents : classification.cents;
   const valid = [total, philanthropic, investment].every(Number.isSafeInteger);
   const reconciled = valid && Number.isSafeInteger(philanthropic + investment) && philanthropic + investment === total;
   const nonnegative = reconciled && total >= 0 && philanthropic >= 0 && investment >= 0;
@@ -40,32 +42,33 @@ export default function CampaignClassification({data}) {
 
   return <div className={styles.composition}>
     <div className={styles.compositionHead}>
-      <div><h3>Campaign composition</h3><p className={styles.muted}>Two categories within the same campaign total.</p></div>
-      <div role="group" aria-label="Campaign composition view" className={styles.compositionToggle}>
+      <div><h3>{title}</h3><p className={styles.muted}>{budget ? "A separate view of gifts already in the campaign." : "Two categories within the same campaign total."}</p></div>
+      <div role="group" aria-label={`${title} view`} className={styles.compositionToggle}>
         <button type="button" aria-pressed={!showReceived} onClick={() => setView("committed")}>{primaryLabel}</button>
         <button type="button" aria-pressed={showReceived} disabled={!received} onClick={() => setView("received")}>Received to date</button>
       </div>
     </div>
     {!received && <p className={styles.muted}>The Received view needs saved pledge-balance data.</p>}
     {proportional ? <figure className={styles.compositionFigure}>
-      <div role="img" aria-label={`${label} campaign composition: Philanthropic ${exactMoney(philanthropic)} (${philanthropicShare}); Comprehensive Investment ${exactMoney(investment)} (${investmentShare}). Total ${exactMoney(total)}.`}>
+      <div role="img" aria-label={`${label} ${budget ? "budget relief" : "campaign composition"}: ${classification.otherLabel} ${exactMoney(philanthropic)} (${philanthropicShare}); ${classification.label} ${exactMoney(investment)} (${investmentShare}). Total ${exactMoney(total)}.`}>
         <div className={styles.compositionBar} aria-hidden="true">
-          <span className={styles.philanthropicBar} style={{ width: `${philanthropicPercent}%` }} />
-          <span className={styles.investmentBar} style={{ width: `${investment / total * 100}%` }} />
+          <span className={styles[classification.otherBar]} style={{ width: `${philanthropicPercent}%` }} />
+          <span className={styles[classification.bar]} style={{ width: `${investment / total * 100}%` }} />
         </div>
         <div className={styles.compositionLegend} aria-hidden="true">
-          <span><i className={styles.philanthropicKey} />Philanthropic<strong>{philanthropicShare}</strong></span>
-          <span><i className={styles.investmentKey} />Comprehensive Investment<strong>{investmentShare}</strong></span>
+          <span><i className={styles[classification.otherMarker]} />{classification.otherLabel}<strong>{philanthropicShare}</strong></span>
+          <span><i className={styles[classification.marker]} />{classification.label}<strong>{investmentShare}</strong></span>
         </div>
       </div>
       <figcaption className={styles.muted}>Share of the {label.toLowerCase()} campaign total. Exact amounts below.</figcaption>
     </figure> : <p className={styles.muted}>{unavailable}</p>}
     {received && <p className={`${styles.muted} ${styles.compositionTableHint}`}>Scroll the table sideways to compare exact amounts.</p>}
-    <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Exact campaign category amounts">
-    <table aria-label="Campaign investment and philanthropic totals"><thead><tr><th scope="col">Campaign category</th><th scope="col">{primaryLabel}</th>{received && <th scope="col">Received to date</th>}</tr></thead>
+    {budget && <p className={styles.muted}>Budget Relieving may overlap Comprehensive Investment or Philanthropic giving. It is not an additional campaign amount and does not change the Philanthropic calculation.</p>}
+    <div className={styles.tableWrap} tabIndex={0} role="region" aria-label={budget ? "Exact Budget Relieving amounts" : "Exact campaign category amounts"}>
+    <table aria-label={budget ? "Budget Relieving campaign totals" : "Campaign investment and philanthropic totals"}><thead><tr><th scope="col">Campaign category</th><th scope="col">{primaryLabel}</th>{received && <th scope="col">Received to date</th>}</tr></thead>
       <tbody>{[
-        ["Comprehensive Investment",classification.investmentCents,classification.investmentReceivedCents],
-        ["Philanthropic",classification.philanthropicCents,classification.philanthropicReceivedCents],
+        [classification.label,classification.cents,classification.receivedCents],
+        [classification.otherLabel,classification.otherCents,classification.otherReceivedCents],
       ].map(([label,amount,paid])=><tr key={label}><th scope="row">{label}</th><td>{exactMoney(amount)}</td>{received && <td>{exactMoney(paid)}</td>}</tr>)}</tbody>
     </table>
     </div>

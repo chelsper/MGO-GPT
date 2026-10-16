@@ -33,7 +33,7 @@ describe("campaign dashboard authorization and read/write boundaries", () => {
   });
   it.each(["mgo","executive"])("prevents %s from editing, refreshing, loading query metadata or reading audit history", async role => {
     mocks.user.mockResolvedValue({ id: 2, role, active: true });
-    for (const operation of ["fields","source","funds","override","start","continue","cancel","writeOffs","investment"]) expect((await POST(request({ operation,version: 1 }))).status).toBe(403);
+    for (const operation of ["fields","source","funds","override","start","continue","cancel","writeOffs","investment","budgetRelieving"]) expect((await POST(request({ operation,version: 1 }))).status).toBe(403);
     expect((await GET(new Request(`${url}?history=10:1`))).status).toBe(403);
     expect(mocks.transport).not.toHaveBeenCalled(); expect(mocks.edit).not.toHaveBeenCalled(); expect(mocks.sql).not.toHaveBeenCalled();
   });
@@ -76,6 +76,13 @@ describe("campaign dashboard authorization and read/write boundaries", () => {
     expect(mocks.writeOffs).toHaveBeenCalledWith(expect.objectContaining({role:"admin"}),1,input,expect.objectContaining({connectionKey:"fixture-connection"}));
     expect((await POST(request({operation:"source",version:1,input}))).status).toBe(413);
     expect((await POST(request({operation:"writeOffs",version:1,input:{csv:"x".repeat(2*1024*1024)}}))).status).toBe(413);
+  });
+  it.each(["admin","advancement_services"])("allows %s to configure budget classification without executing a query",async role=>{
+    mocks.user.mockResolvedValue({id:3,role,active:true});mocks.investment.mockResolvedValue(2);
+    const input={queryId:"31072",queryName:"Budget Relieving",giftIdColumn:"System Record ID",confirmed:true};
+    expect((await POST(request({operation:"budgetRelieving",version:1,input}))).status).toBe(200);
+    expect(mocks.investment).toHaveBeenCalledWith(expect.objectContaining({id:3,role}),1,input,expect.objectContaining({connectionKey:"fixture-connection"}),mocks.sql,"budgetRelieving");
+    expect(mocks.advance).not.toHaveBeenCalled();expect(mocks.edit).not.toHaveBeenCalled();
   });
   it("rejects a known lookup ID even if submitted directly past the mapping UI", async () => {
     mocks.metadata.mockResolvedValue({ id: "27460", name: "Campaign", type: "Gift", select_fields: ["Gift ID", "Fund System Record ID", "Fund", "Gift Amount"].map(name => ({ query_field: { selected_field_name: name } })) });

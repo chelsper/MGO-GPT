@@ -7,13 +7,14 @@ import { campaignError, campaignId, campaignRow } from "@/utils/campaignPrioriti
 import { campaignMappingIssues } from "@/utils/campaignSourceMapping";
 import { createResultCsvVisitor, createResultTextDecoder } from "./dashboardQueryResults";
 import { pledgeQueryResultUrl } from "./pledgeQuerySource";
+import { campaignClassification } from "@/utils/campaignInvestment";
 
 export const CAMPAIGN_LIMITS = { rows: 300000, bytes: 128 * 1024 * 1024, batch: 500 };
 export const campaignHash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 // Financial mappings enrich the same source; they must not discard fund assignments.
 export function campaignSourceKey(config) {
   const { writeOff, pledgeBalance, ...columns } = config.columns;
-  const { financialSource, writeOffLedger, investment, ...source } = config;
+  const { financialSource, writeOffLedger, investment, budgetRelieving, ...source } = config;
   return campaignHash({ ...source, columns });
 }
 export function campaignBaseHash(row) {
@@ -44,6 +45,7 @@ export async function campaignTransport(origin) {
     },
     read: (url, config, expected, saveBatch) => readCampaignQuery(url, options, config, expected, saveBatch),
     readInvestment: (url, config, expected) => readInvestmentQuery(url, options, config, expected),
+    readBudgetRelieving: (url, config, expected) => readInvestmentQuery(url, options, config, expected, streamBlackbaudQueryResultWithMetadata, "budgetRelieving"),
   };
 }
 
@@ -98,19 +100,20 @@ export async function readCampaignQuery(url, options, config, expectedRows, save
   return result;
 }
 
-export async function readInvestmentQuery(url, options, config, expectedRows, stream = streamBlackbaudQueryResultWithMetadata) {
+export async function readInvestmentQuery(url, options, config, expectedRows, stream = streamBlackbaudQueryResultWithMetadata, kind = "investment") {
+  const { label } = campaignClassification(kind);
   if (!Number.isSafeInteger(expectedRows) || expectedRows < 0 || expectedRows > CAMPAIGN_LIMITS.rows)
-    throw campaignError("A completed Comprehensive Investment query count of 0-300,000 is required.");
+    throw campaignError(`A completed ${label} query count of 0-300,000 is required.`);
   const { result } = await stream(pledgeQueryResultUrl(url), { ...options, timeoutMs: 240000, maxBytes: CAMPAIGN_LIMITS.bytes, redirect: "error" }, ({ contentType }) => {
     const decoder = createResultTextDecoder(contentType), ids = new Set();
     const parser = createResultCsvVisitor({ maxRows: CAMPAIGN_LIMITS.rows,
       onHeaders: headers => {
         if (headers.filter(name => name === config.giftIdColumn).length !== 1)
-          throw campaignError("The Comprehensive Investment gift system ID column is missing or duplicated.");
+          throw campaignError(`The ${label} gift system ID column is missing or duplicated.`);
       },
       onRow: (row, headers) => {
         const id = campaignId(row[headers.indexOf(config.giftIdColumn)]);
-        if (!id) throw campaignError("Every Comprehensive Investment row needs a valid gift system record ID. No IDs were guessed.");
+        if (!id) throw campaignError(`Every ${label} row needs a valid gift system record ID. No IDs were guessed.`);
         ids.add(id);
       },
     });
@@ -119,7 +122,7 @@ export async function readInvestmentQuery(url, options, config, expectedRows, st
       async finish() {
         parser.write(decoder.decode());
         const { rowCount } = parser.finish();
-        if (rowCount !== expectedRows) throw campaignError("The Comprehensive Investment download count does not match the completed query. Previous totals are unchanged.");
+        if (rowCount !== expectedRows) throw campaignError(`The ${label} download count does not match the completed query. Previous totals are unchanged.`);
         return { giftIds: [...ids], rawRows: rowCount };
       },
     };

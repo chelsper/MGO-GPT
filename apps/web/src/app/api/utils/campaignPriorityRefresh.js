@@ -9,7 +9,7 @@ import { isBlackbaudQuotaExceededError } from "./blackbaud";
 import { getQueryJobId, getQueryJobStatus, getQueryJobMetadataRowCount, getQueryResultUrl } from "./savedQueryExecution";
 import { prepareCampaignFinancials, resolveCampaignFinancials, campaignFinancialProgress } from "./campaignPriorityFinancials";
 import { applyCampaignCsvWriteOffs } from "./campaignWriteOffImport";
-import { campaignRefreshStages } from "@/utils/campaignInvestment";
+import { CAMPAIGN_CLASSIFICATIONS, campaignRefreshStages, campaignStartingStages } from "@/utils/campaignInvestment";
 import { inspectInvestmentQuery, classifyCampaignInvestment } from "./campaignInvestmentQuery";
 
 async function saveJob(state, job, db) {
@@ -54,7 +54,9 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
       if (job && !["complete", "failed", "cancelled"].includes(job.stage)) throw campaignError("Continue or cancel the existing refresh before starting another.", 409);
       if (campaignUsesCsvWriteOffs(state.config) && !state.config.writeOffLedger?.completeAsOf) throw campaignError("Import a complete write-off CSV before refreshing with CSV write-offs.");
       inspectCampaignQuery(await transport.metadata(state.config.queryId), state.config.queryId, state.config);
-      if (state.config.investment) inspectInvestmentQuery(await transport.metadata(state.config.investment.queryId),state.config.investment);
+      for (const { key } of CAMPAIGN_CLASSIFICATIONS) {
+        if (state.config[key]) inspectInvestmentQuery(await transport.metadata(state.config[key].queryId), state.config[key], key);
+      }
       job = { stage: "starting", runId: randomUUID(), startedAt: new Date().toISOString(), connectionKey: transport.connectionKey };
       state.job = job;
       const prepared = await db.transaction([
@@ -74,20 +76,23 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
     if (Date.now()-Date.parse(job.startedAt)>(campaignUsesNxtFinancials(state.config) ? 24 : 2)*60*60*1000) throw campaignError("This query job expired. Start a fresh refresh; saved totals remain available.");
     if (Date.now()<Date.parse(job.nextCheckAt || "")) return await saveJob(state, job, db);
     let rawRows = job.rawRows;
-    if (["investment_waiting","investment_downloading"].includes(job.stage)) {
-      if (!state.config.investment || !job.investmentJobId || !Number.isSafeInteger(rawRows)) throw campaignError("The saved classification checkpoint is invalid. Start a fresh refresh.");
-      const result = await transport.poll(job.investmentJobId);
-      if (getQueryJobId(result)!==job.investmentJobId) throw campaignError("NXT returned a different Comprehensive Investment query job.");
+    const classification = CAMPAIGN_CLASSIFICATIONS.find(({ prefix }) => [`${prefix}_waiting`, `${prefix}_downloading`].includes(job.stage));
+    if (classification) {
+      const { key, label, prefix } = classification, jobId = job[`${key}JobId`];
+      if (!state.config[key] || !jobId || !Number.isSafeInteger(rawRows)) throw campaignError("The saved classification checkpoint is invalid. Start a fresh refresh.");
+      const result = await transport.poll(jobId);
+      if (getQueryJobId(result)!==jobId) throw campaignError(`NXT returned a different ${label} query job.`);
       const status = getQueryJobStatus(result);
       if (!/^(completed|complete|success|succeeded)$/i.test(status)) {
-        if (!/^(pending|queued|running|inprogress|notstarted)$/i.test(status)) throw campaignError("NXT could not complete the Comprehensive Investment query. Previous totals remain available.");
+        if (!/^(pending|queued|running|inprogress|notstarted)$/i.test(status)) throw campaignError(`NXT could not complete the ${label} query. Previous totals remain available.`);
         return await saveJob(state,{...job,nextCheckAt:new Date(Date.now()+15000).toISOString()},db);
       }
-      job = {...job,stage:"investment_downloading",nextCheckAt:null};
+      job = {...job,stage:`${prefix}_downloading`,nextCheckAt:null};
       state.job = job;
       await db`UPDATE campaign_priority_state SET job=${JSON.stringify(job)}::jsonb WHERE id=1 AND lease=${lease}::uuid`;
-      const membership = await transport.readInvestment(getQueryResultUrl(result),state.config.investment,getQueryJobMetadataRowCount(result));
-      job = {...job,investment:await classifyCampaignInvestment(state,membership,db)};
+      const read = key === "investment" ? transport.readInvestment : transport.readBudgetRelieving;
+      const membership = await read(getQueryResultUrl(result),state.config[key],getQueryJobMetadataRowCount(result));
+      job = {...job,[key]:await classifyCampaignInvestment(state,membership,db,key)};
     } else {
     if (job.stage === "financial") {
       if (!campaignUsesNxtFinancials(state.config)) throw campaignError("The financial source changed. Start a fresh refresh.");
@@ -131,16 +136,18 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
       return await saveJob(state,{ ...job,stage:"financial",rawRows,error:null,nextCheckAt:null,financial:await campaignFinancialProgress(job.runId,db) },db);
     }
     if (campaignUsesCsvWriteOffs(state.config)) await applyCampaignCsvWriteOffs(state,db);
-    if (state.config.investment) {
+    }
+    const nextClassification = CAMPAIGN_CLASSIFICATIONS.find(({ key }) => state.config[key] && !job[key]);
+    if (nextClassification) {
+      const { key, label, prefix } = nextClassification;
       // Reserve before executing so an uncertain submission is never retried blindly.
-      job = {...job,stage:"investment_starting",rawRows,nextCheckAt:null,error:null};
+      job = {...job,stage:`${prefix}_starting`,rawRows,nextCheckAt:null,error:null};
       const reserved = await db`UPDATE campaign_priority_state SET job=${JSON.stringify(job)}::jsonb WHERE id=1 AND lease=${lease}::uuid AND lease_until>NOW() RETURNING id`;
       if (!reserved.length) throw campaignError("The classification query could not be reserved safely. Reload saved status.", 409);
-      const created = await transport.create(state.config.investment.queryId);
-      const investmentJobId = getQueryJobId(created);
-      if (!/^[a-zA-Z0-9-]{1,100}$/.test(investmentJobId)) throw campaignError("NXT did not confirm the Comprehensive Investment query job. Start a fresh refresh; previous results are unchanged.");
-      return await saveJob(state,{...job,stage:"investment_waiting",investmentJobId,nextCheckAt:new Date(Date.now()+15000).toISOString()},db);
-    }
+      const created = await transport.create(state.config[key].queryId);
+      const classificationJobId = getQueryJobId(created);
+      if (!/^[a-zA-Z0-9-]{1,100}$/.test(classificationJobId)) throw campaignError(`NXT did not confirm the ${label} query job. Start a fresh refresh; previous results are unchanged.`);
+      return await saveJob(state,{...job,stage:`${prefix}_waiting`,[`${key}JobId`]:classificationJobId,nextCheckAt:new Date(Date.now()+15000).toISOString()},db);
     }
     const [counts] = await db`SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE conflict)::int AS conflicts,
       COUNT(DISTINCT fund_id)::int AS funds,COUNT(*) FILTER(WHERE write_off_cents IS NULL OR pledge_balance_cents IS NULL)::int AS missing_financials,
@@ -162,7 +169,7 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
         WHERE id=${job.runId}::uuid AND EXISTS(SELECT 1 FROM eligible) RETURNING id
       ), updated AS (
         UPDATE campaign_priority_state s SET published_run=c.id,version=s.version+1,lease=NULL,lease_until=NULL,
-          job=jsonb_build_object('stage','complete','runId',c.id,'financial',${JSON.stringify(job.financial || null)}::jsonb,'investment',${JSON.stringify(job.investment || null)}::jsonb)
+          job=jsonb_build_object('stage','complete','runId',c.id,'financial',${JSON.stringify(job.financial || null)}::jsonb,'investment',${JSON.stringify(job.investment || null)}::jsonb,'budgetRelieving',${JSON.stringify(job.budgetRelieving || null)}::jsonb)
         FROM completed c WHERE s.id=1 AND s.lease=${lease}::uuid RETURNING s.version
       ), audited AS (
         INSERT INTO campaign_priority_events(actor_id,actor_name,operation,source_key,reason,before_value,after_value)
@@ -180,8 +187,8 @@ export async function advanceCampaignRefresh(actor, version, operation, transpor
     const transient = job?.stage === "financial" && Number(error.httpStatus)>=500 && (job.transientFailures || 0)<2;
     const pause = transient || error.httpStatus === 429 || isBlackbaudQuotaExceededError(error) || (error.httpStatus === 403 && error.retryAfterMs > 0);
     const message = error.campaignSafe ? error.message : pause ? "Blackbaud paused this refresh. Saved results remain available; continue after the cooldown." : "The campaign query could not be completed. Check its fields and permissions; saved results are unchanged.";
-    const resumable = pause && job?.queryJobId && job.stage!=="investment_starting";
-    const updatedJob = { ...job, stage: resumable ? (["resolving","financial","investment_waiting","investment_downloading"].includes(job.stage) ? job.stage : "waiting") : "failed", error: message,
+    const resumable = pause && job?.queryJobId && !campaignStartingStages.includes(job.stage);
+    const updatedJob = { ...job, stage: resumable ? (campaignRefreshStages.includes(job.stage) ? job.stage : "waiting") : "failed", error: message,
       transientFailures: transient ? (job.transientFailures || 0)+1 : (job?.transientFailures || 0),
       nextCheckAt: pause ? new Date(Date.now()+Math.max(15000, Number(error.retryAfterMs)||60000)).toISOString() : null };
     return await saveJob(state, updatedJob, db);
