@@ -4,10 +4,11 @@ import getOrCreateUser from "./getOrCreateUser";
 import { blackbaudApiFetch, getBlackbaudFundraiserById, listBlackbaudConstituentCustomFieldCategories,
   listBlackbaudConstituentCustomFieldCategoryValues } from "./blackbaud";
 import { normalizeCustomFieldCategoryOptions, normalizeCustomFieldValueOptions } from "./customFieldOptions";
+import { withBlackbaudReadBudget } from "./blackbaudReadBudget";
 import { isAdminRole, isMgoRole } from "@/utils/workspaceRoles";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import { ORIGINATOR_CATEGORY, OriginatorError, originatorFields, originatorFingerprint,
-  originatorKey, originatorValuePayload, matchesOriginatorChange, systemId, validateOriginDate } from "./relationshipOriginatorModel";
+  originatorKey, originatorIdentityNames, originatorValuePayload, matchesOriginatorChange, systemId, validateOriginDate } from "./relationshipOriginatorModel";
 
 export const ORIGINATOR_PATH = "/constituent/v1/constituents/customfields";
 export const originatorHeaders = { "Cache-Control": "private, no-store" };
@@ -133,8 +134,29 @@ export async function saveOriginator({ user, constituentId, input, options, db =
   const isTable = ["table", "codetable", "codetableentry"].includes(originatorKey(category?.dataType).replace(/[^a-z]/g, ""));
   const values = isTable ? normalizeCustomFieldValueOptions(await categoryValues({ ...options, categoryName: category.name }),
     catalog, category.name).map(item => item.value) : [];
-  const valuePayload = originatorValuePayload(category, fundraiser.name, values);
+  const valuePayload = originatorValuePayload(category, fundraiser.name, values, originatorIdentityNames(fundraiser));
   const storedName = valuePayload.text_value ?? valuePayload.codetableentry_value;
+  if (originatorKey(storedName) !== originatorKey(fundraiser.name)) {
+    const others = roster.filter(person => String(person.id) !== ownerId);
+    if (others.some(person => originatorKey(person.name) === originatorKey(storedName))) {
+      throw new OriginatorError("This originator table name matches more than one fundraiser. Ask an Admin to resolve it. No update was submitted.");
+    }
+    const linked = others.filter(person => systemId(person.blackbaud_constituent_id));
+    if (linked.length > 20) throw new OriginatorError("The shorter originator name needs an Admin identity check. Use the fundraiser's full NXT name in the table. No update was submitted.");
+    let reads = 0;
+    const deadline = Date.now() + 20000;
+    // Check shortened names against other linked identities before the durable
+    // write claim. Inactive fundraisers still count as possible name collisions.
+    await withBlackbaudReadBudget(() => ++reads <= 20 && Date.now() < deadline, async () => {
+      for (const person of linked) {
+        const other = await fundraiserLookup({ ...options, fundraiserId: person.blackbaud_constituent_id });
+        if (!other?.name) throw new OriginatorError("Another linked fundraiser's identity could not be verified. Check NXT again before using the shorter originator name. No update was submitted.");
+        if (originatorIdentityNames(other).some(name => originatorKey(name) === originatorKey(storedName))) {
+          throw new OriginatorError("This originator table name matches more than one fundraiser. Ask an Admin to resolve it. No update was submitted.");
+        }
+      }
+    });
+  }
   const [claim] = await db`INSERT INTO relationship_originator_changes
     (constituent_id,owner_user_id,entered_by_user_id,originator_name,origin_date,reason,previous_fields,remote_field_id,state)
     VALUES (${constituentId},${ownerId},${user.id},${storedName},${date},${reason},${JSON.stringify(before)}::jsonb,

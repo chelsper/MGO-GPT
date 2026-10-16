@@ -20,9 +20,9 @@ The user approved one originator with Admin corrections and giving from the intr
 
 ## NXT prerequisites
 
-The existing category must be **Text** or **Table**. A Table field must already contain the linked fundraiser's exact NXT name. The app will not create categories or table entries automatically. Other types fail closed rather than guessing a payload.
+The existing category must be **Text** or **Table**. A Table field must already contain the linked fundraiser's NXT display name or a unique first-and-last-name form from that verified NXT record. The exact display-name entry is preferred. A shorter entry is checked against the other linked fundraiser identities, including inactive ones, before any write claim. The app will not create categories or table entries automatically. Other types fail closed rather than guessing a payload.
 
-The MGO profile must link to the correct active NXT fundraiser system ID. Existing NXT values are matched by unique exact normalized names against linked fundraiser identities and app names, without fuzzy matching. Confirmed app writes additionally retain stable local user identity tied to the same NXT custom-field ID, value and date.
+The MGO profile must link to the correct active NXT fundraiser system ID. Existing NXT values are matched by unique exact normalized names against linked fundraiser identities (display and structured first/last names) and app names, without fuzzy matching. An arbitrary app name is not accepted as an alternative when saving. Confirmed app writes additionally retain stable local user identity tied to the same NXT custom-field ID, value and date.
 
 The category-filtered all-constituents custom-field endpoint avoids scanning unrelated constituents. Read pagination validates response shape, counts when returned, next-link host/path and loop bounds. Gifts are filtered to each verified constituent and introduction-to-today dates.
 
@@ -48,3 +48,42 @@ Before production acceptance, verify the JU category type/table values and one a
 - Final production build, typecheck, release checks and `git diff --check` passed.
 - Four disposable PostgreSQL integration tests remain unverified: local `initdb` could not allocate shared memory on this machine. No production database was substituted.
 - No live NXT records were changed during verification. The subsequent JU deployment is recorded in [the release notes](ju-relationship-originator-release-2026-10-06.md). Live NXT write acceptance and the disposable database tests remain outstanding.
+
+### Name-matching fix, October 16, 2026
+
+Implemented and tested locally; not deployed. Read-only JU checks confirmed the
+reported failure: the linked fundraiser display name is `Kaye R. Glover`, while
+the existing CodeTableEntry option is `Kaye Glover`. The old exact-display-name
+check failed before creating a local write claim or submitting a custom field.
+The new matching logic selects the existing shorter option using NXT's
+structured first/last names. Four other linked fundraiser identities were
+checked read-only, with no collision. No donor, table configuration, assignment,
+metric snapshot, or authentication credential was changed.
+
+Shorter-name collision checks are bounded to 20 other linked identities and a
+20-second read-reservation budget; transport calls use the existing 8-second
+budgeted timeout and no retries. Unavailable identities, duplicate names, or
+exceeded bounds stop before a write. Text fields retain the verified display
+name, existing exact-name table matches avoid the additional lookups, and
+confirmed receipts retain the selected app owner and exact NXT table value.
+Report refresh recognizes the same verified name forms and flags ambiguous
+attribution rather than assigning credit to multiple people.
+
+Verification: 70 focused model/service/route/component tests passed, including
+10 new regression cases. Full suite: 6,812 passed and 266 opt-in tests skipped;
+a separate local campaign PostgreSQL run passed 74 of those skipped tests,
+leaving 192 existing optional/external-service checks unrun. Typecheck,
+production build, release guard, and scoped whitespace checks passed. The four
+opt-in originator PostgreSQL tests and a live approved constituent write were
+not run; claim/schema/write sequencing is unchanged.
+
+Evidence: `/private/tmp/ju-originator-name-*` and the read-only diagnostic script
+`/private/tmp/ju-originator-identity-check.mjs`. The diagnostic exercised the
+new model with live metadata, not a constituent save.
+
+A follow-up read-only roster audit checked all five active MGOs. Scott's NXT
+display name `Scott M. Bacon` also differs from the table option `Scott Bacon`.
+The new model matches both Scott and Kaye without collisions. Erica, Gretchen,
+and Leslie already have matching names. Two inactive profiles lack linked NXT
+IDs and were not treated as active dashboards. Seven NXT GETs and no writes
+were used; individual MGO connections and write permissions were not tested.

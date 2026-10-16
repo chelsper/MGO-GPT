@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
-import { originatorFields, originatorFingerprint, originatorValuePayload, validateOriginDate,
+import { originatorFields, originatorFingerprint, originatorIdentityNames, originatorValuePayload, validateOriginDate,
   matchesOriginatorChange, originatorGiving, resolveOriginators } from "./relationshipOriginatorModel";
 const periods = getStandingsPeriods(new Date("2026-10-06T16:00:00Z"));
 const field = { id: "71", constituentId: "200", value: "Ada Fundraiser", date: "2026-07-01", comment: "" };
@@ -22,8 +22,24 @@ describe("relationship originator rules", () => {
   it("requires an exact table value and fails closed for unsupported field types", () => {
     expect(originatorValuePayload({ dataType: "Text" }, "Ada")).toEqual({ text_value: "Ada" });
     expect(originatorValuePayload({ dataType: "Table" }, "Ada", ["ADA"])).toEqual({ codetableentry_value: "ADA" });
-    expect(() => originatorValuePayload({ dataType: "Table" }, "Ada", ["A. Ada"])).toThrow("exact NXT name");
+    expect(() => originatorValuePayload({ dataType: "Table" }, "Ada", ["A. Ada"])).toThrow('verified NXT name "Ada"');
     expect(() => originatorValuePayload({ dataType: "ConstituentId" }, "Ada")).toThrow("Text or Table");
+  });
+  it("matches an omitted middle name only through structured verified NXT names", () => {
+    const identity = { name: "Ada M. Fundraiser", raw: { first: "Ada", middle: "M.", last: "Fundraiser" } };
+    const names = originatorIdentityNames(identity);
+    expect(names).toEqual(["Ada M. Fundraiser", "Ada Fundraiser"]);
+    expect(originatorValuePayload({ dataType: "CodeTableEntry" }, identity.name, ["ADA  Fundraiser"], names))
+      .toEqual({ codetableentry_value: "ADA  Fundraiser" });
+    expect(originatorValuePayload({ dataType: "Text" }, identity.name, [], names)).toEqual({ text_value: identity.name });
+    expect(originatorIdentityNames({ name: "Ada M. Fundraiser" })).toEqual(["Ada M. Fundraiser"]);
+    expect(originatorIdentityNames(null)).toEqual([]);
+    expect(() => originatorValuePayload({ dataType: "Table" }, identity.name, ["A. Fundraiser"], names)).toThrow("No update was submitted");
+  });
+  it("prefers the exact display-name entry and never guesses between duplicate aliases", () => {
+    const names = ["Ada M. Fundraiser", "Ada Fundraiser"];
+    expect(originatorValuePayload({ dataType: "Table" }, names[0], names, names)).toEqual({ codetableentry_value: names[0] });
+    expect(() => originatorValuePayload({ dataType: "Table" }, names[0], ["Ada Fundraiser", "ADA FUNDRAISER"], names)).toThrow("No unique");
   });
   it("fingerprints dates, values and comments, independent of row ordering", () => {
     const second = { ...field, id: "72" };

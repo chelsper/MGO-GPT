@@ -39,6 +39,25 @@ it("reports attribution issues without guessing an origin date or making gift ca
   expect(result.issues).toHaveLength(1); expect(result.rows[0].lifetimeCount).toBe(0);
   expect(dataSource).not.toHaveBeenCalled();
 });
+it("recognizes existing NXT first/last-name entries using the same verified identity rules as saving", async () => {
+  readFields.mockResolvedValue([field]);
+  lookup.mockResolvedValue({ name: "Ada M. Fundraiser", raw: { first: "Ada", last: "Fundraiser" } });
+  const result = await buildOriginatorReport(args);
+  expect(result.rows[0].lifetimeCount).toBe(1);
+  expect(result.issues).toEqual([]);
+});
+it("does not assign credit when two linked NXT identities share the shorter table name", async () => {
+  args.db = vi.fn(async parts => parts.join("").includes("FROM users") ? [
+    { id: 1, name: "Ada M", active: true, blackbaud_constituent_id: "101" },
+    { id: 2, name: "Ada R", active: false, blackbaud_constituent_id: "102" },
+  ] : []);
+  readFields.mockResolvedValue([field]);
+  lookup.mockImplementation(async ({ fundraiserId }) => ({ name: fundraiserId === "101" ? "Ada M. Fundraiser" : "Ada R. Fundraiser", raw: { first: "Ada", last: "Fundraiser" } }));
+  const result = await buildOriginatorReport(args);
+  expect(result.rows[0].lifetimeCount).toBe(0);
+  expect(result.issues).toEqual([{ constituentId: "200", reason: "Originator name needs an Admin match" }]);
+  expect(dataSource).not.toHaveBeenCalled();
+});
 it("does not return partial totals when a gift page fails", async () => {
   readFields.mockResolvedValue([field]);
   dataSource.mockReturnValue({ listGifts: vi.fn().mockRejectedValue(new Error("incomplete")) });

@@ -31,12 +31,22 @@ export function validateOriginDate(value, today) {
   return date;
 }
 
-export function originatorValuePayload(category, name, values = []) {
+export function originatorIdentityNames(fundraiser) {
+  const first = String(fundraiser?.raw?.first || "").trim();
+  const last = String(fundraiser?.raw?.last || "").trim();
+  // Only structured names from the verified NXT record, never a fuzzy match
+  // or an editable app display name, may explain an omitted middle name/title.
+  return [...new Map([fundraiser?.name, first && last ? `${first} ${last}` : null]
+    .filter(Boolean).map(name => [originatorKey(name), String(name).trim()])).values()];
+}
+
+export function originatorValuePayload(category, name, values = [], identityNames = []) {
   const type = originatorKey(category?.dataType).replace(/[^a-z]/g, "");
   if (type === "text" || type === "string") return { text_value: name };
   if (["table", "codetable", "codetableentry"].includes(type)) {
-    const matches = values.filter(value => originatorKey(value) === originatorKey(name));
-    if (matches.length !== 1) throw new OriginatorError("Add this fundraiser's exact NXT name to the Relationship Originator table before continuing.");
+    const exact = values.filter(value => originatorKey(value) === originatorKey(name));
+    const matches = exact.length ? exact : values.filter(value => identityNames.some(alias => originatorKey(alias) === originatorKey(value)));
+    if (matches.length !== 1) throw new OriginatorError(`No unique Relationship Originator table entry matches the verified NXT name "${name}"${identityNames.length > 1 ? ` or "${identityNames[1]}"` : ""}. Ask an Admin to check the table. No update was submitted.`);
     return { codetableentry_value: matches[0] };
   }
   throw new OriginatorError("Relationship Originator must be a Text or Table custom field. Ask an Admin to check its NXT setup.");
@@ -106,7 +116,7 @@ export function resolveOriginators(fields, users, receipts, periods) {
     const receipt = receipts.find(row => row.constituent_id === constituentId && row.remote_field_id === field.id &&
       row.originator_name === field.value && row.origin_date === field.date && row.state === "confirmed");
     const matches = receipt ? users.filter(user => String(user.id) === String(receipt.owner_user_id)) :
-      users.filter(user => user.nxtName && [user.nxtName, user.name].some(name => originatorKey(name) === originatorKey(field.value)));
+      users.filter(user => user.nxtName && [user.nxtName, user.name, ...(user.nxtNames || [])].some(name => originatorKey(name) === originatorKey(field.value)));
     if (matches.length !== 1) { issues.push({ constituentId, reason: "Originator name needs an Admin match" }); continue; }
     if (!field.date || field.date > periods.asOf) { issues.push({ constituentId, reason: "Introduction date missing or in the future" }); continue; }
     resolved.push({ ...field, userId: String(matches[0].id) });

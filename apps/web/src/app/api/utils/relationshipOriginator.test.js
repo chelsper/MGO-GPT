@@ -48,6 +48,54 @@ it("uses table payloads only after checking the exact NXT table option", async (
   await saveOriginator(args);
   expect(fetcher.mock.calls[0][1].body.codetableentry_value).toBe("Ada Fundraiser");
 });
+function shorterNameSetup() {
+  args.categories.mockResolvedValue([{ name: "Relationship Originator", type: "CodeTableEntry" }]);
+  args.categoryValues.mockResolvedValue(["Ada Fundraiser"]);
+  args.fundraiserLookup.mockImplementation(async ({ fundraiserId }) => fundraiserId === "101"
+    ? { name: "Ada M. Fundraiser", fundraiserStatus: "Active", raw: { first: "Ada", middle: "M.", last: "Fundraiser" } }
+    : { name: "Other R. Person", fundraiserStatus: "Inactive", raw: { first: "Other", last: "Person" } });
+}
+it("accepts a unique verified first/last table name, preserving its exact spelling and owner receipt", async () => {
+  shorterNameSetup();
+  await saveOriginator(args);
+  expect(args.fundraiserLookup).toHaveBeenCalledTimes(2);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0][1].body).toEqual({ parent_id: "200", category: "Relationship Originator", codetableentry_value: "Ada Fundraiser", date: "2026-07-01" });
+  const claim = db.mock.calls.find(([parts]) => parts.join("").includes("INSERT INTO relationship_originator_changes"));
+  expect(claim[2]).toBe("1");
+  expect(claim[4]).toBe("Ada Fundraiser");
+});
+it("checks verified identities rather than using another fundraiser's different app display name to dismiss collisions", async () => {
+  shorterNameSetup();
+  args.fundraiserLookup.mockResolvedValueOnce({ name: "Ada M. Fundraiser", fundraiserStatus: "Active", raw: { first: "Ada", last: "Fundraiser" } })
+    .mockResolvedValueOnce({ name: "Ada R. Fundraiser", fundraiserStatus: "Inactive", raw: { first: "Ada", last: "Fundraiser" } });
+  await expect(saveOriginator(args)).rejects.toThrow("more than one fundraiser");
+  expect(fetcher).not.toHaveBeenCalled(); expect(pending).toBe(null);
+});
+it("does not turn an arbitrary app display name into an allowed NXT identity", async () => {
+  shorterNameSetup();
+  args.categoryValues.mockResolvedValue(["Ada"]);
+  await expect(saveOriginator(args)).rejects.toThrow("No unique");
+  expect(fetcher).not.toHaveBeenCalled(); expect(pending).toBe(null);
+});
+it.each(["unavailable", "failure"])("does not submit a shorter name when another linked identity is %s", async kind => {
+  shorterNameSetup();
+  const lookup = args.fundraiserLookup.getMockImplementation();
+  args.fundraiserLookup.mockImplementation(async options => {
+    if (options.fundraiserId === "101") return lookup(options);
+    if (kind === "failure") throw new Error("Provider unavailable");
+    return null;
+  });
+  await expect(saveOriginator(args)).rejects.toThrow();
+  expect(fetcher).not.toHaveBeenCalled(); expect(pending).toBe(null);
+});
+it("does not perform extra fundraiser checks when the exact full-name entry exists", async () => {
+  shorterNameSetup(); args.categoryValues.mockResolvedValue(["Ada M. Fundraiser", "Ada Fundraiser"]);
+  args.read = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValue([{ ...field, value: "Ada M. Fundraiser" }]);
+  await saveOriginator(args);
+  expect(args.fundraiserLookup).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0][1].body.codetableentry_value).toBe("Ada M. Fundraiser");
+});
 it.each(["executive", "advancement_services", ""])("does not let %s claim an originator", async role => {
   await expect(saveOriginator({ ...args, user: { ...user, role } })).rejects.toMatchObject({ status: 403 });
   expect(fetcher).not.toHaveBeenCalled();

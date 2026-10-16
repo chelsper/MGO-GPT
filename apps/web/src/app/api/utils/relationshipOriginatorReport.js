@@ -6,7 +6,7 @@ import { getCachedReportSnapshot, saveReportSnapshot } from "./reportCache";
 import { createPortfolioGivingDataSource } from "./portfolioGivingDataCache";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import { ORIGINATOR_PATH, originatorRoster, readOriginatorCollection } from "./relationshipOriginator";
-import { ORIGINATOR_CATEGORY, OriginatorError, originatorFields, resolveOriginators, originatorGiving, systemId } from "./relationshipOriginatorModel";
+import { ORIGINATOR_CATEGORY, OriginatorError, originatorFields, originatorIdentityNames, resolveOriginators, originatorGiving, systemId } from "./relationshipOriginatorModel";
 
 export const ORIGINATOR_REPORT_KEY = "report:relationship-originators:v1";
 
@@ -25,6 +25,7 @@ export async function buildOriginatorReport({ user, origin, db = sql,
       if (!systemId(person.blackbaud_constituent_id)) continue;
       const fundraiser = await lookup({ ...options, fundraiserId: person.blackbaud_constituent_id });
       person.nxtName = fundraiser?.name || null;
+      person.nxtNames = originatorIdentityNames(fundraiser);
     }
   }
   const { resolved, issues } = resolveOriginators(fields, users, receipts, periods);
