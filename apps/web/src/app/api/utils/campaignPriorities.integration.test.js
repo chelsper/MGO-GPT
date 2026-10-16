@@ -255,6 +255,50 @@ suite("campaign SQL integration in isolated PostgreSQL", () => {
     const t=await prepareBudget({only:true}),result=await finishBudget(t);
     expect(result.segments).toMatchObject({classification:{status:"source_needed",investmentCents:null},budgetRelieving:{status:"ready",cents:9000,receivedCents:6000}});
     expect(t.create.mock.calls.map(c=>c[0])).toEqual(["27460","31072"]);expect(t.readInvestment).not.toHaveBeenCalled();
+    expect(result.segments.budgetPhilanthropic).toEqual({status:"source_needed",cents:null,otherCents:null,receivedCents:null,otherReceivedCents:null});
+  });
+  it("derives budget within philanthropic giving from the gift intersection, not from aggregate subtraction",async()=>{
+    const t=await prepareBudget({ids:["10","11","11"],investmentIds:["10","13"],rows:[
+      financialRow({...wholeGift("10","4",10000),giftDate:"2026-06-30"},1000,2000),
+      financialRow({...wholeGift("11","5",6000),giftDate:"2026-07-01"},1000,1000),
+      financialRow({...wholeGift("12","6",4000),giftDate:""},0,1000),
+      financialRow(wholeGift("13","4",2000),0,0),
+    ]});
+    const result=await finishBudget(t);run=result.runId;
+    expect(result.segments).toMatchObject({classification:{investmentCents:11000,philanthropicCents:9000,philanthropicReceivedCents:7000},
+      budgetRelieving:{cents:14000,receivedCents:11000},budgetPhilanthropic:{status:"ready",cents:5000,otherCents:4000,receivedCents:4000,otherReceivedCents:3000}});
+    expect(result.segments.fiscalYears).toMatchObject([
+      {fiscal_year:2027,philanthropic_cents:5000,budget_philanthropic_cents:5000,other_philanthropic_cents:0,budget_philanthropic_received_cents:4000},
+      {fiscal_year:2026,philanthropic_cents:0,budget_philanthropic_cents:0,other_philanthropic_cents:0,budget_philanthropic_received_cents:0},
+      {fiscal_year:null,philanthropic_cents:4000,budget_philanthropic_cents:0,other_philanthropic_cents:4000,other_philanthropic_received_cents:3000},
+    ]);
+    const counts=[t.create.mock.calls.length,t.read.mock.calls.length,t.readInvestment.mock.calls.length,t.readBudgetRelieving.mock.calls.length];
+    const filtered=await campaignRead(new URLSearchParams({fund:"4"}),false,db);
+    expect(filtered.segments).toEqual(result.segments);
+    await edit("override",{itemKey:"11",priority:null,amount:"40",reason:"Reporting adjustment"});
+    expect((await read()).segments.budgetPhilanthropic).toMatchObject({cents:4000,otherCents:4000,receivedCents:3000,otherReceivedCents:3000});
+    expect([t.create.mock.calls.length,t.read.mock.calls.length,t.readInvestment.mock.calls.length,t.readBudgetRelieving.mock.calls.length]).toEqual(counts);
+  });
+  it("sums all philanthropic budget fund allocations once and preserves exact zero intersections",async()=>{
+    const result=await finishBudget(await prepareBudget({ids:["10","10"],investmentIds:["11"]}));
+    expect(result.segments.budgetPhilanthropic).toEqual({status:"ready",cents:9000,otherCents:0,receivedCents:6000,otherReceivedCents:0});
+    const allInvestment=await finishBudget(await prepareBudget({ids:["10","11"],investmentIds:["10","11"]}));
+    expect(allInvestment.segments.classification).toMatchObject({philanthropicCents:0,philanthropicReceivedCents:0});
+    expect(allInvestment.segments.budgetPhilanthropic).toEqual({status:"ready",cents:0,otherCents:0,receivedCents:0,otherReceivedCents:0});
+  });
+  it("does not infer philanthropic budget readiness from pending setup or missing balances",async()=>{
+    const onlyInvestment=await finishInvestment(await prepareInvestment());
+    expect(onlyInvestment.segments.budgetPhilanthropic).toMatchObject({status:"source_needed",cents:null,receivedCents:null});
+    const t=await prepareBudget({ids:["11"]});
+    expect((await read()).segments.budgetPhilanthropic).toMatchObject({status:"source_needed",cents:null});
+    const ready=await finishBudget(t);
+    await db`UPDATE campaign_priority_rows SET pledge_balance_cents=NULL WHERE run_id=${ready.runId}::uuid AND gift_id='11'`;
+    expect((await read()).segments.budgetPhilanthropic).toEqual({status:"ready",cents:5000,otherCents:0,receivedCents:null,otherReceivedCents:null});
+  });
+  it("preserves negative philanthropic amounts rather than clamping the new subset",async()=>{
+    const result=await finishBudget(await prepareBudget({ids:["11"],rows:[financialRow(wholeGift("10","4",1000),0,0),financialRow(wholeGift("11","5",-2000),0,0)]}));
+    expect(result.segments.classification.philanthropicCents).toBe(-2000);
+    expect(result.segments.budgetPhilanthropic).toEqual({status:"ready",cents:-2000,otherCents:0,receivedCents:-2000,otherReceivedCents:0});
   });
   it("distinguishes a verified empty budget query from unconfigured classification",async()=>{
     const result=await finishBudget(await prepareBudget({ids:[]}));

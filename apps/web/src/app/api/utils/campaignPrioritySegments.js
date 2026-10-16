@@ -28,6 +28,10 @@ export function campaignFiscalYearQuery(db) {
       COALESCE(SUM(effective_cents) FILTER(WHERE NOT is_budget_relieving),0)::text AS other_budget_cents,
       COALESCE(SUM(received_cents) FILTER(WHERE is_budget_relieving),0)::text AS budget_relieving_received_cents,
       COALESCE(SUM(received_cents) FILTER(WHERE NOT is_budget_relieving),0)::text AS other_budget_received_cents,
+      COALESCE(SUM(effective_cents) FILTER(WHERE is_budget_relieving AND NOT is_investment),0)::text AS budget_philanthropic_cents,
+      COALESCE(SUM(effective_cents) FILTER(WHERE NOT is_budget_relieving AND NOT is_investment),0)::text AS other_philanthropic_cents,
+      COALESCE(SUM(received_cents) FILTER(WHERE is_budget_relieving AND NOT is_investment),0)::text AS budget_philanthropic_received_cents,
+      COALESCE(SUM(received_cents) FILTER(WHERE NOT is_budget_relieving AND NOT is_investment),0)::text AS other_philanthropic_received_cents,
       CASE WHEN COUNT(received_cents)=COUNT(*) THEN SUM(received_cents)::text END AS received_cents
     FROM checked GROUP BY fiscal_year ORDER BY fiscal_year DESC NULLS LAST`;
 }

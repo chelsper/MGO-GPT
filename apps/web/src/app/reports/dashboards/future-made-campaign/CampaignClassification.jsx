@@ -2,6 +2,7 @@ import { useState } from "react";
 import { campaignMoney } from "@/utils/campaignPriorities";
 import styles from "./campaign.module.css";
 import { campaignBreakdown } from "./campaignBreakdown";
+import CampaignPhilanthropicBudget from "./CampaignPhilanthropicBudget";
 
 const exactMoney = cents => campaignMoney(Number.isSafeInteger(cents) ? cents : null);
 
@@ -72,5 +73,6 @@ export default function CampaignClassification({data,kind="investment"}) {
       ].map(([label,amount,paid])=><tr key={label}><th scope="row">{label}</th><td>{exactMoney(amount)}</td>{received && <td>{exactMoney(paid)}</td>}</tr>)}</tbody>
     </table>
     </div>
+    {budget && <CampaignPhilanthropicBudget data={data} />}
   </div>;
 }

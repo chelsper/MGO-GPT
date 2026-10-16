@@ -142,3 +142,37 @@ Evidence: `/private/tmp/ju-budget-release-*`,
 `/private/tmp/ju-budget-live-smoke.log`, and
 `/private/tmp/ju-budget-verify-prod.log`. This documentation update is separate
 from the deployed application source.
+
+## Philanthropic comparison enhancement (not yet deployed)
+
+The Budget Relieving overview now also shows its amount and percentage within
+Philanthropic giving, side by side for Committed and Received. The existing
+all-campaign Budget Relieving view remains intact. The fiscal-year chart and
+detail table offer an additional Budget Relieving within Philanthropic giving
+breakdown, with dollars and percentages for each year and the total.
+
+The numerator is the sum of effective gift allocations with
+`is_budget_relieving AND NOT is_investment`. The denominator is the existing
+Philanthropic total. Received uses those same allocations' received amounts.
+This is an intersection of gift classifications, not all Budget Relieving
+divided by Philanthropic giving and not Budget Relieving minus all investment
+giving. A gift found in both classification queries contributes to the original
+campaign-wide Budget Relieving total but not this new Philanthropic comparison.
+
+No new schema, query, NXT request, or stored-data mutation is required. When both
+classifications are already published, the comparison is calculated immediately
+from those saved flags. A missing classification does not imply zero. A zero,
+negative, incomplete, or unreconciled denominator/subset has no percentage;
+exact available amounts remain visible. The all-campaign totals, five pillars,
+write-offs, balances, and local adjustments are unchanged. Fiscal-year received
+amounts retain their paid-to-date/original-gift-year meaning.
+
+Verification: 6,946 full-suite tests passed, including 92 isolated campaign
+PostgreSQL/PGlite tests; 192 existing environment-dependent tests skipped.
+New tests cover four-way overlapping membership, fund splits, repeated IDs,
+local overrides without a refresh, missing classifications/balances, unknown
+dates, negative and zero amounts, exact percentage formatting, fiscal-year
+denominators, and coordinated chart/detail selection. Actual-source browser
+checks with fictional data passed at 1280px and 390px, including Received
+selection and no page-level horizontal overflow. No live data was accessed or
+changed for this enhancement. Evidence: `/private/tmp/ju-budget-philanthropic-*`.

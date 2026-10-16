@@ -34,6 +34,8 @@ export async function campaignRead(filters, canManage, db = sql) {
       COALESCE(SUM(e.received_cents) FILTER(WHERE e.is_investment),0)::text AS investment_received_cents,
       COALESCE(SUM(e.effective_cents) FILTER(WHERE e.is_budget_relieving),0)::text AS budget_relieving_cents,
       COALESCE(SUM(e.received_cents) FILTER(WHERE e.is_budget_relieving),0)::text AS budget_relieving_received_cents,
+      COALESCE(SUM(e.effective_cents) FILTER(WHERE e.is_budget_relieving AND NOT e.is_investment),0)::text AS budget_philanthropic_cents,
+      COALESCE(SUM(e.received_cents) FILTER(WHERE e.is_budget_relieving AND NOT e.is_investment),0)::text AS budget_philanthropic_received_cents,
       SUM(e.pledge_balance_cents)::text AS pledge_balance_cents,
       CASE WHEN COUNT(e.received_cents)=COUNT(*) THEN SUM(e.received_cents)::text END AS received_cents,
       COUNT(*) FILTER(WHERE e.write_off_cents IS NULL)::int AS missing_write_off,
@@ -83,7 +85,12 @@ export async function campaignRead(filters, canManage, db = sql) {
   const budgetClassified = Boolean(state.published_run && state.saved_config?.budgetRelieving);
   const budgetCents = results[1].reduce((sum, row) => sum+BigInt(row.budget_relieving_cents || 0),0n);
   const budgetReceived = results[1].reduce((sum, row) => sum+BigInt(row.budget_relieving_received_cents || 0),0n);
-  if ([investmentCents,investmentReceived,sums[1]-investmentCents,sums[5]-investmentReceived,budgetCents,budgetReceived,sums[1]-budgetCents,sums[5]-budgetReceived].some(value => value>BigInt(Number.MAX_SAFE_INTEGER) || value<BigInt(Number.MIN_SAFE_INTEGER)))
+  const budgetPhilanthropic = results[1].reduce((sum, row) => sum+BigInt(row.budget_philanthropic_cents || 0),0n);
+  const budgetPhilanthropicReceived = results[1].reduce((sum, row) => sum+BigInt(row.budget_philanthropic_received_cents || 0),0n);
+  const otherPhilanthropic = sums[1]-investmentCents-budgetPhilanthropic;
+  const otherPhilanthropicReceived = sums[5]-investmentReceived-budgetPhilanthropicReceived;
+  if ([investmentCents,investmentReceived,sums[1]-investmentCents,sums[5]-investmentReceived,budgetCents,budgetReceived,sums[1]-budgetCents,sums[5]-budgetReceived,
+    budgetPhilanthropic,budgetPhilanthropicReceived,otherPhilanthropic,otherPhilanthropicReceived].some(value => value>BigInt(Number.MAX_SAFE_INTEGER) || value<BigInt(Number.MIN_SAFE_INTEGER)))
     throw campaignError("The classification totals exceed the supported exact-amount range.",409);
   return { version: Number(state.version), canManage, runId: state.published_run, busy: state.busy === true,
     sourceChanged: Boolean(state.published_run && (state.config.sourceKey !== state.source_key || campaignFinancialIdentity(state.config)!==campaignFinancialIdentity(state.saved_config) || campaignClassificationIdentity(state.config)!==campaignClassificationIdentity(state.saved_config))),
@@ -95,6 +102,11 @@ export async function campaignRead(filters, canManage, db = sql) {
     netCents: Number(sums[2]), writeOffCents: committedReady ? Number(sums[3]) : null,
     pledgeBalanceCents: receivedReady ? Number(sums[4]) : null,
     segments: { fiscalYearStartMonth: ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth,
+      budgetPhilanthropic: { status: budgetClassified && classified ? "ready" : "source_needed",
+        cents: budgetClassified && classified ? Number(budgetPhilanthropic) : null,
+        otherCents: budgetClassified && classified ? Number(otherPhilanthropic) : null,
+        receivedCents: budgetClassified && classified && receivedReady ? Number(budgetPhilanthropicReceived) : null,
+        otherReceivedCents: budgetClassified && classified && receivedReady ? Number(otherPhilanthropicReceived) : null },
       budgetRelieving: { status: budgetClassified ? "ready" : "source_needed", queryId: state.saved_config?.budgetRelieving?.queryId || null,
         cents: budgetClassified ? Number(budgetCents) : null, otherCents: budgetClassified ? Number(sums[1]-budgetCents) : null,
         receivedCents: budgetClassified && receivedReady ? Number(budgetReceived) : null,

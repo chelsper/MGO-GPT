@@ -47,6 +47,13 @@
 .fiscalLegend{display:flex;gap:12px 24px;flex-wrap:wrap;margin:20px 0;font-size:13px}.fiscalLegend span{display:flex;align-items:center;gap:8px}.fiscalLegend i{width:10px;height:10px;border-radius:2px;flex:none}
 .totalKey,.totalBar{background:#58766c}.fiscalChartRows{list-style:none;margin:16px 0 0;padding:0}
 .budgetKey{background:#23727c}.budgetBar{background:repeating-linear-gradient(135deg,#23727c 0,#23727c 5px,#32858f 5px,#32858f 7px)}
+.philanthropicBudget{margin-top:24px;padding-top:22px;border-top:1px solid var(--line)}
+.philanthropicBudget h4{margin:0;font-size:17px}.philanthropicBudgetGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.philanthropicBudgetGrid article{padding:18px;border:1px solid #d2e5df;border-radius:12px;background:linear-gradient(135deg,#eef7f4,#fff)}
+.philanthropicBudgetGrid h5{font-size:14px;margin:0 0 10px}.philanthropicBudgetGrid strong{font-size:24px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.philanthropicBudgetGrid p{font-size:13px;margin:8px 0 0}.philanthropicBudgetGrid .budgetShare{font-weight:700;color:#225f65}
+.fiscalShare{font-size:13px;color:#225f65;margin:8px 0 0 110px;font-variant-numeric:tabular-nums}
+@media(max-width:650px){.philanthropicBudgetGrid{grid-template-columns:1fr}.fiscalShare{margin-left:0}}
 .fiscalChartRows>li{padding:12px 0;border-bottom:1px solid #eef3ef}.fiscalChartRow{display:grid;grid-template-columns:90px minmax(0,1fr) 170px;align-items:center;gap:20px}
 .fiscalYearName{font-size:14px;font-weight:700}.fiscalYearAmount{font-size:15px;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .fiscalBarTrack{height:22px;border-left:1px solid #c7d9d0;background:repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),#e7eee9 calc(25% - 1px),#e7eee9 25%);display:flex;overflow:hidden;border-radius:0 5px 5px 0}
