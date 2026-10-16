@@ -164,7 +164,7 @@ application source.
 
 ## Fiscal-Year Comparison
 
-Implemented locally on 2026-10-15; not yet deployed. Recommendation 4 puts a
+Implemented on 2026-10-15 and deployed to JU on 2026-10-16. Recommendation 4 puts a
 fiscal-year bar chart before the existing detailed tables. Committed and
 Received to date use a shared dollar scale, with newest years first. When
 classification reconciles, each bar shows Philanthropic and Comprehensive
@@ -194,6 +194,39 @@ both views, stable scale, exact tables, keyboard activation and horizontal
 table scrolling, 44px view buttons, no page overflow, and no console errors.
 
 Evidence: `/private/tmp/ju-fiscal-chart-*`; the preview harness is in
-`/private/tmp/ju-campaign-ux-preview/`. Live dashboard data and the deployed
-application are unchanged. The pre-existing production hydration warning
-documented above is not addressed by this local presentation change.
+`/private/tmp/ju-campaign-ux-preview/`. The pre-existing production hydration
+warning documented above is not addressed by this presentation change.
+
+### Fiscal-Year Release Verification
+
+The user authorized deployment on 2026-10-16. Application source is
+`6ea358acf9121db2aa106ced588fd2b69d66f66f`, JU deployment
+`dpl_3eh7FBVegjPCHcgVz9gAv1DHoA5J`, hosted at
+`mgo-pnsafjn95-chelspers-projects.vercel.app`. The rollback target is
+`dpl_7pwLCBY4GWWdUiS1Pb4xseni9td4`, source
+`2f3151bc288907f4a2946ce64117d717e1b6c177`.
+
+Fresh release checks passed: 6,876 tests, 192 existing opt-in/external-service
+skips, all 74 campaign PostgreSQL tests, typecheck, local production build,
+release guard, and hosted build. The committed archive contained 1,415 verified
+upload files; unrelated local work was excluded. Candidate smoke checks passed
+before promotion and again on the live domain: exact source and deployment,
+new fiscal chart controls, existing campaign controls and report pages, and
+unauthenticated API guards. The standard production verifier passed.
+
+The signed-in JU dashboard loaded the new chart through an ordinary reload.
+Both Committed and Received views and both exact detail tables worked. Saved
+campaign totals remain $187,017,748.74 Committed and $168,342,592.87 Received.
+A read-only database comparison confirmed the published run, configuration,
+write-off revision, financial totals, 170 fund assignments, and zero local
+exceptions were unchanged. JU project settings and five cron schedules remain
+unchanged, with cron hosts following the new deployment. Sandbox and all other
+projects are unchanged. No Git push, live refresh, NXT write, letter operation,
+cookie edit, or authentication change was performed.
+
+Startup React errors 418/423 were recorded before promotion and after reload;
+they are the existing issue documented above. No new interaction errors appeared.
+Release evidence uses `/private/tmp/ju-fiscal-deploy-*`,
+`/private/tmp/ju-fiscal-release-*`, and `/private/tmp/ju-fiscal-*-smoke.log`.
+The live chart screenshot is `/private/tmp/ju-fiscal-live.png`. This verification
+documentation update is separate from the deployed application source.
