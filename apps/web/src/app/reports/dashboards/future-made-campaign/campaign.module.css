@@ -43,3 +43,13 @@
 .compositionFigure figcaption{font-size:12px}.composition .tableWrap{margin-top:18px}
 .composition .tableWrap:focus-visible{outline:3px solid #16878a;outline-offset:3px;border-radius:4px}.compositionTableHint{display:none}
 @media(max-width:650px){.composition{padding:18px}.compositionLegend{grid-template-columns:1fr}.compositionToggle{width:100%}.compositionToggle button{flex:1}.compositionHead{gap:18px}.compositionTableHint{display:block;font-size:12px;margin-bottom:0}.composition .tableWrap{margin-top:10px}}
+.fiscalChart{margin-top:24px}.fiscalChartHead{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.fiscalChartHead p{margin:0}
+.fiscalLegend{display:flex;gap:12px 24px;flex-wrap:wrap;margin:20px 0;font-size:13px}.fiscalLegend span{display:flex;align-items:center;gap:8px}.fiscalLegend i{width:10px;height:10px;border-radius:2px;flex:none}
+.totalKey,.totalBar{background:#58766c}.fiscalChartRows{list-style:none;margin:16px 0 0;padding:0}
+.fiscalChartRows>li{padding:12px 0;border-bottom:1px solid #eef3ef}.fiscalChartRow{display:grid;grid-template-columns:90px minmax(0,1fr) 170px;align-items:center;gap:20px}
+.fiscalYearName{font-size:14px;font-weight:700}.fiscalYearAmount{font-size:15px;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
+.fiscalBarTrack{height:22px;border-left:1px solid #c7d9d0;background:repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),#e7eee9 calc(25% - 1px),#e7eee9 25%);display:flex;overflow:hidden;border-radius:0 5px 5px 0}
+.fiscalBarTrack>span{height:100%;flex:none}.fiscalChartRows>.fiscalUndated{margin-top:16px;padding-top:20px;border-top:1px dashed #adc3b7}
+.fiscalChartTotal{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 0;margin:0;border-bottom:1px solid var(--line);font-weight:700}.fiscalChartTotal strong{font-variant-numeric:tabular-nums}
+.fiscalDetails{border-top:1px solid var(--line);margin-top:18px}.fiscalDetails>summary{font-weight:700;cursor:pointer;padding:16px 0;min-height:44px}.fiscalDetails>.tableWrap:focus-visible{outline:3px solid #16878a;outline-offset:3px;border-radius:4px}
+@media(max-width:650px){.fiscalChartHead{align-items:stretch}.fiscalChartHead .compositionToggle{width:100%}.fiscalChartRow{grid-template-columns:1fr 1fr;gap:10px}.fiscalBarTrack{grid-column:1/-1;grid-row:2}.fiscalYearAmount{grid-column:2;grid-row:1}.fiscalChartRows>li{padding:14px 0}.fiscalChartTotal{font-size:14px}}

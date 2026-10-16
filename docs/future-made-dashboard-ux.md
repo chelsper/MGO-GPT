@@ -161,3 +161,39 @@ errors appeared. Console evidence is saved in the composition artifacts.
 
 This release-verification documentation update is separate from the deployed
 application source.
+
+## Fiscal-Year Comparison
+
+Implemented locally on 2026-10-15; not yet deployed. Recommendation 4 puts a
+fiscal-year bar chart before the existing detailed tables. Committed and
+Received to date use a shared dollar scale, with newest years first. When
+classification reconciles, each bar shows Philanthropic and Comprehensive
+Investment as parts of the same total, never additional gifts.
+
+- The chart uses saved integer-cent amounts without changing calculations,
+  API responses, permissions, database records, or NXT. Its view toggle is
+  independent of the overview composition toggle and table selection.
+- Received remains paid to date on gifts grouped by their original gift year,
+  not cash received during that fiscal year. Partial-year activity is labeled.
+  Undated gifts appear separately as Date needed and remain in the total.
+- Incomplete, invalid, unreconciled, or negative fiscal-year totals retain
+  exact available amounts with an explanation instead of misleading bars.
+  Unavailable classification uses total-only bars, not an assumed zero split.
+  Category splits must reconcile both per year and to the campaign categories.
+- View fiscal-year details opens the unchanged category and amount/deduction
+  tables. Native buttons, a keyboard-operated disclosure, focusable scrolling
+  table regions, exact accessible chart descriptions, and patterned investment
+  segments provide alternatives to color and pointer interaction.
+
+Verification: 26 new tests and 110 focused dashboard/header tests passed.
+Full regression passed 6,876 tests with 192 existing opt-in/external-service
+skips, including all 74 campaign PostgreSQL tests. Typecheck, production build,
+release worktree guard, and scoped diff checks passed. Desktop and 390px
+browser checks used a nine-year fictional fixture with no live connection:
+both views, stable scale, exact tables, keyboard activation and horizontal
+table scrolling, 44px view buttons, no page overflow, and no console errors.
+
+Evidence: `/private/tmp/ju-fiscal-chart-*`; the preview harness is in
+`/private/tmp/ju-campaign-ux-preview/`. Live dashboard data and the deployed
+application are unchanged. The pre-existing production hydration warning
+documented above is not addressed by this local presentation change.

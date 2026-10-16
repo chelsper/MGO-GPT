@@ -39,6 +39,7 @@ it("does not expose hypothetical metrics or fiscal totals before the first saved
 });
 it("shows JU fiscal periods, adjustments, unknown dates, and a reconciling total", () => {
   render(<CampaignFiscalYears data={data} />);
+  fireEvent.click(screen.getByText("View fiscal-year details"));
   const table = screen.getByRole("table", { name: "Fiscal-year campaign recognition" });
   const rows = within(table).getAllByRole("row");
   expect(rows[1]).toHaveTextContent("FY2027Jul 1, 2026 through Jun 30, 2027");
@@ -63,6 +64,7 @@ it("separates write-offs from local adjustments and labels annual received amoun
   render(<><CampaignOverview data={financial} /><CampaignFiscalYears data={financial} /></>);
   expect(screen.getByRole("article", { name: "Committed campaign total" })).toHaveTextContent("$8,500.00");
   expect(screen.getByRole("article", { name: "Received campaign total" })).toHaveTextContent("$6,000.00");
+  fireEvent.click(screen.getByText("View fiscal-year details"));
   const table = screen.getByRole("table");
   expect(within(table).getByRole("columnheader", { name: "Received to date" })).toBeInTheDocument();
   expect(within(table).getAllByRole("row")[1]).toHaveTextContent("$10,000.00$1,000.00-$500.00$8,500.00$2,500.00$6,000.00");
@@ -87,6 +89,7 @@ it("shows the category breakdown overall and by fiscal year, without replacing t
   expect(summary[2]).toHaveTextContent("Philanthropic$50.00$50.00");
   expect(summary).toHaveLength(3);
   expect(screen.queryByRole("group", { name: "Campaign recognition total" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("View fiscal-year details"));
   const years = within(screen.getByRole("table", { name: "Fiscal-year investment and philanthropic totals" })).getAllByRole("row");
   expect(years[1]).toHaveTextContent("FY2027"); expect(years[1]).toHaveTextContent("$50.00$0.00$50.00$50.00$0.00$50.00");
   expect(years[2]).toHaveTextContent("FY2026"); expect(years[2]).toHaveTextContent("$90.00$90.00$0.00$60.00$60.00$0.00");
