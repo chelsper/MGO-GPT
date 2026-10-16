@@ -143,7 +143,7 @@ Evidence: `/private/tmp/ju-budget-release-*`,
 `/private/tmp/ju-budget-verify-prod.log`. This documentation update is separate
 from the deployed application source.
 
-## Philanthropic comparison enhancement (not yet deployed)
+## Philanthropic comparison enhancement
 
 The Budget Relieving overview now also shows its amount and percentage within
 Philanthropic giving, side by side for Committed and Received. The existing
@@ -176,3 +176,37 @@ denominators, and coordinated chart/detail selection. Actual-source browser
 checks with fictional data passed at 1280px and 390px, including Received
 selection and no page-level horizontal overflow. No live data was accessed or
 changed for this enhancement. Evidence: `/private/tmp/ju-budget-philanthropic-*`.
+
+### JU deployment on 2026-10-16
+
+Deployed source: `e570cf265ae219b246145f9aa448c3ccca411d36`.
+JU deployment: `dpl_GUXkUsaQjUjRv3YqNZN1Y6rBjVhN`, hosted at
+`mgo-5lz57hcij-chelspers-projects.vercel.app` and promoted to
+`https://www.jumgogpt.app` after protected-candidate checks passed.
+
+Rollback target: `dpl_3hSfwAKvpKmERfxZah5EEG8aQJFj`, source
+`aecc19b8525e5b9751687776a08fdeb098d667e3`.
+
+Fresh checks passed: 6,946 tests, including all 92 isolated campaign database
+tests; 192 existing environment-dependent tests remained skipped. Typecheck,
+release guard, scoped whitespace checks, and local and hosted production builds
+passed. The clean committed archive supplied 1,420 hash-verified upload files;
+unrelated local changes were excluded. No Git push was performed.
+
+Both candidate and live checks verified the release SHA/deployment, campaign
+and stewardship pages, new and existing dashboard feature assets, and
+unauthenticated GET/POST access guards. The standard production verifier passed;
+an existing-browser version-cookie check was not performed. JU project settings
+and all five cron schedules are unchanged, with cron hosts following the new
+release. The sandbox and all other Vercel projects were unchanged.
+
+No production campaign refresh, authenticated data mutation, or NXT write was
+performed. This comparison needs both classifications in the published dataset;
+deployment alone does not configure or refresh query 31072. These release notes
+are committed separately from the deployed application source.
+
+Evidence: `/private/tmp/ju-budget-philanthropic-release-*`,
+`/private/tmp/ju-budget-philanthropic-deploy-*`,
+`/private/tmp/ju-budget-philanthropic-candidate-smoke.log`,
+`/private/tmp/ju-budget-philanthropic-live-smoke.log`, and
+`/private/tmp/ju-budget-philanthropic-verify-prod.log`.
