@@ -51,7 +51,7 @@ Before production acceptance, verify the JU category type/table values and one a
 
 ### Name-matching fix, October 16, 2026
 
-Implemented and tested locally; not deployed. Read-only JU checks confirmed the
+Deployed to JU on October 16; release verification is recorded below. Read-only JU checks confirmed the
 reported failure: the linked fundraiser display name is `Kaye R. Glover`, while
 the existing CodeTableEntry option is `Kaye Glover`. The old exact-display-name
 check failed before creating a local write claim or submitting a custom field.
@@ -87,3 +87,35 @@ The new model matches both Scott and Kaye without collisions. Erica, Gretchen,
 and Leslie already have matching names. Two inactive profiles lack linked NXT
 IDs and were not treated as active dashboards. Seven NXT GETs and no writes
 were used; individual MGO connections and write permissions were not tested.
+
+### October 16 Release Verification
+
+The user authorized deployment after the all-MGO audit. Released source:
+`b7b8beb9956f4ab219cf168aa9e75e243200cb79`; JU deployment:
+`dpl_2QPJ8Jticept8sC8shEhorGreBWU`, hosted at
+`mgo-n2ta09yuu-chelspers-projects.vercel.app`. Rollback target:
+`dpl_3eh7FBVegjPCHcgVz9gAv1DHoA5J`, source
+`6ea358acf9121db2aa106ced588fd2b69d66f66f`.
+
+Fresh release checks passed: all 70 focused originator tests; full regression
+6,886 passed and 192 existing optional/external-service skips, including all 74
+isolated campaign PostgreSQL checks; typecheck, local and hosted production
+builds, release worktree guard, and scoped whitespace checks. No skip was added.
+The four optional originator PostgreSQL checks and live write acceptance remain
+unrun. No schema or durable-claim sequence changed.
+
+The committed archive contained 1,415 hash-verified upload files and excluded
+unrelated local work. The production candidate passed version, page, asset, and
+unauthenticated GET/POST guards before promotion. Those checks passed again on
+`www.jumgogpt.app`, and the standard production verifier confirmed the exact
+source SHA and deployment ID. Portfolio, constituent lookup, standings, and
+campaign pages returned successfully. No authenticated constituent save or
+report refresh was attempted; personal NXT permissions were not tested.
+
+JU project settings and all five cron schedules remained unchanged, with cron
+hosts following the new deployment. Sandbox and every other Vercel project
+were unchanged. No Git push, NXT write, table edit, credential change, or mailing
+operation was performed. This documentation update is separate from deployed
+application source. Evidence: `/private/tmp/ju-originator-deploy-*`,
+`/private/tmp/ju-originator-release-*`, and
+`/private/tmp/ju-originator-{candidate,live}-smoke.log`.
