@@ -98,3 +98,46 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 Worklist and actual-page integration tests cover group scoping, duplicate membership, search, quick-view counts, pagination, Focus, unchanged category/rank data, unavailable-group recovery and workspace isolation. Browser QA uses synthetic records; new features are not tested against production until deployed.
 
 Next-step tests cover date boundaries, optional notes, request counts, failed saves, duplicate submission, keyboard focus, draft refreshes, changed primary steps, explicit field clearing and workspace write permissions. Synthetic browser QA checks the shared fields at desktop and narrow card widths without writing production records.
+
+## Category Preference Release: 2026-10-16
+
+Deployed source: `f7bf5cef9ff86e478a0327a8b256009c0bde0f28`.
+JU deployment: `dpl_8XhJaVFLYxD4PvAdDNapDJq5A3oy`, hosted at
+`mgo-ifwpsxq3l-chelspers-projects.vercel.app`, promoted to
+`https://www.jumgogpt.app` after protected-candidate verification.
+Rollback target: `dpl_GUXkUsaQjUjRv3YqNZN1Y6rBjVhN`, source
+`e570cf265ae219b246145f9aa448c3ccca411d36`.
+
+The selected category/solicitor group is now part of the existing browser-local
+viewer/workspace preference. Workspace-key changes remount the view before a
+save can overwrite another workspace's preference. Initial category loading
+keeps the selection and shows a loading notice. Existing preferences remain
+compatible; users must choose a category once because earlier versions did not
+store that selection. This does not sync preferences across browsers/devices.
+No database schema or NXT integration changes are included.
+
+Fresh full regression: 6,969 passed, 192 existing environment-dependent skips.
+All 151 focused portfolio tests and all 92 isolated campaign database tests ran
+and passed. Coverage includes page/tab remounts, delayed profiles/categories,
+viewer/workspace changes, older/corrupt/blocked storage, deleted categories,
+explicit filter clearing, and unchanged donor assignments. Typecheck, local and
+hosted builds, whitespace checks, and the release guard passed.
+
+The committed archive supplied 1,420 hash-verified upload files. Unrelated local
+changes, including the existing overnight-activity documentation edit, were
+excluded and preserved. No Git push was performed. Candidate and live checks
+verified the exact release identity, portfolio and existing campaign feature
+assets, page responses, and unauthenticated API access guards. Live functional
+category changes and existing-session version cookies were not exercised.
+
+JU settings and all five cron schedules are unchanged, with cron hosts following
+the promoted release. The sandbox and all other Vercel projects were unchanged.
+No authenticated data writes, portfolio sync, campaign refresh, or NXT record
+updates were performed. These verification notes are committed separately from
+the deployed application source.
+
+Evidence: `/private/tmp/ju-portfolio-category-release-*`,
+`/private/tmp/ju-portfolio-category-deploy-*`,
+`/private/tmp/ju-portfolio-category-candidate-smoke.log`,
+`/private/tmp/ju-portfolio-category-live-smoke.log`, and
+`/private/tmp/ju-portfolio-category-verify-prod.log`.
