@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { DEFAULT_PROJECTION, FY_REVENUE_KEY, FY_REVENUE_QUERY_ID, FY_REVENUE_QUERY_NAME, PROJECTION_LABEL, REVENUE_LABEL, revenueMoney } from "@/utils/fyRevenueGoals";
 import styles from "./revenue.module.css";
+import BudgetCashPanel from "./BudgetCashPanel";
 
 const API = "/api/reports/fy-revenue-goals";
 const initial = { queryId: FY_REVENUE_QUERY_ID, queryName: FY_REVENUE_QUERY_NAME, columns: { giftId: "", amount: "" }, projection: DEFAULT_PROJECTION, confirmed: false };
@@ -97,6 +98,7 @@ export default function FYRevenueGoalsPage() {
         </form><p className={styles.help}>The previous successful totals stay visible while refreshing. Source settings and new totals are saved together only after all rows pass validation. Manage viewers in <a href="/report-configurations">Report configurations</a>.</p>
       </section>}
       {busy && <p role="status">Working with the shared reporting account. Previous totals stay visible; no NXT gifts are changed.</p>}
+      <BudgetCashPanel />
     </>}
   </div></main>;
 }

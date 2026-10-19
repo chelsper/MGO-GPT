@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("./sql", () => ({ default: vi.fn(() => { throw new Error("Live SQL forbidden"); }) }));
 import { publishRevenueState, readRevenueState } from "./fyRevenueGoals";
+import { BUDGET_CASH_CACHE_KEY, readBudgetCashState } from "./fyBudgetCash";
 const modulePath = process.env.CAMPAIGN_PGLITE_MODULE;
 const suite = modulePath ? describe : describe.skip;
 suite("FY revenue snapshot compare-and-swap in isolated PostgreSQL", () => {
@@ -24,5 +25,15 @@ suite("FY revenue snapshot compare-and-swap in isolated PostgreSQL", () => {
     await publishRevenueState("first", second, db);
     await expect(publishRevenueState("first", { revision: "late-second" }, db)).rejects.toMatchObject({ status: 409 });
     expect(await readRevenueState(db)).toEqual(second);
+  });
+  it("isolates budget cash from re-investment totals and rejects a stale cash update", async () => {
+    const original = await readRevenueState(db);
+    expect(await readBudgetCashState(db)).toEqual({ revision: null, source: null, snapshot: null });
+    const cash = { revision: "cash-first", source: { queryId: "31075" }, snapshot: { receivedCents: 7500 } };
+    await publishRevenueState(null, cash, db, BUDGET_CASH_CACHE_KEY);
+    expect(await readBudgetCashState(db)).toEqual(cash);
+    await expect(publishRevenueState(null, { revision: "late-cash" }, db, BUDGET_CASH_CACHE_KEY)).rejects.toMatchObject({ status: 409 });
+    expect(await readRevenueState(db)).toEqual(original);
+    expect(await readBudgetCashState(db)).toEqual(cash);
   });
 });

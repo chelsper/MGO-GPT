@@ -23,3 +23,11 @@ it.each([null, { id: 9, role: "mgo" }, { id: 9, role: "admin", active: false }])
 it("requires an established shared connection", async () => {
   m.connection.mockResolvedValue(null); await expect(revenueTransport("https://app.example")).rejects.toMatchObject({ status: 409 });
 });
+it("uses the same shared connection for the allowlisted cash query only", async () => {
+  const transport = await revenueTransport("https://app.example", "31075");
+  await transport.metadata(); await transport.execute();
+  expect(m.fetch).toHaveBeenCalledWith("/query/queries/31075", expect.objectContaining({ userId: 9, maxRetries: 0 }));
+  expect(m.execute).toHaveBeenCalledWith(expect.objectContaining({ queryId: "31075" }));
+  await expect(revenueTransport("https://app.example", "99999")).rejects.toThrow();
+  expect(m.execute).toHaveBeenCalledTimes(1);
+});

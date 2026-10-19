@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title, action }) => <header><h1>{title}</h1>{action}</header> }));
+vi.mock("./BudgetCashPanel", () => ({ default: () => <section aria-label="Independent budget cash panel" /> }));
 import Page from "./page";
 const source = { queryId: "31074", queryName: "Eligible gifts", columns: { giftId: "System Record ID", amount: "Gift Amount" }, projection: "remaining", confirmed: true };
 const saved = { revision: "one", title: "FY Revenue Goals", canManage: true, source,
@@ -11,6 +12,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it("opens saved totals without querying NXT and labels the formula", async () => {
   render(<Page />);
   expect(await screen.findByText("$1,000.00")).toBeVisible(); expect(screen.getByText("$900.00")).toBeVisible();
+  expect(screen.getByRole("region", { name: "Independent budget cash panel" })).toBeInTheDocument();
   expect(screen.getByText("Eligible gifts received minus 10% (90% remaining).")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][1].method).toBeUndefined();
   expect(screen.queryByRole("button", { name: "Load query fields" })).not.toBeInTheDocument();

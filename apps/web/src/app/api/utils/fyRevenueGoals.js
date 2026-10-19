@@ -10,23 +10,23 @@ import { FY_REVENUE_QUERY_ID, projectionCents, revenueError, suggestRevenueColum
 const CACHE_KEY = "report:fy-revenue-goals:v1";
 export const REVENUE_LIMITS = { rows: 100000, bytes: 25 * 1024 * 1024 };
 
-export function inspectRevenueQuery(query, source) {
-  if (String(query?.id) !== FY_REVENUE_QUERY_ID || query.type !== "Gift" || query.can_execute === false || query.has_ask_fields)
-    throw revenueError("Query 31074 must be an executable Gift query without prompted criteria.");
+export function inspectRevenueQuery(query, source, queryId = FY_REVENUE_QUERY_ID) {
+  if (String(query?.id) !== queryId || query.type !== "Gift" || query.can_execute === false || query.has_ask_fields)
+    throw revenueError(`Query ${queryId} must be an executable Gift query without prompted criteria.`);
   const fields = (query.select_fields || []).map(entry => entry.query_field?.selected_field_name);
   if (!fields.length || fields.length > 25 || fields.some(name => typeof name !== "string" || !name.trim() || name.length > 200) || new Set(fields).size !== fields.length)
-    throw revenueError("Use 1-25 uniquely named output columns in query 31074.");
-  if (source && (query.name !== source.queryName || Object.values(source.columns).some(name => !fields.includes(name))))
+    throw revenueError(`Use 1-25 uniquely named output columns in query ${queryId}.`);
+  if (source && (query.name !== source.queryName || Object.values(source.columns).filter(Boolean).some(name => !fields.includes(name))))
     throw revenueError("The query name or outputs changed. Reload the query fields before refreshing.", 409);
-  return { queryId: FY_REVENUE_QUERY_ID, queryName: String(query.name || ""), fields, suggested: suggestRevenueColumns(fields) };
+  return { queryId, queryName: String(query.name || ""), fields, suggested: suggestRevenueColumns(fields) };
 }
 
-function centsFromText(value) {
+export function centsFromText(value) {
   let text = String(value).trim();
   const negative = text.startsWith("(") && text.endsWith(")");
   if (negative) text = text.slice(1, -1);
   if (!/^-?\$?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text) || (negative && text.startsWith("-")))
-    throw revenueError("A gift amount is blank or invalid. Map the whole-gift amount; no partial total was saved.", 422);
+    throw revenueError("A gift amount is blank or invalid. Check the mapped amount; no partial total was saved.", 422);
   const sign = negative || text.startsWith("-") ? -1n : 1n;
   const [whole, fraction = ""] = text.replace(/[-$,]/g, "").split(".");
   const valueInCents = sign * (BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0")));
@@ -65,7 +65,8 @@ export function aggregateRevenueCsv(content, source, expectedRows) {
     rawRows: rowCount, duplicateRows: rowCount - gifts.size };
 }
 
-export async function revenueTransport(origin) {
+export async function revenueTransport(origin, queryId = FY_REVENUE_QUERY_ID) {
+  if (![FY_REVENUE_QUERY_ID, "31075"].includes(queryId)) throw revenueError("Unknown revenue query.");
   const user = await getReportRefreshUser();
   // getReportRefreshUser filters active accounts in SQL but omits active from its result.
   if (!user?.id || user.active === false || !canManageWorkspaceRole(user.role))
@@ -73,23 +74,23 @@ export async function revenueTransport(origin) {
   const connection = await getBlackbaudConnection(user.id);
   if (!connection?.connected_at) throw revenueError("The shared reporting account needs an NXT connection.", 409);
   return {
-    metadata: () => blackbaudApiFetch(`/query/queries/${FY_REVENUE_QUERY_ID}`, { userId: user.id, authUserId: user.id,
+    metadata: () => blackbaudApiFetch(`/query/queries/${queryId}`, { userId: user.id, authUserId: user.id,
       origin, maxRetries: 0, searchParams: { product: "RE", module: "None" } }),
-    execute: () => executeSavedQueryResults({ user, origin, queryId: FY_REVENUE_QUERY_ID, maxBytes: REVENUE_LIMITS.bytes }),
+    execute: () => executeSavedQueryResults({ user, origin, queryId, maxBytes: REVENUE_LIMITS.bytes }),
   };
 }
 
-export async function readRevenueState(db = sql) {
-  const rows = await db`SELECT payload FROM report_snapshots_cache WHERE report_key=${CACHE_KEY} LIMIT 1`;
+export async function readRevenueState(db = sql, cacheKey = CACHE_KEY) {
+  const rows = await db`SELECT payload FROM report_snapshots_cache WHERE report_key=${cacheKey} LIMIT 1`;
   return rows[0]?.payload || { revision: null, source: null, snapshot: null };
 }
 
-export async function publishRevenueState(previousRevision, state, db = sql) {
+export async function publishRevenueState(previousRevision, state, db = sql, cacheKey = CACHE_KEY) {
   const rows = previousRevision === null
     ? await db`INSERT INTO report_snapshots_cache (report_key,payload,updated_at)
-        VALUES (${CACHE_KEY},${JSON.stringify(state)}::jsonb,NOW()) ON CONFLICT (report_key) DO NOTHING RETURNING report_key`
+        VALUES (${cacheKey},${JSON.stringify(state)}::jsonb,NOW()) ON CONFLICT (report_key) DO NOTHING RETURNING report_key`
     : await db`UPDATE report_snapshots_cache SET payload=${JSON.stringify(state)}::jsonb,updated_at=NOW()
-        WHERE report_key=${CACHE_KEY} AND payload->>'revision'=${previousRevision} RETURNING report_key`;
+        WHERE report_key=${cacheKey} AND payload->>'revision'=${previousRevision} RETURNING report_key`;
   if (!rows.length) throw revenueError("Another refresh finished first. Reload saved totals before continuing.", 409);
   return state;
 }
