@@ -125,7 +125,7 @@ Validation before deployment: **7,147 tests passed / 192 existing environment-de
 
 ## Local Goal Adjustments And Manual Cash
 
-Implemented and tested after the installment deployment; **not deployed yet**.
+Deployed to JU on October 19, 2026: `dpl_HQB8RYYStXn7xNvURobS8z8kkE3Q`, source `76072ec8ce5c8863794884e90b30ebfc37d669df`. See `ju-fy-revenue-adjustments-release-2026-10-19.md` for live verification and rollback considerations.
 
 - The installment table adds **Count toward goal** directly after **Amount still due**. Admins and Advancement Services can enter a lower amount (including zero), provide a reason, or reset to the full unpaid balance. Viewers can see the amounts and latest adjustment but cannot edit.
 - Adjustments never change the saved NXT balance, cash total, gift, or installment. They are keyed by fiscal-year start plus verified gift/installment IDs in the existing pledge cache, with an append-only before/after/actor/time/reason history. Source refreshes retain them and use the same revision CAS, preventing refreshes or edits from overwriting each other. Finish an in-progress balance job before editing.
@@ -137,3 +137,5 @@ Implemented and tested after the installment deployment; **not deployed yet**.
 - `GET/POST /api/reports/fy-revenue-goals/manual-cash` and pledge `adjust`/`reset-adjustment` operations use the existing dashboard authorization, manager roles, private no-store responses, origin checking, bounded commands, and revision checks. Neither constructs an NXT transport. No migrations, new dependencies, query criteria changes, schedules or donor messages are needed.
 
 Validation: **7,190 tests passed / 192 pre-existing environment-dependent skips**; build, typecheck, release-worktree and whitespace checks passed. Tests include original-entry seeding, new receipts, edits/archive/restore, concurrent revisions in isolated PostgreSQL, invalid/future/wrong-year amounts and dates, exact cents, audit retention, source-refresh survival, payment reductions, cash/projection separation, search-invariant totals, and role checks. Local fictional-data browser checks covered adjustment/save, manual addition, immediate roll-ups and 390px mobile layout. No live adjustment or manual receipt was entered.
+
+Release verification: **137 focused tests passed**, including isolated PostgreSQL checks; typecheck and release checks passed again. Hosted build, candidate and live release/asset/access checks passed. The normal signed-in dashboard URL showed the new installment column and manual cash controls. Cash remained $3,452,296.51 and received plus expected remained $5,544,296.51, with zero adjustments and the three original cash entries totaling $3,030,000. Opening and canceling the empty entry form did not save anything. JU settings and all five schedules were preserved. A separate sandbox CLI deployment occurred concurrently with a different source commit; no sandbox settings were changed by this release.
