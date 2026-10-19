@@ -62,7 +62,7 @@ Validation on October 19: 100 focused tests passed (including isolated PostgreSQ
 
 ## FY27 Unrestricted Goal
 
-Implemented locally on October 19, 2026; not yet deployed. The previously deployed cash panel above remains the production version.
+Deployed to JU on October 19, 2026 in `dpl_B7KZzcpv9tSc2FrxePFirUPaEosh`, source `2bcf21b5567f9c7a56df80ee2563dea081ab50a4`. See `ju-fy-unrestricted-goal-release-2026-10-19.md` for verification and recovery details.
 
 The top summary tracks a **$6,500,000** unrestricted cash goal for **July 1, 2026 through June 30, 2027**. It displays cash received to date, the annual goal, remaining amount, percentage progress, and each component:
 
@@ -86,7 +86,7 @@ Validation: 117 focused tests passed, including actual page/panel refresh integr
 
 ## Fund-Name Editing Correction
 
-Implemented locally on October 19, 2026; not yet deployed. Correct standard names are **JU Parents Fund** and **Future. Rising. Scholarship Fund**. Saved source names now control the main breakdown and included-fund group labels instead of hard-coded labels. Existing custom mappings are preserved. An explicit Use corrected standard names button offers replacement of the original defaults only; changes still require confirmation and Save cash source and refresh.
+Deployed with the FY27 goal summary on October 19, 2026. Correct standard names are **JU Parents Fund** and **Future. Rising. Scholarship Fund**. Saved source names now control the main breakdown and included-fund group labels instead of hard-coded labels. Existing custom mappings are preserved. An explicit Use corrected standard names button offers replacement of the original defaults only; changes still require confirmation and Save cash source and refresh.
 
 The form now permits name-only edits using existing saved field mappings without reloading metadata. Unsaved changes disable the saved-settings refresh button and explain how to apply edits; hiding the editor does not discard them. Inputs suggest returned fund names and describe exact matches by system ID. Failed refreshes keep previous source/totals together and preserve the draft for retry. Missing-fund messages explain that changing a group name cannot add gifts absent from query results. No new backend operation or NXT write is introduced.
 
