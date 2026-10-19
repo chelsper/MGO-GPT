@@ -3,6 +3,7 @@ import { LIST_SCHEMA } from "@/utils/constituentLists";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
 import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
 import { CAMPAIGN_REPORT_KEY } from "@/utils/campaignPriorities";
+import { FY_REVENUE_KEY } from "@/utils/fyRevenueGoals";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -59,7 +60,7 @@ export const REPORT_TYPE_DEFINITIONS = Object.freeze({
     key: REPORT_TYPES.QUERY_BASED,
     label: "Query-Based Reports",
     description:
-      "Reports backed by approved, count-only NXT Query API definitions and saved snapshots.",
+      "Reports backed by approved NXT Query API definitions and saved snapshots.",
   }),
   [REPORT_TYPES.CUSTOM_FIELD]: Object.freeze({
     key: REPORT_TYPES.CUSTOM_FIELD,
@@ -184,6 +185,22 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     presentationNoteTone: "info",
   }),
   CAMPAIGN_REPORT_DEFINITION,
+  Object.freeze({
+    key: FY_REVENUE_KEY,
+    reportType: REPORT_TYPES.QUERY_BASED,
+    adapterKey: "fy-revenue-goals",
+    configurationSchema: "fy-revenue-goals-v1",
+    configurationSchemaVersion: 1,
+    href: "/reports/dashboards/fy-revenue-goals",
+    title: "FY Revenue Goals",
+    description: "Track eligible gifts received and projected gift re-investment from saved NXT query 31074.",
+    audienceMode: "shared_snapshot",
+    defaultVisibility: "specific_users",
+    dataConfigurationType: null,
+    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    presentationNote: "Choose viewers here. Configure and refresh query 31074 inside the dashboard. Opening it never refreshes NXT or changes gifts.",
+    presentationNoteTone: "info",
+  }),
 ]);
 
 const STANDARD_REPORTS_BY_KEY = new Map(
