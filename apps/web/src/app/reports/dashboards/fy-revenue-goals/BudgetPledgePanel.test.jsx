@@ -20,7 +20,7 @@ it("loads saved totals and the donor list without automatically calling NXT", as
   await screen.findByText("$450.00");
   fireEvent.click(screen.getByText("View names, amounts, funds, and due dates"));
   expect(screen.getByText("Fictional Donor")).toBeVisible(); expect(screen.getByText("Fictional Scholarship")).toBeVisible();
-  expect(screen.getByText("$400.00")).toBeVisible(); expect(screen.getByText("Dec 1, 2026")).toBeVisible();
+  expect(screen.getAllByText("$400.00")).toHaveLength(2); expect(screen.getByText("Dec 1, 2026")).toBeVisible();
   expect(screen.getByText("Scheduled: $500.00")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][1].method).toBeUndefined();
   await waitFor(() => expect(onDataChange).toHaveBeenLastCalledWith(saved));
@@ -98,4 +98,28 @@ it("hides manager controls from viewers and removes donor data on lost access", 
 it("labels a prior-year snapshot rather than presenting it as current", async () => {
   vi.setSystemTime(new Date("2027-07-01T12:00:00Z")); render(<BudgetPledgePanel />);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("belong to FY27, not FY28"));
+});
+it("places a counted column beside the balance and saves an adjustment without refreshing NXT", async () => {
+  const onDataChange = vi.fn(); render(<BudgetPledgePanel onDataChange={onDataChange} />); await screen.findByText("$450.00");
+  fireEvent.click(screen.getByText("View names, amounts, funds, and due dates"));
+  expect(screen.getAllByRole("columnheader").map(item => item.textContent)).toEqual(["Donor", "Fund description", "Due date", "Amount still due", "Count toward goal"]);
+  fireEvent.click(screen.getByRole("button", { name: "Adjust Fictional Donor" }));
+  expect(screen.getByRole("button", { name: "Save counted amount" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Amount counted toward goal"), { target: { value: "200" } });
+  fireEvent.change(screen.getByLabelText("Reason for this adjustment"), { target: { value: "Half eligible" } });
+  const updated = { ...saved, snapshot: { ...snapshot, countableCents: 25000 }, rows: [{ ...rows[0], countableCents: 20000 }, rows[1]] };
+  fetch.mockResolvedValueOnce(json(updated)); fireEvent.click(screen.getByRole("button", { name: "Save counted amount" }));
+  await screen.findByText(/Saved. Received \+ expected/);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "adjust", revision: "one", input: { key: "1:11", amount: "200", reason: "Half eligible" } });
+  expect(screen.getByText("$450.00")).toBeVisible(); expect(screen.getByText("$200.00")).toBeVisible(); expect(onDataChange).toHaveBeenLastCalledWith(updated);
+});
+it("offers a full-balance reset with a reason and leaves the draft intact on conflict", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, rows: [{ ...rows[0], countableCents: 20000, adjustment: { reason: "Half eligible", updatedAt: "2026-10-19T12:00:00Z", updatedBy: "Admin" } }] }));
+  render(<BudgetPledgePanel />); await screen.findByText("$450.00"); fireEvent.click(screen.getByText("View names, amounts, funds, and due dates"));
+  fireEvent.click(screen.getByRole("button", { name: "Adjust Fictional Donor" }));
+  expect(screen.getByRole("button", { name: "Use full unpaid balance" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Reason for this adjustment"), { target: { value: "Full balance qualifies" } });
+  fetch.mockResolvedValueOnce(json({ error: "Pledge data changed." }, 409)); fireEvent.click(screen.getByRole("button", { name: "Use full unpaid balance" }));
+  await screen.findByRole("alert"); expect(screen.getByLabelText("Reason for this adjustment")).toHaveValue("Full balance qualifies");
+  expect(JSON.parse(fetch.mock.calls[1][1].body).operation).toBe("reset-adjustment");
 });

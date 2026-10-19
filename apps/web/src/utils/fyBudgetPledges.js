@@ -46,7 +46,8 @@ export const installmentDateLabel = day => new Date(`${day}T12:00:00Z`).toLocale
 
 export function unrestrictedExpectedGoal(config, cashGoal, snapshot) {
   const samePeriod = snapshot?.period?.startsOn === config.startsOn && snapshot?.period?.endsOn === config.endsOn;
-  const expected = samePeriod && Number.isSafeInteger(snapshot?.outstandingCents) && snapshot.outstandingCents >= 0 ? snapshot.outstandingCents : null;
+  const countable = snapshot && Object.hasOwn(snapshot, "countableCents") ? snapshot.countableCents : snapshot?.outstandingCents;
+  const expected = samePeriod && Number.isSafeInteger(countable) && countable >= 0 && countable <= snapshot.outstandingCents ? countable : null;
   let totalCents = null, remainingCents = null, aboveGoalCents = null;
   if (cashGoal.activeFiscalYear && cashGoal.totalCents !== null && expected !== null) {
     const total = BigInt(cashGoal.totalCents) + BigInt(expected), remaining = BigInt(config.cents) - total;

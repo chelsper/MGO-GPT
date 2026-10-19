@@ -1,4 +1,4 @@
-import { continueBudgetPledgeRefresh, inspectBudgetPledgeQuery, publicBudgetPledgeState, readBudgetPledgeState, startBudgetPledgeRefresh } from "@/app/api/utils/fyBudgetPledges";
+import { continueBudgetPledgeRefresh, inspectBudgetPledgeQuery, publicBudgetPledgeState, readBudgetPledgeState, startBudgetPledgeRefresh, savePledgeAdjustment } from "@/app/api/utils/fyBudgetPledges";
 import { revenueTransport } from "@/app/api/utils/fyRevenueGoals";
 import { requireRevenueContext, revenueHeaders as headers, revenueFailure, readRevenueCommand } from "@/app/api/utils/fyRevenueContext";
 import { BUDGET_PLEDGE_QUERY_ID, validateBudgetPledgeSource } from "@/utils/fyBudgetPledges";
@@ -19,7 +19,11 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const { user, canManage } = await requireRevenueContext(true);
-    const { body, origin } = await readRevenueCommand(request, ["fields", "refresh", "continue"]);
+    const { body, origin } = await readRevenueCommand(request, ["fields", "refresh", "continue", "adjust", "reset-adjustment"]);
+    if (["adjust", "reset-adjustment"].includes(body.operation)) {
+      const state = await savePledgeAdjustment({ ...body, user });
+      return Response.json({ ...publicBudgetPledgeState(state), canManage }, { headers });
+    }
     const input = body.operation === "refresh" ? validateBudgetPledgeSource(body.input) : undefined;
     const transport = await revenueTransport(origin, BUDGET_PLEDGE_QUERY_ID);
     if (body.operation === "fields") return Response.json(inspectBudgetPledgeQuery(await transport.metadata()), { headers });

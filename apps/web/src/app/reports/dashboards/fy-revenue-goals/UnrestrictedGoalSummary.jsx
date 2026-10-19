@@ -34,10 +34,10 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
       : goal.overflow ? "A source amount exceeds the supported reporting range. The combined total has not been calculated."
       : `Waiting for saved ${goal.missing.join(" and ")} totals. The full cash total and remaining amount will appear once both sources are available.`}</p>}
     <section className={styles.expectedSummary} aria-labelledby="expected-revenue-heading"><h3 id="expected-revenue-heading">Received + expected this FY</h3>
-      <p>Cash received plus the remaining balance of budget-relieving pledge installments due this fiscal year.</p>
+      <p>Cash received plus the amount counted toward the goal from budget-relieving pledge installments due this fiscal year.</p>
       <dl className={styles.goalMetrics}>
         <div><dt>Received + expected</dt><dd>{revenueMoney(expected.totalCents)}</dd></div>
-        <div><dt><a href="#budget-pledge-heading">Pledge installments still due</a></dt><dd>{revenueMoney(expected.expectedCents)}</dd></div>
+        <div><dt><a href="#budget-pledge-heading">Pledge installments counted toward goal</a></dt><dd>{revenueMoney(expected.expectedCents)}</dd></div>
         <div><dt>Remaining after expected receipts</dt><dd>{revenueMoney(expected.remainingCents)}</dd>
           {expected.aboveGoalCents > 0 && <p className={styles.goalSurplus}>{revenueMoney(expected.aboveGoalCents)} projected above goal</p>}</div>
       </dl>
@@ -49,9 +49,9 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
       <dl>
         <div><dt><a href="#budget-cash-heading">Budget-relieving cash received</a><small>Query 31075 · {refreshed(cashSnapshot)}</small></dt><dd>{revenueMoney(goal.budgetCashCents)}</dd></div>
         <div><dt><a href="#reinvestment-totals">Gift re-investment (10%)</a><small>10% of query 31074's received total · {refreshed(reinvestmentSnapshot)}</small></dt><dd>{revenueMoney(goal.reinvestmentCents)}</dd></div>
-        {config.fixedContributions.map(item => <div key={item.key}><dt>{item.label}<small>Fixed cash received entry</small></dt><dd>{revenueMoney(item.cents)}</dd></div>)}
+        {config.fixedContributions.map(item => <div key={item.key}><dt>{item.label}<small><a href="#manual-cash-heading">Manual cash received entry</a></small></dt><dd>{revenueMoney(item.cents)}</dd></div>)}
       </dl>
-      <p className={styles.help}>Fixed contributions total {revenueMoney(goal.fixedTotalCents)}. The roll-up adds these to budget-relieving cash plus the 10% re-investment amount, not the full eligible-gifts total. The three fixed contributions are confirmed as separate from query 31075. No NXT records are changed.</p>
+      <p className={styles.help}>Manual contributions total {revenueMoney(goal.fixedTotalCents)}. The roll-up adds these to budget-relieving cash plus the 10% re-investment amount, not the full eligible-gifts total. Manual entries must be separate from these sources. No NXT records are changed.</p>
     </div>
   </section>;
 }

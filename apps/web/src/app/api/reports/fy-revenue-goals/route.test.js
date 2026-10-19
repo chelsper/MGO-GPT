@@ -64,9 +64,9 @@ describe("FY Revenue Goals access and side effects", () => {
   it("returns the fixed cash configuration only to authorized viewers, including after a refresh", async () => {
     const response = await GET();
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
-    expect((await response.json()).goal).toEqual(UNRESTRICTED_GOAL_CONFIG);
+    expect((await response.json()).goal).toMatchObject(UNRESTRICTED_GOAL_CONFIG);
     const refreshed = await POST(request({ operation: "refresh", input, revision: null }));
-    expect((await refreshed.json()).goal).toEqual(UNRESTRICTED_GOAL_CONFIG);
+    expect((await refreshed.json()).goal).toMatchObject(UNRESTRICTED_GOAL_CONFIG);
     m.auth.mockResolvedValue(null);
     const unauthorized = await GET();
     expect(unauthorized.status).toBe(401);

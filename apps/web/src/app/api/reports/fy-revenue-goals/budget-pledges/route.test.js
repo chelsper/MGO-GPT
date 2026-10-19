@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "start", "resume", "transport", "metadata"].map(k => [k, vi.fn()])));
+const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "start", "resume", "transport", "metadata", "adjust"].map(k => [k, vi.fn()])));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: m.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: m.access }));
-vi.mock("@/app/api/utils/fyBudgetPledges", async original => ({ ...await original(), readBudgetPledgeState: m.read, startBudgetPledgeRefresh: m.start, continueBudgetPledgeRefresh: m.resume }));
+vi.mock("@/app/api/utils/fyBudgetPledges", async original => ({ ...await original(), readBudgetPledgeState: m.read, startBudgetPledgeRefresh: m.start, continueBudgetPledgeRefresh: m.resume, savePledgeAdjustment: m.adjust }));
 vi.mock("@/app/api/utils/fyRevenueGoals", async original => ({ ...await original(), revenueTransport: m.transport }));
 import { suggestPledgeColumns } from "@/utils/fyBudgetPledges";
 import { GET, POST } from "./route";
@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks(); m.auth.mockResolvedValue({ user: { email: "test@example.org" } });
   m.user.mockResolvedValue({ id: 1, role: "admin", active: true }); m.access.mockResolvedValue({ canView: true });
   m.read.mockResolvedValue(state); m.start.mockResolvedValue(state); m.resume.mockResolvedValue(state);
+  m.adjust.mockResolvedValue(state);
   m.transport.mockResolvedValue({ metadata: m.metadata });
   m.metadata.mockResolvedValue({ id: "31076", name: input.queryName, type: "Gift", select_fields: fields.map(name => ({ query_field: { selected_field_name: name } })) });
 });
@@ -29,7 +30,7 @@ it("authenticates before touching donor data or provider connections", async () 
 });
 it("gives authorized viewers cached, private paginated results, not a running job's private draft", async () => {
   m.user.mockResolvedValue({ id: 2, role: "mgo", active: true });
-  m.read.mockResolvedValue({ ...state, updatedBy: 1, snapshot: { outstandingCents: 1000, rows: [{ name: "A", fundName: "Fund", giftId: "1", dueDate: "2026-12-01" }] }, job: { pledges: [{ name: "Private draft" }], cursor: 0 } });
+  m.read.mockResolvedValue({ ...state, updatedBy: 1, snapshot: { period: { startsOn: "2026-07-01" }, outstandingCents: 1000, rows: [{ key: "1:1", name: "A", fundName: "Fund", giftId: "1", dueDate: "2026-12-01", outstandingCents: 1000 }] }, job: { pledges: [{ name: "Private draft" }], cursor: 0 } });
   const response = await get("?page=1&search=A");
   expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   const result = await response.json(); expect(result.canManage).toBe(false); expect(result.job).toBeNull(); expect(result.rows).toHaveLength(1);
@@ -37,7 +38,8 @@ it("gives authorized viewers cached, private paginated results, not a running jo
 });
 it.each(["mgo", "executive"])("blocks %s from source inspection, start and continuation", async role => {
   m.user.mockResolvedValue({ id: 2, role, active: true });
-  for (const operation of ["fields", "refresh", "continue"]) expect((await POST(request({ operation, input, revision: null }))).status).toBe(403);
+  for (const operation of ["fields", "refresh", "continue", "adjust", "reset-adjustment"]) expect((await POST(request({ operation, input, revision: null }))).status).toBe(403);
+  expect(m.adjust).not.toHaveBeenCalled();
   expect(m.transport).not.toHaveBeenCalled();
 });
 it("blocks inactive and unshared users and rejects unbounded filters", async () => {
@@ -67,4 +69,9 @@ it("validates source, origin, revision, and operation before provider access", a
 it("redacts private database errors", async () => {
   m.read.mockRejectedValue(new Error("SECRET signed URL")); const response = await get(); expect(response.status).toBe(503);
   expect(await response.text()).not.toContain("SECRET");
+});
+it.each(["admin", "advancement_services"])("saves %s adjustments locally without creating an NXT transport", async role => {
+  m.user.mockResolvedValue({ id: 7, role, active: true });
+  for (const operation of ["adjust", "reset-adjustment"]) expect((await POST(request({ operation, revision: null, input: { key: "1:1", amount: "100", reason: "Partial" } }))).status).toBe(200);
+  expect(m.transport).not.toHaveBeenCalled(); expect(m.adjust).toHaveBeenCalledTimes(2);
 });

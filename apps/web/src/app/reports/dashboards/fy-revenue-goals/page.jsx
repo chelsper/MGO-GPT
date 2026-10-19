@@ -6,6 +6,7 @@ import styles from "./revenue.module.css";
 import BudgetCashPanel from "./BudgetCashPanel";
 import UnrestrictedGoalSummary from "./UnrestrictedGoalSummary";
 import BudgetPledgePanel from "./BudgetPledgePanel";
+import ManualCashPanel from "./ManualCashPanel";
 
 const API = "/api/reports/fy-revenue-goals";
 const initial = { queryId: FY_REVENUE_QUERY_ID, queryName: FY_REVENUE_QUERY_NAME, columns: { giftId: "", amount: "" }, projection: DEFAULT_PROJECTION, confirmed: false };
@@ -105,6 +106,7 @@ export default function FYRevenueGoalsPage() {
       {busy && <p role="status">Working with the shared reporting account. Previous totals stay visible; no NXT gifts are changed.</p>}
       <BudgetCashPanel onDataChange={setCashData} />
       <BudgetPledgePanel onDataChange={setPledgeData} />
+      <ManualCashPanel config={data.goal} canManage={data.canManage} onChange={goal => setData(previous => previous ? { ...previous, goal } : previous)} />
     </>}
   </div></main>;
 }

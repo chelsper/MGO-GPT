@@ -4,7 +4,8 @@ vi.mock("./sql", () => ({ default: vi.fn(() => { throw new Error("Live SQL forbi
 import { publishRevenueState, readRevenueState } from "./fyRevenueGoals";
 import { aggregateBudgetCashCsv, BUDGET_CASH_CACHE_KEY, readBudgetCashState, refreshBudgetCash } from "./fyBudgetCash";
 import { defaultBudgetFundNames } from "@/utils/fyBudgetCash";
-import { readBudgetPledgeState, startBudgetPledgeRefresh, continueBudgetPledgeRefresh, publicBudgetPledgeState } from "./fyBudgetPledges";
+import { readBudgetPledgeState, startBudgetPledgeRefresh, continueBudgetPledgeRefresh, publicBudgetPledgeState, savePledgeAdjustment } from "./fyBudgetPledges";
+import { readManualGoalConfig, saveManualGoalEntry } from "./fyRevenueAdjustments";
 import { suggestPledgeColumns } from "@/utils/fyBudgetPledges";
 const modulePath = process.env.CAMPAIGN_PGLITE_MODULE;
 const suite = modulePath ? describe : describe.skip;
@@ -82,5 +83,26 @@ suite("FY revenue snapshot compare-and-swap in isolated PostgreSQL", () => {
     expect(publicBudgetPledgeState(completed, { search: "Foundation" })).toMatchObject({ matchedCount: 1, snapshot: { outstandingCents: 15000 } });
     expect(transport.pledge.mock.calls.map(call => call[0])).toEqual(["1", "1", "2", "2"]);
     expect(await readRevenueState(db)).toEqual(revenueBefore); expect(await readBudgetCashState(db)).toEqual(cashBefore);
+  });
+  it("saves local installment reductions with CAS and never changes either cash source", async () => {
+    const revenueBefore = await readRevenueState(db), cashBefore = await readBudgetCashState(db), before = await readBudgetPledgeState(db);
+    const args = { db, user: { id: 7, name: "Test Admin" }, now: new Date("2026-10-19T15:00:00Z"), operation: "adjust", revision: before.revision,
+      input: { key: before.snapshot.rows[0].key, amount: "25", reason: "Only half eligible" } };
+    const result = await savePledgeAdjustment(args);
+    expect((await readBudgetPledgeState(db)).adjustmentHistory).toHaveLength(1);
+    expect(publicBudgetPledgeState(result).snapshot).toMatchObject({ outstandingCents: 15000, countableCents: 12500 });
+    await expect(savePledgeAdjustment(args)).rejects.toMatchObject({ status: 409 });
+    expect(await readRevenueState(db)).toEqual(revenueBefore); expect(await readBudgetCashState(db)).toEqual(cashBefore);
+  });
+  it("seeds manual contributions once, retains history, and prevents concurrent lost updates", async () => {
+    const before = await readManualGoalConfig(db), revenueBefore = await readRevenueState(db), pledgeBefore = await readBudgetPledgeState(db);
+    const args = { db, user: { id: 7, name: "Test Admin" }, now: new Date("2026-10-19T15:00:00Z"), operation: "save", revision: before.manual.revision,
+      input: { key: null, label: "Fictional additional receipt", amount: "123.45", receivedDate: "2026-10-18", reason: "Verified separate", confirmed: true } };
+    const result = await saveManualGoalEntry(args); expect(result.fixedContributions).toHaveLength(4);
+    expect(await readManualGoalConfig(db)).toEqual(result);
+    await expect(saveManualGoalEntry(args)).rejects.toMatchObject({ status: 409 });
+    const archived = await saveManualGoalEntry({ ...args, operation: "archive", revision: result.manual.revision, input: { key: result.manual.entries[3].key, reason: "Now in cash query" } });
+    expect(archived.fixedContributions).toHaveLength(3); expect(archived.manual.historyCount).toBe(2);
+    expect(await readRevenueState(db)).toEqual(revenueBefore); expect(await readBudgetPledgeState(db)).toEqual(pledgeBefore);
   });
 });

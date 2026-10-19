@@ -7,6 +7,7 @@ import { revenueError } from "@/utils/fyRevenueGoals";
 import { normalizeBudgetFundName } from "@/utils/fyBudgetCash";
 import { normalizeInstallments, normalizePledge } from "@/utils/pledgePayments";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { adjustmentAmount, adjustmentAudit, adjustmentReason } from "./fyRevenueAdjustments";
 
 export const BUDGET_PLEDGE_CACHE_KEY = "report:fy-revenue-goals:budget-pledges:v1";
 export const readBudgetPledgeState = (db = sql) => readRevenueState(db, BUDGET_PLEDGE_CACHE_KEY);
@@ -133,8 +134,47 @@ export async function continueBudgetPledgeRefresh({ revision, user, transport, d
   return save(previous, { job }, user, db);
 }
 
+const adjustmentKey = (period, row) => `${period.startsOn}:${row.key}`;
+export function countableInstallment(row, adjustment) {
+  if (!adjustment) return { ...row, countableCents: row.outstandingCents, adjustment: null };
+  const needsReview = adjustment.dueDate !== row.dueDate || adjustment.fundName !== row.fundName || adjustment.scheduledCents !== row.scheduledCents;
+  // Preserve the excluded dollars after payments, and never raise the approved cap.
+  const countableCents = needsReview ? 0 : Math.min(adjustment.approvedCents, Math.max(0, row.outstandingCents - adjustment.excludedCents));
+  return { ...row, countableCents, adjustment: { ...adjustment, needsReview } };
+}
+export async function savePledgeAdjustment({ operation, input, revision, user, db = sql, now = new Date() }) {
+  const previous = await readBudgetPledgeState(db), period = getStandingsPeriods(now).fiscalYear;
+  if (revision !== previous.revision) throw revenueError("Pledge data changed. Reload saved installments before adjusting this amount.", 409);
+  if (previous.job) throw revenueError("Finish the saved balance refresh before adjusting an installment.", 409);
+  if (!previous.snapshot || previous.snapshot.period.startsOn !== period.startsOn) throw revenueError("Refresh installments for the current fiscal year first.", 409);
+  if (!["adjust", "reset-adjustment"].includes(operation) || !input || Array.isArray(input) || Object.keys(input).some(key => !["key", "amount", "reason"].includes(key))) throw revenueError("Invalid installment adjustment.");
+  const row = previous.snapshot.rows.find(item => item.key === input.key);
+  if (!row) throw revenueError("This unpaid installment was not found. Reload the saved list.", 409);
+  const reason = adjustmentReason(input.reason), key = adjustmentKey(period, row), adjustments = { ...previous.adjustments };
+  const before = adjustments[key] || null;
+  let after = null;
+  if (operation === "adjust") {
+    const approvedCents = adjustmentAmount(input.amount);
+    if (approvedCents > row.outstandingCents) throw revenueError("The amount counted toward the goal cannot exceed the unpaid installment balance.");
+    after = { approvedCents, excludedCents: row.outstandingCents - approvedCents, dueDate: row.dueDate, fundName: row.fundName,
+      scheduledCents: row.scheduledCents, reason, updatedAt: now.toISOString(), updatedBy: String(user.name || `User ${user.id}`).slice(0, 200) };
+    adjustments[key] = after;
+  } else {
+    if (!before) throw revenueError("This installment already uses its full unpaid balance.", 409);
+    delete adjustments[key];
+  }
+  const history = adjustmentAudit(previous.adjustmentHistory, { operation, before: { key, value: before }, after: { key, value: after }, reason, user, now });
+  return save(previous, { adjustments, adjustmentHistory: history }, user, db);
+}
+
 export function publicBudgetPledgeState(state, { page = 1, search = "" } = {}) {
-  const { rows = [], ...snapshot } = state.snapshot || {};
+  const { rows: savedRows = [], ...snapshot } = state.snapshot || {};
+  const rows = savedRows.map(row => countableInstallment(row, state.adjustments?.[adjustmentKey(snapshot.period, row)]));
+  if (state.snapshot) {
+    snapshot.countableCents = safeCents(rows.reduce((sum, row) => sum + BigInt(row.countableCents), 0n));
+    snapshot.adjustedCount = rows.filter(row => row.adjustment).length;
+    snapshot.adjustmentsNeedingReview = rows.filter(row => row.adjustment?.needsReview).length;
+  }
   const term = search.trim().toLocaleLowerCase("en-US");
   const matches = term ? rows.filter(row => `${row.name} ${row.fundName} ${row.giftId} ${row.dueDate}`.toLocaleLowerCase("en-US").includes(term)) : rows;
   const pages = Math.max(1, Math.ceil(matches.length / PAGE_SIZE)), currentPage = Math.min(page, pages);

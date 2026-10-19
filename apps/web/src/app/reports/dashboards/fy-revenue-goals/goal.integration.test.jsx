@@ -67,3 +67,24 @@ it("refreshes expected installments without modifying cash received or its progr
   expect(goal().getByText("$3,630,000.00")).toBeVisible(); expect(goal().getByRole("progressbar")).toHaveAttribute("aria-valuetext", cashProgress);
   expect(fetch.mock.calls[3][0]).toBe(PLEDGE_API);
 });
+it("uses the adjusted installment total instead of the NXT balance without changing cash", async () => {
+  fetch.mockImplementation(async url => json(url === PLEDGE_API ? { ...initialPledges, snapshot: { ...initialPledges.snapshot, countableCents: 7500000 } } : url === CASH_API ? initialCash : initialRevenue));
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,705,000.00")).toBeVisible());
+  expect(goal().getByText("$3,630,000.00")).toBeVisible(); expect(goal().getByText("$75,000.00")).toBeVisible();
+});
+it("rolls a manual receipt immediately into both projections without refreshing either NXT query", async () => {
+  const config = { ...UNRESTRICTED_GOAL_CONFIG, manual: { revision: null, entries: UNRESTRICTED_GOAL_CONFIG.fixedContributions.map(item => ({ ...item, archived: false, origin: "initial", receivedDate: null, reason: "Existing" })), history: [], historyCount: 0 } };
+  fetch.mockImplementation(async url => json(url === PLEDGE_API ? initialPledges : url === CASH_API ? initialCash : { ...initialRevenue, goal: config }));
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
+  fireEvent.click(screen.getByRole("button", { name: "Add cash received" }));
+  fireEvent.change(screen.getByLabelText("Description or receipt reference"), { target: { value: "Additional receipt" } });
+  fireEvent.change(screen.getByLabelText("Cash received amount"), { target: { value: "1000" } });
+  fireEvent.change(screen.getByLabelText("Receipt date"), { target: { value: "2026-10-18" } });
+  fireEvent.change(screen.getByLabelText("Reason or source note"), { target: { value: "Separate receipt" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fetch.mockResolvedValueOnce(json({ goal: { ...config, fixedContributions: [...config.fixedContributions, { key: "extra", label: "Additional receipt", cents: 100000 }] } }));
+  fireEvent.click(screen.getByRole("button", { name: "Save cash entry" }));
+  await waitFor(() => expect(goal().getByText("$3,631,000.00")).toBeVisible());
+  expect(goal().getByText("$3,731,000.00")).toBeVisible(); expect(fetch).toHaveBeenCalledTimes(4);
+  expect(fetch.mock.calls[3][0]).toBe(`${API}/manual-cash`);
+});

@@ -134,8 +134,8 @@ describe("resumable installment balances", () => {
   });
 });
 it("paginates private saved rows without returning provisional donors, audit IDs, or unbounded results", () => {
-  const rows = Array.from({ length: 101 }, (_, i) => ({ key: String(i), name: i === 100 ? "Find Me" : "Fictional", fundName: "Fund", giftId: String(i), dueDate: "2026-12-01" }));
-  const state = { revision: "one", source, updatedBy: 4, snapshot: { outstandingCents: 1000, rows }, job: { status: "running", pledges: [candidate], rows: [candidate], cursor: 0 } };
+  const rows = Array.from({ length: 101 }, (_, i) => ({ key: String(i), name: i === 100 ? "Find Me" : "Fictional", fundName: "Fund", giftId: String(i), dueDate: "2026-12-01", outstandingCents: i === 100 ? 0 : 10 }));
+  const state = { revision: "one", source, updatedBy: 4, snapshot: { period, outstandingCents: 1000, rows }, job: { status: "running", pledges: [candidate], rows: [candidate], cursor: 0 } };
   const page = publicBudgetPledgeState(state, { page: 2 });
   expect(page.rows).toHaveLength(50); expect(page.pages).toBe(3); expect(page).not.toHaveProperty("updatedBy");
   expect(page.job).not.toHaveProperty("pledges"); expect(page.snapshot).not.toHaveProperty("rows");
