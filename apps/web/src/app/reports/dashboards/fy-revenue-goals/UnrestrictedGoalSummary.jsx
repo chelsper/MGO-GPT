@@ -1,14 +1,16 @@
 import { revenueMoney } from "@/utils/fyRevenueGoals";
 import { unrestrictedRevenueGoal } from "@/utils/unrestrictedRevenueGoal";
+import { unrestrictedExpectedGoal } from "@/utils/fyBudgetPledges";
 import styles from "./revenue.module.css";
 
 const refreshed = snapshot => snapshot?.refreshedAt && Number.isFinite(Date.parse(snapshot.refreshedAt))
   ? `Saved ${new Date(snapshot.refreshedAt).toLocaleString()}` : "No saved query total";
 
 const dateLabel = day => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "long", day: "numeric", year: "numeric" });
-export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, cashSnapshot, now }) {
+export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, cashSnapshot, pledgeSnapshot, now }) {
   if (!config) return null;
   const goal = unrestrictedRevenueGoal(config, reinvestmentSnapshot, cashSnapshot, now);
+  const expected = unrestrictedExpectedGoal(config, goal, pledgeSnapshot);
   const complete = goal.totalCents !== null;
   const progress = complete ? Math.min(100, Math.max(0, goal.percent)) : 0;
   const percentLabel = complete ? `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(goal.percent)}%` : "";
@@ -31,6 +33,17 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
       ? `These fixed entries and the ${revenueMoney(config.cents)} target apply to ${config.label} only. Update the fiscal-year configuration before combining them with another year's query totals.`
       : goal.overflow ? "A source amount exceeds the supported reporting range. The combined total has not been calculated."
       : `Waiting for saved ${goal.missing.join(" and ")} totals. The full cash total and remaining amount will appear once both sources are available.`}</p>}
+    <section className={styles.expectedSummary} aria-labelledby="expected-revenue-heading"><h3 id="expected-revenue-heading">Received + expected this FY</h3>
+      <p>Cash received plus the remaining balance of budget-relieving pledge installments due this fiscal year.</p>
+      <dl className={styles.goalMetrics}>
+        <div><dt>Received + expected</dt><dd>{revenueMoney(expected.totalCents)}</dd></div>
+        <div><dt><a href="#budget-pledge-heading">Pledge installments still due</a></dt><dd>{revenueMoney(expected.expectedCents)}</dd></div>
+        <div><dt>Remaining after expected receipts</dt><dd>{revenueMoney(expected.remainingCents)}</dd>
+          {expected.aboveGoalCents > 0 && <p className={styles.goalSurplus}>{revenueMoney(expected.aboveGoalCents)} projected above goal</p>}</div>
+      </dl>
+      <p className={styles.help}>{expected.totalCents === null ? "The projection appears once cash totals and verified installments for this fiscal year are available. " : ""}
+        Expected is not received. The cash total and progress bar above are unchanged. Query 31076 · {refreshed(pledgeSnapshot)}. After payments arrive, refresh both cash and installments to keep the separately saved sources aligned.</p>
+    </section>
     <div className={styles.goalBreakdown}>
       <h3>What counts toward the goal</h3>
       <dl>

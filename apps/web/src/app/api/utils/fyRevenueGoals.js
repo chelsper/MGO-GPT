@@ -66,7 +66,7 @@ export function aggregateRevenueCsv(content, source, expectedRows) {
 }
 
 export async function revenueTransport(origin, queryId = FY_REVENUE_QUERY_ID) {
-  if (![FY_REVENUE_QUERY_ID, "31075"].includes(queryId)) throw revenueError("Unknown revenue query.");
+  if (![FY_REVENUE_QUERY_ID, "31075", "31076"].includes(queryId)) throw revenueError("Unknown revenue query.");
   const user = await getReportRefreshUser();
   // getReportRefreshUser filters active accounts in SQL but omits active from its result.
   if (!user?.id || user.active === false || !canManageWorkspaceRole(user.role))
@@ -77,6 +77,13 @@ export async function revenueTransport(origin, queryId = FY_REVENUE_QUERY_ID) {
     metadata: () => blackbaudApiFetch(`/query/queries/${queryId}`, { userId: user.id, authUserId: user.id,
       origin, maxRetries: 0, searchParams: { product: "RE", module: "None" } }),
     execute: () => executeSavedQueryResults({ user, origin, queryId, maxBytes: REVENUE_LIMITS.bytes }),
+    ...(queryId === "31076" ? {
+      pledge: (id, section) => {
+        if (!/^[1-9]\d{0,18}$/.test(id) || !["gift", "installments"].includes(section)) throw revenueError("Invalid pledge read.");
+        const path = section === "gift" ? `/gift/v1/gifts/${id}` : `/gft-gifts/v2/gifts/${id}/installments`;
+        return blackbaudApiFetch(path, { userId: user.id, authUserId: user.id, origin, maxRetries: 0 });
+      },
+    } : {}),
   };
 }
 

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title, action }) => <header><h1>{title}</h1>{action}</header> }));
 vi.mock("./BudgetCashPanel", () => ({ default: () => <section aria-label="Independent budget cash panel" /> }));
+vi.mock("./BudgetPledgePanel", () => ({ default: () => <section aria-label="Independent pledge panel" /> }));
 vi.mock("./UnrestrictedGoalSummary", () => ({ default: () => <section aria-label="Unrestricted revenue goal" /> }));
 import Page from "./page";
 const source = { queryId: "31074", queryName: "Eligible gifts", columns: { giftId: "System Record ID", amount: "Gift Amount" }, projection: "remaining", confirmed: true };

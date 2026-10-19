@@ -5,6 +5,7 @@ import { DEFAULT_PROJECTION, FY_REVENUE_KEY, FY_REVENUE_QUERY_ID, FY_REVENUE_QUE
 import styles from "./revenue.module.css";
 import BudgetCashPanel from "./BudgetCashPanel";
 import UnrestrictedGoalSummary from "./UnrestrictedGoalSummary";
+import BudgetPledgePanel from "./BudgetPledgePanel";
 
 const API = "/api/reports/fy-revenue-goals";
 const initial = { queryId: FY_REVENUE_QUERY_ID, queryName: FY_REVENUE_QUERY_NAME, columns: { giftId: "", amount: "" }, projection: DEFAULT_PROJECTION, confirmed: false };
@@ -20,6 +21,7 @@ export default function FYRevenueGoalsPage() {
   const [draft, setDraft] = useState(initial), [fields, setFields] = useState(null);
   const [busy, setBusy] = useState(false), [setup, setSetup] = useState(null);
   const [cashData, setCashData] = useState(null);
+  const [pledgeData, setPledgeData] = useState(null);
   const active = useRef(null);
   useEffect(() => {
     const controller = new AbortController(); active.current = controller;
@@ -50,7 +52,7 @@ export default function FYRevenueGoalsPage() {
     } catch (e) {
       if (e.name !== "AbortError") {
         setError(e.message);
-        if ([401, 403].includes(e.status)) { setData(null); setCashData(null); setFields(null); setDraft(initial); }
+        if ([401, 403].includes(e.status)) { setData(null); setCashData(null); setPledgeData(null); setFields(null); setDraft(initial); }
       }
     }
     finally { if (!controller.signal.aborted) setBusy(false); }
@@ -61,11 +63,11 @@ export default function FYRevenueGoalsPage() {
   const formula = mode === "remaining" ? "Eligible gifts received minus 10% (90% remaining)" : "Eligible gifts received multiplied by 10% (amount set aside)";
   return <main className={styles.page}><div className={styles.content}>
     <SharedReportHeader compact activeReportKey={FY_REVENUE_KEY} reportSection="dashboards"
-      title={data?.title || "FY Revenue Goals"} description="Cash received, gift re-investment, and progress toward the unrestricted revenue goal."
+      title={data?.title || "FY Revenue Goals"} description="Cash received, expected pledge installments, and progress toward the unrestricted revenue goal."
       dashboardSwitchDisabled={busy} action={data?.canManage && <button disabled={busy} aria-expanded={editing} aria-controls="revenue-source" onClick={() => setSetup(!editing)}>Manage source</button>} />
     {error && <div role="alert" className={styles.error}>{error} <button disabled={busy} onClick={() => command("reload")}>Reload saved totals</button></div>}
     {!data ? <p role="status">{error ? "Dashboard unavailable." : "Loading saved totals..."}</p> : <>
-      <UnrestrictedGoalSummary config={data.goal} reinvestmentSnapshot={snapshot} cashSnapshot={cashData?.snapshot} />
+      <UnrestrictedGoalSummary config={data.goal} reinvestmentSnapshot={snapshot} cashSnapshot={cashData?.snapshot} pledgeSnapshot={pledgeData?.snapshot} />
       <div className={styles.status}><p>{snapshot ? `Last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}` : "Ready to connect your first revenue source."}</p>
         {data.canManage && data.source && <button disabled={busy} onClick={() => command("refresh", data.source)}>{busy ? "Working..." : "Refresh totals"}</button>}</div>
       <section id="reinvestment-totals" aria-label="Gift re-investment totals" className={styles.metrics} aria-busy={busy}>
@@ -102,6 +104,7 @@ export default function FYRevenueGoalsPage() {
       </section>}
       {busy && <p role="status">Working with the shared reporting account. Previous totals stay visible; no NXT gifts are changed.</p>}
       <BudgetCashPanel onDataChange={setCashData} />
+      <BudgetPledgePanel onDataChange={setPledgeData} />
     </>}
   </div></main>;
 }

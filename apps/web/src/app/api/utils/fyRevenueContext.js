@@ -22,7 +22,7 @@ export const revenueFailure = error => Response.json({ error: error.revenueSafe 
   "The revenue dashboard could not be loaded or refreshed. Previous totals are unchanged. Check the shared NXT connection and try again." },
 { status: error.revenueSafe ? error.status : 503, headers: revenueHeaders });
 
-export async function readRevenueCommand(request) {
+export async function readRevenueCommand(request, operations = ["fields", "refresh"]) {
   const origin = new URL(request.url).origin;
   if ((request.headers.get("origin") && request.headers.get("origin") !== origin) || !request.headers.get("content-type")?.startsWith("application/json"))
     throw revenueError("Open this form in the app before refreshing.", 403);
@@ -30,8 +30,8 @@ export async function readRevenueCommand(request) {
   if (Buffer.byteLength(text) > 8000) throw revenueError("The revenue request is too large.", 413);
   let body; try { body = JSON.parse(text); } catch { throw revenueError("Invalid revenue request."); }
   if (!body || Array.isArray(body) || Object.keys(body).some(key => !["operation", "input", "revision"].includes(key))) throw revenueError("Unknown revenue request field.");
-  if (!["fields", "refresh"].includes(body.operation)) throw revenueError("Unknown revenue operation.");
-  if (body.operation === "refresh" && body.revision !== null && (typeof body.revision !== "string" || !/^[a-f0-9-]{36}$/.test(body.revision)))
+  if (!operations.includes(body.operation)) throw revenueError("Unknown revenue operation.");
+  if (body.operation !== "fields" && body.revision !== null && (typeof body.revision !== "string" || !/^[a-f0-9-]{36}$/.test(body.revision)))
     throw revenueError("Reload saved totals before refreshing.", 409);
   return { body, origin };
 }

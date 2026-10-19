@@ -1,6 +1,6 @@
 # FY Revenue Goals
 
-Route: `/reports/dashboards/fy-revenue-goals`. Built-in dashboard, initially restricted to Admins until viewers are selected in Report configurations. Admins and Advancement Services manage the source; authorized viewers receive saved aggregates only.
+Route: `/reports/dashboards/fy-revenue-goals`. Built-in dashboard, initially restricted to Admins until viewers are selected in Report configurations. Admins and Advancement Services manage sources; authorized viewers receive saved totals and the saved installment detail described below.
 
 ## First Source
 
@@ -16,10 +16,10 @@ The requested columns are Total Gifts Received Eligible for Re-Investment and Pr
 ## Safety And Operation
 
 - Opening the dashboard reads the last saved snapshot, never NXT. Only an explicit manager refresh runs the saved query through the shared reporting account. No gifts or other NXT records are updated.
-- Duplicate gift system IDs with identical amounts count once. Conflicting values fail without replacing totals. No raw donor rows or gift-ID collection is persisted or returned.
+- For query 31074, duplicate gift system IDs with identical amounts count once. Conflicting values fail without replacing totals. This source does not persist or return donor rows or gift-ID collections.
 - All rows must validate and match the completed query's row count. Limits: 100,000 raw rows, 25 columns, 25 MiB CSV. No truncation or treating invalid amounts as zero.
 - Source settings and totals publish atomically in `report_snapshots_cache` under `report:fy-revenue-goals:v1`; no new database schema. Compare-and-swap prevents an older refresh overwriting a newer one. Failed refreshes retain the previous successful data.
-- Query metadata is checked before and after execution. The existing query executor bounds polling; a timeout does not publish partial results. There is no automatic retry loop or scheduled refresh in this release.
+- Query metadata is checked before and after execution. The existing query executor bounds polling; a timeout does not publish partial results. Neither cash source automatically retries or refreshes on a schedule. The installment source's explicit refresh continues in small batches as described below.
 - Future additions can include other revenue sources, explicit fiscal-year comparisons, and targets. Keep them separate from this query's received total unless their overlap is defined.
 
 Tests cover arithmetic/rounding, duplicate and malformed rows, 1,473-row results, roles, metadata-only reads, stale revisions, SQL publication races, and the setup/refresh UI. Live query outputs and totals must still be verified after deployment; local tests use fictional data.
@@ -93,3 +93,32 @@ The form now permits name-only edits using existing saved field mappings without
 Read-only live inspection on October 19 found both corrected names already saved in source settings, but the deployed table still showed its original labels. The saved 11:01:37 AM cash refresh contained 206 gifts across 14 funds; neither corrected fund appeared in the included-funds table. Therefore the label fix does not by itself produce nonzero amounts: review query 31075's criteria and qualifying gifts, then refresh. No live source settings, query criteria, or totals were changed during inspection.
 
 Validation: 81 focused tests passed, including saved-name persistence/regrouping in isolated PostgreSQL, stale-update protection, no-metadata name edits, failed-refresh draft retention, and absent-fund diagnostics. Final full suite: **7,100 passed / 192 existing environment-dependent skips**. Typecheck, production build, release-worktree check, and diff whitespace check passed. Browser verification used fictional data for the correction/save flow and a 390px layout; production inspection was read-only. Fixed FY27 contribution details remain absent from public client assets.
+
+## Budget-Relieving Pledge Installments
+
+New implementation, not yet deployed. Query **31076**, **FY27 Budget Relieving Payments Due - JUMGOGPT**. Its metadata was inspected read-only on October 19; available outputs are **System Record ID**, **Installment Amount Due**, **Installment Date Due**, **Fund Description**, and **Name**. No production source settings, queries, or donor records were changed during inspection.
+
+The user confirmed that installments belong in a separate **Received + expected this FY** projection. Cash received and its progress bar stay unchanged. Projected total = cash received roll-up + verified unpaid installment balances due within the goal's fiscal year. Projected remaining is clamped at zero; projected surplus is shown separately. Unknown, invalid, or wrong-year installment totals never become zero or enter the projection.
+
+### Use
+
+1. Choose **Connect pledge query**. This loads the output labels and suggests the five mappings without running the query.
+2. Confirm the source is budget-relieving installments, with the pledge gift system ID, primary donor name, and one fund per pledge; save and refresh.
+3. The query identifies candidate installments. The app checks each pledge and installment schedule in NXT, at most three pledges per continuation request. Progress continues automatically while the page is open after an explicit refresh. Pause or leave and resume later; simply opening the dashboard does not run NXT checks.
+4. The panel total appears in the projection once all checks finish. Expand **View names, amounts, funds, and due dates** for the list. Search and pagination read only saved results and do not change totals.
+
+### Financial And Data Safeguards
+
+- The query's scheduled installment amount is **not** assumed to be unpaid. The existing gift and installment readers verify gift type, installment IDs, due dates, scheduled amounts, and remaining balances. Balances must reconcile to the pledge; scheduled amounts must reconcile to its full amount.
+- Only matching returned installments due within the organization fiscal year are included. Date filtering is performed again server-side, even if the query returns other dates. Already-settled installments are excluded; partial payments reduce the amount shown. The UI distinguishes scheduled amount from amount still due.
+- Duplicate query rows are collapsed for discovery only. Actual schedule IDs identify final installments, so equal-date/equal-amount installments remain distinct. Missing IDs, malformed dates, conflicting donors/funds, or changed schedules prevent publication rather than guessing.
+- Multi-fund pledges require a verified installment allocation source and are not divided automatically. Matching-gift pledges are also held for a supported balance source. An unsupported pledge does not publish a partial total as if complete.
+- Query results are bounded by 100,000 raw rows, 25 columns, 25 MiB CSV; this source additionally supports up to 2,000 pledges and 10,000 verified installments per refresh. Results are not truncated.
+- The private cache key is `report:fy-revenue-goals:budget-pledges:v1`. It stores the previous complete source, snapshot and donor rows plus an optional in-progress job. Compare-and-swap protects every checkpoint and final publication. No migration is needed. Old cash, re-investment, and campaign data are never overwritten.
+- `GET/POST /api/reports/fy-revenue-goals/budget-pledges` uses existing report access, manager checks, same-origin commands and `private, no-store`. GET returns only 50 saved rows at a time, with bounded search; provisional donor data and audit IDs are not returned. Managers alone can load fields, refresh, or continue.
+- NXT requests are read-only, using the connected shared reporting account and no inline retries. Throttling preserves a checkpoint and observes the provider wait before continuing. Connection failures require explicit resume; financial conflicts require correction and a new query refresh. Checks expire after one hour or fiscal-year rollover to avoid resuming very old balances.
+- Cash and pledge snapshots are separate point-in-time sources. Refresh both after payments to align received and expected totals; this is a projection, not a guarantee of collection or real-time accounting reconciliation. No donor messages, appeal updates, or gifts are created.
+
+Implementation: `fyBudgetPledges.js` in shared and API utilities, `BudgetPledgePanel.jsx`, the new API route, and the expected-receipts section in `UnrestrictedGoalSummary.jsx`. The source is compatible with the five current output labels; full live balance reconciliation and query-ID provenance still need verification on first authorized refresh after deployment.
+
+Validation on October 19: **7,147 tests passed / 192 existing environment-dependent skips**. This includes isolated PostgreSQL checkpoint/publication tests and page integration confirming that refreshing installments changes only the projection, not received cash. Typecheck, production build, release-worktree check and diff whitespace check passed. Desktop and 390px mobile previews used fictional donors and totals; automatic continuation, saved-total retention, query-field suggestions and donor search were verified. Fixed contribution names remain absent from public client assets. No production deployment or live balance import has been performed for this addition.
