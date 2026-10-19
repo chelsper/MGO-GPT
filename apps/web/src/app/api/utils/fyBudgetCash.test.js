@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("./sql", () => ({ default: vi.fn(() => { throw new Error("Live SQL forbidden"); }) }));
 import { aggregateBudgetCashCsv, BUDGET_CASH_CACHE_KEY, inspectBudgetCashQuery, refreshBudgetCash } from "./fyBudgetCash";
-import { budgetFundGroup, defaultBudgetFundNames, suggestBudgetColumns, validateBudgetCashSource } from "@/utils/fyBudgetCash";
+import { budgetFundGroup, correctedBudgetFundNames, defaultBudgetFundNames, suggestBudgetColumns, validateBudgetCashSource } from "@/utils/fyBudgetCash";
 
 const source = { queryId: "31075", queryName: "Budget Relieving Cash - JUMGOGPT", mode: "gift", confirmed: true,
   columns: { giftId: "System Record ID", fundId: "Fund System Record ID", fundName: "Fund Description", amount: "Gift Amount" }, fundNames: defaultBudgetFundNames() };
@@ -17,8 +17,19 @@ describe("Budget cash source and named funds", () => {
     expect(budgetFundGroup("JU Scholarship Funds", source.fundNames)).toBe("other");
     expect(budgetFundGroup("Other Non-Scholarship Fund", source.fundNames)).toBe("other");
     expect(budgetFundGroup("Parents Fund", { ...source.fundNames, parent: "Parents Fund" })).toBe("parent");
+    expect(source.fundNames.parent).toBe("JU Parents Fund");
+    expect(source.fundNames.future_rising).toBe("Future. Rising. Scholarship Fund");
+    expect(budgetFundGroup("JU Parents Fund", source.fundNames)).toBe("parent");
+    expect(budgetFundGroup("JU Parent Fund", source.fundNames)).toBe("other");
+    expect(budgetFundGroup("Future Rising Scholarship Fund", source.fundNames)).toBe("future_rising");
     expect(validateBudgetCashSource(source)).toEqual(source);
     expect(validateBudgetCashSource(splitSource)).toEqual(splitSource);
+  });
+  it("corrects only the original default names without mutating stored settings", () => {
+    const legacy = { ...source.fundNames, parent: "JU Parent Fund", future_rising: "Future Rising Scholarship Fund", impact: "Custom Impact Fund" };
+    expect(correctedBudgetFundNames(legacy)).toEqual({ ...source.fundNames, impact: "Custom Impact Fund" });
+    expect(legacy.parent).toBe("JU Parent Fund");
+    expect(correctedBudgetFundNames({ ...legacy, parent: "Custom Parents Fund" }).parent).toBe("Custom Parents Fund");
   });
   it("suggests only unambiguous output mappings for the selected amount basis", () => {
     expect(suggestBudgetColumns(Object.values(source.columns))).toEqual({ ...source.columns, splitId: "" });
@@ -56,7 +67,7 @@ describe("Budget cash aggregation", () => {
     expect(result).not.toHaveProperty("gifts");
   });
   it("supports multiple allocations without repeating whole gift amounts or overall gift counts", () => {
-    const result = aggregate("1,101,JU Parent Fund,25,201\n1,102,JU Scholarship Fund,75,202\n1,102,JU Scholarship Fund,75,202", 3, splitSource);
+    const result = aggregate("1,101,JU Parents Fund,25,201\n1,102,JU Scholarship Fund,75,202\n1,102,JU Scholarship Fund,75,202", 3, splitSource);
     expect(result).toMatchObject({ receivedCents: 10000, giftCount: 1, allocationCount: 2, duplicateRows: 1 });
     expect(result.groups.find(group => group.key === "parent").receivedCents).toBe(2500);
     expect(result.groups.find(group => group.key === "scholarship").receivedCents).toBe(7500);
@@ -69,7 +80,7 @@ describe("Budget cash aggregation", () => {
     expect(() => aggregateBudgetCashCsv("Other,Amount\n1,10", source, 1)).toThrow("missing");
   });
   it("keeps precise cents, negative adjustments and zero gifts", () => {
-    const result = aggregate("1,101,JU Parent Fund,10.05\n2,101,JU Parent Fund,(5.20)\n3,102,Fund,0", 3);
+    const result = aggregate("1,101,JU Parents Fund,10.05\n2,101,JU Parents Fund,(5.20)\n3,102,Fund,0", 3);
     expect(result).toMatchObject({ receivedCents: 485, giftCount: 3 });
   });
   it.each([
@@ -82,7 +93,7 @@ describe("Budget cash aggregation", () => {
     expect(() => aggregate("1,101,Fund,90071992547409\n2,101,Fund,90071992547409", 2)).toThrow("range");
   });
   it("does not truncate after the usual dashboard display limit", () => {
-    const rows = Array.from({ length: 1500 }, (_, i) => `${i + 1},101,JU Parent Fund,10`).join("\n");
+    const rows = Array.from({ length: 1500 }, (_, i) => `${i + 1},101,JU Parents Fund,10`).join("\n");
     expect(aggregate(rows, 1500)).toMatchObject({ receivedCents: 1500000, giftCount: 1500 });
   });
 });
@@ -90,7 +101,7 @@ describe("Atomic budget cash refresh", () => {
   function fixture() {
     return { input: source, revision: "before", user: { id: 3 },
       db: vi.fn().mockResolvedValueOnce([{ payload: { revision: "before", source, snapshot: { receivedCents: 500 } } }]).mockResolvedValue([{ report_key: BUDGET_CASH_CACHE_KEY }]),
-      transport: { metadata: vi.fn().mockResolvedValue(metadata(source)), execute: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(csv("1,101,JU Parent Fund,100")), contentType: "text/csv", queryJobRowCount: 1 }) } };
+      transport: { metadata: vi.fn().mockResolvedValue(metadata(source)), execute: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(csv("1,101,JU Parents Fund,100")), contentType: "text/csv", queryJobRowCount: 1 }) } };
   }
   it("publishes source and verified totals together in the isolated cash snapshot", async () => {
     const f = fixture(); const result = await refreshBudgetCash(f);
@@ -103,6 +114,22 @@ describe("Atomic budget cash refresh", () => {
   it("rejects stale refreshes before query execution", async () => {
     const f = fixture(); await expect(refreshBudgetCash({ ...f, revision: "old" })).rejects.toMatchObject({ status: 409 });
     expect(f.transport.execute).not.toHaveBeenCalled(); expect(f.db).toHaveBeenCalledTimes(1);
+  });
+  it("moves corrected Parents Fund matching out of Other without changing cash or gift totals", async () => {
+    const rows = "1,101,JU Parents Fund,100\n2,102,Future. Rising. Scholarship Fund,50\n3,103,Named Scholarship,25";
+    const legacy = { ...source, fundNames: { ...source.fundNames, parent: "JU Parent Fund", future_rising: "Future Rising Scholarship Fund" } };
+    const before = aggregate(rows, 3, legacy);
+    const f = fixture();
+    f.db.mockReset().mockResolvedValueOnce([{ payload: { revision: "before", source: legacy, snapshot: before } }]).mockResolvedValue([{ report_key: BUDGET_CASH_CACHE_KEY }]);
+    f.transport.execute.mockResolvedValue({ body: new TextEncoder().encode(csv(rows)), contentType: "text/csv", queryJobRowCount: 3 });
+    const after = await refreshBudgetCash(f);
+    expect(before.groups.find(group => group.key === "other").receivedCents).toBe(12500);
+    expect(after.snapshot.groups.find(group => group.key === "parent").receivedCents).toBe(10000);
+    expect(after.snapshot.groups.find(group => group.key === "future_rising").receivedCents).toBe(5000);
+    expect(after.snapshot.groups.find(group => group.key === "other").receivedCents).toBe(2500);
+    expect(after.snapshot.receivedCents).toBe(before.receivedCents);
+    expect(after.snapshot.giftCount).toBe(before.giftCount);
+    expect(after.source.fundNames).toEqual(defaultBudgetFundNames());
   });
   it("preserves totals when NXT fails, result counts differ or metadata changes", async () => {
     for (const failure of ["network", "count", "metadata"]) {

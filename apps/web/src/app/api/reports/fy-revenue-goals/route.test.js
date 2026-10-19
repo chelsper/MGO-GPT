@@ -7,6 +7,7 @@ vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: m.access }));
 vi.mock("@/app/api/utils/fyRevenueGoals", async original => ({ ...await original(), readRevenueState: m.read, refreshRevenue: m.refresh, revenueTransport: m.transport }));
 import { GET, POST } from "./route";
+import { UNRESTRICTED_GOAL_CONFIG } from "@/app/api/utils/fyUnrestrictedGoal";
 const url = "https://app.example/api/reports/fy-revenue-goals";
 const request = (body, headers) => new Request(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
 const input = { queryId: "31074", queryName: "Eligible gifts", columns: { giftId: "System Record ID", amount: "Gift Amount" }, projection: "remaining", confirmed: true };
@@ -59,5 +60,20 @@ describe("FY Revenue Goals access and side effects", () => {
   it("does not expose SQL, donor data, or signed result URLs in unexpected failures", async () => {
     m.read.mockRejectedValue(new Error("secret signed URL")); const response = await GET();
     expect(response.status).toBe(503); expect(await response.text()).not.toContain("secret");
+  });
+  it("returns the fixed cash configuration only to authorized viewers, including after a refresh", async () => {
+    const response = await GET();
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await response.json()).goal).toEqual(UNRESTRICTED_GOAL_CONFIG);
+    const refreshed = await POST(request({ operation: "refresh", input, revision: null }));
+    expect((await refreshed.json()).goal).toEqual(UNRESTRICTED_GOAL_CONFIG);
+    m.auth.mockResolvedValue(null);
+    const unauthorized = await GET();
+    expect(unauthorized.status).toBe(401);
+    expect(await unauthorized.text()).not.toContain("Parmelee");
+  });
+  it("does not accept client overrides to fixed cash entries or the annual goal", async () => {
+    expect((await POST(request({ operation: "refresh", input, revision: null, goal: { cents: 1 } }))).status).toBe(400);
+    expect(m.transport).not.toHaveBeenCalled();
   });
 });

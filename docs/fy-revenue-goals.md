@@ -26,25 +26,25 @@ Tests cover arithmetic/rounding, duplicate and malformed rows, 1,473-row results
 
 ## Budget-Relieving Cash
 
-Added locally after the first-source deployment on October 19, 2026; not included in deployment `dpl_TXKhRKXgYLvyGZ9yeeXqMzquitMS`.
+Deployed to JU on October 19, 2026 in `dpl_4yNAW8TKakARvMDr8FgNLFFFTmvT`, source `a97e7a75a604a36f5f980eca553a97a6180cb0f2`. See `ju-fy-budget-cash-release-2026-10-19.md` for release verification. Live source confirmation and the first cash refresh are still required.
 
 Gift query **31075**, **Budget Relieving Cash - JUMGOGPT**, supplies a separate total and six rows beneath it:
 
 - JU's Greatest Needs
-- JU Parent Fund
+- JU Parents Fund
 - JU Scholarship Fund
-- Future Rising Scholarship Fund
+- Future. Rising. Scholarship Fund
 - Future. Made. Impact Fund
 - Other Scholarships (every other fund returned by this query, as requested)
 
-These rows reconcile to the cash total. The cash and eligible re-investment panels can overlap, so they are not added together. Query 31075 defines the fiscal period and which gifts are received cash; the app does not infer those facts from amounts.
+These rows reconcile to the cash total. The cash and full eligible re-investment totals can overlap, so the full totals are not added together. The unrestricted goal below uses only the 10% re-investment amount alongside budget-relieving cash, as requested. Query 31075 defines the fiscal period and which gifts are received cash; the app does not infer those facts from amounts.
 
 ### Setup
 
 1. Choose Connect cash query, then Load cash query fields. This only reads metadata.
 2. Verify the gift system record ID, fund system record ID (not its lookup code), fund description/name, and amount. Unambiguous mappings are suggested.
 3. Use whole-gift amounts only when each gift belongs to one fund. Otherwise choose fund allocations and supply the gift split system record ID and split amount.
-4. The five named funds are prefilled. Expand Match the five named funds only if NXT uses different names. Matching ignores case, spacing, periods and curly apostrophes, but does not guess similar names. Included fund details show each returned name and system ID for checking.
+4. The five named funds are prefilled. Match the five named funds offers names from the saved query results and shows which saved fund IDs match. Matching ignores case, spacing, periods and curly apostrophes, but does not guess similar names. Included fund details show each returned name and system ID for checking. Already-configured sources do not need to reload fields just to edit names.
 5. Confirm eligibility and amount basis once, then Save cash source and refresh. Later use Refresh cash totals; only this panel refreshes.
 
 ### Implementation And Checks
@@ -59,3 +59,37 @@ These rows reconcile to the cash total. The cash and eligible re-investment pane
 - Database compare-and-swap tests confirm that cash refreshes cannot replace re-investment snapshots and stale refreshes cannot overwrite newer cash results. No migration is required.
 
 Validation on October 19: 100 focused tests passed (including isolated PostgreSQL), full suite 7,069 passed / 192 existing environment-dependent skips; typecheck and production build passed. Desktop and 390px mobile fictional previews checked, including setup and confirmation. Live query 31075 metadata, mappings, received-only scope and reconciliation to NXT remain to be verified after deployment.
+
+## FY27 Unrestricted Goal
+
+Implemented locally on October 19, 2026; not yet deployed. The previously deployed cash panel above remains the production version.
+
+The top summary tracks a **$6,500,000** unrestricted cash goal for **July 1, 2026 through June 30, 2027**. It displays cash received to date, the annual goal, remaining amount, percentage progress, and each component:
+
+- Saved budget-relieving cash from query **31075**.
+- **10%** of saved eligible gifts received from query **31074**, rounded once in cents. The goal always uses the 10% set-aside even if a manager switches the detail panel to its optional 90% remainder display.
+- **Parmelee Estate: $2,300,000** fixed cash received.
+- **Lovett Trust: $230,000** fixed cash received.
+- **LINE Funding: $500,000** fixed cash received.
+
+The user confirmed all three fixed contributions are separate from query 31075. Their subtotal is **$3,030,000**. Combined received cash equals budget-relieving cash + 10% re-investment + $3,030,000. Remaining equals the greater of zero or $6,500,000 minus combined received cash. Above-goal amounts appear separately; the progress bar caps at 100% while the displayed percentage remains actual.
+
+### Implementation And Safeguards
+
+- Fixed configuration is in server-only `src/app/api/utils/fyUnrestrictedGoal.js`. It is returned only by the existing authorized, no-store revenue endpoint, not embedded in public client JavaScript. Clients cannot override the hard-coded configuration through API requests.
+- `src/utils/unrestrictedRevenueGoal.js` performs pure integer-cent arithmetic with overflow checks. `UnrestrictedGoalSummary.jsx` displays the authenticated configuration and existing snapshots. `BudgetCashPanel.jsx` reports saved data to the parent; no additional requests or NXT calls are introduced.
+- If either source has no valid saved total, the combined total and remaining amount show **Awaiting source totals**, not zero or a partial total. A completed empty source is valid zero. Failed refreshes retain the last successful data; source timestamps remain visible. Loss of dashboard access clears the totals.
+- The fixed entries and goal are bound to FY27. Outside that fiscal year, the roll-up requests a configuration update rather than combining FY27 fixed values with another year's sources. Managers must still ensure both saved queries cover the intended fiscal year; query scope remains defined in NXT.
+- This is reporting only. No NXT writes, new database schema, source-cache changes, or scheduled jobs are introduced.
+
+Validation: 117 focused tests passed, including actual page/panel refresh integration and isolated PostgreSQL source checks. Full suite: **7,093 passed / 192 existing environment-dependent skips**. Typecheck and production build passed. Fictional browser previews checked at desktop, 390px, and 320px widths; live cash totals were not fetched or changed.
+
+## Fund-Name Editing Correction
+
+Implemented locally on October 19, 2026; not yet deployed. Correct standard names are **JU Parents Fund** and **Future. Rising. Scholarship Fund**. Saved source names now control the main breakdown and included-fund group labels instead of hard-coded labels. Existing custom mappings are preserved. An explicit Use corrected standard names button offers replacement of the original defaults only; changes still require confirmation and Save cash source and refresh.
+
+The form now permits name-only edits using existing saved field mappings without reloading metadata. Unsaved changes disable the saved-settings refresh button and explain how to apply edits; hiding the editor does not discard them. Inputs suggest returned fund names and describe exact matches by system ID. Failed refreshes keep previous source/totals together and preserve the draft for retry. Missing-fund messages explain that changing a group name cannot add gifts absent from query results. No new backend operation or NXT write is introduced.
+
+Read-only live inspection on October 19 found both corrected names already saved in source settings, but the deployed table still showed its original labels. The saved 11:01:37 AM cash refresh contained 206 gifts across 14 funds; neither corrected fund appeared in the included-funds table. Therefore the label fix does not by itself produce nonzero amounts: review query 31075's criteria and qualifying gifts, then refresh. No live source settings, query criteria, or totals were changed during inspection.
+
+Validation: 81 focused tests passed, including saved-name persistence/regrouping in isolated PostgreSQL, stale-update protection, no-metadata name edits, failed-refresh draft retention, and absent-fund diagnostics. Final full suite: **7,100 passed / 192 existing environment-dependent skips**. Typecheck, production build, release-worktree check, and diff whitespace check passed. Browser verification used fictional data for the correction/save flow and a 390px layout; production inspection was read-only. Fixed FY27 contribution details remain absent from public client assets.

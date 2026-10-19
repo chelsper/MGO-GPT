@@ -2,7 +2,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("./sql", () => ({ default: vi.fn(() => { throw new Error("Live SQL forbidden"); }) }));
 import { publishRevenueState, readRevenueState } from "./fyRevenueGoals";
-import { BUDGET_CASH_CACHE_KEY, readBudgetCashState } from "./fyBudgetCash";
+import { aggregateBudgetCashCsv, BUDGET_CASH_CACHE_KEY, readBudgetCashState, refreshBudgetCash } from "./fyBudgetCash";
+import { defaultBudgetFundNames } from "@/utils/fyBudgetCash";
 const modulePath = process.env.CAMPAIGN_PGLITE_MODULE;
 const suite = modulePath ? describe : describe.skip;
 suite("FY revenue snapshot compare-and-swap in isolated PostgreSQL", () => {
@@ -35,5 +36,27 @@ suite("FY revenue snapshot compare-and-swap in isolated PostgreSQL", () => {
     await expect(publishRevenueState(null, { revision: "late-cash" }, db, BUDGET_CASH_CACHE_KEY)).rejects.toMatchObject({ status: 409 });
     expect(await readRevenueState(db)).toEqual(original);
     expect(await readBudgetCashState(db)).toEqual(cash);
+  });
+  it("persists corrected fund names and matching groups together across reloads", async () => {
+    const originalRevenue = await readRevenueState(db);
+    const source = { queryId: "31075", queryName: "Budget Cash", mode: "gift", confirmed: true, fundNames: defaultBudgetFundNames(),
+      columns: { giftId: "System Record ID", fundId: "Fund System Record ID", fundName: "Fund Description", amount: "Gift Amount" } };
+    const legacySource = { ...source, fundNames: { ...source.fundNames, parent: "JU Parent Fund", future_rising: "Future Rising Scholarship Fund" } };
+    const content = `${Object.values(source.columns).join(",")}\n1,101,JU Parents Fund,100\n2,102,Future. Rising. Scholarship Fund,50`;
+    const before = { revision: "legacy-names", source: legacySource, snapshot: aggregateBudgetCashCsv(content, legacySource, 2) };
+    await publishRevenueState((await readBudgetCashState(db)).revision, before, db, BUDGET_CASH_CACHE_KEY);
+    const transport = {
+      metadata: async () => ({ id: "31075", name: source.queryName, type: "Gift", select_fields: Object.values(source.columns).map(name => ({ query_field: { selected_field_name: name } })) }),
+      execute: async () => ({ body: new TextEncoder().encode(content), contentType: "text/csv", queryJobRowCount: 2 }),
+    };
+    const result = await refreshBudgetCash({ input: source, revision: before.revision, user: { id: 1 }, db, transport });
+    const reloaded = await readBudgetCashState(db);
+    expect(reloaded).toEqual(result);
+    expect(reloaded.source.fundNames).toEqual(defaultBudgetFundNames());
+    expect(reloaded.snapshot.receivedCents).toBe(before.snapshot.receivedCents);
+    expect(reloaded.snapshot.groups.map(group => group.receivedCents)).toEqual([0, 10000, 0, 5000, 0, 0]);
+    await expect(refreshBudgetCash({ input: legacySource, revision: before.revision, user: { id: 1 }, db, transport })).rejects.toMatchObject({ status: 409 });
+    expect(await readBudgetCashState(db)).toEqual(result);
+    expect(await readRevenueState(db)).toEqual(originalRevenue);
   });
 });

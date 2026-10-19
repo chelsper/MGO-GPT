@@ -4,13 +4,21 @@ export const BUDGET_CASH_QUERY_ID = "31075";
 export const BUDGET_CASH_QUERY_NAME = "Budget Relieving Cash - JUMGOGPT";
 export const BUDGET_CASH_GROUPS = Object.freeze([
   { key: "greatest_needs", label: "JU's Greatest Needs" },
-  { key: "parent", label: "JU Parent Fund" },
+  { key: "parent", label: "JU Parents Fund" },
   { key: "scholarship", label: "JU Scholarship Fund" },
-  { key: "future_rising", label: "Future Rising Scholarship Fund" },
+  { key: "future_rising", label: "Future. Rising. Scholarship Fund" },
   { key: "impact", label: "Future. Made. Impact Fund" },
   { key: "other", label: "Other Scholarships" },
 ]);
 export const defaultBudgetFundNames = () => Object.fromEntries(BUDGET_CASH_GROUPS.filter(group => group.key !== "other").map(group => [group.key, group.label]));
+export function correctedBudgetFundNames(fundNames = defaultBudgetFundNames()) {
+  const corrected = { ...fundNames };
+  // Offer corrections for the original defaults only; preserve custom mappings.
+  for (const [key, oldName] of Object.entries({ parent: "JU Parent Fund", future_rising: "Future Rising Scholarship Fund" })) {
+    if (fundNames[key] === oldName) corrected[key] = defaultBudgetFundNames()[key];
+  }
+  return corrected;
+}
 // Ignore presentation differences, not words: Scholarship and Scholarships remain distinct.
 export const normalizeBudgetFundName = value => String(value).normalize("NFKC").trim().toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/\./g, "").replace(/\s+/g, " ");
 const headerName = value => String(value || "").trim().toLowerCase().replace(/[_./>-]+/g, " ").replace(/\s+/g, " ");
