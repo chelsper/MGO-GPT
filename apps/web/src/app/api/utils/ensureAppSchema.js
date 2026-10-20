@@ -8,6 +8,7 @@ import stewardshipStockSchema from "./stewardshipStockSchema";
 import prospectLifecycleSchema from "./prospectLifecycleSchema";
 import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
 import campaignPrioritiesSchema from "./campaignPrioritiesSchema";
+import pipelineChangeGuardSchema from "./pipelineChangeGuardSchema";
 
 let schemaReadyPromise;
 
@@ -1405,23 +1406,7 @@ export default async function ensureAppSchema() {
       ON opportunity_change_receipts(nxt_id) WHERE state = 'pending'`;
     // An older editor may already be in flight when a pipeline change claims
     // the row. Block its local overwrite rather than silently lose the receipt.
-    await sql`
-      CREATE OR REPLACE FUNCTION protect_pending_pipeline_change() RETURNS trigger AS $pipeline_guard$
-      BEGIN
-        IF OLD.pipeline_change_id IS NOT NULL AND NEW.pipeline_change_id IS NOT DISTINCT FROM OLD.pipeline_change_id
-          AND (to_jsonb(NEW) - 'nxt_retry_after') IS DISTINCT FROM (to_jsonb(OLD) - 'nxt_retry_after') THEN
-          RAISE EXCEPTION 'Opportunity has a pending pipeline change; verify it before editing';
-        END IF;
-        RETURN NEW;
-      END;
-      $pipeline_guard$ LANGUAGE plpgsql
-    `;
-    await sql`DO $pipeline_trigger$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'protect_pending_pipeline_change' AND tgrelid = 'prospect_opportunities'::regclass) THEN
-        CREATE TRIGGER protect_pending_pipeline_change BEFORE UPDATE ON prospect_opportunities
-          FOR EACH ROW EXECUTE FUNCTION protect_pending_pipeline_change();
-      END IF;
-    END $pipeline_trigger$`;
+    await pipelineChangeGuardSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunity_gift_links (

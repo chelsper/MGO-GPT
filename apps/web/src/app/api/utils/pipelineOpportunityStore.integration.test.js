@@ -6,6 +6,7 @@ import Papa from "papaparse";
 const fixture = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({ default: (parts, ...values) => fixture.query(parts, values) }));
 import { claimPipelineChange, completePipelineChange, copySnapshot, getPipelineReceipt, loadPipelineCopies, rejectPipelineChange } from "./pipelineOpportunityStore";
+import pipelineChangeGuardSchema from "./pipelineChangeGuardSchema";
 const socket = process.env.PIPELINE_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/pipeline-change-pg\.[A-Za-z0-9]+$/.test(socket || "");
 function execute(statement) {
@@ -24,7 +25,7 @@ async function receipt() {
 }
 
 describe.skipIf(!enabled)("pipeline PostgreSQL change transaction", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     fixture.query = async (parts, values) => execute(parts.reduce((query, part, index) => query + part + (index < values.length ? literal(values[index]) : ""), ""));
     execute("DROP SCHEMA IF EXISTS pipeline_change_fixture CASCADE; CREATE SCHEMA pipeline_change_fixture;");
     const schema = readFileSync("src/app/api/utils/ensureAppSchema.js", "utf8");
@@ -36,9 +37,8 @@ describe.skipIf(!enabled)("pipeline PostgreSQL change transaction", () => {
         latest_notes text, updated_at timestamptz, nxt_checked_at timestamptz, nxt_retry_after timestamptz, pipeline_change_id uuid);
       CREATE TABLE portfolio_constituent_snapshots(id bigint PRIMARY KEY, workspace_user_id bigint, constituent_id text, stale_after timestamptz, summary_payload jsonb);
       ${schema.match(/CREATE TABLE IF NOT EXISTS opportunity_change_receipts \([\s\S]*?\n      \)/)[0]};
-      CREATE UNIQUE INDEX opportunity_change_pending_nxt ON opportunity_change_receipts(nxt_id) WHERE state = 'pending';
-      ${schema.match(/CREATE OR REPLACE FUNCTION protect_pending_pipeline_change\(\)[\s\S]*?\$pipeline_guard\$ LANGUAGE plpgsql/)[0]};
-      CREATE TRIGGER protect_pending_pipeline_change BEFORE UPDATE ON prospect_opportunities FOR EACH ROW EXECUTE FUNCTION protect_pending_pipeline_change();`);
+      CREATE UNIQUE INDEX opportunity_change_pending_nxt ON opportunity_change_receipts(nxt_id) WHERE state = 'pending';`);
+    await pipelineChangeGuardSchema(async (parts) => execute(parts.join("")));
   });
   beforeEach(() => {
     execute(`TRUNCATE users, constituents, prospects, prospect_opportunities, portfolio_constituent_snapshots, opportunity_change_receipts;
