@@ -263,15 +263,18 @@ Release evidence is retained under `/private/tmp/ju-security-*`, including
 `ju-security-live-smoke.log`, `ju-security-version-verify.log`, and
 `ju-security-promote.log`.
 
-Remaining: concurrent schema initialization (local fix described below), dependency advisories, background
+Remaining: broader schema migration work (targeted fix deployed below), dependency advisories, background
 freshness/timeouts, and the other operational findings are separate follow-ups.
 File checks are not a malware scanner, and this is not a whole-app security
 certification.
 
 ## Follow-Up: Concurrent Startup Fix
 
-Status: implemented locally after the security deployment; not deployed.
-The production release above still has the original schema initialization.
+Status: deployed to JU on October 20, 2026 after the security release.
+Application commit `731f6fd555a90a37fc55d4eb34e1944d096cb33a`, deployment
+`dpl_en7qBdfAqEoM5z7PbjbF7db3t44u`, candidate
+`mgo-757daov4n-chelspers-projects.vercel.app`.
+Previous production release: `dpl_BSGvyt9SXfe5r2PC3cVFUwHrKWsu`.
 
 `pipelineChangeGuardSchema.js` now installs the existing opportunity protection
 function and trigger inside one `DO` statement. That statement acquires a
@@ -304,6 +307,38 @@ The new real-PostgreSQL concurrency tests were enabled, not skipped.
 Logs: `/private/tmp/ju-startup-fix-tests.log`,
 `/private/tmp/ju-startup-fix-typecheck.log`, and
 `/private/tmp/ju-startup-fix-build.log`.
+
+Deployment verification:
+
+- Released an isolated archive of the tested commit, without pushing Git or
+  including unrelated local changes. All 1,330 tracked web files matched the
+  tested checkout; all 1,474 uploaded file hashes were verified in the dry run.
+- Candidate build, release identity/assets, and security endpoint smoke checks
+  passed before promotion. Live identity and anonymous security checks passed
+  after promotion.
+- Signed-in Reports loaded the MGO selector and My Dashboards loaded its saved
+  dashboard list. The new deployment's initial 50-request log sample included
+  successful HTTP 200 responses from `/api/users/mgos` and
+  `/api/reports/configurations`, with no HTTP 5xx responses or
+  `tuple concurrently updated` messages. This is a bounded smoke check, not
+  a guarantee that no future errors can occur.
+- Compared all 12 account projects: only JU's production deployment changed.
+  Project settings and all five scheduled job definitions were preserved.
+- No NXT updates, report refreshes, emails, appeals, or donor exports were
+  triggered for verification.
+
+Version-pin caveat: the strict stale-session check found that a synthetic
+previous-deployment `__vdpl` cookie still routes to the old release.
+Explicit latest routing (`?dpl=dpl_en7qBdfAqEoM5z7PbjbF7db3t44u`) succeeds.
+The live domain without a pin serves the new commit. Existing pinned tabs may
+continue to use the old startup code until they load the latest release; no
+user cookies were manually removed and project skew-protection settings were
+not changed.
+
+Release evidence: `/private/tmp/ju-startup-deploy.json`,
+`ju-startup-promote.log`, `ju-startup-candidate-smoke.log`,
+`ju-startup-live-smoke.log`, `ju-startup-live-version.log`, and the
+permission-restricted `ju-startup-runtime-initial.jsonl`.
 
 This targeted fix addresses the catalog race identified in the production logs.
 It is not a full conversion of the legacy startup initializer into versioned
