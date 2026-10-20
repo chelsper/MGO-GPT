@@ -2,14 +2,15 @@
 
 import * as pdfjs from 'pdfjs-dist';
 
-import workerSrc from 'pdfjs-dist/build/pdf.worker.entry?worker';
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
 
 export const extractTextFromPDF = async (file) => {
 	const blobUrl = URL.createObjectURL(file);
+	let loadingTask;
 	try {
-		const loadingTask = pdfjs.getDocument(blobUrl);
+		loadingTask = pdfjs.getDocument({ url: blobUrl, isEvalSupported: false });
 
 		const pdf = await loadingTask.promise;
 		const { numPages } = pdf;
@@ -29,7 +30,9 @@ export const extractTextFromPDF = async (file) => {
 		}
 		return undefined;
 	} catch (_error) {
-		URL.revokeObjectURL(blobUrl);
 		return undefined;
+	} finally {
+		URL.revokeObjectURL(blobUrl);
+		await loadingTask?.destroy().catch(() => {});
 	}
 };

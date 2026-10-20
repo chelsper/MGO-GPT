@@ -30,8 +30,8 @@ function PdfPreview({ request, onReady }) {
             (await response.json()).error || "Could not open this PDF.",
           );
         const bytes = await response.arrayBuffer();
-        const pdfjs = await import("pdfjs-dist/build/pdf");
-        const worker = await import("pdfjs-dist/build/pdf.worker.min.js?url");
+        const pdfjs = await import("pdfjs-dist/build/pdf.mjs");
+        const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
         if (controller.signal.aborted) return;
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
         task = pdfjs.getDocument({
@@ -61,6 +61,7 @@ function PdfPreview({ request, onReady }) {
           );
           container.current.append(canvas);
           await page.render({
+            canvas,
             canvasContext: canvas.getContext("2d"),
             viewport,
           }).promise;

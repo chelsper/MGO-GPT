@@ -1,5 +1,9 @@
 # JU Application Review - October 20, 2026
 
+Dependency hardening and the older-deployment access follow-up are recorded in
+[Security Hardening](security-hardening-2026-10-20.md). That work is not deployed;
+the older-deployment hosting protection is awaiting approval.
+
 ## Summary
 
 The initial review was read-only. No application code, deployed settings, financial values, NXT records,
