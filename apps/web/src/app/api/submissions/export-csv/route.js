@@ -1,7 +1,10 @@
 import sql from "@/app/api/utils/sql";
+import { requireActiveAccount, PRIVATE_HEADERS, endpointFailure } from "@/app/api/utils/legacyEndpointAccess";
+import { escapeCsvField } from "@/app/api/utils/submissionCsv";
 
 export async function GET(request) {
   try {
+    await requireActiveAccount(request, { role: "reviewer" });
     // Fetch all submissions with user details
     const submissions = await sql`
       SELECT 
@@ -86,11 +89,11 @@ export async function GET(request) {
         sub.organization || "",
         sub.email || "",
         sub.phone || "",
-        escapeCsvField(sub.transcript || ""),
+        sub.transcript || "",
         sub.assign_to_me || "",
         sub.business_card_url || "",
         attachmentCount,
-        escapeCsvField(sub.notes || ""),
+        sub.notes || "",
       ];
     });
 
@@ -98,22 +101,19 @@ export async function GET(request) {
     const csvContent = [
       headers.join(","),
       ...rows.map((row) =>
-        row.map((field) => escapeCsvField(field.toString())).join(","),
+        row.map(escapeCsvField).join(","),
       ),
     ].join("\n");
 
     return new Response(csvContent, {
       headers: {
+        ...PRIVATE_HEADERS,
         "Content-Type": "text/csv",
         "Content-Disposition": `attachment; filename="submissions-${new Date().toISOString().split("T")[0]}.csv"`,
       },
     });
   } catch (error) {
-    console.error("Error generating CSV:", error);
-    return Response.json(
-      { error: "Failed to generate CSV export" },
-      { status: 500 },
-    );
+    return endpointFailure(error, "Failed to generate CSV export");
   }
 }
 
@@ -124,16 +124,4 @@ function formatSubmissionType(type) {
     constituent_suggestion: "Constituent Suggestion",
   };
   return types[type] || type;
-}
-
-function escapeCsvField(field) {
-  if (typeof field !== "string") {
-    field = String(field);
-  }
-
-  // If field contains comma, newline, or quote, wrap in quotes and escape quotes
-  if (field.includes(",") || field.includes("\n") || field.includes('"')) {
-    return `"${field.replace(/"/g, '""')}"`;
-  }
-  return field;
 }

@@ -1,155 +1,37 @@
+import { requireActiveAccount, privateJson, endpointFailure } from "@/app/api/utils/legacyEndpointAccess";
+import { getAuthorizedAudio } from "@/app/api/utils/legacyMediaInput";
+
 export const runtime = "nodejs";
-
-function normalizeAudioContentType(contentType) {
-  const normalized = String(contentType || "").toLowerCase();
-
-  if (normalized.includes("wav")) return "audio/wav";
-  if (normalized.includes("mp3") || normalized.includes("mpeg")) return "audio/mpeg";
-  if (normalized.includes("ogg")) return "audio/ogg";
-  if (normalized.includes("webm")) return "audio/webm";
-  if (normalized.includes("mp4") || normalized.includes("m4a")) return "audio/mp4";
-  return "audio/m4a";
-}
-
-function getAudioFileName(contentType) {
-  if (contentType.includes("wav")) return "audio.wav";
-  if (contentType.includes("mp3") || contentType.includes("mpeg")) return "audio.mp3";
-  if (contentType.includes("ogg")) return "audio.ogg";
-  if (contentType.includes("webm")) return "audio.webm";
-  if (contentType.includes("mp4")) return "audio.m4a";
-  return "audio.m4a";
-}
-
-async function getAudioFileFromRequest(request) {
-  const contentType = request.headers.get("content-type") || "";
-
-  if (contentType.includes("multipart/form-data")) {
-    const formData = await request.formData();
-    const file = formData.get("file");
-
-    if (!(file instanceof File)) {
-      return {
-        error: Response.json(
-          { error: "No audio file provided", stage: "request" },
-          { status: 400 },
-        ),
-      };
-    }
-
-    if (!file.size) {
-      return {
-        error: Response.json(
-          { error: "Audio file was empty", stage: "request" },
-          { status: 400 },
-        ),
-      };
-    }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const normalizedContentType = normalizeAudioContentType(file.type || contentType);
-
-    return {
-      audioFile: new File(
-        [Buffer.from(arrayBuffer)],
-        getAudioFileName(normalizedContentType),
-        { type: normalizedContentType },
-      ),
-    };
-  }
-
-  const body = await request.json().catch(() => null);
-  const audioUrl = body?.audioUrl;
-
-  if (!audioUrl) {
-    return {
-      error: Response.json(
-        { error: "No audio URL or audio file provided", stage: "request" },
-        { status: 400 },
-      ),
-    };
-  }
-
-  // Download the audio file from the uploaded URL for legacy callers.
-  let audioResponse;
-  try {
-    audioResponse = await fetch(audioUrl);
-  } catch (fetchErr) {
-    console.error("Failed to fetch audio URL:", fetchErr);
-    return {
-      error: Response.json(
-        {
-          error: "Failed to download audio file",
-          stage: "download",
-          details: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
-        },
-        { status: 400 },
-      ),
-    };
-  }
-
-  if (!audioResponse.ok) {
-    console.error("Failed to download audio:", audioResponse.status);
-    return {
-      error: Response.json(
-        {
-          error: "Failed to download audio file",
-          stage: "download",
-          details: `Audio URL returned ${audioResponse.status}`,
-        },
-        { status: 400 },
-      ),
-    };
-  }
-
-  const audioArrayBuffer = await audioResponse.arrayBuffer();
-  const audioBuffer = Buffer.from(audioArrayBuffer);
-  const downloadedContentType = normalizeAudioContentType(
-    audioResponse.headers.get("content-type") || "audio/m4a",
-  );
-
-  return {
-    audioFile: new File(
-      [audioBuffer],
-      getAudioFileName(downloadedContentType),
-      { type: downloadedContentType },
-    ),
-  };
-}
 
 export async function POST(request) {
   try {
-    const { audioFile, error } = await getAudioFileFromRequest(request);
-    if (error) return error;
+    const user = await requireActiveAccount(request, { mutation: true });
+    const audioFile = await getAuthorizedAudio(request, user);
 
     const formData = new FormData();
     formData.append(
       "file",
       audioFile,
-      audioFile.name || getAudioFileName(audioFile.type || "audio/m4a"),
+      audioFile.name,
     );
 
     const whisperResponse = await fetch(
       "/integrations/transcribe-audio/whisperv3",
       {
         method: "POST",
+        signal: AbortSignal.timeout(60_000),
         body: formData,
       },
     );
 
     if (!whisperResponse.ok) {
-      const errorData = await whisperResponse.text();
-      console.error(
-        "Transcription integration error:",
-        whisperResponse.status,
-        errorData,
-      );
-      return Response.json(
+      await whisperResponse.body?.cancel();
+      return privateJson(
         {
           error: "Failed to transcribe audio",
           stage: "transcription",
-          details: errorData || `Whisper returned ${whisperResponse.status}`,
         },
-        { status: whisperResponse.status },
+        { status: 502 },
       );
     }
 
@@ -157,7 +39,7 @@ export async function POST(request) {
     const transcript = whisperData.text || "";
 
     if (!transcript.trim()) {
-      return Response.json({
+      return privateJson({
         transcript: "",
         extractedFields: null,
         success: true,
@@ -169,6 +51,7 @@ export async function POST(request) {
       "/integrations/chat-gpt/conversationgpt4",
       {
         method: "POST",
+        signal: AbortSignal.timeout(60_000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
@@ -233,8 +116,8 @@ If a field cannot be determined from the transcript, return null for that field.
     );
 
     if (!extractionResponse.ok) {
-      console.error("Field extraction failed, returning transcript only");
-      return Response.json({
+      await extractionResponse.body?.cancel();
+      return privateJson({
         transcript,
         extractedFields: null,
         success: true,
@@ -246,20 +129,12 @@ If a field cannot be determined from the transcript, return null for that field.
       ? JSON.parse(extractionData.choices[0].message.content)
       : null;
 
-    return Response.json({
+    return privateJson({
       transcript,
       extractedFields,
       success: true,
     });
   } catch (error) {
-    console.error("Transcription error:", error);
-    return Response.json(
-      {
-        error: "Failed to transcribe audio",
-        stage: "unknown",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 },
-    );
+    return endpointFailure(error, "Audio processing is unavailable. Please try again shortly.");
   }
 }

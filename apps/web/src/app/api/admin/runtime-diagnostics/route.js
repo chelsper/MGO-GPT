@@ -1,3 +1,5 @@
+import { requireActiveAccount, endpointFailure } from "@/app/api/utils/legacyEndpointAccess";
+
 function describeDatabaseUrl(value) {
   const text = String(value || "").trim();
   if (!text) {
@@ -67,8 +69,9 @@ function describeValue(value) {
   };
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
+    await requireActiveAccount(request, { role: "admin" });
     return Response.json(
       {
         now: new Date().toISOString(),
@@ -86,13 +89,6 @@ export async function GET() {
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {
-    console.error("Runtime diagnostics error:", error);
-    return Response.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Could not load runtime diagnostics.",
-      },
-      { status: 500 },
-    );
+    return endpointFailure(error, "Could not load runtime diagnostics.");
   }
 }

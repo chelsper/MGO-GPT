@@ -1,4 +1,5 @@
-import { auth } from "@/auth";
+import { requireActiveAccount, reserveMediaUsage, privateJson, endpointFailure } from "@/app/api/utils/legacyEndpointAccess";
+import { readMediaRequest } from "@/app/api/utils/legacyMediaInput";
 
 export const runtime = "nodejs";
 
@@ -25,16 +26,12 @@ function getValidatedImageDataUrl(imageDataUrl) {
 
 export async function POST(request) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { imageDataUrl } = body;
+    const user = await requireActiveAccount(request, { mutation: true });
+    const { json } = await readMediaRequest(request);
+    const imageDataUrl = json?.imageDataUrl;
 
     if (!imageDataUrl) {
-      return Response.json(
+      return privateJson(
         { error: "No business card image was provided" },
         { status: 400 },
       );
@@ -44,7 +41,7 @@ export async function POST(request) {
     try {
       base64DataUrl = getValidatedImageDataUrl(imageDataUrl);
     } catch (validationError) {
-      return Response.json(
+      return privateJson(
         {
           error:
             validationError instanceof Error
@@ -55,13 +52,14 @@ export async function POST(request) {
       );
     }
 
-    const origin = new URL(request.url).origin;
+    await reserveMediaUsage(user);
 
     // Use ChatGPT vision-capable extraction with a strict JSON schema
     const extractionResponse = await fetch(
-      `${origin}/integrations/chat-gpt/conversationgpt4`,
+      "/integrations/chat-gpt/conversationgpt4",
       {
         method: "POST",
+        signal: AbortSignal.timeout(60_000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
@@ -121,14 +119,12 @@ export async function POST(request) {
     );
 
     if (!extractionResponse.ok) {
-      const errorText = await extractionResponse.text();
-      console.error("Business card extraction API error:", errorText);
-      return Response.json(
+      await extractionResponse.body?.cancel();
+      return privateJson(
         {
           error: "Failed to read business card",
-          details: errorText || "The AI extraction service rejected the card image",
         },
-        { status: extractionResponse.status },
+        { status: 502 },
       );
     }
 
@@ -158,20 +154,11 @@ export async function POST(request) {
       }
     }
 
-    return Response.json({
+    return privateJson({
       extractedFields,
       success: true,
     });
   } catch (error) {
-    console.error("Business card reading error:", error);
-    return Response.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Internal server error reading business card",
-      },
-      { status: 500 },
-    );
+    return endpointFailure(error, "Business card reading is unavailable. Please try again shortly.");
   }
 }
