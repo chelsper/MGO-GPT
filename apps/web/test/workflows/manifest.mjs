@@ -68,7 +68,7 @@ export const workflowGroups = {
     "src/app/api/utils/personalDashboards.test.js",
     "src/app/api/reports/dashboards/[reportKey]/route.test.js",
   ],
-  "Workflow gate safeguards": ["test/workflows/gate.test.js"],
+  "Workflow gate safeguards": ["test/workflows/gate.test.js", "test/workflows/releaseBuild.test.js", "test/workflows/releaseCandidate.test.js"],
 };
 
 export const workflowFiles = Object.values(workflowGroups).flat();

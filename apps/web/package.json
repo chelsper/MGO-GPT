@@ -4,7 +4,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "react-router dev",
-		"build": "BROWSERSLIST_IGNORE_OLD_DATA=1 react-router build",
+		"build": "node ./scripts/release-build.mjs",
+		"release:verify": "node ./scripts/release-candidate.mjs verify",
+		"release:promote": "node ./scripts/release-candidate.mjs promote",
 		"test": "vitest run",
 		"test:workflows": "node ./scripts/test-workflows.mjs",
 		"typecheck": "react-router typegen && tsc --noEmit",

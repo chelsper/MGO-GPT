@@ -62,9 +62,10 @@ permissions/availability, the hosted PDF converter, email delivery, or productio
 database transactions. Disposable-PostgreSQL and hosted-converter suites retain
 their separate prerequisites and are not silently counted as passing here.
 
-The command is available locally and documented in the release checklist; it is
-not yet a remotely enforced CI/branch-protection rule. A passing result does not
-authorize deployment. After a separately approved release, verify its exact SHA
+The [automatic release gate](automatic-release-gate-2026-10-21.md) now invokes this
+command from every ordinary `npm run build`, and a CI workflow is prepared.
+Publishing/required-branch-check activation remains separate. A passing result does
+not authorize deployment. After a separately approved release, verify its exact SHA
 and perform read-only signed-in smoke checks. Any real external write requires a
 specific authorized test record and action.
 
