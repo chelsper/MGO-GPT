@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { dispatchRequest } from "./dispatchRequest.mjs";
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), sql: vi.fn(), provider: vi.fn(),
   load: vi.fn(), claim: vi.fn(), complete: vi.fn(), receipt: vi.fn(), reject: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
@@ -76,11 +77,11 @@ function mountEditor() {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   // Wire the real component to real server handlers, not canned HTTP responses.
   vi.stubGlobal("fetch", vi.fn(async (input, options) => {
-    const request = new Request(new URL(input, url), options);
-    expect(request.url).toBe(url);
-    const handler = { GET, PATCH, POST }[request.method];
+    const target = new URL(input, url);
+    expect(target.href).toBe(url);
+    const handler = { GET, PATCH, POST }[options?.method || "GET"];
     expect(handler).toBeTypeOf("function");
-    return handler(request, params);
+    return dispatchRequest(target, options, handler, params);
   }));
   const callbacks = { onClose: vi.fn(), onSaved: vi.fn() };
   render(createElement(OpportunityEditor, { row: { id: "1", title: "Fictional scholarship", constituentName: "Sample Donor" },
@@ -161,6 +162,44 @@ describe("role-based pipeline journey", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(mocks.load).not.toHaveBeenCalled();
     expect(mocks.provider).not.toHaveBeenCalled();
+  });
+});
+
+describe("browser-to-server test transport", () => {
+  it("preserves request contents without mixing browser and server AbortSignal types", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn(async (request, context) => {
+      expect(request).toBeInstanceOf(Request);
+      expect(request.signal).not.toBe(controller.signal);
+      expect(request.method).toBe("PATCH");
+      expect(request.headers.get("content-type")).toBe("application/json");
+      expect(await request.json()).toEqual({ name: "Fictional update" });
+      expect(context).toEqual(params);
+      return Response.json({ state: "complete" });
+    });
+    const response = await dispatchRequest(url, { method: "PATCH", signal: controller.signal,
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Fictional update" }) }, handler, params);
+    expect(await response.json()).toEqual({ state: "complete" });
+    expect(handler).toHaveBeenCalledOnce();
+  });
+  it("does not dispatch an already-cancelled request", async () => {
+    const controller = new AbortController(), handler = vi.fn();
+    controller.abort();
+    await expect(dispatchRequest(url, { signal: controller.signal }, handler, params)).rejects.toHaveProperty("name", "AbortError");
+    expect(handler).not.toHaveBeenCalled();
+  });
+  it("rejects cancellation in flight without replaying a server operation", async () => {
+    const controller = new AbortController();
+    let complete;
+    const handler = vi.fn(() => new Promise(resolve => { complete = resolve; }));
+    const pending = dispatchRequest(url, { signal: controller.signal }, handler, params);
+    const rejected = expect(pending).rejects.toHaveProperty("name", "AbortError");
+    await Promise.resolve();
+    controller.abort();
+    await rejected;
+    complete(Response.json({ state: "complete" }));
+    await Promise.resolve();
+    expect(handler).toHaveBeenCalledOnce();
   });
 });
 
