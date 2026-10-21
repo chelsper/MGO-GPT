@@ -2,15 +2,25 @@
 
 ## Scope And Activation
 
-Prepared October 21, 2026. No deployment, Git push, branch-protection mutation,
-Vercel setting change, database change, or live integration write is part of this
-implementation. Existing production remains unchanged until an authorized release.
+Prepared and deployed October 21, 2026. JU production now runs the verified
+release `51c77829860643cc0c319c1eb37b5ab5983c0d35`, deployment
+`dpl_3zU6uv9La3C7Vcef18AHuhvk1Qcd`. No Git push, branch-protection mutation,
+database repair, or live NXT write was performed during activation work.
 
 The checked-in build path now runs the gate automatically. The GitHub workflow
 starts running only after it is published. A read-only GitHub check found `main`
 unprotected; required-check enforcement is not yet active. Activate it only after
 the new workflow has run successfully on GitHub, so an unavailable check does not
 block everyone. Inspect all repository-connected Vercel projects before any push.
+
+Publishing remains pending: the separate `mgo-gpt-y1r7` Vercel project is also
+connected to this repository's `main` branch and automatically assigns production
+domains. The user has been asked to approve disconnecting its automatic Git
+deployment trigger while retaining its current deployment and data. That approval
+has not yet been received. Do not publish the release to `main` or imply GitHub
+required-check enforcement is active until this is resolved and CI is verified.
+The other JU projects, including the conference sandbox and PDF converter, were
+not changed by this release.
 
 ## One Build Entry Point
 
@@ -141,4 +151,36 @@ Invoking the actual promotion CLI without the matching approval exited nonzero
 before any network/hosting command. Whitespace and release worktree checks passed.
 The full local run used the installed Node 20.19.1 runtime; Node 24 CI/hosted
 execution still needs activation-time verification. No remote candidate was
-created or promoted during this work.
+created or promoted during the initial implementation.
+
+## Hosted Release Verification
+
+The first hosted candidate, `dpl_B5TKdhZHAmfokDhcgLUcKWnoBHMd`, was blocked by
+four pipeline UI tests on Node 24. The simulated browser's `AbortSignal` was being
+passed into Node's native `Request` constructor, which rejects signals from the
+jsdom realm. The test transport now handles browser cancellation independently of
+the server request. Three additional regressions cover preserved request fields,
+already-aborted requests, and in-flight cancellation without handler replay. No
+test was skipped or weakened, and production stayed on the previous good release
+until the corrected candidate passed.
+
+The corrected hosted Node 24 build passed **1,272 tests in 56 files, none skipped**,
+route type generation, TypeScript, the production build, and source verification.
+The same complete build also passed locally. The staged candidate's exact commit,
+public build receipt, runtime version, sign-in page, Okta provider, JavaScript
+assets, protected API denials, and retired proxy were verified before promotion.
+The checked promotion command repeated candidate checks and verified the live
+domain afterward.
+
+Post-release checks confirmed the authenticated campaign dashboard renders,
+current and sampled older unique deployment URLs remain behind Vercel protection,
+anonymous export APIs return non-cacheable 401 responses, and stale deployment
+pins do not bypass export authorization. All five cron paths and schedules remain
+unchanged and now target the new deployment. The duplicate project retained its
+existing production deployment and Git settings. No real Okta login exchange,
+NXT writes, email sending, or donor-data mutation was exercised in these checks.
+
+Outstanding: publish the workflow safely, observe a successful GitHub Actions run,
+require `JU release gate` from the verified GitHub Actions app on `main` (including
+administrators), and prove a failing PR is blocked. Hosted build enforcement is
+live; GitHub branch enforcement is **not yet active**.
