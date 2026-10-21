@@ -6,6 +6,7 @@
 		"dev": "react-router dev",
 		"build": "BROWSERSLIST_IGNORE_OLD_DATA=1 react-router build",
 		"test": "vitest run",
+		"test:workflows": "node ./scripts/test-workflows.mjs",
 		"typecheck": "react-router typegen && tsc --noEmit",
 		"check:release": "node ./scripts/check-release-worktree.mjs",
 		"verify:prod": "node ./scripts/verify-production-deploy.mjs"

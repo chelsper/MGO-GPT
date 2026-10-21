@@ -26,12 +26,18 @@ git diff --check
 cd apps/web
 npm ci
 npm test
+npm run test:workflows
 npm run typecheck
 npm run build
 npm run check:release
 ```
 
 Stop on failures. Do not weaken a test or bypass a guard merely to release.
+
+The [role/workflow gate](role-workflow-checks-2026-10-21.md) uses fictional data,
+removes inherited credentials, blocks unmocked network access, and requires every
+listed test to run without skips. It complements the full suite and separate
+database/provider checks; it is not proof of live Okta/NXT acceptance.
 
 `check:release` only detects dirty versions of two known experimental paths
 (`plugins/layouts.ts` and `src/__create/PolymorphicComponent.tsx` in the web app).
