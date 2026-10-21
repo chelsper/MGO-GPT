@@ -68,5 +68,34 @@ authorize deployment. After a separately approved release, verify its exact SHA
 and perform read-only signed-in smoke checks. Any real external write requires a
 specific authorized test record and action.
 
-No deployment, schema change, production setting, donor data, mailing status, or
-external record was changed by this test work.
+The initial test implementation did not deploy or change production. The separate
+authorized release is recorded below.
+
+## Authorized Production Release
+
+October 21, 2026: deployed commit
+`81e53fb510c3eb01e60c0de252f87cf4f9f1be3a` to JU as deployment
+`dpl_Aq13DuD9kqJiCTWwKD18fLRVqMh2`. Production is
+<https://www.jumgogpt.app>.
+
+- Re-ran all 1,202 workflow tests with no skips, typecheck, release worktree, and
+  whitespace checks before release. Vercel's clean install and production build
+  passed from a verified Git archive, excluding unrelated local work.
+- Verified candidate access checks before promotion, then confirmed the exact
+  production SHA, deployment ID, and assets. The existing signed-in session
+  opened My Dashboards on the new release without reauthentication.
+- Anonymous export, upload, transcription, and diagnostics requests remained
+  denied. The retired generic proxy returned 410. Sign-in, session discovery, and
+  Okta provider discovery remained available; no fresh live Okta exchange ran.
+- Older and current unique deployment URLs retained Vercel authentication.
+  Existing JU protection, environment, runtime/build settings, and all five cron
+  schedules were unchanged. No scheduled job was manually invoked.
+- The synthetic previous-release session stayed on the previous secure release
+  under existing skew protection. Explicit latest-deployment routing worked;
+  automatic convergence of already-open tabs is not claimed.
+
+No schema, donor record, NXT record, email, appeal, mailing status, or user
+permission was changed, and no live data refresh or Git push was performed.
+Live provider writes and production database transactions remain outside this
+smoke check. An unrelated project's deployment metadata changed concurrently;
+release commands targeted only JU and did not modify that project.
