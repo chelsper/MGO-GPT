@@ -2,7 +2,9 @@
 
 Dependency hardening and the older-deployment access follow-up are recorded in
 [Security Hardening](security-hardening-2026-10-20.md). The dependency patch was
-deployed October 21; the older-deployment hosting protection is still awaiting approval.
+deployed October 21. After separate user approval, older-deployment hosting protection
+was enabled with a tested scheduled-callback compatibility patch; see that record
+for scope, live checks, and remaining verification limits.
 
 ## Summary
 

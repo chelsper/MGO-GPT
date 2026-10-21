@@ -2,19 +2,22 @@
 
 ## Status and Scope
 
-Deployed to JU on October 21, 2026 after explicit user authorization. No production
-data mutations, NXT writes, emails, appeals, permission changes, hosting access-setting
-changes, or Git push were performed. Unrelated working-tree changes were preserved.
+Deployed to JU on October 21, 2026 after explicit user authorization. The user then
+separately approved protection for older deployment URLs. JU-only Standard Protection
+was enabled after deploying a scheduled-callback compatibility fix. No manual production
+data mutations, NXT writes, emails, appeals, user permission changes, or Git push were
+performed. Unrelated working-tree changes were preserved.
 
-The JU production release is application commit `669e7c7` on deployment
-`dpl_AMYYAZCp3znwtDPd7HVufQoCt8ux`, replacing `731f6fd` on
+The current JU release is application commit `668cfdc` on deployment
+`dpl_FnPqmThR4jfcwmT79Kg5EdEmbPWB`. It supersedes the dependency patch `669e7c7` on
+`dpl_AMYYAZCp3znwtDPd7HVufQoCt8ux`, which replaced `731f6fd` on
 `dpl_en7qBdfAqEoM5z7PbjbF7db3t44u`. This is a bounded hardening pass, not a security
 certification or evidence that all dependencies are vulnerability-free.
 
 ## Urgent Operational Finding
 
-The previous deployment `dpl_HQB8RYYStXn7xNvURobS8z8kkE3Q` still serves both legacy
-submission export endpoints anonymously through its generated deployment URL.
+Before the October 21 protection change, deployment `dpl_HQB8RYYStXn7xNvURobS8z8kkE3Q`
+served both legacy submission export endpoints anonymously through its generated URL.
 Headers-only probes returned HTTP 200, `text/csv`, and public caching headers.
 Response bodies were immediately canceled; no donor CSV content was read or saved.
 Deploying fixed application code to the main domain did not remove that old deployment.
@@ -23,23 +26,24 @@ Current production returned HTTP 401 and `private, no-store` for anonymous expor
 Probes using an old deployment ID in a version cookie or query on the main domain
 also returned 401. These probes do not certify every routing variation.
 
-Requested approval to enable JU-only Vercel Standard Protection for generated/older
-deployment URLs, retaining normal access through the production domain. Approval is
-still pending. Do not delete deployments or enable protection for the production
-domain without separate authorization.
+The user approved JU-only Vercel Standard Protection for generated/older deployment
+URLs on October 21. It is now enabled, and both old export URLs redirect to Vercel
+authentication. Normal production-domain app access is retained. No deployments were
+deleted. Do not enable protection for the production domain without separate authorization.
 
-Proposed setting, subject to live preflight and confirmation:
+Applied setting:
 
 ```json
 {"ssoProtection":{"deploymentType":"prod_deployment_urls_and_all_previews"}}
 ```
 
-Apply only to project `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY` in team
-`team_3IFhURAiYjacqM7q8OIl6z0G`. Preserve all other settings and the five cron jobs.
-The app uses relative browser requests; internal report/portfolio calls derive their
-origin from the request. The PDF converter uses a separate configured endpoint with
+Applied only to project `prj_S8IWnRqqTQwLnd6C5lBfTsMj15VY` in team
+`team_3IFhURAiYjacqM7q8OIl6z0G`. All other settings and the five cron jobs were preserved.
+The app uses relative browser requests. Scheduled report/portfolio callbacks now use
+the configured production origin instead of a protected generated URL. The PDF
+converter uses a separate configured endpoint with
 its own token and platform bypass. Do not change that converter's protection or keys.
-After approval, verify old URLs are blocked, the JU domain still reaches normal app
+For future changes, verify old URLs are blocked, the JU domain still reaches normal app
 login, cron traffic continues, and converter configuration is unchanged. Avoid
 calling live jobs or submitting real documents merely to test access controls.
 
@@ -172,17 +176,74 @@ and the before/after audit JSON files under
   protection settings were unchanged.
 - No production import, hosted PDF conversion, report refresh, email, appeal, or NXT
   write was used as a live test. The previously noted environment-gated tests remain
-  unrun. The old-deployment access gap still awaits separate approval.
+  unrun. At this initial deployment, the old-deployment access gap still awaited
+  separate approval; the subsequent approved change is recorded below.
 
 Release evidence is under `/private/tmp/ju-hardening-*`, including
 `deploy.log`, `candidate-smoke.log`, `live-smoke.log`, `live-version.log`,
 `release-smoke-tests.log`, and permission-restricted `runtime-smoke.jsonl` and project
 snapshots. These local files are not part of the release or committed documentation.
 
+## October 21 Approved Deployment Protection
+
+- User approval: "I approve protecting older deployment URLs." Applied at
+  `2026-10-21T13:53:52Z` using a project-scoped PATCH containing only `ssoProtection`.
+  Comparing full project records immediately before and after showed only
+  `ssoProtection` and `updatedAt` changed. No bypass token, environment variable,
+  production-domain restriction, or deployment deletion was added.
+- Preflight identified nested scheduled callbacks using the protected request host.
+  Commit `668cfdc188cc46e7a5fbbac0401ab80504c96e54` adds a production-only origin helper
+  for report, custom-field report, and portfolio callbacks, including polling and
+  new-manifest creation. It prefers the existing `PORTFOLIO_MAINTENANCE_ORIGIN`
+  (`https://www.jumgogpt.app`) over `AUTH_URL` (the redirecting apex domain). Invalid
+  configuration fails closed; callback fetches refuse redirects. No credential is
+  sent to a forwarded/request host in production, and no new bypass is needed.
+- Compatibility verification: 86 focused cron/origin/PDF tests and three additional
+  report-refresh tests passed, as did type checking, whitespace, and release checks.
+  An isolated commit archive with all 1,481 upload hashes verified built successfully
+  on Vercel. Candidate security/login checks passed before promotion to JU.
+- Unique URLs for the vulnerable deployment, the previous dependency release, and
+  the current release all redirected both export endpoints to Vercel authentication
+  (HTTP 302). The old sign-in page was protected too. No export body was consumed.
+- The main JU domain and stable production aliases retain normal application login.
+  `mgo-gpt.vercel.app` and `mgo-gpt-chelspers-projects.vercel.app` are production
+  aliases, not unique deployment URLs; their anonymous exports remain app-denied
+  (401, private/no-store). The latter alias was checked against the current commit.
+- Main-domain sign-in, Okta-provider configuration, anonymous session, and API denial
+  checks passed. The existing signed-in user loaded My Dashboards on the explicit
+  latest release without reauthentication. No live Okta exchange was initiated.
+- Synthetic vulnerable-release pins on the main domain returned 401 for export
+  requests. A separate strict version test with the immediately previous, already
+  patched release still observed that old commit via its version cookie; explicit
+  latest routing succeeded. This is the retained 12-hour skew behavior, not evidence
+  that every existing browser automatically moved to the newest commit. Scheduled
+  requests do not carry browser version cookies. Do not report that strict automatic
+  existing-session version convergence passed for this deployment.
+- Vercel's [cron support announcement](https://vercel.com/changelog/vercel-cron-jobs-are-now-generally-available)
+  documents Deployment Protection compatibility. In addition, the naturally scheduled
+  `/api/internal/portfolio-activity-refresh` request reached the new protected
+  deployment at `2026-10-21T13:55:37Z` and returned 200. No job was invoked manually.
+  This verifies scheduled ingress, not every overnight/evening workload. All five
+  schedules and enabled state remain unchanged.
+- A bounded 50-request post-change sample showed 34 HTTP 200 responses, 15 expected
+  401 responses, one expected 410 response, and no 5xx responses or startup conflicts.
+- All 12 projects were compared: only JU changed. The full `ju-society-pdf` project
+  record, including protection and credentials, was identical before and after.
+  JU's converter variables were unchanged; the converter's anonymous health URL
+  still redirected to Vercel authentication. No real or fictional document was
+  submitted to the hosted converter in this turn.
+
+Permission-restricted configuration snapshots and runtime evidence are under
+`/private/tmp/ju-protection-*`. Non-secret access results are in
+`/private/tmp/ju-protection-access-checks.log`; release and test logs share that prefix.
+Retain the earlier exposure evidence: closing access does not establish whether
+historical unauthorized access occurred.
+
 ## Remaining Release Follow-up
 
-1. Resolve the old-deployment access gap only after the separate hosting approval,
-   including cron and PDF access compatibility checks.
+1. Keep Standard Protection enabled and verify it after future hosting changes.
+   Verify naturally scheduled evening/overnight work during normal operations;
+   the immediate live check covered one scheduled ingress, not all five workloads.
 2. Use controlled fictional data for any additional live integration tests; do not
    use a production import, real letter, or NXT write merely to test the release.
 3. Plan the remaining Vitest/Tinypool and Node/Vite/Hono bridge migration separately,
