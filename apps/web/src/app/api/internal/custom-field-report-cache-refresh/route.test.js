@@ -36,6 +36,8 @@ describe("custom field report snapshot refresh cron", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("VERCEL_ENV", "test");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "");
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-25T14:00:00.000Z"));
     ensureAppSchemaMock.mockResolvedValue();
@@ -53,6 +55,7 @@ describe("custom field report snapshot refresh cron", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("does not call NXT outside the staggered evening refresh window", async () => {
@@ -100,5 +103,25 @@ describe("custom field report snapshot refresh cron", () => {
     const selectionQuery = sqlMock.mock.calls[0][0].join(" ");
     expect(selectionQuery).toContain("s.updated_at <");
     expect(selectionQuery).toContain("INTERVAL '18 hours'");
+  });
+
+  it("uses the main production domain for custom-report callbacks and polling", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("AUTH_URL", "https://jumgogpt.app");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://www.jumgogpt.app");
+    fetchMock.mockResolvedValueOnce(Response.json({ jobId: "fixture-job" }, { status: 202 }))
+      .mockResolvedValueOnce(Response.json({ status: "complete", totalRows: 1 }));
+    const { GET } = await import("./route.js");
+    const pending = GET(new Request("https://deployment.vercel.app/api/internal/custom-field-report-cache-refresh?force=1", {
+      headers: { authorization: "Bearer test-refresh-secret" },
+    }));
+    await vi.runAllTimersAsync();
+    expect((await pending).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetchMock.mock.calls) {
+      expect(new URL(url).origin).toBe("https://www.jumgogpt.app");
+      expect(options.redirect).toBe("error");
+      expect(options.headers.Authorization).toBe("Bearer test-refresh-secret");
+    }
   });
 });

@@ -1,5 +1,6 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import sql from "@/app/api/utils/sql";
+import { scheduledRefreshOrigin } from "@/app/api/utils/scheduledRefreshOrigin";
 import {
   getReportRefreshUser,
   isAuthorizedReportRefreshRequest,
@@ -86,6 +87,7 @@ async function refreshCustomReport({ origin, slug, authorization }) {
         "x-mgogpt-report-refresh": "scheduled",
       },
       cache: "no-store",
+      redirect: "error",
     });
     const payload = await readJson(response);
 
@@ -165,7 +167,7 @@ export async function GET(request) {
     const authorization = request.headers.get("authorization");
     try {
       const refreshed = await refreshCustomReport({
-        origin: url.origin,
+        origin: scheduledRefreshOrigin(request),
         slug: target.slug,
         authorization,
       });

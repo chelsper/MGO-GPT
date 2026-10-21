@@ -25,6 +25,8 @@ describe("scheduled portfolio refresh worker", () => {
   const originalSecret = process.env.CRON_SECRET;
 
   beforeEach(() => {
+    vi.stubEnv("VERCEL_ENV", "test");
+    vi.stubEnv("AUTH_URL", "https://jumgogpt.app");
     process.env.CRON_SECRET = "test-secret";
     ensureAppSchemaMock.mockReset().mockResolvedValue();
     getReportRefreshUserMock.mockReset().mockResolvedValue({ id: 99, role: "admin" });
@@ -149,6 +151,28 @@ describe("scheduled portfolio refresh worker", () => {
     expect(String(fetch.mock.calls[0][0])).toContain("refreshAssignments=1");
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "start", mode: "nightly" });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("creates and processes new manifests through the main domain, not the protected cron host", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T06:00:00Z"));
+    claimTurn.mockResolvedValue({ workspaceUserId: 7, turnToken: "turn", job: null });
+    fetch.mockResolvedValueOnce(Response.json({ job: { jobId: "45" } }))
+      .mockResolvedValueOnce(Response.json({ job: { jobId: "45", status: "queued" } }));
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://deployment.vercel.app/api/internal/portfolio-refresh", {
+      headers: { authorization: "Bearer test-secret" },
+    }));
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetch.mock.calls) {
+      expect(new URL(url).origin).toBe("https://jumgogpt.app");
+      expect(options.redirect).toBe("error");
+      expect(options.headers.authorization).toBe("Bearer test-secret");
+    }
   });
 
   it("completes verified-empty assignment refresh without requesting an enrichment batch", async () => {

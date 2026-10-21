@@ -1,6 +1,7 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getReportRefreshUser } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
+import { scheduledRefreshOrigin } from "@/app/api/utils/scheduledRefreshOrigin";
 import { PORTFOLIO_REFRESH_HOURS } from "@/app/api/utils/portfolioMaintenancePolicy";
 import { maintenanceContinuationEnabled, maintenanceOrigin, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
 import { claimPortfolioTurn, finishPortfolioTurn } from "@/app/api/utils/portfolioMaintenanceScheduler";
@@ -245,7 +246,7 @@ export async function GET(request) {
         let assignments;
         try {
           assignments = await callRefreshRoute({
-          origin: continuationEnabled ? maintenanceOrigin() : url.origin,
+          origin: continuationEnabled ? maintenanceOrigin() : scheduledRefreshOrigin(request),
           authorization,
           workspaceUserId: target.workspaceUserId,
           path: "/api/blackbaud/portfolio?refreshAssignments=1",
@@ -262,7 +263,7 @@ export async function GET(request) {
         if (continuationEnabled) return Response.json({ status: "assignments_updated", workspaceUserId: target.workspaceUserId });
       }
       const started = await callRefreshRoute({
-        origin: url.origin,
+        origin: scheduledRefreshOrigin(request),
         authorization,
         workspaceUserId: target.workspaceUserId,
         path: "/api/blackbaud/portfolio-refresh",
@@ -285,7 +286,7 @@ export async function GET(request) {
     }
 
     const processed = await callRefreshRoute({
-      origin: continuationEnabled ? maintenanceOrigin() : url.origin,
+      origin: continuationEnabled ? maintenanceOrigin() : scheduledRefreshOrigin(request),
       authorization,
       workspaceUserId: target.workspaceUserId,
       path: "/api/blackbaud/portfolio-refresh",
