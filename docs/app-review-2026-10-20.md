@@ -1,8 +1,8 @@
 # JU Application Review - October 20, 2026
 
 Dependency hardening and the older-deployment access follow-up are recorded in
-[Security Hardening](security-hardening-2026-10-20.md). That work is not deployed;
-the older-deployment hosting protection is awaiting approval.
+[Security Hardening](security-hardening-2026-10-20.md). The dependency patch was
+deployed October 21; the older-deployment hosting protection is still awaiting approval.
 
 ## Summary
 

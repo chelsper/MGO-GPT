@@ -2,11 +2,12 @@
 
 ## Status and Scope
 
-Prepared locally after the legacy-access and database-startup fixes. Not deployed.
-No production database/NXT writes, emails, appeals, permission changes, hosting
+Deployed to JU on October 21, 2026 after explicit user authorization. No production
+data mutations, NXT writes, emails, appeals, permission changes, hosting access-setting
 changes, or Git push were performed. Unrelated working-tree changes were preserved.
 
-The current JU production release remains application commit `731f6fd` on deployment
+The JU production release is application commit `669e7c7` on deployment
+`dpl_AMYYAZCp3znwtDPd7HVufQoCt8ux`, replacing `731f6fd` on
 `dpl_en7qBdfAqEoM5z7PbjbF7db3t44u`. This is a bounded hardening pass, not a security
 certification or evidence that all dependencies are vulnerability-free.
 
@@ -140,11 +141,49 @@ Evidence logs: `/private/tmp/ju-hardening-full-tests.log`,
 and the before/after audit JSON files under
 `/private/tmp/ju-hardening-*`. No credentials or donor exports are included in this report.
 
-## Release Order
+## October 21 Deployment Verification
 
-1. Resolve the old-deployment access gap with the separately approved hosting change.
-2. Deploy this dependency patch to JU only after explicit deployment authorization;
-   verify normal login, protected API denials, reports, imports, and fictional PDF
-   preview. Preserve existing sessions and do not use a production import as a test.
+- Deployed an isolated Git archive of `669e7c70752cc110cbce8fb9ccff23a1e73273c6`.
+  All 1,334 tracked web files matched the commit, and all 1,479 upload hashes were
+  verified. Unrelated working-tree files were excluded.
+- Fresh focused tests: 177 passed. Release preflight passed. The production audit
+  remained at nine entries: zero critical, seven high, two moderate.
+- Vercel's clean `npm ci` production build passed on its existing Node 24 runtime.
+  The candidate was checked before promotion; the main domain remained on the
+  previous release until promotion.
+- Candidate and live checks confirmed anonymous legacy exports, runtime diagnostics,
+  and upload/transcription/business-card handlers return 401 with private no-store
+  responses. The retired generic proxy returns 410. Malformed bearer input returns
+  401 without crashing. Export response bodies were not retained; no audio or media
+  was submitted.
+- Sign-in, auth-provider configuration, and anonymous session endpoints responded
+  normally. The existing signed-in session loaded Reports and My Dashboards without
+  reauthentication. No fresh live Okta exchange was performed.
+- Strict live version and synthetic previous-release-cookie checks passed. The
+  expected commit, deployment, and assets matched; explicit latest routing worked.
+- A bounded 50-request runtime sample contained 43 HTTP 200 responses, six expected
+  401 responses, and one expected 410 response. No server errors or database-startup
+  conflicts appeared in that sample; this is not a guarantee against future errors.
+- All five cron paths, schedules, and enabled state were preserved. Their generated
+  deployment hosts advanced to the new release. Future deployment-protection work
+  must verify compatibility with those hosts before changing access settings.
+- Compared all 12 projects before and after: only JU's production deployment changed.
+  JU's root, framework, Node version, build settings, access protection, and skew
+  protection settings were unchanged.
+- No production import, hosted PDF conversion, report refresh, email, appeal, or NXT
+  write was used as a live test. The previously noted environment-gated tests remain
+  unrun. The old-deployment access gap still awaits separate approval.
+
+Release evidence is under `/private/tmp/ju-hardening-*`, including
+`deploy.log`, `candidate-smoke.log`, `live-smoke.log`, `live-version.log`,
+`release-smoke-tests.log`, and permission-restricted `runtime-smoke.jsonl` and project
+snapshots. These local files are not part of the release or committed documentation.
+
+## Remaining Release Follow-up
+
+1. Resolve the old-deployment access gap only after the separate hosting approval,
+   including cron and PDF access compatibility checks.
+2. Use controlled fictional data for any additional live integration tests; do not
+   use a production import, real letter, or NXT write merely to test the release.
 3. Plan the remaining Vitest/Tinypool and Node/Vite/Hono bridge migration separately,
    retaining regression coverage and checking whether upstream braces fixes exist.
