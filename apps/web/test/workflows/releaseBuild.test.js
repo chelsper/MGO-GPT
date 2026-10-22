@@ -33,6 +33,9 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 const build = run => runReleaseBuild({ root, env: { VERCEL_GIT_COMMIT_SHA: sha }, run });
 
 describe("mandatory release build", () => {
+  it("intentional enforcement proof: must block this validation-only PR", () => {
+    expect("blocked").toBe("allowed");
+  });
   it("checks workflows and types before building and publishes only the passing receipt", () => {
     const run = vi.fn(child);
     const receipt = build(run);
