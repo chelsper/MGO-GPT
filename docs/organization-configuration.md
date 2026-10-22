@@ -68,6 +68,15 @@ are introduced.
 
 ## Safe Saves And History
 
+### Dashboard Helper Preferences
+
+The September 27 local increment adds reminder windows, gift thresholds, draft
+tone, and reusable thank-you wording to the existing helper settings. It uses the
+same profile save, authorization, revision, and audit rather than a separate
+configuration store. A synthetic letter preview uses no donor data. The new
+controls are not yet deployed; see `dashboard-helper-preferences.md` for defaults,
+bounds, propagation behavior, and verification.
+
 ### Organization Logo
 
 The institution profile includes a logo picker with a local preview and a

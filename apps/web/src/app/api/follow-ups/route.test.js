@@ -29,6 +29,7 @@ it("returns the complete saved list with constituent names and keeps all joins w
   const sql = parts.join("?");
   expect(sql).toContain("LEFT JOIN prospects");
   expect(sql).toContain("pa.updated_at::text AS updated_at");
+  expect(sql).toContain("pa.source_gift_id, pa.source_gift_snapshot");
   expect(sql).toContain("p.user_id = pa.owner_user_id");
   expect(sql).toContain("c.user_id = pa.owner_user_id");
   expect(sql).toContain("WHERE pa.owner_user_id = ? AND pa.status = ?");

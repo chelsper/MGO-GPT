@@ -5,6 +5,7 @@ import { activityEnrollmentConfig, resolveActivityEnrollment } from "./portfolio
 import { readPortfolioActivityCoverage } from "./portfolioActivityCoverage";
 import { activityCapacity, readPortfolioRefreshCapacity } from "./portfolioRefreshCapacity";
 import { activityCatchupEnabled } from "./portfolioActivityCatchup";
+import { maintenanceContinuationEnabled, maintenanceOrigin, MAINTENANCE_DAYTIME_CALLS, MAINTENANCE_NIGHT_CALLS, MAINTENANCE_BATCH_CALLS } from "./portfolioMaintenanceContinuation";
 
 const LIMIT = 100;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -23,7 +24,7 @@ export function portfolioHealth(row, now = Date.now()) {
   if (!row.has_mapping) return status("review", "Fundraiser mapping needed", "Check this MGO's system-ID mapping in Security & Access. Reconnecting will not fix a missing fundraiser mapping.");
   if (!row.has_portfolio) return status("notice", "No assignment snapshot", "Select this MGO in My Prospects and check the saved portfolio before choosing Sync NXT portfolio.");
   if (date(row.paused_until) && Date.parse(row.paused_until) > now) return status("wait", "Waiting for cooldown", "Wait until the saved pause ends. Do not reconnect or repeatedly restart portfolios for a rate limit.");
-  if (count(row.summary_failed)) return status("review", "Refresh needs investigation", "Select this MGO's portfolio and inspect its restricted refresh details. Keep saved values; retry reads only after checking the cause.");
+  if (count(row.summary_failed) || count(row.failed_count)) return status("review", "Refresh needs investigation", "Open maintenance details below. Keep saved values; retry reads only after checking the cause.");
   if (["queued", "processing", "paused"].includes(row.job_status)) {
     if (!date(row.job_updated_at) || now - Date.parse(row.job_updated_at) > 15 * 60_000) {
       return status("notice", "Progress needs checking", "No progress has been saved in 15 minutes. This does not prove a failure. Check the portfolio's job and next scheduled window before resuming a read.");
@@ -160,6 +161,24 @@ export async function readIntegrationHealth({ viewerId, origin }) {
         paused: Boolean(date(row?.blocked_until) && Date.parse(row.blocked_until) > Date.now()) };
     },
     connections: () => connections(viewerId), portfolios, capacity: readPortfolioRefreshCapacity,
+    maintenance: async () => {
+      if (!maintenanceContinuationEnabled() || origin !== maintenanceOrigin()) return { enabled: false };
+      const [tables] = await sql`SELECT to_regclass('portfolio_maintenance_gate') IS NOT NULL AS has_gate,
+        to_regclass('portfolio_maintenance_schedule') IS NOT NULL AS has_schedule`;
+      const [gate] = tables?.has_gate ? await sql`SELECT
+        CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS day_calls,
+        CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN (to_jsonb(portfolio_maintenance_gate)->>'night_call_count')::int ELSE 0 END AS night_calls,
+        next_allowed_at, lease_until FROM portfolio_maintenance_gate WHERE id = 1` : [];
+      const turns = tables?.has_schedule ? await sql`SELECT u.id, u.name, s.last_served_at, s.next_attempt_at, s.last_result
+        FROM portfolio_maintenance_schedule s JOIN users u ON u.id = s.workspace_user_id WHERE u.active = TRUE
+        ORDER BY s.last_served_at ASC NULLS FIRST, u.id LIMIT 100` : [];
+      return { enabled: true, initialized: Boolean(tables?.has_schedule), dayCalls: gate ? count(gate.day_calls) : null,
+        nightCalls: gate?.night_calls == null ? null : count(gate.night_calls),
+        dayLimit: MAINTENANCE_DAYTIME_CALLS, nightLimit: MAINTENANCE_NIGHT_CALLS, batchLimit: MAINTENANCE_BATCH_CALLS,
+        nextAllowedAt: date(gate?.next_allowed_at), leaseUntil: date(gate?.lease_until),
+        turns: turns.map(row => ({ id: String(row.id), name: name(row.name), lastServedAt: date(row.last_served_at),
+          nextAttemptAt: date(row.next_attempt_at), result: String(row.last_result || "Waiting for first turn") })) };
+    },
     activity: () => activity(origin), verifications,
   };
   // Partial failures stay unknown, never become empty/healthy sections. No schema,

@@ -31,6 +31,13 @@ function isBenignSourcemapResolutionWarning(warning: unknown) {
 export default defineConfig(({ isSsrBuild, mode }) => ({
   // Keep them available via import.meta.env.NEXT_PUBLIC_*
   envPrefix: 'NEXT_PUBLIC_',
+  // Expose only public release metadata; the deployment pin must not decide
+  // which version the client believes it was built from.
+  define: {
+    'import.meta.env.VITE_GIT_COMMIT_SHA': JSON.stringify(
+      process.env.VERCEL_GIT_COMMIT_SHA || process.env.VITE_GIT_COMMIT_SHA || '',
+    ),
+  },
   optimizeDeps: {
     // Explicitly include fast-glob, since it gets dynamically imported and we
     // don't want that to cause a re-bundle.

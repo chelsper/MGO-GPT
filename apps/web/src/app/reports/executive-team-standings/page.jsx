@@ -6,6 +6,7 @@ import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import CompetitionBoard from "./CompetitionBoard";
+import RelationshipOriginators from "./RelationshipOriginators";
 import AnnualGoals, { AnnualGoalsProvider } from "./AnnualGoals";
 import { ScorecardComparison, WeeklySpotlight } from "./PeriodComparisons";
 import { coverageText as getCoverage, rankStandings, RANKING_MODES, scoreText } from "./standingsPresentation";
@@ -254,6 +255,7 @@ export default function TeamStandingsPage() {
 
         {standings.length > 0 ? <CompetitionBoard entries={standings} mode={rankingMode} onModeChange={setRankingMode} fiscalYear={report?.fiscalYear?.label || "Current FY"} comparison={report?.comparison} /> : null}
         <WeeklySpotlight entries={standings} comparison={report?.comparison} />
+        <RelationshipOriginators />
 
         <details className="standings-local" style={{ ...panelStyle, marginTop: "24px", padding: "16px 20px" }}>
           <summary>Team context &amp; local workflow (not ranked)</summary>

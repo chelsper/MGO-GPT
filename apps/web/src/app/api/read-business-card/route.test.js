@@ -1,8 +1,11 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.fn();
+const sqlMock = vi.fn();
 
 vi.mock("@/auth", () => ({ auth: authMock }));
+vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 
 function makeRequest(body) {
   return new Request("https://example.com/api/read-business-card", {
@@ -15,6 +18,7 @@ function makeRequest(body) {
 describe("business card reader route", () => {
   beforeEach(() => {
     authMock.mockReset();
+    sqlMock.mockReset().mockResolvedValue([{ id: 7, active: true, role: "mgo", report_key: "usage" }]);
     vi.unstubAllGlobals();
   });
 
@@ -80,7 +84,7 @@ describe("business card reader route", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://example.com/integrations/chat-gpt/conversationgpt4",
+      "/integrations/chat-gpt/conversationgpt4",
       expect.objectContaining({ method: "POST" }),
     );
     expect(payload.extractedFields).toMatchObject({

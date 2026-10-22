@@ -11,6 +11,31 @@ tables initialize on the first authorized workspace read after deployment.
 Advancement Services and Admin users open **Stewardship > Society Letter
 Creation**. Access uses the signed-in user's real role, not an impersonated MGO.
 
+### Guided Setup (September 25)
+
+Use **Setup > Setup checklist** for the next configuration action. Source and
+period, query-field mappings, saved letters/merge settings, and fictional sample
+previews are grouped here. **Setup > Appeal settings** contains letter-sent and
+exclusion appeal configuration; readiness checks stay in the daily holding list.
+
+Progress reflects saved settings only. Field mappings count as checked after a
+completed membership snapshot matches those settings and the current period;
+this does not replace the separate 24-hour delivery-readiness checks. Editing a
+source does not execute its query. Save it first, then explicitly select **Load
+membership from saved queries**. Unsaved source changes disable that refresh.
+
+Sample preview uses the saved Word template and merge settings with fictional
+names and addresses. It reads no constituent data, acquires no state-write lease,
+does not run queries, and creates no history or NXT updates. Preview indicators
+last for the current page visit and invalidate when source, period, society, or
+template version changes. Returning users are not asked to repeat samples in
+the daily holding list. Samples do not approve real recipients or enable sending.
+
+No database migration, background job, or delivery-policy change is introduced.
+These setup changes require deployment before appearing in production.
+
+### Letter Preparation
+
 1. Configure a saved NXT query of qualified households and map its output fields.
 2. Choose current calendar year, current fiscal year, or explicit period dates.
 3. Select the annual society hierarchy from Organization Settings. Its display
@@ -32,6 +57,329 @@ one letter at a time. Lifetime societies and letters sent outside this applicati
 are not imported automatically.
 
 ## Household Query Contract
+
+### Holding List And Exclusions (September 24)
+
+**Letter workspace** is the saved membership holding list, not a send queue.
+Recipients remain available across visits until refreshed qualification, letter
+history, or an explicit exclusion changes their disposition. Opening the page,
+loading fields, and organizing this list never send letters or write NXT appeals.
+Constituent/spouse and multiple-query sources remain preview-only for delivery,
+but their holding lists can be organized before delivery verification is complete.
+
+### Daily Review Filters (September 25)
+
+The workspace uses only the current saved payload for count-based **All
+recipients**, **Needs review**, **Reviewed**, and **Needs attention** filters.
+Search and society selection scope these counts. Reviewed means a current saved
+recipient review, never approval for delivery. Needs attention is an overlapping
+facet: a reviewed recipient can still have a missing address or an expired NXT
+readiness check. Older grouped sources without recipient-review metadata are not
+invented as reviewed; they remain available under All recipients.
+
+**Focus on an issue** narrows the selected review view to changed or unavailable
+recipient choices, missing address/email/greeting, multiple organization contact
+choices, or a saved readiness issue. Missing-detail checks consider returned
+options before review, and use the actual saved choices after review. An
+intentionally blank saved address never falls back to a query address. Email
+issues are scoped to the email channel. A reviewed organization greeting is a
+valid choice; multiple optional contacts do not force another review afterward.
+
+Compact rows keep recipient-review and delivery-readiness labels separate.
+Supporting member IDs, addresses, greetings, and query details expand on demand;
+known delivery blockers remain visible. No filtering, counting, or expansion
+fetches NXT data. Filter changes clear selected delivery rows and batch previews.
+Readiness checks operate on the visible rows, only after the existing explicit
+action. Their expiry, server checks, source restrictions, and sending rules are
+unchanged.
+
+Bulk review defaults to unreviewed recipients in All recipients. Selecting a
+review-status or issue filter reviews editable recipients within that view,
+including previously reviewed recipients when applicable. The 50-recipient cap,
+individual save confirmations, revision tokens, and skip behavior remain intact.
+
+Reviewers can **Exclude for this period**, with an optional reason, then restore
+from **Excluded**. An exclusion covers all society levels and both delivery
+channels for the household, including a later higher qualification. It matches
+by system household ID or any overlapping member system ID, persists across
+query refreshes and household-head changes, and does not represent a sent letter.
+Exclusions cover overlapping period windows, not a future non-overlapping year.
+An excluded recipient remains visible in Excluded even if absent from a later
+query result. Restoration never recreates membership or overrides delivery history.
+
+The separate `stewardship_letters.exclusions` JSONB ledger retains the actor,
+timestamp, original members, period, reason, and restoration audit. It is saved
+under the existing revision/lease guard; preparing a batch checks exclusions
+again server-side. Already prepared or uncertain letters cannot be removed via
+this control: use the existing reviewed cancellation/recovery path first.
+
+New setup defaults to constituent/spouse queries, while existing grouped settings
+are preserved. Grouped setup includes an explicit draft-only switch for ordinary
+queries. **Load query fields** reads saved-query output metadata only; it does
+not execute a query or save settings. Select actual output columns, or explicitly
+accept recognized fields. Identity suggestions use System Record ID metadata
+and the constituent/spouse roots, never lookup IDs or guessed column names.
+Duplicate field names and ambiguous identity fields are not suggested. Query
+qualification dates and society selection still require human confirmation.
+Once fields are loaded, unavailable saved mappings are flagged and prevent form
+submission until corrected or cleared if optional.
+
+Live JU source settings are not changed by this code update. In the screenshot's
+grouped form, choose **Use constituent and spouse fields**, load query 31043's
+fields, review mappings and actual CY dates, select Order of the Dolphin as the
+query's society, then save the reviewed source. Loading membership is a separate,
+explicit action. Prior appeal and recipient/restriction verification remain
+required before enabling delivery for this source.
+
+The mapping section also offers **Map people and separate address fields** next
+to loaded columns. This draft-only conversion retains loaded metadata and valid
+greeting selections, maps identities only from verified System Record ID metadata,
+and leaves absent optional columns blank. When returned constituent/spouse fields
+do not match the old household mappings, the old grid is collapsed as advanced
+setup rather than presenting a wall of unavailable fields. Nothing is saved or
+refreshed by switching formats.
+
+Constituent mapping separates people/spouse links, display names, letter greeting, preferred
+mailing address, and email. Map street line 1, optional street line 2, city,
+state/province, ZIP/postal code, and optional country individually. The app
+assembles the address merge value with line breaks, omitting blank lines. It
+calculates a stable household key and member list from system IDs, and a display
+name from mapped first/last names (falling back to addressee values); these are
+not additional required NXT output fields. A blank
+spouse value includes the main constituent individually. The computed display
+name is not a verified joint letter addressee. Separate preferred street/address
+label variants can be suggested only when unambiguous, and still require explicit
+acceptance. Existing mappings and all delivery checks remain enforced.
+
+First/last name mappings for both the constituent and spouse are optional and
+blank by default, so existing saved queries do not gain new required columns.
+Field suggestions use the metadata's constituent/spouse branch and field meaning,
+not an ambiguous label. The holding-list label uses each person's own name, joined
+with `&`, without borrowing a surname. Names are associated only with the verified
+system ID; a spouse name without a spouse ID does not create a member. Repeated
+spouse rows and multi-society queries deduplicate by ID, never by name. A person's
+own returned name takes precedence over spouse-side name output. Conflicting
+own-record names require mapping review rather than selecting an arbitrary query.
+The mapped letter addressee and salutation are unchanged. Renaming a display
+label does not reset letter history, exclusions, or qualification checks.
+
+Verification: 3,910 application tests passed, with 18 opt-in tests skipped;
+the six stewardship PostgreSQL tests passed separately on an isolated temporary
+local database. Type checking, the production build, and synthetic desktop/mobile
+checks passed. No live source settings, recipients, appeals, or delivery state
+were changed. If rolling back after exclusions are used, do not operate society
+letter preparation with an older release that ignores the exclusion ledger;
+backport the guard or pause this workflow instead. Retain the ledger and audit.
+
+### Saved Recipient Choices (September 24)
+
+For constituent/spouse and multiple-society sources, each holding-list row offers
+**Review letter recipient**. Choose a returned constituent by system ID, review
+or edit the letter addressee and salutation, and select either returned member's
+preferred mailing address. The composed address may be edited for this letter
+without writing back to NXT. A single individual uses the same workflow. A linked
+spouse without their own returned query record is not selectable as a recipient
+or address source. A household display name never becomes a joint greeting by
+default.
+
+Email is optional and remains blank until explicitly chosen from the selected
+recipient's returned email values. Selecting an email does not grant permission.
+Recipient/spouse name merge fields follow the selected constituent's mapped name
+parts; each society template still retains its own merge-field settings. A missing
+address may be saved for later review, but is not enough to create a postal letter.
+
+Choices are saved separately in `stewardship_letters.recipient_reviews`, using a
+hash of the exact period and sorted member system IDs. Each saved choice includes
+the reviewer and timestamp. Query refreshes replace the membership snapshot, not
+these choices. An unchanged refresh retains reviewed choices. Changed membership,
+recipient/name/contact output, source settings, or society qualification requires
+another review; stale choices are retained in storage but not applied or prefilled.
+A new period starts unreviewed. Prepared, excluded, and already-covered rows cannot
+be edited through this control; frozen delivery history is never modified.
+
+The API checks the current source signature, period, member IDs, review token,
+explicit confirmation, text limits, and the existing revision/lease lock. Opening,
+editing, or saving these choices performs no NXT requests. Saving does not change
+eligibility flags, mark anything sent, create documents, or write appeal codes.
+The new JSONB column is additive with an empty-object default and a bounded payload.
+Constituent sources remain preview-only: restriction, prior-appeal, and independent
+higher-society checks must be implemented before delivery can be enabled.
+
+Recipient-review verification: 4,000 application tests passed, with 19 opt-in tests
+skipped in the normal run; all seven stewardship persistence/locking tests passed
+separately on an isolated local PostgreSQL cluster. Type checking, production build,
+release-worktree check, and synthetic desktop/390px mobile review/save checks passed.
+No production or sandbox settings, source queries, letter history, or NXT records
+were changed during this implementation. Deployment remains a separate action.
+
+### Saved Merge Fields
+
+In **Letter templates**, each annual society's Word template retains its own
+selected merge fields and date appearance. Supported fields are addressee,
+salutation, mailing address, individual/household name, society name,
+qualification start/end dates and letter date, plus `{first_name}`, `{last_name}`,
+`{spouse_first_name}`, `{spouse_last_name}`, and `{first_names}`. The insertion picker copies an
+exact tag for Word or inserts it at the email subject/message cursor. It does not
+rewrite Word layout or automatically convert native Word mail-merge field codes.
+Use the supported `{field_name}` tags in the uploaded document.
+
+For example, a society can use `Dear {first_name},` while another keeps
+`Dear {salutation},`. `Dear {first_names},` supports both a single individual
+(`Dear Alex,`) and a linked couple (`Dear Alex & Pat,`) without conditional
+Word syntax. Spouse-only tags require a spouse's mapped value and will block
+an individual letter where that value is absent. Name values are never parsed
+from a salutation or the computed household display name.
+
+Constituent/spouse previews retain separate name parts by member system ID.
+An individual can resolve recipient-name fields directly; a couple's singular
+recipient and spouse fields require an explicit `recipientConstituentId` belonging
+to that household. The stable grouping key does not silently choose a recipient.
+The combined `{first_names}` field requires a mapped first name for every member.
+Reviewed, pre-grouped query sources also support optional recipient/spouse name
+columns. These remain separate from delivery restrictions and do not enable
+constituent-source sending or replace recipient review and eligibility checks.
+
+Only tags actually used by the Word letter or its email text require values.
+The worklist reports missing used name fields, and the renderer independently
+inspects the document and email before generating output. Missing name values
+block preview/preparation/delivery rather than producing `Dear ,` or substituting
+an unrelated greeting. Old templates with no name tags continue to render.
+Prepared letters retain the reviewed values and the original template version.
+
+Once a Word template is saved, field choices, date appearance and email text can
+be updated without re-uploading the document. The API resolves the active version
+server-side and rejects stale or cross-society references. Fields still used by
+the Word document or email cannot be deselected silently: saving is blocked until
+the field is selected again or the tag is removed. Empty selections are allowed
+only for a template/email that uses no merge tags. Query-column mappings remain
+in Source & period; no additional NXT calls are made by field selection or saving.
+
+Settings are versioned alongside the document and participate in the version
+hash. Already prepared letters, previews and archives retain their original
+template version. Existing templates default to all supported fields and their
+original ISO date format. Written-out dates use UTC date-only formatting to
+avoid local timezone shifts. These controls do not enable preview-only sources,
+send letters, write appeals, or change membership eligibility.
+
+### Multiple Annual Society Queries (September 24)
+
+In **Source & period**, choose **Separate query for each society (preview only)**.
+Select the annual letter hierarchy, then configure a distinct saved query ID,
+actual qualification dates, and constituent/spouse column mappings for each
+selected society. Each query may use different output column names. Switching
+from a single constituent query retains that society's existing configuration
+in the editor. Unconfigured sources require their own dates; no query dates are
+invented. Lifetime societies and inactive definitions are excluded.
+
+**Letter templates** now accepts a separate versioned template for every active
+annual society before membership queries are configured. This does not enroll
+that society in the hierarchy or enable any delivery. Existing prepared letters
+retain their frozen versions. The prepared CY2026 OOD template is an organization
+asset, not embedded in the application code or automatically copied to sandbox.
+
+Refresh explicitly processes one source at a time, with its own metadata checks
+before execution and before accepting output. Each request advances at most one
+source; opening or filtering the page performs no NXT work. Resume retains the
+current NXT query job and completed cohorts. An uncertain job creation requires
+an explicitly confirmed restart. A refresh is bound to the initiating account,
+source settings, definition signature and period. New periods require renewed
+confirmation of every query's qualification dates.
+
+The combined preview is replaced only after all queries finish successfully,
+including queries returning zero rows. Failures retain the previous snapshot
+and letter history. The oldest source verification time is used for combined
+freshness. Constituent-format society queries can read up to 12 MB and 100,000
+raw rows, retaining only mapped letter fields and deduplicating by constituent
+System Record ID before spouse grouping. The compacted result is limited to
+1,000 unique constituents and 512 KB per query, with at most 5,000 households
+and 4 MB of accumulated cohorts across the selected sources. The complete CSV
+must validate and, when NXT provides a completed row count, match that count.
+Oversized, malformed, or incomplete results are rejected, not truncated. Other
+reports and legacy grouped sources retain their original limits.
+
+Repeated non-email letter values must agree, including spouse IDs, names,
+greetings, and mailing details. Unused query columns such as constituency codes
+do not create additional people. Distinct nonblank email values are retained as
+recipient-review choices (at most 20 per constituent), including across society
+queries. No email is selected automatically when multiple values remain. Postal
+details stay separate; this deduplication does not enable sending, preparation,
+or appeal assignment for a preview-only source. Raw and unique row counts are
+retained in source metadata for diagnostics.
+
+Opposite spouses returned in different society queries form one household only
+when both ID groups agree. Conflicting spouse links, group membership, or recipient
+non-email data for the same constituent reject the refresh. No names, addresses or gift
+totals are used to infer household qualification. The highest matching society
+in the configured hierarchy becomes the proposed letter; the other matches and
+their source query IDs are retained. This is not proof that an excluded higher
+society member has never received a letter: sent-appeal exclusions still require
+independent appeal/history checks before delivery.
+
+All multi-query output remains **preview only**, enforced by the API as well as
+the UI. It cannot generate/reserve letters, send email, or assign appeals.
+Approved joint recipients, communication restrictions and per-member NXT appeal
+verification/write recovery are still required before activating this source.
+Existing already-grouped sources and their frozen delivery history are unchanged.
+
+### Constituent/Spouse Preview Adapter (September 24)
+
+The Source & period screen also accepts **Constituents with spouse IDs (preview
+only)**. This supports an ordinary saved constituent query without asking NXT to
+produce pre-grouped household rows. The existing already-grouped workflow is
+unchanged.
+
+The adapter verifies the selected ID columns against saved-query field metadata
+before execution and again before accepting results. Both must be **System
+Record ID** fields from Constituent Information and Spouse, respectively. A
+numeric-looking lookup ID, or a lookup column renamed "System Record ID", is not
+accepted. Relevant query-definition changes during execution retain prior
+results and require a new refresh. Execution statistics do not invalidate results.
+
+The administrator specifies the query's society and exact qualification dates.
+Those dates must match the letter period; the adapter does not modify NXT dates
+or silently reuse a fixed-year query in a later year. This is a single-society
+cohort preview, not verification of every household's highest annual society.
+
+One-to-many constituency rows collapse when identity and recipient values agree.
+Reciprocal spouse rows produce one group. A spouse system ID remains in that
+group even when the spouse is absent from the returned cohort. Conflicting links,
+overlapping pairs, malformed rows, self-links, or conflicting recipient values
+reject the refresh. Names, email addresses, and postal addresses never establish
+household membership. Individual giving totals are never summed.
+
+The stable grouping key is the lower system ID, not an inferred NXT head of
+household. All member IDs and returned recipient candidates are visible for
+review. No recipient, joint addressee, or communication permission is selected
+automatically. Members outside the query are explicitly identified as requiring
+verification, including whether they are constituents eligible for appeal writes.
+
+**Server-side preview-only boundary:** this source cannot generate, reserve, or
+send letters, or assign NXT appeals. Query refresh is explicit and adds two
+metadata reads, not a profile read for every member. No production source
+configuration is selected automatically. Before enabling this source for delivery:
+
+1. Verify household membership and communication restrictions, including spouses
+   outside the query; choose an approved joint recipient/address/salutation.
+2. Check all configured higher society cohorts and existing assigned appeals.
+   A single OOD query cannot rule out a President's Society spouse.
+3. Freeze the exact society/period appeal in the prepared letter and persist
+   separate per-member assignment status before each external write. Verify
+   uncertain writes by readback; never blindly repeat them or recreate a letter
+   because one spouse's assignment failed.
+4. Resolve the owner's desired appeal trigger (finished-letter creation versus
+   accepted email/confirmed postal mailing). Previews must never set a sent appeal.
+
+Read-only definition checks of JU query **31043 (MGOGPT - OOD)** confirmed on
+September 24: the CY2026 dates are inside gift summary 71937; constituent system
+ID is field 349 and spouse system ID is field 89939. Output also includes lookup
+IDs, primary addressee/salutation, preferred address components, and preferred
+email. The existing exclusion references appeal system ID 770, description
+`CY2026 OOD Letter Sent via JUMGOGPT`. That one-to-many exclusion alone is not an
+app-side proof that every household member lacks the appeal. No live query
+execution, donor send, production source change, or constituent write was part
+of the adapter's implementation.
+
+### Already-Grouped Sources
 
 The query is the authority for giving qualification, household membership, and
 communication eligibility. This workflow does not sum individual gift totals,
@@ -62,7 +410,7 @@ Identity conflicts, ambiguous columns, conflicting household recipient values,
 or members belonging to multiple households fail the whole refresh. Last valid
 results and acknowledgment history remain intact. No partial result is sent.
 
-The existing query transport limits output to 1,000 rows, 25 columns, and 512 KB.
+The legacy grouped query transport limits output to 1,000 rows, 25 columns, and 512 KB.
 Oversized results are rejected rather than silently truncated. Several rows may
 describe different society qualifications for the same household; they collapse
 to one highest-tier letter. The query must provide the complete member list and

@@ -1,6 +1,7 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getReportRefreshUser } from "@/app/api/utils/reportRefresh";
 import { getDueDashboardRefreshTargets } from "@/app/api/utils/dashboardScheduler";
+import { scheduledRefreshOrigin } from "@/app/api/utils/scheduledRefreshOrigin";
 
 export const maxDuration = 300;
 
@@ -97,6 +98,7 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
         "x-mgogpt-report-refresh": "scheduled",
       },
       cache: "no-store",
+      redirect: "error",
     });
     const payload = await readJson(response);
 
@@ -197,7 +199,7 @@ export async function GET(request) {
     }
 
     const authorization = request.headers.get("authorization");
-    const origin = url.origin;
+    const origin = scheduledRefreshOrigin(request);
     const refreshed = [];
     const failed = [];
     const deferred = [];

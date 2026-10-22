@@ -18,7 +18,7 @@ const report = {
   ],
 };
 function mount(payload = report) {
-  const fetchMock = vi.fn().mockResolvedValue(Response.json(payload));
+  const fetchMock = vi.fn(async url => Response.json(url.includes("relationship-originators") ? { rows: [] } : payload));
   vi.stubGlobal("fetch", fetchMock);
   render(<Page />);
   return fetchMock;
@@ -35,7 +35,8 @@ it("sorts leaderboard and scorecards by FY raised, then high-value actions witho
   fireEvent.click(screen.getByRole("button", { name: "High-value actions" }));
   expect(tableNames()).toEqual(["Alex MGO", "Blake MGO"]);
   expect(screen.getAllByRole("article", { name: /scorecard/ }).map((node) => node.id)).toEqual(["scorecard-1", "scorecard-2"]);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls.filter(([url]) => url === "/api/reports/executive-team-standings")).toHaveLength(1);
+  expect(fetchMock.mock.calls.filter(([url]) => url.includes("relationship-originators"))).toHaveLength(1);
   const card = within(screen.getByRole("article", { name: "Alex MGO scorecard" }));
   expect(card.getByText("FY27 high-value actions")).toBeInTheDocument();
   expect(card.getByText("15")).toBeInTheDocument();
@@ -64,7 +65,7 @@ it("does not guess high-value actions from an older snapshot", async () => {
 it("compares matching YTD windows and switches metrics without refreshing NXT", async () => {
   const comparison = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
   const payload = { ...report, fiscalYear: comparison.fiscalYear, comparison, standings: report.standings.map((entry) => ({ ...entry, priorYearToDate: { raised: 500, highValueActions: 5 }, lastCompletedWeek: { raised: 100, highValueActions: 1 } })) };
-  const fetchMock = vi.fn(async (url) => Response.json(url.includes("/goals?") ? { canEdit: false, goals: [] } : payload));
+  const fetchMock = vi.fn(async (url) => Response.json(url.includes("relationship-originators") ? { rows: [] } : url.includes("/goals?") ? { canEdit: false, goals: [] } : payload));
   vi.stubGlobal("fetch", fetchMock); render(<Page />);
   const table = await screen.findByRole("table");
   expect(within(table).getByRole("columnheader", { name: "FY26 YTD" })).toBeInTheDocument();
@@ -74,7 +75,7 @@ it("compares matching YTD windows and switches metrics without refreshing NXT", 
   expect(within(table).getAllByText("+10 (+200%)").length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("checkbox", { name: "Compare with last FY to date" }));
   expect(within(table).queryByRole("columnheader", { name: "FY26 YTD" })).not.toBeInTheDocument();
-  expect(fetchMock.mock.calls.filter(([url]) => !url.includes("/goals"))).toHaveLength(1);
+  expect(fetchMock.mock.calls.filter(([url]) => url === "/api/reports/executive-team-standings")).toHaveLength(1);
   expect(screen.getByRole("region", { name: "Weekly spotlight" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Edit annual goals" })).not.toBeInTheDocument();
 });

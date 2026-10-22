@@ -5,13 +5,15 @@ import SubmissionTracker from "./SubmissionTracker";
 const { user, view } = vi.hoisted(() => ({ user: { email: "reviewer@example.org" }, view: { effectiveRole: "admin", isReviewerView: true } }));
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: user, loading: false }) }));
 vi.mock("@/utils/useWorkspaceView", () => ({ default: () => view }));
-let rows;
+let rows, requests;
 beforeEach(() => {
   view.isReviewerView = true;
+  requests = [];
   rows = [{ id: 78, donor_name: "Historical Activity", submission_type: "donor_update", interaction_type: "Cultivation", status: "Pending", blackbaud_sync_status: "not_requested", notes: "Met with donor", date_submitted: "2026-07-14" }];
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     if (url === "/api/users/profile") return { ok: true, json: async () => ({ user: { id: 1, role: "admin" } }) };
     if (url.includes("/api/submissions/")) return { ok: true, json: async () => rows };
+    if (url === "/api/data-requests") return { ok: true, json: async () => requests };
     if (url.includes("/api/constituency-import/")) return { ok: true, json: async () => ({ runs: [] }) };
     return { ok: true, json: async () => [] };
   }));
@@ -50,5 +52,18 @@ describe("detailed activity tracker", () => {
     await screen.findByText("Historical Activity");
     await waitFor(() => expect(screen.getByText("Saved in app")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Save review", hidden: true })).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])("shows the same stewardship request in the work queue without duplicate controls (reviewer=%s)", async reviewer => {
+    view.isReviewerView = reviewer;
+    requests = [{ id: 22, source_pending_action_id: 17, source_pending_action_status: "Done", constituent_name: "Sample Foundation", request_type: "Stewardship: Personal gift", status: "In Progress", request_note: "A small gift, please.", reviewer_notes: "Choosing options for you.", created_at: "2026-09-28" }];
+    render(<SubmissionTracker detailedReview />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stewardship (1)" }));
+    expect(await screen.findByText("Sample Foundation")).toBeInTheDocument();
+    expect(screen.getByText("Choosing options for you.", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark complete", hidden: true })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: reviewer ? "Manage in Stewardship" : "View linked follow-up" })).toHaveAttribute("href", reviewer
+      ? "/stewardship/requests?requestId=22" : "/follow-ups?tab=next-steps&nextStepId=17&status=Done");
+    expect(fetch.mock.calls.some(([, options]) => options?.method)).toBe(false);
   });
 });

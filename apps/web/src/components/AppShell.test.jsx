@@ -4,7 +4,8 @@ import { fireEvent } from "@testing-library/dom";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AppShell from "./AppShell";
-import { useWorkspaceLabels } from "./WorkspaceTerminology";
+import { normalizeDashboardAssistant } from "@/utils/dashboardAssistantSettings";
+import { useDashboardAssistantSettings, useWorkspaceLabels } from "./WorkspaceTerminology";
 
 const state = vi.hoisted(() => ({
   organization: null,
@@ -61,6 +62,10 @@ function PageLabelProbe() {
   return <output data-testid="page-label">{useWorkspaceLabels().mgo}</output>;
 }
 
+function HelperSettingsProbe() {
+  return <output data-testid="helper-settings">{JSON.stringify(useDashboardAssistantSettings())}</output>;
+}
+
 let container;
 let root;
 
@@ -88,6 +93,7 @@ async function renderShell(pathname = "/submissions") {
           <main>Queue content</main>
           <LocationProbe />
           <PageLabelProbe />
+          <HelperSettingsProbe />
         </AppShell>
       </MemoryRouter>,
     );
@@ -95,6 +101,16 @@ async function renderShell(pathname = "/submissions") {
 }
 
 describe("AppShell", () => {
+  it("withholds the helper until settings load and reuses the configured organization choices", async () => {
+    await renderShell();
+    expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent).enabled).toBe(false);
+    state.organization = { dashboardAssistant: { enabled: true, name: "Guide", avatar: "compass" } };
+    await renderShell();
+    expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent)).toEqual(normalizeDashboardAssistant(state.organization.dashboardAssistant));
+    state.organization.dashboardAssistant.enabled = false;
+    await renderShell();
+    expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent).enabled).toBe(false);
+  });
   it.each(["admin", "advancement_services", "mgo,admin", "mgo", "executive"])("does not advertise deferred Family Import to %s", async role => {
     state.profileRole = role;
     state.reviewer = ["admin", "advancement_services", "mgo,admin"].includes(role);

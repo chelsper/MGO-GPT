@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {}, exportProps: null }));
+const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {}, queryLoading: {}, exportProps: null }));
 vi.mock("@/components/ProspectExport", () => ({ default: (props) => { state.exportProps = props; return null; } }));
 vi.mock("@/utils/useUser", () => ({
   default: () => ({ data: { id: 2 }, loading: false }),
@@ -19,7 +19,7 @@ vi.mock("@tanstack/react-query", () => ({
       queryKey[0] === "profile-sync-status"
         ? state.profile
         : state.data[queryKey[0]],
-    isLoading: false,
+    isLoading: Boolean(state.queryLoading[queryKey[0]]),
     isFetching: false,
     error: state.queryErrors[queryKey[0]],
     refetch: vi.fn(),
@@ -29,11 +29,12 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 import MyProspects from "./page";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
-import { PORTFOLIO_SORT_OPTIONS } from "@/utils/portfolioWorklist";
+import { PORTFOLIO_SORT_OPTIONS, portfolioViewKey } from "@/utils/portfolioWorklist";
 
 beforeEach(() => {
   localStorage.clear();
   state.queryErrors = {};
+  state.queryLoading = {};
   state.profile = {
     user: { id: 2, role: "admin", name: "Admin Author" },
     workspaceUser: {
@@ -82,7 +83,7 @@ beforeEach(() => {
     vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        mapped: { prospectSummaryNarrative: "Saved summary narrative" },
+        mapped: { lifetimeGiving: { totalGiving: 1200 } },
       }),
     }),
   );
@@ -91,6 +92,22 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
+});
+
+it("includes the shared originator control in My Portfolio without automatic NXT attribution reads", () => {
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.getAllByRole("button", { name: "Relationship originator" }).length).toBeGreaterThan(0);
+  expect(fetch.mock.calls.some(([url]) => String(url).includes("relationship-originator"))).toBe(false);
+});
+
+it("does not expose originator writes while an executive views another MGO's portfolio", () => {
+  state.profile.user.role = "executive";
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.queryByRole("button", { name: "Relationship originator" })).toBeNull();
 });
 
 it("uses configured portfolio labels without renaming NXT roles or adding requests", () => {
@@ -213,40 +230,40 @@ it("closes a portfolio detail deep link in place without clearing other URL cont
 
 it("keeps healthy background progress compact on the page but exposes status-query failures", () => {
   state.data["portfolio-refresh-job"] = {
-    inventory: { total: 2, current: 2, stale: 0, failed: 0 },
+    inventory: { total: 2, current: 2, stale: 0, failed: 0, freshness: { givingUpdatedAt: "2026-10-01T12:00:00Z", delayed: 0, missing: 0 } },
     job: { jobId: "40", workspaceUserId: 44, mode: "nightly", status: "queued",
       totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
       updatedAt: new Date().toISOString() },
   };
   const { rerender } = render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  expect(screen.getByText("Saved summaries ready")).toBeVisible();
-  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  expect(screen.getByText("Giving last updated Oct 1, 2026")).toBeVisible();
+  expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
   state.queryErrors["portfolio-refresh-job"] = new Error("Failed to load portfolio refresh progress");
   rerender(<MyProspects />);
-  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
-  expect(screen.getByText("Failed to load portfolio refresh progress")).toBeVisible();
+  expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
+  expect(screen.getByText("Update status is unavailable. Saved portfolio details are still shown.")).toBeVisible();
   expect(screen.getAllByRole("article")).toHaveLength(2);
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("keeps cooldown details out of the portfolio worklist until requested", () => {
+it("keeps cooldown details and controls in Integration Health, not the portfolio worklist", () => {
   state.data["portfolio-refresh-job"] = {
-    inventory: { total: 2, current: 2, stale: 0, failed: 0 },
+    inventory: { total: 2, current: 2, stale: 0, failed: 0, freshness: { givingUpdatedAt: "2026-10-01T12:00:00Z", delayed: 0, missing: 0 } },
     job: { jobId: "41", workspaceUserId: 44, mode: "nightly", status: "paused",
       totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
       updatedAt: new Date().toISOString(), pausedUntil: new Date(Date.now() + 60000).toISOString() },
   };
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  expect(screen.getByText("Background check waiting. You can keep working.")).toBeVisible();
-  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
-  expect(screen.getByText(/This refresh will continue automatically/)).not.toBeVisible();
+  expect(screen.getByText("Giving last updated Oct 1, 2026")).toBeVisible();
+  expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
+  expect(screen.queryByText(/This refresh will continue automatically/)).not.toBeInTheDocument();
   expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toBeVisible();
   expect(screen.getAllByRole("article")).toHaveLength(2);
-  fireEvent.click(screen.getByText("Refresh details"));
-  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Waiting for Blackbaud" })).toBeDisabled();
+  expect(screen.queryByText("Refresh details")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Waiting for Blackbaud" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Integration Health" })).toHaveAttribute("href", "/integration-health#health-portfolios");
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -347,21 +364,23 @@ it("keeps loaded contacts visible while an explicit summary refresh is pending a
   fetch.mockResolvedValueOnce({
     ok: true,
     json: async () => ({
-      mapped: { constituent: { email: "loaded@example.com", phone: "904-555-0199", address: "100 Loaded Street" } },
+      mapped: { constituent: { email: "loaded@example.com", phone: "904-555-0199", address: "100 Loaded Street" }, lifetimeGiving: { totalGiving: 100 } },
       summaryRefreshedAt: "2026-09-15T12:00:00Z",
     }),
   }).mockImplementationOnce(() => refresh);
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() => expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible());
   fireEvent.click(screen.getByRole("button", { name: "Refresh this summary" }));
-  expect(screen.getByText("Loading NXT summary...")).toBeVisible();
+  expect(screen.getByText("Loading background details...")).toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $100.00.")).toBeVisible();
   expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible();
   expect(screen.getByText("100 Loaded Street")).toBeVisible();
   finishRefresh({ ok: false, json: async () => ({ error: "NXT temporarily unavailable" }) });
   await waitFor(() => expect(screen.getByText("NXT temporarily unavailable")).toBeVisible());
+  expect(screen.getByText("Recorded lifetime giving is $100.00.")).toBeVisible();
   expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible();
   expect(screen.getByText("100 Loaded Street")).toBeVisible();
   expect(screen.getByText("Saved contact details · Checked September 15, 2026")).toBeVisible();
@@ -380,7 +399,7 @@ it("does not restore old card contacts when a newer saved summary has empty fiel
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() => expect(within(screen.getAllByRole("article")[0]).getByText("No contact details available")).toBeVisible());
   expect(screen.queryByText("old@example.com · 904-555-0100")).not.toBeInTheDocument();
   expect(screen.queryByText("100 Old Street")).not.toBeInTheDocument();
@@ -404,7 +423,7 @@ it("shows saved pledge presence only inside expanded or detailed portfolio cards
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("expands the actual portfolio card without fetching; NXT Summary remains explicit", async () => {
+it("expands the actual portfolio card without fetching; briefing reads are explicit and saved-only", async () => {
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   const card = within(screen.getAllByRole("article")[0]);
@@ -423,12 +442,12 @@ it("expands the actual portfolio card without fetching; NXT Summary remains expl
   expect(card.getByRole("button", { name: "Set next step" })).toBeEnabled();
   expect(card.getByRole("link", { name: "Open NXT profile" })).toBeVisible();
   expect(fetch).not.toHaveBeenCalled();
-  fireEvent.click(card.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(card.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() =>
-    expect(card.getByText("Saved summary narrative")).toBeVisible(),
+    expect(card.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible(),
   );
   expect(fetch).toHaveBeenCalledExactlyOnceWith(
-    "/api/blackbaud/constituents/100/summary",
+    "/api/blackbaud/constituents/100/summary?saved_only=1",
   );
   fireEvent.click(
     card.getByRole("button", { name: "Hide details for Zelda Donor" }),
@@ -454,14 +473,14 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   );
   expect(screen.getByRole("button", { name: "Set next step" })).toBeEnabled();
   expect(fetch).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() =>
-    expect(screen.getByText("Saved summary narrative")).toBeVisible(),
+    expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible(),
   );
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Amy Donor" }),
   );
-  expect(screen.getByText("Saved summary narrative")).not.toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).not.toBeVisible();
   expect(screen.getByRole("link", { name: "Log action" })).toHaveAttribute(
     "href",
     expect.stringContaining("blackbaudConstituentId=101"),
@@ -469,14 +488,14 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(screen.getByText("Saved summary narrative")).toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(screen.getByText("Saved summary narrative")).toBeVisible();
+  expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).toBeVisible();
   expect(fetch).toHaveBeenCalledExactlyOnceWith(
-    "/api/blackbaud/constituents/100/summary",
+    "/api/blackbaud/constituents/100/summary?saved_only=1",
   );
   expect(state.data.prospects[0].priority_order).toBe(1);
 });
@@ -485,8 +504,8 @@ it("does not carry a loaded tier summary into another workspace", async () => {
   const { rerender } = render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
-  await screen.findByText("Saved summary narrative");
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
+  await screen.findByText("Recorded lifetime giving is $1,200.00.");
   state.profile = {
     ...state.profile,
     workspaceUser: { ...state.profile.workspaceUser, id: 45, name: "Another MGO" },
@@ -494,13 +513,13 @@ it("does not carry a loaded tier summary into another workspace", async () => {
   };
   rerender(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  expect(screen.queryByText("Saved summary narrative")).not.toBeInTheDocument();
+  expect(screen.queryByText("Recorded lifetime giving is $1,200.00.")).not.toBeInTheDocument();
   expect(fetch).toHaveBeenCalledTimes(1);
   fetch.mockResolvedValueOnce({ ok: true, json: async () => ({
-    mapped: { prospectSummaryNarrative: "Summary in the new workspace" },
+    mapped: { lifetimeGiving: { totalGiving: 1500 } },
   }) });
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
-  await screen.findByText("Summary in the new workspace");
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
+  await screen.findByText("Recorded lifetime giving is $1,500.00.");
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
@@ -544,6 +563,62 @@ it("filters actual category and solicitor groups without writes, fetching or ran
   expect(fetch).not.toHaveBeenCalled();
   expect(state.data.prospects[0].priority_order).toBe(1);
   expect(state.data["portfolio-categories"].assignments[0].category_id).toBe(9);
+});
+
+it("restores the selected category after leaving My Portfolio and reloading the page", () => {
+  state.data["portfolio-categories"] = {
+    categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],
+    assignments: [{ blackbaud_constituent_id: "100", category_id: 9 }],
+  };
+  const { unmount } = render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "category" } });
+  fireEvent.change(screen.getByLabelText("Show group"), { target: { value: "category-9" } });
+  fireEvent.click(screen.getByRole("button", { name: "Top Prospects" }));
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+  unmount();
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByLabelText("Organize by")).toHaveValue("category");
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(JSON.parse(localStorage.getItem(portfolioViewKey(2, 44))).selectedGroup).toBe("category-9");
+  expect(fetch).not.toHaveBeenCalled();
+  expect(state.data["portfolio-categories"].assignments[0].category_id).toBe(9);
+});
+
+it("loads each MGO's last view without overwriting it during profile or category loading", () => {
+  const firstProfile = state.profile;
+  localStorage.setItem(portfolioViewKey(2, 44), JSON.stringify({ group: "category", selectedGroup: "category-9" }));
+  localStorage.setItem(portfolioViewKey(2, 45), JSON.stringify({ group: "solicitor", selectedGroup: "supporting" }));
+  state.profile = null;
+  const { rerender } = render(<MyProspects />);
+  state.profile = firstProfile;
+  state.queryLoading["portfolio-categories"] = true;
+  rerender(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Loading saved categories");
+  expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument();
+  state.data["portfolio-categories"] = {
+    categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],
+    assignments: [{ blackbaud_constituent_id: "100", category_id: 9 }],
+  };
+  state.queryLoading["portfolio-categories"] = false;
+  rerender(<MyProspects />);
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+  state.profile = { ...firstProfile, workspaceUser: { ...firstProfile.workspaceUser, id: 45 } };
+  rerender(<MyProspects />);
+  expect(screen.getByLabelText("Organize by")).toHaveValue("solicitor");
+  expect(screen.getByLabelText("Show group")).toHaveValue("supporting");
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Amy Donor");
+  state.profile = firstProfile;
+  rerender(<MyProspects />);
+  expect(screen.getByLabelText("Show group")).toHaveValue("category-9");
+  expect(JSON.parse(localStorage.getItem(portfolioViewKey(2, 45))).selectedGroup).toBe("supporting");
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it.each(["compact", "focus"])(

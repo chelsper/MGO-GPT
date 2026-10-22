@@ -53,6 +53,8 @@ async function handle(request, context, refresh) {
           : !configuration.canView
     )
       throw dashboardError("Dashboard is not shared with you.", 403);
+    if (refresh && !scheduled && !configuration.canRefresh)
+      throw dashboardError("Campaign totals are refreshed by report managers. Saved totals remain available to shared viewers.", 403);
     const cached = await getCachedReportSnapshot(dashboardCacheKey(reportKey));
     const snapshot = refresh
       ? await refreshDashboardSnapshot({

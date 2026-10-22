@@ -4,6 +4,15 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { blackbaudApiFetch, getBlackbaudConfigIssues, listBlackbaudGifts } from "@/app/api/utils/blackbaud";
+import { loadSocietyAnnualGifts } from "@/app/api/utils/societyGivingSource";
+import { reserveMaintenanceCall } from "@/app/api/utils/portfolioMaintenanceStore";
+import { reserveBlackbaudRead } from "@/app/api/utils/blackbaudReadBudget";
+vi.mock("@/app/api/utils/portfolioMaintenanceStore", () => ({
+  reserveMaintenanceCall: vi.fn(),
+}));
+vi.mock("@/app/api/utils/societyGivingSource", async (importOriginal) => ({
+  ...await importOriginal(), loadSocietyAnnualGifts: vi.fn(),
+}));
 
 vi.mock("@/auth", () => ({
   auth: vi.fn(),
@@ -43,6 +52,87 @@ const baseArgs = {
   primaryBusinessRelationship: null,
   lifetimeGiving: null,
 };
+
+describe("scheduled summary continuation authorization", () => {
+  const token = "b45c91db-c757-4f88-9258-5fa5d23f411d";
+  const origin = "https://www.jumgogpt.app";
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", origin);
+    vi.stubEnv("CRON_SECRET", "test-maintenance-secret");
+    vi.stubEnv("REPORT_REFRESH_USER_ID", "99");
+    getBlackbaudConfigIssues.mockReturnValue([]);
+    sql.mockImplementation(async strings => {
+      const statement = strings.join(" ");
+      if (statement.includes("INNER JOIN blackbaud_connections")) return [{ id: 99, role: "admin" }];
+      if (statement.includes("SELECT * FROM users")) return [{ id: 42, active: true }];
+      return [];
+    });
+    reserveMaintenanceCall.mockResolvedValue(false);
+    blackbaudApiFetch.mockImplementation(async () => {
+      await reserveBlackbaudRead("GET");
+      throw new Error("Provider reads must be blocked by the exhausted budget");
+    });
+  });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  async function read({ authorized = true, host = origin, workspace = "42", lease = token } = {}) {
+    const { GET } = await import("./route.js");
+    return GET(new Request(`${host}/api/blackbaud/constituents/123/summary?workspaceUserId=${workspace}&giving_only=1&refresh=1`, {
+      headers: {
+        "x-mgogpt-portfolio-continuation": lease,
+        "x-mgogpt-report-refresh": "scheduled",
+        authorization: authorized ? "Bearer test-maintenance-secret" : "Bearer incorrect",
+      },
+    }), { params: { constituentId: "123" } });
+  }
+
+  it.each([
+    { authorized: false },
+    { host: "https://sandbox.example.com" },
+    { lease: "not-a-lease" },
+  ])("rejects untrusted continuation requests before data access: %j", async options => {
+    expect((await read(options)).status).toBe(403);
+    expect(sql).not.toHaveBeenCalled();
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    expect(reserveMaintenanceCall).not.toHaveBeenCalled();
+  });
+
+  it("rejects continuation in preview deployments", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect((await read()).status).toBe(403);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit valid workspace", async () => {
+    expect((await read({ workspace: "0" })).status).toBe(400);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("enforces the lease budget inside the summary and retains good snapshots", async () => {
+    const response = await read();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ providerStatus: 429, quotaPaused: true, retryAfterMs: 600000 });
+    expect(reserveMaintenanceCall).toHaveBeenCalledExactlyOnceWith({
+      origin, token, workspaceUserId: "42", constituentId: "123",
+    });
+    expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
+  });
+
+  it("returns token-renewal failures as connection errors, not local summary-processing errors", async () => {
+    blackbaudApiFetch.mockRejectedValue(Object.assign(new Error("Renewal unavailable"), {
+      stage: "blackbaud_auth", httpStatus: 503, connectionRetryable: true, retryAfterMs: 600000,
+    }));
+    const response = await read();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ providerStatus: 503, failureStage: "blackbaud_auth",
+      connectionRetryable: true, retryAfterMs: 600000, quotaPaused: false });
+    expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
+  });
+});
 
 function entry(label, dates = {}) {
   return {
@@ -377,11 +467,65 @@ describe("Blackbaud constituent summary identity language", () => {
   });
 });
 
+describe("saved-only donor briefing reads", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({ workspaceUser: { id: 42 }, sessionUser: { id: 7 }, isActing: true });
+    getBlackbaudConfigIssues.mockReturnValue([]);
+    sql.mockResolvedValue([]);
+  });
+  async function read(query = "saved_only=1") {
+    const { GET } = await import("./route.js");
+    return GET(new Request(`https://jumgogpt.app/api/blackbaud/constituents/100/summary?${query}`), { params: { constituentId: "100" } });
+  }
+  it("returns an empty saved result on a miss without any NXT requests", async () => {
+    getBlackbaudConfigIssues.mockReturnValue(["Connection unavailable"]);
+    const response = await read();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ constituentId: "100", mapped: {}, savedOnly: true });
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some(([strings]) => /INSERT|UPDATE/.test(strings.join("")))).toBe(false);
+  });
+  it("returns the newer saved snapshot even when both sources have expired", async () => {
+    const cached = { constituentId: "100", summaryRefreshedAt: "2020-01-01", mapped: { lifetimeGiving: { totalGiving: 10 } } };
+    const snapshot = { ...cached, summaryRefreshedAt: "2020-02-01", mapped: { lifetimeGiving: { totalGiving: 20 } }, raw: { private: "not needed" } };
+    sql.mockImplementation(async strings => {
+      const query = strings.join("");
+      if (query.includes("FROM blackbaud_constituent_summary_cache")) return [{ payload: cached, updated_at: cached.summaryRefreshedAt }];
+      if (query.includes("FROM portfolio_constituent_snapshots")) return [{ summary_payload: snapshot }];
+      return [];
+    });
+    const response = await read();
+    expect(await response.json()).toEqual({ constituentId: "100", summaryRefreshedAt: "2020-02-01", mapped: snapshot.mapped, savedOnly: true });
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    const cacheRead = sql.mock.calls.find(([strings]) => strings.join("").includes("FROM blackbaud_constituent_summary_cache"));
+    expect(cacheRead.slice(1, 3)).toEqual([42, 7]);
+  });
+  it.each(["refresh=1", "giving_only=1", "raw=true", "contact_only=true", "report_profile=true"])("rejects incompatible %s without live reads", async flag => {
+    expect((await read(`saved_only=1&${flag}`)).status).toBe(400);
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
+  });
+  it("still requires authentication", async () => {
+    auth.mockResolvedValue(null);
+    expect((await read()).status).toBe(401);
+    expect(sql).not.toHaveBeenCalled();
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("portfolio badges and summary shared giving reads", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-03T16:00:00Z"));
+    loadSocietyAnnualGifts.mockResolvedValue({
+      gifts: [{ id: "gift-1", constituent_id: "123", gift_type: "Donation", amount: { value: 1500 }, date: "2026-08-03" }],
+      source: { version: 1, checkedAt: "2026-09-03T16:00:00.000Z" },
+    });
     auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
     getBlackbaudConfigIssues.mockReturnValue([]);
     getWorkspaceUser.mockResolvedValue({
@@ -432,7 +576,7 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect(summaryResponse.status).toBe(200);
     expect(summaryData.mapped.annualGivingSocieties).toEqual(badgeData.byConstituentId["123"]);
     expect(summaryData.mapped.lifetimeGiving.totalGiving).toBe(1500);
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
     expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(1);
     expect(summaryData.givingDataFreshUntil).toBe("2026-09-04T16:00:00.000Z");
   });
@@ -473,11 +617,22 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
   });
 
+  it("preserves a nested FY token failure after lifetime giving succeeds", async () => {
+    listBlackbaudGifts.mockRejectedValue(Object.assign(new Error("Renewal unavailable"), {
+      stage: "blackbaud_auth", httpStatus: 503, connectionRetryable: true, retryAfterMs: 900000,
+    }));
+    const response = await summary("giving_only=1&refresh=1");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ failureStage: "blackbaud_auth", providerStatus: 503,
+      connectionRetryable: true, retryAfterMs: 900000 });
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(false);
+  });
+
   it("also lets badge loading reuse data fetched first by a summary", async () => {
     const first = await (await summary()).json();
     const second = await (await badges()).json();
     expect(second.byConstituentId["123"]).toEqual(first.mapped.annualGivingSocieties);
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
     expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(1);
   });
 
@@ -485,7 +640,7 @@ describe("portfolio badges and summary shared giving reads", () => {
     await badges();
     const response = await summary("refresh=1");
     expect(response.status).toBe(200);
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(2);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
     expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(2);
   });
 
@@ -496,13 +651,13 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect((await response.json()).givingDataFreshUntil).toBe("2026-09-04T16:00:00.000Z");
     const snapshotWrite = sql.mock.calls.find(([strings]) => strings.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"));
     expect(snapshotWrite).toContain("2026-09-10T20:00:00.000Z");
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
   });
 
   it("does not overwrite a good summary when a forced gift-history refresh is incomplete", async () => {
     await summary();
     sql.mockClear();
-    listBlackbaudGifts.mockResolvedValue({ gifts: [], hasMore: true, pageCount: 20 });
+    loadSocietyAnnualGifts.mockRejectedValue(new Error("Society gift history is incomplete"));
     const response = await summary("refresh=1");
     expect((await response.json()).warnings.annualGivingSocieties).toContain("incomplete");
     expect(sql.mock.calls.some(([strings]) => strings.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);

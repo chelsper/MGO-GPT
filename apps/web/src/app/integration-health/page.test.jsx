@@ -21,7 +21,7 @@ it("reads one saved endpoint and keeps successful results quiet", async () => {
   render(<IntegrationHealthPage />);
   expect(await screen.findByText("Saved connection; renewal available")).toBeVisible();
   expect(screen.getByText(/No reminder-linked submissions are processing/)).toBeVisible();
-  expect(screen.getByText(/does not contact Blackbaud/)).toBeVisible();
+  expect(screen.getByText(/Opening or reloading this page only reads/)).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledWith("/api/admin/integration-health", expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }));
   expect(screen.queryByRole("button", { name: /approve|resend|reconnect|restart/i })).not.toBeInTheDocument();

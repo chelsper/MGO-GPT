@@ -6,6 +6,14 @@ import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import { isConstituentList, reportNavigation } from "@/utils/constituentLists";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
 import DashboardSwitcher from "@/components/DashboardSwitcher";
+import styles from "./SharedReportHeader.module.css";
+
+function ReportDestinations({ compact, children }) {
+  return compact ? <details className={styles.destinations}>
+    <summary>Reports &amp; dashboards</summary>
+    <div>{children}</div>
+  </details> : <>{children}</>;
+}
 
 function SharedReportHeaderContent({
   activeReportKey,
@@ -18,6 +26,7 @@ function SharedReportHeaderContent({
   accessibleReports = [],
   reportSection,
   dashboardSwitchDisabled = false,
+  compact = false,
 }) {
   const dashboardDetail = reportSection === DASHBOARDS_KEY || (activeReportKey !== DASHBOARDS_KEY &&
     isReportDashboard(accessibleReports.find((report) => report.key === activeReportKey) || { key: activeReportKey })
@@ -33,7 +42,7 @@ function SharedReportHeaderContent({
           alignItems: "flex-start",
           gap: "20px",
           flexWrap: "wrap",
-          marginBottom: "24px",
+          marginBottom: compact ? "12px" : "24px",
         }}
       >
         <div style={{ minWidth: 0, flex: "1 1 320px", overflowWrap: "anywhere" }}>
@@ -43,16 +52,16 @@ function SharedReportHeaderContent({
             style={{
               minHeight: "44px",
               borderRadius: "12px",
-              border: "1px solid #E2E8F0",
+              border: compact ? "none" : "1px solid #E2E8F0",
               display: "inline-flex",
               alignItems: "center",
               gap: "8px",
-              padding: "8px 12px",
-              marginBottom: "12px",
+              padding: compact ? "8px 0" : "8px 12px",
+              marginBottom: compact ? "4px" : "12px",
               fontSize: "14px",
               fontWeight: 700,
               textDecoration: "none",
-              backgroundColor: "white",
+              backgroundColor: compact ? "transparent" : "white",
               color: "#334155",
               flexShrink: 0,
             }}
@@ -85,6 +94,7 @@ function SharedReportHeaderContent({
         {action}
       </header>
 
+      <ReportDestinations compact={compact}>
       {accessibleReports.length ? (
         <nav
           aria-label="Reports"
@@ -133,6 +143,7 @@ function SharedReportHeaderContent({
       {dashboardDetail && (
         <DashboardSwitcher reports={accessibleReports} activeReportKey={activeReportKey} disabled={dashboardSwitchDisabled} />
       )}
+      </ReportDestinations>
     </>
   );
 }

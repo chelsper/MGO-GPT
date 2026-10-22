@@ -5,6 +5,8 @@ describe("workflow return destinations", () => {
   it.each([
     ["/", "Back to Home"],
     ["/reports", "Back to Reports"],
+    ["/stewardship", "Back to Stewardship"],
+    ["/stewardship/gift-follow-ups", "Back to Gift Follow-ups"],
     ["/my-top-prospects?tab=portfolio&search=Test%20Donor#list", "Back to My Portfolio"],
     ["/my-top-prospects?statusFilter=Active&fyFilter=FY27", "Back to Top Prospects"],
     ["/follow-ups?tab=next-steps&status=Open", "Back to Follow-ups & Discussion"],

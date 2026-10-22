@@ -1,8 +1,21 @@
 # Quick New Constituent Creation
 
+## Reusable Import Setups
+
+Choose **Use a saved import setup** above the upload area, or configure a file once and expand **Save or manage a setup** to name it. Setups are private to the signed-in reviewer in this app instance, not the acting fundraiser's workspace. They persist across sessions and devices. Admin and Advancement Services accounts can save, rename/update, or remove their own setups; removal does not delete import history or change NXT.
+
+A setup remembers selected CSV column names, New/Updates/Mixed purpose, supported import operations, contact types for blank values, email/phone inclusion or intentional omission, and configured name-format defaults. Primary choices are column mappings, not blanket authorization: each file supplies its own primary flags. No CSV rows, recipient IDs, matches, replacement targets, prior approvals, or write plans are stored in a setup. Saving a setup never calls NXT.
+
+1. Select a setup and upload a CSV. Nothing is selected automatically when returning to the page.
+2. Under **Review import**, expand **Review columns** to inspect or repair mappings. Missing/renamed setup columns are not guessed. Unmapped extra columns are listed as not included. Add/remove fields using **Choose import fields** above; field groups start collapsed when using a setup. CSV format warnings, duplicate headers, reused column mappings, or missing selected columns block setup-based preparation until corrected. Manually remapped files use the same confirmation and validation guards.
+3. Check the contact plan and confirm this file's columns, purpose, included contacts, and primary flags once. A new upload, mapping change, type/default change, purpose change, or changed source rows requires fresh confirmation. Conflicting primary flags still block preparation. Update-only setups require an NXT System ID or Lookup ID on every row; names/email alone cannot silently select a target.
+4. Prepare the import, then use the existing separate creation/update review and approval controls. This confirmation approves preparation only, not NXT writes. The existing duplicate, current-record identity, checkpoint, recovery, and verification safeguards remain unchanged.
+
+Setups use an additive `constituency_import_setups` table, scoped by authenticated user ID with case-insensitive unique names and revision-checked edits/deletes. The API allowlists configuration values and requires an active reviewer account; an acting-workspace cookie grants no access to someone else's setups. Save conflicts ask for a reload rather than overwriting a newer setup. Existing saved runs are not modified when a setup changes. No new external dependency or scheduled job is required. Tests use fictional data and mocked NXT, not a live import.
+
 ## Reviewer Workflow
 
-1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. The existing 100-row file limit is unchanged.
+1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. Under **Review import**, use the contact plan to include emails/phones or explicitly leave them out of contact updates. **Include all mapped emails and phones** selects both kinds in one click. The existing 100-row file limit is unchanged.
 2. Load NXT table formats and optionally select a default addressee and salutation for new records. Selections are saved with the preview. Do not also enable custom text for the same format.
 3. Prepare and save the import, then select **Check and import new records**. The confirmation describes the approved scope. Merely uploading, previewing, or opening the page does not write to NXT.
 4. **Complete safe additions and verify automatically** is enabled by default. It creates only clear new records, loads current NXT details, adds eligible contacts/constituencies/education, and verifies the results in separate saved steps. It does not auto-update existing matched constituents. Uncheck it to retain the older identity-and-single-contact creation flow with separate review/send.
@@ -16,6 +29,28 @@ Old rows held solely by the former "Multiple contacts of one kind" restriction a
 The workflow stores its approval, exact source-input fingerprint, created system ID, remaining read scopes, and phase in the saved preview. Every addition still uses the existing compare-and-set row claim, fresh NXT identity check, and durable write checkpoints. A prior write attempt takes precedence over a stale phase: resume verifies, never blindly resends. Verification also reads the saved identity, including when no further writes were necessary. Failed or incomplete verification stays in review. No additional database migration is required.
 
 The client reloads the full run after every five processed records and at pause/completion, rather than after every row. Server checkpoints are still saved after every step and write. Malformed responses and lost connections pause with recovery guidance, not raw JSON errors. Earlier preview notes are collapsed; the current blocker distinguishes duplicate evidence, contact choices, and NXT check failures.
+
+## Contact Preparation
+
+The contact plan replaces the separate email/phone operation checkboxes hidden in field groups. It shows mapped nonblank contact values, affected rows, and explicit primary flags before any preview request. Every new upload starts with neither contact option selected, even when the CSV contains NXT IDs. Earlier file choices and type defaults do not carry into another upload.
+
+For each kind, choose import or explicit omission. Email values can still be used for matching without being written. Excluded phone values remain in the saved source, not the contact write plan. Matching and duplicate checks are otherwise unchanged; selecting import is not permission to create or send. A short explanation distinguishes update-only, new, and mixed workflows.
+
+Blank email or phone types can use a file-wide NXT type supplied once in the contact plan. It applies to both primary and secondary columns only where a type is blank; a file value always wins. Defaults and omission choices are persisted with the saved run. Blank primary flags stay unspecified, rather than silently authorizing a primary change.
+
+The server rejects unresolved contact choices before NXT lookups or import persistence: mapped nonblank values must either be enabled for import or explicitly excluded for their exact column mappings. Adding/changing a mapped contact column invalidates a previous omission choice. Invalid or conflicting primary flags and malformed default types also stop preparation. Missing types and other per-row contact issues are shown before preparation, while the existing record-review and creation safeguards remain in force. Existing saved imports do not acquire new contact writes or approvals; use their established review, retry, or contact-recovery controls.
+
+## Import Review Overview
+
+**Your import at a glance** replaces the repeated progress summaries with five filterable groups: New records, Ready updates, Needs attention, Completed, and Skipped. Counts are derived from the loaded rows; verified completion is tracked separately from an accepted import. Opening a run starts at an exception when present, while links to a specific saved row retain that target.
+
+Use **Review exceptions** for individual decisions, or **Review ready updates together** to inspect prepared changes and select eligible existing-record updates. Selection starts empty and sending still requires explicit confirmation. New-record candidates, deferred checks, missing replacement targets, in-flight work, and prior write attempts are excluded from this bulk selection. The new-record creation workflow remains separately approved and checkpointed. No server write permissions or duplicate protections changed.
+
+Every record shows its requested or prepared changes near its heading, including contact types, primary changes, replacement targets, and complete address values. Matching-only email/address values are not presented as contact updates. Previous attempts appear as history, not a plan queued for resending. Use the established completion, recovery, and retry controls for those records. New-record values are labeled as requests until checks and approval pass.
+
+**Save and continue review** is the single entry point for saving an unsaved preview. Filters, navigation, and bulk approval are unavailable while row edits are unsaved or an operation is running. Viewing the whole ready group does not load NXT details across the batch; opening an individual row retains the existing bounded read behavior. There is no new automatic send, NXT query scan, or database migration.
+
+Regression coverage includes mixed-file group counts, exception-first focus, preserved saved-row links, read-only completion, explicit contact descriptions, empty initial batch selection, cancelled send confirmations, exact eligible row IDs, and unsaved-edit navigation locks. Desktop and 390px mobile browser checks use fictional records with external requests blocked. These checks do not perform a live import or verify a production deployment.
 
 ## Comparing Suggested Matches
 
@@ -86,6 +121,33 @@ NXT configured name formats use `primary_addressee` / `primary_salutation` with 
 ## Saved History and Safe Retries
 
 These safeguards apply to the standard constituency import. Family Import is deferred and unchanged.
+
+### Field-Level Import Results
+
+Open an attempted or created record in a saved import to see **What finished and what remains**. Constituent creation, individual name/profile fields, contact values, contact types, primary settings, and previous-primary changes have separate outcomes. A created system ID or an accepted send is not proof that all requested fields succeeded. The original import plan stays available in a collapsed history section.
+
+**Verified** requires matching saved verification evidence, not a run total or timestamp alone. Older contact checks may confirm a value and primary flag without checking its type or the previous primary; those settings remain **Awaiting verification**. New checks record their scope. Deliberately skipped values and fields with no planned change are distinguished from verified changes. A contact replacement or operation that preserves an existing type does not claim to have applied the requested type.
+
+The single next-action control routes to the existing read-only full NXT check, saved contact correction, omitted-contact recovery, approved quick-import progress controls, or original results. It never automatically creates, retries, approves, or sends a change. Unknown creation outcomes, mismatched target IDs or plans, active operations, and unsaved edits retain their existing holds. Linked corrections show **See correction**, not a guessed success result. Omitted-contact context uses exact saved mappings and returns only relevant email/phone fields to authorized reviewers, not the full raw upload.
+
+**Export import review CSV** includes created/target system IDs, per-field outcomes and saved check times, outstanding fields, the next action, and any linked correction batch ID alongside the original audit columns. Spreadsheet formula escaping applies to the export. These are saved outcomes, not a live NXT report.
+
+Implementation is read-only presentation plus verification-scope metadata in the existing audit. It adds no database schema, scheduled work, NXT write endpoint, or import authorization. Existing identity checks, compare-and-set saves, duplicate protection, and explicit send approval remain in force.
+
+### Recover Omitted Email And Phone Fields
+
+Open the original saved import from history and choose **Complete missing contact information**. The check reads saved upload values and saved created IDs only; it does not search or write to NXT. It works on older saved runs without re-uploading the CSV or copying the newly created IDs.
+
+1. Review the recovered email and phone values, including secondary contacts and primary flags. Where a type was blank, enter the NXT email/phone type once as a fallback; existing mapped types are retained. Blank primary flags do not authorize changing the current primary.
+2. Select the eligible records and choose **Prepare contact correction**. This creates a linked update-only batch in the app, not constituents or contacts in NXT. The original source, row results, and write audit remain unchanged. Its run metadata gains a link to each prepared correction.
+3. Review current contacts in the correction using the existing import review/send controls. Every send rechecks the exact target identity and current contacts; existing contact values are not duplicated. Names, constituency codes, and other originally successful work are not included in this correction.
+4. Repeated clicks or lost responses reopen the same saved correction. **Back to original import** and **Open saved correction** retain the navigation between batches. Rows not included in one correction can be recovered later in another.
+
+This first recovery path covers mapped emails and phones omitted from the original write plan, such as when contact-import switches were off. Contacts already staged or attempted remain in their original checkpointed resume, retry, or verification flow; **Review original row** opens that record. Active operations, unknown creation outcomes, uncertain prior writes, conflicting saved IDs, invalid values, and ambiguous primary flags are held. Recovery never infers a target from a name, email, or uploaded ID, clears duplicate history, or retries an uncertain POST.
+
+The correction target is fixed to the original created system ID and cannot be retargeted or re-prepared with another file. Preparing the source link, correction run, and rows uses one atomic SQL statement with source snapshot comparisons. No schema migration is required. Malformed or paginated contact reads are held instead of being treated as empty lists.
+
+Automated tests use fictional recipients and mocked NXT. The optional `contact-recovery/postgres.test.js` suite supports an isolated local PostgreSQL socket via `IMPORT_RECOVERY_TEST_SOCKET` (and `IMPORT_RECOVERY_TEST_PORT`), or an in-memory PGlite runtime via `IMPORT_RECOVERY_TEST_PGLITE` pointing to its `dist/index.js`. It checks transaction rollback, overlapping preparation requests, retained source history, and later corrections for other rows. Never point this test at an application database. The four database tests passed with in-memory PGlite on October 6, 2026; no production data or NXT calls were used.
 
 - Re-preparing an unsent run updates its existing row IDs rather than deleting them. A run with creation checks, write attempts, partial results, completed records, or an active send cannot have its preview replaced. Use its saved review/retry controls, or start a separate import for different source data. Removing source rows also requires a new run.
 - Standard staged NXT writes have no automatic transport retries. Each staged change is checkpointed before sending and after its outcome. A timeout, lost response, or uncertain server error stops that row; it is not evidence that NXT saved nothing. An interrupted request remains protected from resending or re-preview.

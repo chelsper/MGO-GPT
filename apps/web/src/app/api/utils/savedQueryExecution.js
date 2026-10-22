@@ -29,7 +29,7 @@ function isFailedQueryJob(status) {
   return /(?:fail|cancel|error|declin)/i.test(String(status || ""));
 }
 
-function getQueryJobMetadataRowCount(job) {
+export function getQueryJobMetadataRowCount(job) {
   const candidates = [
     job?.row_count,
     job?.rowCount,
@@ -50,6 +50,7 @@ function getQueryJobMetadataRowCount(job) {
       candidate !== null &&
       String(candidate).trim(),
   );
+  if (!["number", "string"].includes(typeof value) || !/^\d+$/.test(String(value).trim())) return null;
   const rowCount = Number(value);
   return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
 }

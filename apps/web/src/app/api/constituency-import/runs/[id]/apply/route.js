@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { completeImportContactCollection } from "@/utils/importContactCollection";
 import { claimImportRowForApply } from "@/app/api/utils/importRowApplyClaim";
 import { verifyImportTargetIdentity } from "@/app/api/utils/importTargetIdentity";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
@@ -77,6 +78,7 @@ function serializeRun(row, { quotaPaused = false } = {}) {
     id: String(row.id),
     status: row.status,
     sourceFilename: row.source_filename || "",
+    contactRecoverySourceRunId: row.defaults?.contactRecoverySourceRunId || null,
     rowCount: Number(row.row_count || 0),
     readyCount: Number(row.ready_count || 0),
     needsReviewCount: Number(row.needs_review_count || 0),
@@ -1235,7 +1237,7 @@ async function fetchEmailAddresses({ request, user, constituentId }) {
       origin: new URL(request.url).origin,
     },
   );
-  return getCollection(payload);
+  return completeImportContactCollection(payload);
 }
 
 async function fetchContactValues({ request, user, constituentId, kind }) {
@@ -1249,7 +1251,7 @@ async function fetchContactValues({ request, user, constituentId, kind }) {
     authUserId: user.id,
     origin: new URL(request.url).origin,
   });
-  return getCollection(payload);
+  return completeImportContactCollection(payload);
 }
 
 async function updateExistingContact({ request, user, path, payload }) {

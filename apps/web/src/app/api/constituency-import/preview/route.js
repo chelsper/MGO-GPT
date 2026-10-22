@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { importSetupFileBlockers } from "@/utils/importSetups";
+import { IMPORT_CONTACT_GROUPS, importContactPreflight, mappedImportContacts } from "@/utils/importContactPreflight";
 import { getImportMatchCandidates, isImportMatchRejected, rejectedImportMatchPreview, normalizeImportMatchCandidate } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
@@ -380,42 +382,10 @@ function getRowInput(row, mappings, defaults = {}) {
       source: csvAddressee || csvSalutation ? "CSV" : "file default",
     };
   }
-  if (defaults.updateEmailFields === true) {
-    const emailUpdates = [
-      {
-        address: getMappedValue(row, mappings, "email"),
-        type: getMappedValue(row, mappings, "emailType"),
-        makePrimary: parseBoolean(getMappedValue(row, mappings, "emailMakePrimary")),
-      },
-      {
-        address: getMappedValue(row, mappings, "email2"),
-        type: getMappedValue(row, mappings, "email2Type"),
-        makePrimary: parseBoolean(getMappedValue(row, mappings, "email2MakePrimary")),
-      },
-    ].filter((email) => email.address);
-
-    if (emailUpdates.length) {
-      input.emailUpdates = emailUpdates;
-    }
-  }
-
-  if (defaults.updatePhoneFields === true) {
-    const phoneUpdates = [
-      {
-        number: getMappedValue(row, mappings, "phoneNumber"),
-        type: getMappedValue(row, mappings, "phoneType"),
-        makePrimary: parseBoolean(getMappedValue(row, mappings, "phoneMakePrimary")),
-      },
-      {
-        number: getMappedValue(row, mappings, "phone2Number"),
-        type: getMappedValue(row, mappings, "phone2Type"),
-        makePrimary: parseBoolean(getMappedValue(row, mappings, "phone2MakePrimary")),
-      },
-    ].filter((phone) => phone.number);
-
-    if (phoneUpdates.length) {
-      input.phoneUpdates = phoneUpdates;
-    }
+  for (const group of IMPORT_CONTACT_GROUPS) {
+    if (defaults[group.flag] !== true) continue;
+    const values = mappedImportContacts(row, mappings, defaults, group);
+    if (values.length) input[group.inputKey] = values;
   }
 
   if (defaults.updateAddressFields === true) {
@@ -2873,6 +2843,9 @@ async function savePreviewBatch({
     if (!run) {
       throw new Error("The saved import run could not be found.");
     }
+    if (run.defaults?.contactRecoverySourceRunId) {
+      throw new Error("Continue the saved contact correction. Its source and created IDs cannot be replaced with another file.");
+    }
     if (String(run.workspace_user_id || "") !== String(workspaceUser.id)) {
       throw new Error("You can only update your own saved import run.");
     }
@@ -3134,6 +3107,13 @@ export async function POST(request) {
     const rowsToPreview = inputRows.slice(0, appendRun ? PREVIEW_BATCH_SIZE : MAX_PREVIEW_ROWS);
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
+    const setupBlockers = importSetupFileBlockers(rowsToPreview, mappings, defaults, rowNumberOffset);
+    if (defaults.reusableSetup && defaults.importSetupConfirmed !== true) setupBlockers.push("Confirm this file's saved setup and primary-field plan before preparing the review.");
+    if (setupBlockers.length) return Response.json({ error: setupBlockers.slice(0, 5).join(" ") }, { status: 400 });
+    const contactPlan = importContactPreflight(rowsToPreview, mappings, defaults, rowNumberOffset);
+    if (contactPlan.blockers.length) {
+      return Response.json({ error: contactPlan.blockers.slice(0, 5).join(" "), contactPlan }, { status: 400 });
+    }
     const existingRunId = cleanText(body?.existingRunId);
     const contactDecisions =
       body?.contactDecisions && typeof body.contactDecisions === "object"

@@ -37,6 +37,15 @@ beforeEach(() => {
 });
 
 describe("solicitor and fiscal-year scoped action retrieval", () => {
+  it("keeps explicit system identities for lifecycle joins and never promotes a lookup ID", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValue([
+      action("1", { constituent_summary: { system_record_id: "200", lookup_id: "other" }, completed: true }),
+      action("2", { constituent_summary: { lookup_id: "200" } }),
+    ]);
+    const result = await getNxtActionSummaryByWorkspaceUser(options);
+    expect(result.get(1).actions.find(row => row.actionId === "1")).toMatchObject({ identityVersion: 1, constituentSystemId: "200", completed: true });
+    expect(result.get(1).actions.find(row => row.actionId === "2")).toMatchObject({ identityVersion: 1, constituentSystemId: "", completed: null });
+  });
   it("queries each full fiscal year using only the listed solicitor system IDs", async () => {
     executeBlackbaudListQueryMock.mockResolvedValueOnce([action("current")]).mockResolvedValueOnce([action("prior", { action_date: "2025-07-01" })]);
     const result = await getNxtActionSummaryByWorkspaceUser(comparisonOptions);

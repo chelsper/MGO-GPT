@@ -536,12 +536,13 @@ async function reconcileRow({ request, user, row, verifyExisting = false }) {
   return results;
 }
 
-function buildReconciliationAudit({ row, user, results }) {
+function buildReconciliationAudit({ row, user, results, verifyExisting }) {
   const prior = row.blackbaud_result && typeof row.blackbaud_result === "object" ? row.blackbaud_result : {};
   const attempts = Array.isArray(prior.reconciliation?.attempts) ? prior.reconciliation.attempts : [];
   const verifiedAt = new Date().toISOString();
   const attempt = {
     verifiedAt,
+    scope: verifyExisting ? "requested_fields_and_settings" : "applied_values",
     verifiedByUserId: user.id,
     verifiedByEmail: user.email,
     results,
@@ -552,6 +553,7 @@ function buildReconciliationAudit({ row, user, results }) {
     ...prior,
     reconciliation: {
       verifiedAt,
+      scope: attempt.scope,
       verifiedByUserId: user.id,
       verifiedByEmail: user.email,
       results,
@@ -604,9 +606,10 @@ export async function POST(request, { params }) {
 
     const reconciledRows = [];
     for (const row of rows) {
+      const verifyExisting = completeIfMatches || row.blackbaud_result?.completion?.method === "verified_existing_nxt";
       const results = await reconcileRow({ request, user: authResult.user, row,
-        verifyExisting: completeIfMatches || row.blackbaud_result?.completion?.method === "verified_existing_nxt" });
-      const audit = buildReconciliationAudit({ row, user: authResult.user, results });
+        verifyExisting });
+      const audit = buildReconciliationAudit({ row, user: authResult.user, results, verifyExisting });
       const completed = completeIfMatches && results.length === getWritePlan(row).length &&
         results.length > 0 && results.every((result) => result.status === "confirmed");
       if (completed) audit.completion = {

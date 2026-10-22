@@ -24,9 +24,17 @@ export function selectPortfolioRefreshIds(ids, snapshots, mode, now = Date.now()
   }).sort((a, b) => {
     const priority = (id) => {
       const row = byId.get(id);
-      return !row?.summary_payload || row?.last_error_stage || row?.data_complete === false ? 0 : 1;
+      return !row?.summary_payload || row?.last_error_stage || row?.data_complete === false ? 0
+        : mode === "nightly" && !row?.giving_payload ? 1 : 2;
     };
-    return priority(a) - priority(b);
+    const dueAt = (id) => {
+      const row = byId.get(id);
+      const deadlines = [!isPortfolioSummaryCurrent(row, now) ? row?.stale_after : null,
+        mode === "nightly" && !isPortfolioGivingCurrent(row, now) ? row?.giving_stale_after : null]
+        .filter(Boolean).map(Date.parse).filter(Number.isFinite);
+      return deadlines.length ? Math.min(...deadlines) : 0;
+    };
+    return priority(a) - priority(b) || dueAt(a) - dueAt(b);
   });
 }
 

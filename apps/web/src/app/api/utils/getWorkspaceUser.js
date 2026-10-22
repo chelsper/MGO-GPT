@@ -16,16 +16,22 @@ function parseCookieHeader(cookieHeader) {
       .filter(Boolean)
       .map((part) => {
         const [name, ...rest] = part.split("=");
-        return [name, decodeURIComponent(rest.join("=") || "")];
+        return [name, rest.join("=") || ""];
       }),
   );
 }
 
 export function getActingUserIdFromRequest(request) {
   const cookies = parseCookieHeader(request?.headers?.get?.("cookie") || "");
-  const value = cookies.get(ACTING_USER_COOKIE);
+  let value;
+  // Unrelated or damaged browser cookies must not break workspace access.
+  try {
+    value = decodeURIComponent(cookies.get(ACTING_USER_COOKIE) || "");
+  } catch {
+    return null;
+  }
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
   return parsed;
 }
 

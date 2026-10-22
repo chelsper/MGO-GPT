@@ -119,6 +119,8 @@ describe("constituency import reconciliation route", () => {
       status: "confirmed",
       writeIndex: 0,
     });
+    expect(payload.rows[0].reconciliation.scope).toBe("applied_values");
+    expect(payload.rows[0].reconciliation.attempts[0].scope).toBe("applied_values");
   });
 
   it("confirms an applied primary addressee through the name format summary", async () => {

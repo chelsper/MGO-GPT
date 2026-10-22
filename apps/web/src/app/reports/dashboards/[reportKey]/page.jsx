@@ -77,7 +77,7 @@ export default function ReportDashboardPage() {
   }, [path, reportKey]);
 
   async function refresh() {
-    if (!report || loading || arranging || refreshRequest.current) return;
+    if (!report || report.configuration?.canRefresh === false || loading || arranging || refreshRequest.current) return;
     const controller = new AbortController();
     refreshRequest.current = controller;
     setRefreshing(true);
@@ -155,6 +155,7 @@ export default function ReportDashboardPage() {
   const partial = snapshot?.status === "partial";
   const pending = (report?.refreshStatus || snapshot?.refreshStatus) === "pending";
   const remaining = report?.remainingQueryCount ?? snapshot?.remainingQueryCount;
+  const canRefresh = configuration?.canRefresh !== false;
   const hasFailedValues = snapshot?.values?.some((value) => value.error || value.status === "stale") || snapshot?.warnings?.length > 0;
   const displayedConfiguration = arranging && layoutDraft ? layoutDraft : configuration?.dataConfiguration;
   const layoutDirty = arranging && layoutDraft && configuration?.dataConfiguration
@@ -179,10 +180,10 @@ export default function ReportDashboardPage() {
                   Arrange dashboard
                 </button>
               ) : null}
-              <button type="button" className={styles.button} onClick={refresh} disabled={loading || refreshing || arranging || !report}>
+              {canRefresh && <button type="button" className={styles.button} onClick={refresh} disabled={loading || refreshing || arranging || !report}>
                 <RefreshCw size={17} aria-hidden="true" />
                 {refreshing ? "Refreshing data..." : pending ? "Continue refresh" : "Refresh data"}
-              </button>
+              </button>}
             </div>
           }
         />
@@ -190,9 +191,9 @@ export default function ReportDashboardPage() {
         {layoutError ? <div className={styles.alert} role="alert">{layoutError}</div> : null}
         {layoutMessage ? <div className={styles.successNotice} role="status">{layoutMessage}</div> : null}
         {loading ? <div className={styles.notice} role="status">Loading the cached dashboard...</div> : null}
-        {refreshing ? <div className={styles.notice} role="status">Refreshing saved query data. The previous snapshot remains visible; frozen values and tables are preserved.</div> : null}
-        {pending ? <div className={styles.notice} role="status">Refresh paused between batches{Number.isInteger(remaining) ? `: ${remaining} queries remaining` : ""}. Choose Continue refresh to run the next batch. No queries run automatically.</div> : null}
-        {needsRefresh && !pending ? <div className={styles.notice}>This dashboard has not been fully refreshed. Unknown values are shown as Not refreshed, not zero. Choose Refresh data to run its saved queries.</div> : null}
+        {refreshing ? <div className={styles.notice} role="status">Refreshing report data. The previous snapshot remains visible; frozen values and tables are preserved.</div> : null}
+        {pending ? <div className={styles.notice} role="status">{canRefresh ? <>Refresh paused between batches{Number.isInteger(remaining) ? `: ${remaining} sources remaining` : ""}. Choose Continue refresh to run the next batch. Opening this page does not start NXT requests.</> : "An update is in progress. Saved totals remain available; no action is needed."}</div> : null}
+        {needsRefresh && !pending ? <div className={styles.notice}>This dashboard has not been fully refreshed. Unknown values are shown as Not refreshed, not zero. {canRefresh ? "Choose Refresh data after configuring its data sources." : "A report manager can refresh its data."}</div> : null}
         {partial && (!pending || hasFailedValues) ? <div className={styles.warning} role="status">Some values could not be refreshed. Last successful values are retained where available; missing values are marked Not refreshed.</div> : null}
         {report ? (
           <>

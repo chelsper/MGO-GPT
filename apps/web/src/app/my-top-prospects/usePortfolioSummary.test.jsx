@@ -21,7 +21,7 @@ it("reads only on explicit summary expansion and reuses that result on reopening
   expect(result.current.expandedSummaries[100]).toBe(false);
   act(() => result.current.toggleSummary("100"));
   expect(result.current.expandedSummaries[100]).toBe(true);
-  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/blackbaud/constituents/100/summary");
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/blackbaud/constituents/100/summary?saved_only=1");
 });
 
 it("retains saved data during an explicit refresh and after a failed refresh without retrying", async () => {
@@ -47,7 +47,7 @@ it("retains saved data during an explicit refresh and after a failed refresh wit
   expect(fetch).toHaveBeenLastCalledWith("/api/blackbaud/constituents/100/summary?refresh=1");
 });
 
-it("blocks summary reads during a Blackbaud pause without discarding saved data", async () => {
+it("blocks live refresh during a Blackbaud pause but allows saved-only reads", async () => {
   const { result, rerender } = renderHook(props => usePortfolioSummary(props), {
     initialProps: { allowNxtSummary: true },
   });
@@ -55,9 +55,10 @@ it("blocks summary reads during a Blackbaud pause without discarding saved data"
   rerender({ allowNxtSummary: false });
   await act(async () => result.current.loadSummary("100", { refresh: true }));
   await act(async () => result.current.loadSummary("200"));
-  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledTimes(2);
   expect(result.current.summaryStates[100]).toMatchObject({ status: "error", payload });
-  expect(result.current.summaryStates[200].error).toMatch(/paused/);
+  expect(result.current.summaryStates[200].status).toBe("success");
+  expect(fetch).toHaveBeenLastCalledWith("/api/blackbaud/constituents/200/summary?saved_only=1");
 });
 
 it("keeps constituent state separate and accepts newer verified empty contacts", async () => {

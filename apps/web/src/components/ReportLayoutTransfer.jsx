@@ -55,7 +55,7 @@ export default function ReportLayoutTransfer({ draft, disabled, onImport }) {
 
   return <details className={`${styles.card} ${styles.transfer}`}>
     <summary>Reuse a report layout</summary>
-    <p>For custom dashboards only. A layout includes the current draft's title, description, panel arrangement, and row/column labels. Review these labels for private information before sharing the file.</p>
+    <p>For custom dashboards only. A layout includes the current draft's title, description, panel arrangement, and row/column labels. Review these labels for private information before sharing the file. Campaign funds, goals, milestones, and dates are not transferred; configure them in the destination workspace.</p>
     <p className={styles.muted}>Query IDs, query column mappings, static values, notes, saved results, credentials, and viewer lists are excluded. Imported sources start unmapped and refreshable. Built-in reports and their reporting rules are not transferable here.</p>
     <div className={styles.grid}>
       <section className={styles.stack} aria-label="Export report layout"><strong>Export this layout</strong><p className={styles.muted}>Download a layout-only JSON file. Unsaved layout edits are included; this is not a data backup.</p><div><button type="button" className={styles.button} disabled={disabled || !draft} onClick={download}>Download layout</button></div>{!draft && <small>Select a custom dashboard to export its layout.</small>}</section>

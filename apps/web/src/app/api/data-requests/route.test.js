@@ -155,6 +155,25 @@ describe("data requests route", () => {
     expect(sqlMockImpl.mock.calls[0].slice(1)).toContain(44);
   });
 
+  it("keeps stewardship reads owner-scoped and returns the shared request identity", async () => {
+    const { GET } = await import("./route.js");
+    queueSqlResult([{ id: 22, source_pending_action_id: 17, source_pending_action_status: "Done", status: "In Progress" }]);
+    const response = await GET(new Request("https://example.com/api/data-requests?category=stewardship&view=reviewer"));
+    expect((await response.json())[0]).toMatchObject({ id: 22, request_viewer_id: "44", source_pending_action_status: "Done" });
+    const [strings, ...values] = sqlMockImpl.mock.calls[0];
+    expect(strings.join(" ")).toContain("dcr.requester_user_id =");
+    expect(strings.join(" ")).toContain("dcr.source_pending_action_id IS NOT NULL");
+    expect(values).toContain(true);
+  });
+
+  it.each([{ source_pending_action_id: 17 }, { sourcePendingActionId: 17 }, { requestType: "Stewardship: Personal gift" }, { sourceContext: "stewardship" }])("rejects a second unlinked stewardship submission path: %j", async fields => {
+    const { POST } = await import("./route.js");
+    const response = await POST(new Request("https://example.com/api/data-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }));
+    expect(response.status).toBe(400);
+    expect(sqlMockImpl).not.toHaveBeenCalled();
+    expect(sendAdvancementServicesNotificationMock).not.toHaveBeenCalled();
+  });
+
   it("lets Advancement Services view the shared queue", async () => {
     const { GET } = await import("./route.js");
 

@@ -3,7 +3,11 @@ import {
   parseListQuery,
   validateListPresentation,
 } from "./listQueryConfiguration";
-import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "./reportDashboards";
+import {
+  DASHBOARDS_KEY,
+  DASHBOARDS_HREF,
+  isReportDashboard,
+} from "./reportDashboards";
 export const LIST_SCHEMA = "constituent-list-v1";
 export const LEGACY_LIST_KEY = "future-made-phase-ii";
 export const isConstituentList = (report) =>
@@ -111,8 +115,23 @@ export function reportNavigation(reports) {
         entries.push({ key: "lists", title: "Lists", href: "/reports/lists" });
     } else if (isReportDashboard(report)) {
       if (!entries.some((entry) => entry.key === DASHBOARDS_KEY))
-        entries.push({ key: DASHBOARDS_KEY, title: "My Dashboards", href: DASHBOARDS_HREF });
+        entries.push({
+          key: DASHBOARDS_KEY,
+          title: "My Dashboards",
+          href: DASHBOARDS_HREF,
+        });
     } else entries.push(report);
   }
-  return entries;
+  const order = [
+    "portfolio-fy-giving",
+    "executive-team-standings",
+    "opportunity-pipeline",
+    DASHBOARDS_KEY,
+    "lists",
+  ];
+  const rank = (entry) => {
+    const index = order.indexOf(entry.key);
+    return index < 0 ? order.length : index;
+  };
+  return entries.sort((a, b) => rank(a) - rank(b));
 }

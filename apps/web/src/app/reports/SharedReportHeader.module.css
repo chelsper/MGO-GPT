@@ -1,0 +1,4 @@
+.destinations{margin-bottom:12px;font-size:14px;color:#405c54}
+.destinations>summary{cursor:pointer;font-weight:700;min-height:44px;padding:12px 0;width:fit-content}
+.destinations>summary:focus-visible{outline:3px solid #16878a;outline-offset:3px;border-radius:4px}
+.destinations>div{padding:12px 0}

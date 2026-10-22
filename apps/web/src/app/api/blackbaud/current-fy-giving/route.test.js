@@ -102,6 +102,17 @@ describe("current fiscal year giving route", () => {
     expect(await response.json()).toMatchObject({ providerStatus: httpStatus, retryAfterMs: 30000 });
   });
 
+  it("preserves temporary OAuth failure metadata through the fiscal-year route", async () => {
+    listBlackbaudGiftsMock.mockRejectedValue(Object.assign(new Error("Renewal unavailable"), {
+      httpStatus: 503, stage: "blackbaud_auth", connectionRetryable: true, retryAfterMs: 600000,
+    }));
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=auth-failure&portfolio_refresh=1"));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ providerStatus: 503, failureStage: "blackbaud_auth",
+      connectionRetryable: true, retryAfterMs: 600000, quotaPaused: false });
+  });
+
   it.each([{}, { gifts: [null], hasMore: false }])("rejects malformed nightly giving instead of caching zero", async (value) => {
     listBlackbaudGiftsMock.mockResolvedValue(value);
     const { GET } = await import("./route.js");

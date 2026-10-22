@@ -1,0 +1,361 @@
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import LetterBatchCard from "./LetterBatchCard";
+import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
+import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
+
+function fixture(status = "complete", channel = "post") {
+  const item = {
+    id: "letter",
+    name: "Sample Recipient",
+    batchId: "batch",
+    channel,
+    status: channel === "post" ? "prepared" : "pending_email",
+    societyName: "Sample Society",
+    societyKey: "sample",
+    members: ["10"],
+    period: { start: "2026-01-01", end: "2026-12-31" },
+    coveredKeys: ["sample"],
+    postalDocument: { id: "saved-pdf", format: "pdf" },
+    ...(channel === "post"
+      ? {
+          postalApproval: { index: 0 },
+          letterAppeals: {
+            status,
+            appeal: { id: "100", description: "Sample Appeal" },
+            members: [
+              {
+                id: "10",
+                status: status === "complete" ? "verified" : "pending",
+              },
+            ],
+          },
+        }
+      : {}),
+  };
+  return {
+    batch: {
+      id: "batch",
+      date: "2026-10-08T12:00:00Z",
+      channel,
+      items: [item],
+    },
+    busy: false,
+    emailEnabled: true,
+    definitions: [],
+    receiptIds: {},
+    act: vi.fn(),
+    downloadBatch: vi.fn(),
+    setConfirmation: vi.fn(),
+    setReceiptIds: vi.fn(),
+  };
+}
+
+describe("shared letter batch actions", () => {
+  it("shows CSV receipts and selected mailing without offering nonexistent generated documents or whole-batch mailing", () => {
+    const props = fixture();
+    const item = completedCsvFixture();
+    props.batch = { ...props.batch, id: item.batchId, items: [item] };
+    render(<LetterBatchCard {...props} />);
+    expect(
+      screen.getByText(/Created in Word from a tracked CSV/),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /Download/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Mark batch mailed" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Mark selected letters mailed" }),
+    ).toBeDisabled();
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it.each(["permissions", "catalog", "legacy"])(
+    "keeps approved %s failures out of recipient repair",
+    (kind) => {
+      const props = fixture("needs_review");
+      const item = unsubmittedLetter();
+      item.letterAppeals.status = "needs_review";
+      if (kind === "permissions")
+        item.letterAppeals.verificationFailure = { httpStatus: 403 };
+      if (kind === "catalog") item.letterAppeals.recoveryAction = "appeals";
+      props.batch.items = [item];
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", { name: /Fix recipient details/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: `Review saved status for ${item.name}`,
+        }),
+      );
+      expect(props.setConfirmation).not.toHaveBeenCalled();
+      if (kind === "permissions")
+        expect(screen.getByText(/Ask an administrator/)).toBeVisible();
+      if (kind === "catalog")
+        expect(
+          screen.getByRole("link", { name: "Open appeal settings" }),
+        ).toHaveAttribute("href", "/stewardship/society-letters?view=appeals");
+    },
+  );
+  it("offers a direct, confirmed repair for a blocked unsubmitted letter", () => {
+    const props = fixture("needs_review");
+    const item = unsubmittedLetter();
+    item.letterAppeals.status = "needs_review";
+    item.letterAppeals.message = "The saved mailing address needs review.";
+    item.letterAppeals.recoveryAction = "recipient";
+    props.batch.items = [item];
+    render(<LetterBatchCard {...props} />);
+    expect(
+      screen.getByRole("region", { name: "Letters needing attention" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Fix recipient details for ${item.name}`,
+      }),
+    );
+    expect(props.setConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "return_letter_to_review",
+        deliveryId: item.id,
+        householdId: item.householdId,
+        editRecipientAfterReturn: true,
+      }),
+    );
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it.each(["attempted", "uncertain", "confirmed"])(
+    "only links to saved status when a blocked letter has an %s receipt",
+    (kind) => {
+      const props = fixture("needs_review");
+      const item = unsubmittedLetter();
+      item.letterAppeals.status = "needs_review";
+      if (kind === "attempted")
+        item.letterAppeals.members[0].attemptedAt = "2026-10-09T12:00:00Z";
+      else
+        item.letterAppeals.members[0].status =
+          kind === "uncertain" ? "uncertain" : "verified";
+      props.batch.items = [item];
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", { name: /Fix recipient details/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: `Review saved status for ${item.name}`,
+        }),
+      );
+      expect(
+        screen.getByText(item.name, { selector: "strong" }).closest("li"),
+      ).toHaveFocus();
+      expect(props.act).not.toHaveBeenCalled();
+      expect(props.setConfirmation).not.toHaveBeenCalled();
+    },
+  );
+  it("offers a confirmation to return only an unattempted approved letter", () => {
+    const props = fixture("pending");
+    props.batch.items = [unsubmittedLetter()];
+    render(<LetterBatchCard {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Return to review" }));
+    expect(props.setConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "return_letter_to_review",
+        deliveryId: props.batch.items[0].id,
+        householdId: "10",
+      }),
+    );
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it.each(["attempted", "uncertain", "confirmed"])(
+    "hides return for %s household members",
+    (kind) => {
+      const props = fixture("pending");
+      const item = unsubmittedLetter();
+      if (kind === "attempted")
+        item.letterAppeals.members[1].attemptedAt = "2026-10-09T12:00:00Z";
+      else
+        item.letterAppeals.members[1].status =
+          kind === "uncertain" ? "uncertain" : "verified";
+      props.batch.items = [item];
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", { name: "Return to review" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+  it("excludes returned letters from completion, print and mail controls but keeps their audit", () => {
+    const props = fixture();
+    const returned = {
+      ...unsubmittedLetter(),
+      status: "cancelled",
+      returnToReview: { at: "2026-10-09T12:00:00Z", by: 1 },
+    };
+    props.batch.items.push(returned);
+    render(<LetterBatchCard {...props} />);
+    expect(screen.getByText(/1 returned to review/)).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Download Sample Society print-ready PDF",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Mark batch mailed" }),
+    ).toBeEnabled();
+    expect(screen.getByText(/1 of 1 letters created/)).toBeVisible();
+    fireEvent.click(screen.getByText("Recipients and acknowledgment coverage"));
+    expect(
+      screen.getAllByRole("button", { name: "Download this PDF letter" }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole("button", {
+        name: "Continue remaining appeal updates",
+      }),
+    ).not.toBeInTheDocument();
+  });
+  it("downloads confirmed batches and individual documents without marking them mailed", async () => {
+    const props = fixture();
+    render(<LetterBatchCard {...props} guided />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Download Sample Society print-ready PDF",
+      }),
+    );
+    expect(props.downloadBatch).toHaveBeenCalledWith(
+      "batch",
+      undefined,
+      "combined-pdf",
+      ["letter"],
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Download Sample Society print-ready PDF",
+        }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
+    );
+    expect(props.downloadBatch).toHaveBeenCalledWith("batch");
+    fireEvent.click(screen.getByText("Recipients and acknowledgment coverage"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Download this PDF letter" }),
+    );
+    expect(props.downloadBatch).toHaveBeenLastCalledWith(
+      "batch",
+      "letter",
+      "pdf",
+    );
+    expect(props.act).not.toHaveBeenCalled();
+    expect(props.setConfirmation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Mark batch mailed" }));
+    expect(props.setConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "mailed", batchId: "batch" }),
+    );
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it("does not download or mark mailed while any appeal receipt is pending", () => {
+    const props = fixture("pending");
+    render(<LetterBatchCard {...props} guided />);
+    const download = screen.getByRole("button", {
+      name: "Download PDF letters (.zip)",
+    });
+    expect(download).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "Download Sample Society print-ready PDF",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Mark batch mailed" }),
+    ).toBeDisabled();
+    const details = screen.getByText("Recipients and acknowledgment coverage");
+    expect(details.closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(details);
+    expect(
+      screen.getByRole("button", { name: "Download this PDF letter" }),
+    ).toBeDisabled();
+    fireEvent.click(download);
+    expect(props.downloadBatch).not.toHaveBeenCalled();
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it("retains explicit email send confirmation and environment gating in history", () => {
+    const props = fixture("complete", "email");
+    const { rerender } = render(
+      <LetterBatchCard {...props} emailEnabled={false} />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Send queued emails" }),
+    ).toBeDisabled();
+    rerender(<LetterBatchCard {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send queued emails" }));
+    expect(props.setConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "send", batchId: "batch" }),
+    );
+    expect(props.act).not.toHaveBeenCalled();
+  });
+  it.each(["word", "mixed", "unapproved", "email", "cancelled"])(
+    "does not offer a print-ready PDF for %s letters",
+    (kind) => {
+      const props = fixture("complete", kind === "email" ? "email" : "post");
+      if (kind === "word") props.batch.items[0].postalDocument.format = "docx";
+      if (kind === "mixed")
+        props.batch.items.push({
+          ...props.batch.items[0],
+          id: "word",
+          postalDocument: { id: "saved-word", format: "docx" },
+        });
+      if (kind === "unapproved") delete props.batch.items[0].postalApproval;
+      if (kind === "cancelled") props.batch.items[0].status = "cancelled";
+      render(<LetterBatchCard {...props} />);
+      expect(
+        screen.queryByRole("button", {
+          name: "Download Sample Society print-ready PDF",
+        }),
+      ).not.toBeInTheDocument();
+    },
+  );
+  it("offers society-specific primary downloads on a completed mixed batch and preserves the ZIP", async () => {
+    const props = fixture();
+    props.batch.items.push({
+      ...props.batch.items[0],
+      id: "ood",
+      societyKey: "ood",
+      societyName: "Order of the Dolphin",
+      postalDocument: { id: "saved-ood", format: "pdf" },
+      postalApproval: { index: 1 },
+    });
+    render(<LetterBatchCard {...props} />);
+    expect(
+      screen.getAllByRole("region", { name: "Print-ready PDFs by society" }),
+    ).toHaveLength(1);
+    expect(props.downloadBatch).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Download Order of the Dolphin print-ready PDF",
+      }),
+    );
+    expect(props.downloadBatch).toHaveBeenCalledExactlyOnceWith(
+      "batch",
+      undefined,
+      "combined-pdf",
+      ["ood"],
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Download Order of the Dolphin print-ready PDF",
+        }),
+      ).toBeEnabled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Download PDF letters (.zip)" }),
+    ).toBeEnabled();
+    expect(props.act).not.toHaveBeenCalled();
+    expect(props.setConfirmation).not.toHaveBeenCalled();
+  });
+});

@@ -39,6 +39,12 @@ export async function PUT(request, { params }) {
     if (!existing.length) {
       return Response.json({ error: "Pending action not found" }, { status: 404 });
     }
+    if (existing[0].source_gift_id && (
+      (Object.hasOwn(body, "isPrimary") && body.isPrimary !== false) ||
+      (Object.hasOwn(body, "needsDiscussion") && body.needsDiscussion !== false) ||
+      Object.hasOwn(body, "prospectOpportunityId"))) {
+      return Response.json({ error: "Gift follow-ups remain additional next steps. Their gift and constituent links cannot be changed here." }, { status: 400 });
+    }
     if (existing[0].source_topic_key && (
       (Object.hasOwn(body, "isPrimary") && body.isPrimary !== false) ||
       (Object.hasOwn(body, "needsDiscussion") && body.needsDiscussion !== false) ||
@@ -87,7 +93,7 @@ export async function PUT(request, { params }) {
     }
 
     // Discussion-origin reminders have a backlink, not a synchronized discussion.
-    const discussionItemId = updated?.source_topic_key ? updated.discussion_item_id : await syncPendingActionDiscussion({
+    const discussionItemId = updated?.source_topic_key || updated?.source_gift_id ? updated.discussion_item_id : await syncPendingActionDiscussion({
       ownerUserId: user.id,
       createdByUserId: sessionUser?.id || user.id,
       pendingActionId: updated?.id,

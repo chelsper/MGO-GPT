@@ -181,3 +181,24 @@ it("supports keyboard tab navigation", async () => {
   fireEvent.keyDown(screen.getByRole("tab", { name: "Team Discussion" }), { key: "Home" });
   expect(screen.getByRole("tab", { name: "Next Steps" })).toHaveFocus();
 });
+
+it("cancels a pending discussion deep-link scroll when leaving the screen", async () => {
+  const setTimer = window.setTimeout.bind(window);
+  const pending = [];
+  vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
+    if (delay === 50 && String(callback).includes("discussion-card")) {
+      const id = setTimer(callback, 5000, ...args);
+      pending.push(id);
+      return id;
+    }
+    return setTimer(callback, delay, ...args);
+  });
+  const clear = vi.spyOn(window, "clearTimeout");
+  window.history.replaceState(null, "", "/team-discussion?discussionId=9&status=Resolved&edit=1");
+  const view = mount();
+  await screen.findByRole("button", { name: "Editing details" });
+  expect(pending).toHaveLength(1);
+  view.unmount();
+  expect(clear).toHaveBeenCalledWith(pending[0]);
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+});

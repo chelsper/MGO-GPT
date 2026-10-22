@@ -33,6 +33,14 @@ beforeEach(() => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(report())
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("ReportDashboardPage", () => {
+  it("hides campaign refresh controls from viewers without refresh permission", async () => {
+    fetch.mockResolvedValue(json(report(5, { configuration: { ...configuration, canRefresh: false }, refreshStatus: "pending", remainingQueryCount: 1 })));
+    mount();
+    await screen.findByRole("heading", { name: "Engagement dashboard" });
+    expect(screen.queryByRole("button", { name: /refresh/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/no action is needed/)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("uses only the cached dashboard GET alongside cached navigation metadata", async () => {
     mount();
     expect(await screen.findByRole("heading", { name: "Engagement dashboard" })).toBeInTheDocument();
@@ -61,12 +69,12 @@ describe("ReportDashboardPage", () => {
     fetch.mockResolvedValue(json(pendingReport));
     mount();
     const button = await screen.findByRole("button", { name: "Continue refresh" });
-    expect(screen.getByText(/3 queries remaining/)).toBeInTheDocument();
+    expect(screen.getByText(/3 sources remaining/)).toBeInTheDocument();
     expect(screen.queryByText(/Some values could not be refreshed/)).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
     fetch.mockResolvedValue(json(report(8, { refreshStatus: "pending", remainingQueryCount: 1 })));
     fireEvent.click(button);
-    await screen.findByText(/1 queries remaining/);
+    await screen.findByText(/1 sources remaining/);
     expect(fetch).toHaveBeenCalledTimes(2);
     fetch.mockResolvedValue(json(report(9, { refreshStatus: "complete", remainingQueryCount: 0 })));
     fireEvent.click(screen.getByRole("button", { name: "Continue refresh" }));
@@ -84,7 +92,7 @@ describe("ReportDashboardPage", () => {
     mount();
     await screen.findByRole("button", { name: "Continue refresh" });
     expect(screen.getByText(/Some values could not be refreshed/)).toBeInTheDocument();
-    expect(screen.getByText(/3 queries remaining/)).toBeInTheDocument();
+    expect(screen.getByText(/3 sources remaining/)).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

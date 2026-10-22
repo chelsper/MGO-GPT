@@ -17,7 +17,8 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 - Parent categories and subcategories are separate groups. Uncategorized is available when the existing category response provides it. A constituent appearing in multiple groups retains the existing first-group ownership rule and is counted once.
 - Selecting a group starts at page one and retains the current sort, quick view and density. Show all groups removes only the group filter. Show all constituents in an empty result clears group, search and quick view.
 - If the selected group disappears during a background update, the worklist stays empty with an Unavailable group option and recovery controls. It does not silently broaden the list.
-- Group selection, search and expanded constituent IDs are in-memory only. Returning to a workspace does not restore a hidden subset. Existing density, grouping, sorting, quick-view and page-size preferences remain scoped to the signed-in viewer and selected workspace. No constituent data or category names are added to browser storage.
+- Group selection is saved with density, grouping, sorting, quick view and page size in this browser, separately for the signed-in viewer and selected MGO workspace. Returning to a portfolio restores that category or solicitor group, including after a reload. The visible Show group control, filter note and Show all groups button identify and clear the restored subset. Search, pagination and expanded constituent IDs still reset on a new visit. No constituent data or category names are added to browser storage; only the opaque group key is saved.
+- Older saved preferences remain compatible, with All categories/roles until a specific group is chosen. A delayed profile key reloads the correct workspace's preferences before writing; it cannot overwrite another workspace's settings. Delayed category results show a loading state and retain the saved selection. A deleted group remains visibly unavailable until explicitly cleared, rather than silently broadening the list. Browser storage being blocked or cleared does not affect server-saved donor category assignments, but prevents remembering the display selection between visits.
 
 ## Quiet Rows And Saved Activity
 
@@ -97,3 +98,46 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 Worklist and actual-page integration tests cover group scoping, duplicate membership, search, quick-view counts, pagination, Focus, unchanged category/rank data, unavailable-group recovery and workspace isolation. Browser QA uses synthetic records; new features are not tested against production until deployed.
 
 Next-step tests cover date boundaries, optional notes, request counts, failed saves, duplicate submission, keyboard focus, draft refreshes, changed primary steps, explicit field clearing and workspace write permissions. Synthetic browser QA checks the shared fields at desktop and narrow card widths without writing production records.
+
+## Category Preference Release: 2026-10-16
+
+Deployed source: `f7bf5cef9ff86e478a0327a8b256009c0bde0f28`.
+JU deployment: `dpl_8XhJaVFLYxD4PvAdDNapDJq5A3oy`, hosted at
+`mgo-ifwpsxq3l-chelspers-projects.vercel.app`, promoted to
+`https://www.jumgogpt.app` after protected-candidate verification.
+Rollback target: `dpl_GUXkUsaQjUjRv3YqNZN1Y6rBjVhN`, source
+`e570cf265ae219b246145f9aa448c3ccca411d36`.
+
+The selected category/solicitor group is now part of the existing browser-local
+viewer/workspace preference. Workspace-key changes remount the view before a
+save can overwrite another workspace's preference. Initial category loading
+keeps the selection and shows a loading notice. Existing preferences remain
+compatible; users must choose a category once because earlier versions did not
+store that selection. This does not sync preferences across browsers/devices.
+No database schema or NXT integration changes are included.
+
+Fresh full regression: 6,969 passed, 192 existing environment-dependent skips.
+All 151 focused portfolio tests and all 92 isolated campaign database tests ran
+and passed. Coverage includes page/tab remounts, delayed profiles/categories,
+viewer/workspace changes, older/corrupt/blocked storage, deleted categories,
+explicit filter clearing, and unchanged donor assignments. Typecheck, local and
+hosted builds, whitespace checks, and the release guard passed.
+
+The committed archive supplied 1,420 hash-verified upload files. Unrelated local
+changes, including the existing overnight-activity documentation edit, were
+excluded and preserved. No Git push was performed. Candidate and live checks
+verified the exact release identity, portfolio and existing campaign feature
+assets, page responses, and unauthenticated API access guards. Live functional
+category changes and existing-session version cookies were not exercised.
+
+JU settings and all five cron schedules are unchanged, with cron hosts following
+the promoted release. The sandbox and all other Vercel projects were unchanged.
+No authenticated data writes, portfolio sync, campaign refresh, or NXT record
+updates were performed. These verification notes are committed separately from
+the deployed application source.
+
+Evidence: `/private/tmp/ju-portfolio-category-release-*`,
+`/private/tmp/ju-portfolio-category-deploy-*`,
+`/private/tmp/ju-portfolio-category-candidate-smoke.log`,
+`/private/tmp/ju-portfolio-category-live-smoke.log`, and
+`/private/tmp/ju-portfolio-category-verify-prod.log`.

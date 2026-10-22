@@ -293,7 +293,7 @@ export default function AppShell({ children }) {
     : getWorkspaceRoleLabel(profile?.role, labels) || workspaceLabel;
 
   return (
-    <WorkspaceTerminologyProvider terminology={labels}>
+    <WorkspaceTerminologyProvider terminology={labels} dashboardAssistant={{ ...organization.dashboardAssistant, enabled: Boolean(organizationPayload?.settings) && organization.dashboardAssistant.enabled }}>
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.headerInner}>

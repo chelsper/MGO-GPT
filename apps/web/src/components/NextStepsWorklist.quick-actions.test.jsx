@@ -39,6 +39,44 @@ afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllG
 const mount = () => render(<QueryClientProvider client={client}><NextStepsWorklist viewerId={2} workspaceId={7} /></QueryClientProvider>);
 const row = () => screen.getByRole("article", { name: "Person One: Prepare visit" });
 
+it.each([true, false])("offers assistance only in an editable gift-origin task (canEdit=%s) without loading extra data", async editable => {
+  canEdit = editable; items[0].source_gift_id = "900";
+  mount(); await screen.findByText("Prepare visit");
+  expect(within(row()).queryByRole("button", { name: "Request stewardship assistance" }) !== null).toBe(editable);
+  expect(screen.queryAllByRole("button", { name: "Request stewardship assistance" })).toHaveLength(editable ? 1 : 0);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it.each(["Open", "Done"])("shows the same request's status and view button in %s tasks", async status => {
+  items[0] = { ...items[0], source_gift_id: "900", status, stewardship_request_id: "22", stewardship_request_status: "In Progress" };
+  window.history.replaceState(null, "", `/follow-ups?tab=next-steps&nextStepId=1&status=${status}`);
+  mount(); await screen.findByText("Prepare visit");
+  expect(within(row()).getByRole("button", { name: "View stewardship request" })).toBeInTheDocument();
+  expect(within(row()).queryByRole("button", { name: "Request stewardship assistance" })).not.toBeInTheDocument();
+  expect(within(row()).getByText(/Stewardship request #22/)).toHaveTextContent("In Progress");
+  expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/follow-ups?"))).toBe(true);
+});
+
+it("keeps saved gift context separate from editable notes and visible in completed history", async () => {
+  items[0] = { ...items[0], source_gift_id: "900", category: "Stewardship", source_gift_snapshot: {
+    constituentName: "Person One", amount: 2500, date: "2026-09-15", giftId: "900", constituentId: "100",
+  } };
+  mount(); await screen.findByText("Prepare visit");
+  fireEvent.click(within(row()).getByText("Details", { exact: true }));
+  expect(screen.getByText("Gift that prompted this follow-up")).toBeVisible();
+  expect(screen.getByText(/\$2,500.00 gift on/)).toBeVisible();
+  fireEvent.click(within(row()).getByRole("button", { name: "Edit next step" }));
+  expect(screen.getByLabelText("Notes (optional)")).toHaveValue("Keep these notes");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+  fireEvent.click(within(row()).getByRole("button", { name: "Mark complete" }));
+  await screen.findByText(/Next step completed/);
+  fireEvent.click(screen.getByRole("button", { name: "Completed history" }));
+  await screen.findByText("Prepare visit");
+  fireEvent.click(within(row()).getByText("Details", { exact: true }));
+  expect(screen.getByText(/\$2,500.00 gift on/)).toBeVisible();
+  expect(items[0].source_gift_id).toBe("900");
+});
+
 it.each([true, false])("gives permission-aware empty-state guidance when canEdit is %s", async editable => {
   canEdit = editable;
   items = [];

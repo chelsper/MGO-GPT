@@ -2,19 +2,26 @@ import Docxtemplater from "docxtemplater";
 import PizZip from "pizzip";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
+import { letterMergeBlockers } from "@/utils/societyLetterDocumentReadiness";
 import {
   LETTER_TAGS,
+  formatLetterAddress,
   letterError,
   letterMergeData,
   mergeLetterText,
+  normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
+import {
+  processLetterWordFields,
+  wordFieldSource,
+} from "./societyLetterWordFields";
 
 export const MAX_TEMPLATE_BYTES = 1024 * 1024;
 const sample = Object.fromEntries(
   LETTER_TAGS.map((tag) => [tag, `Sample ${tag.replaceAll("_", " ")}`]),
 );
 
-function templateDocument(base64) {
+function validatedTemplateZip(base64) {
   const buffer = Buffer.from(base64, "base64");
   if (!buffer.length || buffer.length > MAX_TEMPLATE_BYTES)
     throw letterError("Upload a Word .docx template no larger than 1 MB.");
@@ -61,29 +68,84 @@ function templateDocument(base64) {
       throw letterError(
         "Remove external document links, linked images, and embedded content from the template.",
       );
+  }
+  return zip;
+}
+
+export function inspectLetterTemplate(content) {
+  return processLetterWordFields(validatedTemplateZip(content));
+}
+
+function templateDocument(base64, settings, usedFields = new Set()) {
+  const zip = validatedTemplateZip(base64);
+  applyLetterFont(zip, settings);
+  if (settings.wordBindings) processLetterWordFields(zip, settings);
+  for (const file of Object.values(zip.files)) {
     if (/^word\/.+\.xml$/.test(file.name)) {
+      const xml = file.asText();
       const visible = xml.replace(/<[^>]*>/g, "");
       for (const match of visible.matchAll(/\{([^{}]+)\}/g)) {
-        if (!LETTER_TAGS.includes(match[1].trim()))
+        const field = settings.wordBindings
+          ? wordFieldSource(match[1].trim(), settings)
+          : match[1].trim();
+        if (!LETTER_TAGS.includes(field))
           throw letterError(
-            `Unsupported merge field: ${match[1].slice(0, 60)}. Use only the listed fields.`,
+            `Choose a value for Word field ${match[1].slice(0, 60)} in the template's merge-field settings.`,
           );
       }
     }
   }
-  return new Docxtemplater(zip, {
+  const document = new Docxtemplater(zip, {
     paragraphLoop: false,
     linebreaks: true,
     errorLogging: false,
     parser: (tag) => {
-      if (!LETTER_TAGS.includes(tag.trim()))
+      const field = settings.wordBindings
+        ? wordFieldSource(tag.trim(), settings)
+        : tag.trim();
+      if (!LETTER_TAGS.includes(field))
         throw letterError("Use only the listed merge fields.");
-      return { get: (data) => data[tag.trim()] || "" };
+      usedFields.add(field);
+      return { get: (data) => data[field] || "" };
     },
   });
+  for (const field of usedFields) {
+    if (!settings.fields.includes(field))
+      throw letterError(
+        `Select the merge field {${field}} or remove it from the Word letter before saving.`,
+      );
+  }
+  return document;
+}
+
+function applyLetterFont(zip, settings) {
+  if (settings.fontReplacement !== "carlito") return;
+  for (const file of zip.file(/^word\/.+\.xml$/)) {
+    // Change font attributes only, never letter text, sizing, or embedded media.
+    const xml = file
+      .asText()
+      .replace(/<w:(?:rFonts|font)\b[^>]*>/g, (tag) =>
+        tag.replace(
+          /(\bw:(?:ascii|hAnsi|eastAsia|cs|name)\s*=\s*)(["'])Avenir Next LT Pro\2/g,
+          "$1$2Carlito$2",
+        ),
+      );
+    zip.file(file.name, xml);
+  }
+}
+
+export function letterTemplateFile(template) {
+  const settings = normalizeLetterMergeSettings(template.mergeSettings);
+  const zip = validatedTemplateZip(template.content);
+  if (settings.fontReplacement !== "carlito")
+    return Buffer.from(template.content, "base64");
+  applyLetterFont(zip, settings);
+  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
 export function validateLetterTemplate(raw) {
+  const mergeSettings = normalizeLetterMergeSettings(raw?.mergeSettings);
+  const usedFields = new Set();
   const filename = String(raw?.filename || "")
     .replace(/[^a-zA-Z0-9_. -]/g, "_")
     .slice(0, 100);
@@ -107,7 +169,17 @@ export function validateLetterTemplate(raw) {
       "Add an email subject (up to 200 characters) and cover message.",
     );
   try {
-    templateDocument(content).render(sample);
+    templateDocument(content, mergeSettings, usedFields).render(sample);
+    for (const text of [subject, emailBody]) {
+      for (const match of text.matchAll(/\{([^{}]+)\}/g)) {
+        const field = match[1].trim();
+        if (!mergeSettings.fields.includes(field))
+          throw letterError(
+            `Select the merge field {${field.slice(0, 60)}} or remove it from the email before saving.`,
+          );
+        usedFields.add(field);
+      }
+    }
     mergeLetterText(subject, sample);
     mergeLetterText(emailBody, sample);
   } catch (error) {
@@ -121,21 +193,88 @@ export function validateLetterTemplate(raw) {
     content,
     subject,
     emailBody,
+    mergeSettings,
+    ...(mergeSettings.wordBindings
+      ? { wordFields: inspectLetterTemplate(content) }
+      : {}),
+    usedFields: LETTER_TAGS.filter((field) => usedFields.has(field)),
     version: createHash("sha256")
-      .update(JSON.stringify([content, subject, emailBody]))
+      .update(JSON.stringify([content, subject, emailBody, mergeSettings]))
       .digest("hex"),
   };
 }
 
+function compiledLetterTemplate(template) {
+  const settings = normalizeLetterMergeSettings(template.mergeSettings);
+  if (!settings.wordBindings && inspectLetterTemplate(template.content).legacy)
+    throw letterError(
+      "This letter still uses Word mail-merge placeholders. Open Letter templates, read the Word fields, and save their mappings before previewing or creating letters.",
+    );
+  const usedFields = new Set();
+  const document = templateDocument(template.content, settings, usedFields);
+  for (const value of [template.subject, template.emailBody]) {
+    for (const match of String(value).matchAll(/\{([^{}]+)\}/g))
+      usedFields.add(match[1].trim());
+  }
+  return { document, settings, usedFields: [...usedFields] };
+}
+
+export function letterTemplateRequirements(template) {
+  return compiledLetterTemplate(template).usedFields;
+}
+
 export function renderSocietyLetter(template, row, today) {
-  const data = letterMergeData(row, today);
-  const document = templateDocument(template.content);
+  const { document, settings, usedFields } = compiledLetterTemplate(template);
+  const data = letterMergeData(row, today, settings);
+  const blockers = letterMergeBlockers(row, usedFields);
+  if (blockers.length) {
+    const error = letterError(blockers.map((item) => item.message).join(" "));
+    error.blockers = blockers.map((item) => ({
+      ...item,
+      householdId: row.householdId,
+    }));
+    throw error;
+  }
   document.render(data);
   return {
     document: document.toBuffer(),
     subject: mergeLetterText(template.subject, data),
     text: mergeLetterText(template.emailBody, data),
   };
+}
+
+export function renderSocietyLetterSample(
+  template,
+  societyName,
+  period,
+  today,
+) {
+  const addressParts = {
+    address_line_1: "123 Sample Street",
+    address_line_2: "Suite 200",
+    city: "Example City",
+    state: "FL",
+    zip: "00000",
+    country: "United States",
+  };
+  return renderSocietyLetter(
+    template,
+    {
+      members: ["sample-primary", "sample-spouse"],
+      name: "Alex Example & Jordan Example",
+      firstName: "Alex",
+      lastName: "Example",
+      spouseFirstName: "Jordan",
+      spouseLastName: "Example",
+      addressee: "Alex and Jordan Example",
+      salutation: "Alex and Jordan",
+      address: formatLetterAddress(addressParts),
+      addressParts,
+      societyName,
+      period,
+    },
+    today,
+  );
 }
 
 export function letterArchive(items, templates) {

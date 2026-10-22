@@ -10,8 +10,22 @@ import {
   runDashboardQueryCount,
 } from "@/app/api/utils/dashboardQueryCount";
 import { runDashboardQueryResults } from "@/app/api/utils/dashboardQueryResults";
+import { presentFundraisingTracker, trackerFingerprint } from "@/utils/fundraisingTracker";
+import { refreshFundraisingTracker } from "./fundraisingTracker";
 
 const TABLE_SOURCE = "query-results-csv-v1";
+
+function withTrackers(configuration, cached, snapshot) {
+  const trackers = configuration.panels.filter((panel) => panel.layout === "fundraising_tracker")
+    .map((panel) => presentFundraisingTracker(panel, cached?.trackerState?.[panel.key]));
+  if (!trackers.length) return snapshot;
+  const pending = trackers.filter((tracker) => tracker.pending).length;
+  return { ...snapshot, trackers,
+    status: pending || trackers.some((t) => t.error) ? "partial" : trackers.some((t) => ["missing", "unconfigured"].includes(t.status)) && snapshot.status === "complete" ? "refresh_required" : snapshot.status,
+    refreshStatus: pending ? "pending" : snapshot.refreshStatus,
+    remainingQueryCount: snapshot.remainingQueryCount + pending,
+    warnings: [...snapshot.warnings, ...trackers.filter((t) => t.error).map((t) => ({ key: t.key, error: t.error }))] };
+}
 
 export const dashboardCacheKey = (reportKey) => `report:dashboard:${reportKey}`;
 
@@ -176,7 +190,7 @@ export function presentDashboardSnapshot(
     configuration,
     refreshState?.remainingKeys,
   );
-  return {
+  return withTrackers(configuration, cached, {
     status:
       remainingQueryCount || [...values, ...tables].some((cell) => cell.error)
         ? "partial"
@@ -195,7 +209,7 @@ export function presentDashboardSnapshot(
     },
     refreshStatus: remainingQueryCount ? "pending" : "complete",
     remainingQueryCount,
-  };
+  });
 }
 
 export async function refreshDashboardSnapshot({
@@ -206,6 +220,7 @@ export async function refreshDashboardSnapshot({
   staticValueProvenance,
   executeQuery = runDashboardQueryCount,
   executeTableQuery = runDashboardQueryResults,
+  executeTracker = refreshFundraisingTracker,
 }) {
   const snapshot = presentDashboardSnapshot(
     configuration,
@@ -219,9 +234,12 @@ export async function refreshDashboardSnapshot({
   const now = new Date().toISOString();
   const fingerprint = sourceFingerprint(configuration);
   const previousState = reconcileRefreshState(configuration, cached);
+  const trackerPanels = configuration.panels.filter((panel) => panel.layout === "fundraising_tracker");
+  const trackerPending = trackerPanels.some((panel) => cached?.trackerState?.[panel.key]?.fingerprint === trackerFingerprint(panel) && cached.trackerState[panel.key].pending);
   const remainingKeys = new Set(
     previousState?.remainingKeys ||
-      queryTargets(configuration).map((cell) => cell.key),
+      queryTargets(configuration).filter((cell) => !trackerPending ||
+        !(cell.table ? compatibleTable({ ...cell, key: cell.panelKey }, cached) : compatibleValue(cell, cached))).map((cell) => cell.key),
   );
   const queryResults = { ...previousState?.queryResults };
   // Both count and table sources share one bounded refresh budget and checkpoint.
@@ -299,7 +317,15 @@ export async function refreshDashboardSnapshot({
     }
     remainingKeys.delete(cell.key);
   }
-  return {
+  const trackerState = {};
+  const continuing = trackerPending || Boolean(previousState?.remainingKeys.length);
+  const budget = { remaining: Math.max(0, DASHBOARD_LIMITS.queriesPerRefresh - refreshMetrics.queryJobs) };
+  for (const panel of trackerPanels) {
+    const prior = cached?.trackerState?.[panel.key];
+    trackerState[panel.key] = continuing && prior?.fingerprint === trackerFingerprint(panel) && !prior.pending && (prior.refreshedAt || prior.error)
+      ? prior : await executeTracker({ panel, cached: prior, user, origin, budget });
+  }
+  return withTrackers(configuration, { trackerState }, {
     ...snapshot,
     status:
       remainingKeys.size ||
@@ -318,10 +344,11 @@ export async function refreshDashboardSnapshot({
       remainingKeys: [...remainingKeys],
       queryResults: remainingKeys.size ? queryResults : {},
     },
+    trackerState,
     warnings: [...snapshot.values, ...snapshot.tables]
       .filter((cell) => cell.error)
       .map((cell) => ({ key: cell.key, error: cell.error })),
-  };
+  });
 }
 
 // Compare-and-swap avoids concurrent refreshes overwriting a newer checkpoint or frozen value.
@@ -341,6 +368,6 @@ export async function saveDashboardSnapshot(reportKey, payload, previous) {
 }
 
 export function publicDashboardSnapshot(snapshot) {
-  const { refreshState: _internal, ...publicSnapshot } = snapshot;
+  const { refreshState: _internal, trackerState: _trackerInternal, ...publicSnapshot } = snapshot;
   return publicSnapshot;
 }

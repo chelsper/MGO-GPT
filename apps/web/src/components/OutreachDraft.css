@@ -1,0 +1,39 @@
+.outreach-draft-launcher { min-height: 44px; padding: 10px 14px; border: 1px solid #b8d6ca; border-radius: 10px; background: #fff; color: #175b4d; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+.outreach-draft { --draft-ink: #183d34; margin: auto; width: min(1100px, calc(100% - 32px)); max-height: 90dvh; padding: 0; border: 1px solid #c8d9d1; border-radius: 20px; background: #fff; color: var(--draft-ink); box-shadow: 0 24px 70px #183d342b; overflow-y: auto; overflow-wrap: anywhere; }
+.outreach-draft::backdrop { background: #152d285c; }
+.outreach-draft *, .outreach-draft *::before, .outreach-draft *::after { box-sizing: border-box; }
+.outreach-draft button { min-height: 44px; padding: 10px 14px; border: 1px solid #bfd4ce; border-radius: 10px; background: #fff; color: #175b4d; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+.outreach-draft button:disabled { cursor: not-allowed; opacity: .55; }
+.outreach-draft :is(button, textarea, input):focus-visible, .outreach-draft-launcher:focus-visible { outline: 3px solid #137b65; outline-offset: 3px; }
+.outreach-draft-header { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 24px 28px 12px; background: linear-gradient(110deg, #edf8f3, #fff); }
+.outreach-draft h2 { margin: 8px 0 0; font-size: 24px; line-height: 1.3; }
+.outreach-draft h3 { margin: 0 0 16px; font-size: 17px; }
+.outreach-draft p { margin: 8px 0 14px; font-size: 14px; line-height: 1.6; }
+.outreach-draft-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #526c60; }
+.outreach-draft .outreach-draft-intro { margin: 0; padding: 12px 28px 22px; color: #52645d; border-bottom: 1px solid #dce7e1; }
+.outreach-draft-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); }
+.outreach-draft-context { padding: 24px 28px; background: #f5f9f6; border-right: 1px solid #dce7e1; min-width: 0; }
+.outreach-draft-context dl, .outreach-draft-context dd { margin: 0; }
+.outreach-draft-context dl > div { margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid #dce7e1; }
+.outreach-draft-context dt { font-size: 14px; font-weight: 700; }
+.outreach-draft-context small { font-size: 12px; color: #52645d; }
+.outreach-draft-editor { min-width: 0; padding: 24px 28px; }
+.outreach-draft-editor > label:first-of-type { display: block; font-size: 17px; font-weight: 700; }
+.outreach-draft-editor > label:first-of-type > span { display: block; margin: 6px 0 12px; font-size: 13px; font-weight: 400; color: #52645d; }
+.outreach-draft textarea { width: 100%; min-height: 330px; max-height: 65vh; padding: 16px; border: 1px solid #b6c9bf; border-radius: 12px; font: inherit; font-size: 16px; line-height: 1.65; resize: vertical; color: #213b32; background: #fff; }
+.outreach-draft-modes, .outreach-draft-footer { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.outreach-draft-modes [aria-pressed="true"], .outreach-draft-footer button:first-child { background: #125d4e; border-color: #125d4e; color: #fff; }
+.outreach-draft .outreach-draft-hint { color: #52645d; font-size: 12px; }
+.outreach-draft-review { display: flex; gap: 10px; align-items: start; margin: 18px 0; font-size: 13px; line-height: 1.5; }
+.outreach-draft-review input { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 2px; accent-color: #125d4e; }
+.outreach-draft-warning { padding: 16px 28px; background: #fff6e6; color: #7f3d0c; }
+.outreach-draft [role="alert"] { color: #893710; }
+.outreach-draft [role="status"] { color: #125d4e; }
+@media (max-width: 700px) {
+  .outreach-draft { width: calc(100% - 20px); max-height: 94dvh; }
+  .outreach-draft-grid { grid-template-columns: minmax(0, 1fr); }
+  .outreach-draft-header, .outreach-draft-editor, .outreach-draft-context { padding: 18px; }
+  .outreach-draft .outreach-draft-intro { padding: 12px 18px 18px; }
+  .outreach-draft-context { border-right: 0; border-bottom: 1px solid #dce7e1; }
+  .outreach-draft h2 { font-size: 21px; }
+}

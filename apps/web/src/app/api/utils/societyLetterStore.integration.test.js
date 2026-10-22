@@ -1,8 +1,33 @@
-// Opt-in: use an ephemeral local PostgreSQL cluster, never DATABASE_URL.
+// @vitest-environment node
+// Opt-in: use an ephemeral PostgreSQL cluster or in-memory PGlite, never DATABASE_URL.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import Papa from "papaparse";
+import { readStewardshipOverview } from "./stewardshipOverview";
+import { letterPeriod } from "@/utils/societyLetters";
+import { unsubmittedLetter } from "../../../../test/societyLetterRecoveryFixture";
+import { completedLetter } from "../../../../test/societyLetterDispatchFixture";
+import { completedCsvFixture } from "../../../../test/societyLetterCsvTrackingFixture";
+import {
+  triageState,
+  triageRequest,
+  triageDefinitions,
+  triageToday,
+} from "../../../../test/societyLetterTriageStateFixture";
+import { confirmStraightforwardRecipients } from "./societyLetterBulkRecipientReviews";
+import {
+  letterSourceSignature,
+  letterWorkspace,
+} from "./societyLetterWorkflow";
 
 const database = vi.hoisted(() => ({ query: null }));
 vi.mock("./sql", () => ({
@@ -12,13 +37,19 @@ import {
   acquireSocietyLetters,
   ensureSocietyLetterSchema,
   readSocietyLetterState,
+  readPostalDocument,
+  readLetterCsvRun,
 } from "./societyLetterStore";
 
 const socket = process.env.STEWARDSHIP_TEST_PG_SOCKET;
-const enabled = /^\/(?:private\/)?tmp\/stewardship-pg\.[A-Za-z0-9]+$/.test(
+const modulePath = process.env.STEWARDSHIP_PGLITE_MODULE;
+const validSocket = /^\/(?:private\/)?tmp\/stewardship-pg\.[A-Za-z0-9]+$/.test(
   socket || "",
 );
-function execute(statement) {
+const enabled = validSocket || Boolean(modulePath);
+let pg;
+async function execute(statement) {
+  if (pg) return (await pg.exec(statement)).flatMap((result) => result.rows);
   const output = execFileSync(
     process.env.STEWARDSHIP_TEST_PSQL || "psql",
     [
@@ -42,9 +73,21 @@ function execute(statement) {
         Object.fromEntries(
           Object.entries(row).map(([key, value]) => [
             key,
-            ["settings", "templates", "snapshot", "job", "payload"].includes(
-              key,
-            )
+            [
+              "settings",
+              "templates",
+              "snapshot",
+              "job",
+              "payload",
+              "summary",
+              "exclusions",
+              "recipient_reviews",
+              "readiness",
+              "csv_formats",
+              "period",
+              "rows",
+              "history",
+            ].includes(key)
               ? value
                 ? JSON.parse(value)
                 : null
@@ -64,6 +107,20 @@ function literal(value) {
 }
 describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   beforeAll(async () => {
+    if (modulePath) {
+      if (
+        socket ||
+        !/^\/(?:private\/)?tmp\/.+\/node_modules\/@electric-sql\/pglite\/dist\/index\.js$/.test(
+          modulePath,
+        )
+      ) {
+        throw new Error(
+          "Choose only an isolated /tmp PGlite runtime or test socket",
+        );
+      }
+      const { PGlite } = await import(/* @vite-ignore */ modulePath);
+      pg = await PGlite.create();
+    }
     database.query = async (parts, values) =>
       execute(
         parts.reduce(
@@ -72,14 +129,20 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
           "",
         ),
       );
-    execute(
+    await execute(
       "CREATE TABLE IF NOT EXISTS users(id BIGINT PRIMARY KEY); INSERT INTO users(id) VALUES(1) ON CONFLICT DO NOTHING;",
     );
     await ensureSocietyLetterSchema();
+    await execute(
+      "CREATE TABLE IF NOT EXISTS organization_settings(id INTEGER PRIMARY KEY, time_zone TEXT); INSERT INTO organization_settings VALUES (1, 'America/New_York') ON CONFLICT DO NOTHING; CREATE TABLE IF NOT EXISTS data_change_requests(id BIGINT PRIMARY KEY, source_pending_action_id BIGINT, status TEXT, needed_by DATE);",
+    );
+  }, 30000);
+  afterAll(async () => {
+    await pg?.close();
   });
-  beforeEach(() => {
-    execute(
-      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
+  beforeEach(async () => {
+    await execute(
+      "TRUNCATE data_change_requests, stewardship_letter_csv_runs, stewardship_letter_postal_documents, stewardship_letter_postal_batches, stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', recipient_reviews='{}', readiness='{}', csv_formats='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -94,6 +157,690 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("persists CSV defaults without touching source settings, reviews, deliveries or existing CSV bytes", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = await readSocietyLetterState();
+    const csv_formats = {
+      ood: { salutation: "household_preferred" },
+      presidents: { salutation: "record" },
+    };
+    await store.save({ ...original, csv_formats });
+    const saved = await readSocietyLetterState();
+    expect(saved.csv_formats).toEqual(csv_formats);
+    expect(saved.recipient_reviews).toEqual(original.recipient_reviews);
+    expect(saved.settings).toEqual(original.settings);
+    expect(saved.history).toEqual([]);
+    expect(saved.csvRuns).toEqual([]);
+    expect(saved.revision).toBe(1);
+    await store.release();
+    await expect(store.save({ ...saved, csv_formats: {} })).rejects.toThrow();
+    expect((await readSocietyLetterState()).csv_formats).toEqual(csv_formats);
+  });
+  it("persists a bulk recipient confirmation atomically and rejects stale retries without reserving letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const source = {
+      ...(await readSocietyLetterState()),
+      ...triageState(3),
+      revision: 0,
+    };
+    await store.save(source);
+    const configured = await readSocietyLetterState();
+    // Production refreshes are signed against already-persisted JSONB settings.
+    configured.snapshot.signature = letterSourceSignature(
+      configured,
+      triageDefinitions,
+    );
+    await store.save(configured);
+    const state = await readSocietyLetterState(),
+      request = triageRequest(state);
+    await confirmStraightforwardRecipients(
+      state,
+      triageDefinitions,
+      triageToday,
+      request,
+      store,
+      1,
+    );
+    const saved = await readSocietyLetterState();
+    expect(Object.values(saved.recipient_reviews)).toHaveLength(3);
+    expect(
+      Object.values(saved.recipient_reviews).every(
+        (review) => review.values.salutation === "Al" && review.savedBy === 1,
+      ),
+    ).toBe(true);
+    expect(saved.history).toEqual([]);
+    expect(saved.csvRuns).toEqual([]);
+    expect(saved.revision).toBe(request.revision + 1);
+    expect(
+      letterWorkspace(saved, triageDefinitions, triageToday).rows.every(
+        (row) => row.recipientReview.status === "saved",
+      ),
+    ).toBe(true);
+    await expect(
+      confirmStraightforwardRecipients(
+        saved,
+        triageDefinitions,
+        triageToday,
+        request,
+        store,
+        1,
+      ),
+    ).rejects.toThrow("workspace changed");
+    expect((await readSocietyLetterState()).recipient_reviews).toEqual(
+      saved.recipient_reviews,
+    );
+    await store.release();
+  });
+  async function dispatchFixture() {
+    const store = await acquireSocietyLetters(1, 0);
+    const first = completedLetter();
+    const second = completedLetter({ id: randomUUID(), householdId: "20" });
+    const blocked = {
+      ...unsubmittedLetter(),
+      id: randomUUID(),
+      householdId: "30",
+    };
+    const foreign = completedLetter({
+      id: randomUUID(),
+      batchId: randomUUID(),
+      householdId: "40",
+    });
+    await store.reserve([first, second, blocked, foreign]);
+    return { store, first, second, blocked, foreign };
+  }
+  it("saves immutable CSV content under a lease, lists only summaries and reserves no letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const run = { id: randomUUID(), csv: "private fictional merge data" };
+    const summary = { id: run.id, count: 1 };
+    await store.createCsvRun(run, summary);
+    expect(await readLetterCsvRun(run.id)).toEqual(run);
+    const state = await readSocietyLetterState();
+    expect(state.revision).toBe(1);
+    expect(state.csvRuns).toEqual([summary]);
+    expect(state.history).toEqual([]);
+    await expect(
+      store.createCsvRun({ ...run, csv: "changed" }, summary),
+    ).rejects.toThrow();
+    expect(await readLetterCsvRun(run.id)).toEqual(run);
+    await store.release();
+    await expect(
+      store.createCsvRun({ ...run, id: randomUUID() }, summary),
+    ).rejects.toThrow();
+    await expect(readLetterCsvRun("not-an-id")).rejects.toThrow();
+  });
+  it("marks only selected CSV-created letters mailed with audit, preserving unfinished household receipts", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const first = completedCsvFixture(),
+      second = completedCsvFixture({ id: randomUUID(), householdId: "20" });
+    second.letterAppeals.status = "pending";
+    second.letterAppeals.members.forEach((member) => {
+      member.status = "pending";
+    });
+    await store.reserve([first, second]);
+    await expect(
+      store.mailSelectedLetters(first.batchId, [first]),
+    ).rejects.toThrow();
+    await store.mailSelectedLetters(first.batchId, [first], "csv");
+    const state = await readSocietyLetterState();
+    expect(state.history.find((item) => item.id === first.id)).toMatchObject({
+      status: "mailed",
+      mailDispatch: { by: 1, at: expect.any(String) },
+      csvMailMerge: first.csvMailMerge,
+    });
+    expect(state.history.find((item) => item.id === second.id)).toMatchObject({
+      status: "prepared",
+      letterAppeals: second.letterAppeals,
+    });
+    const mailed = state.history.find((item) => item.id === first.id);
+    await store.mailSelectedLetters(first.batchId, [mailed], "csv");
+    expect(
+      (await readSocietyLetterState()).history.find(
+        (item) => item.id === first.id,
+      ).mailDispatch,
+    ).toEqual(mailed.mailDispatch);
+  });
+  it("does not mark any CSV letter mailed when the durable manifest or receipt changed", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const first = completedCsvFixture(),
+      second = completedCsvFixture({ id: randomUUID(), householdId: "20" });
+    await store.reserve([first, second]);
+    await execute(
+      `UPDATE stewardship_letter_deliveries SET payload=jsonb_set(payload,'{csvMailMerge,csvSha256}','"${"b".repeat(64)}"') WHERE id='${second.id}'`,
+    );
+    await expect(
+      store.mailSelectedLetters(first.batchId, [first, second], "csv"),
+    ).rejects.toThrow("no letters were changed");
+    expect(
+      (await readSocietyLetterState()).history.every(
+        (item) => item.status === "prepared" && !item.mailDispatch,
+      ),
+    ).toBe(true);
+  });
+  it("releases an unsubmitted CSV reservation only while its entire saved receipt and manifest still match", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const item = completedCsvFixture();
+    item.letterAppeals.status = "needs_review";
+    item.letterAppeals.members.forEach((member) => {
+      member.status = "pending";
+    });
+    await store.reserve([item]);
+    await expect(
+      store.returnLetterToReview({
+        ...item,
+        csvMailMerge: { ...item.csvMailMerge, runId: randomUUID() },
+      }),
+    ).rejects.toThrow("no reservation was released");
+    await store.returnLetterToReview(item);
+    expect((await readSocietyLetterState()).history[0]).toMatchObject({
+      status: "cancelled",
+      returnToReview: { by: 1, reason: "no_nxt_submission_attempted" },
+    });
+  });
+  it("atomically mails only selected completed letters, retaining blocked reservations and audit on a repeat", async () => {
+    const f = await dispatchFixture();
+    const before = await readSocietyLetterState();
+    await f.store.mailSelectedLetters(f.first.batchId, [f.second, f.first]);
+    const after = await readSocietyLetterState();
+    for (const original of [f.first, f.second]) {
+      const row = after.history.find((entry) => entry.id === original.id);
+      expect(row.status).toBe("mailed");
+      expect(row.mailDispatch).toEqual({ at: expect.any(String), by: 1 });
+      expect(row.postalDocument).toEqual(original.postalDocument);
+      expect(row.letterAppeals).toEqual(original.letterAppeals);
+    }
+    for (const original of [f.blocked, f.foreign])
+      expect(after.history.find((entry) => entry.id === original.id)).toEqual(
+        before.history.find((entry) => entry.id === original.id),
+      );
+    await f.store.mailSelectedLetters(
+      f.first.batchId,
+      after.history.filter((entry) =>
+        [f.first.id, f.second.id].includes(entry.id),
+      ),
+    );
+    expect((await readSocietyLetterState()).history).toEqual(after.history);
+    await expect(
+      f.store.reserve([{ ...f.blocked, id: randomUUID() }]),
+    ).rejects.toThrow();
+    await f.store.release();
+  });
+  it.each([
+    "receipt",
+    "document",
+    "membership",
+    "approval",
+    "status",
+    "deleted",
+  ])(
+    "makes no partial dispatch change when a selected %s changed",
+    async (kind) => {
+      const f = await dispatchFixture();
+      const id = literal(f.second.id);
+      if (kind === "status")
+        await execute(
+          `UPDATE stewardship_letter_deliveries SET status='cancelled' WHERE id=${id}`,
+        );
+      else if (kind === "deleted")
+        await execute(
+          `DELETE FROM stewardship_letter_deliveries WHERE id=${id}`,
+        );
+      else {
+        const key = {
+          receipt: "letterAppeals",
+          document: "postalDocument",
+          membership: "members",
+          approval: "postalApproval",
+        }[kind];
+        await execute(
+          `UPDATE stewardship_letter_deliveries SET payload=payload - '${key}' WHERE id=${id}`,
+        );
+      }
+      const before = await readSocietyLetterState();
+      await expect(
+        f.store.mailSelectedLetters(f.first.batchId, [f.first, f.second]),
+      ).rejects.toMatchObject({ status: 409 });
+      expect((await readSocietyLetterState()).history).toEqual(before.history);
+      await f.store.release();
+    },
+  );
+  it("rejects a stolen lease without marking any selected letter mailed", async () => {
+    const f = await dispatchFixture();
+    const before = await readSocietyLetterState();
+    await execute(
+      "UPDATE stewardship_letters SET lease_until = NOW() - INTERVAL '1 second' WHERE id=1",
+    );
+    const other = await acquireSocietyLetters(1, before.revision);
+    await expect(
+      f.store.mailSelectedLetters(f.first.batchId, [f.first, f.second]),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await readSocietyLetterState()).history).toEqual(before.history);
+    await f.store.release();
+    await expect(
+      acquireSocietyLetters(1, before.revision),
+    ).rejects.toMatchObject({ status: 409 });
+    await other.release();
+  });
+  it("does not accept blocked, foreign-batch, or duplicate members of a mailing selection", async () => {
+    const f = await dispatchFixture();
+    const before = await readSocietyLetterState();
+    for (const selected of [
+      [f.first, f.blocked],
+      [f.first, f.foreign],
+      [f.first, f.first],
+    ])
+      await expect(
+        f.store.mailSelectedLetters(f.first.batchId, selected),
+      ).rejects.toThrow();
+    expect((await readSocietyLetterState()).history).toEqual(before.history);
+    await f.store.release();
+  });
+  it("returns one unattempted letter atomically, retaining documents, wording, and other reservations", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = unsubmittedLetter();
+    const state = await readSocietyLetterState();
+    state.recipient_reviews = {
+      example: { values: { salutation: "Alex and Pat" }, savedBy: 1 },
+    };
+    await store.save(state);
+    const draft = { id: original.batchId, status: "draft", entries: [] };
+    await store.createPostalDraft(draft);
+    const document = {
+      id: original.postalDocument.id,
+      householdId: "10",
+      sha256: original.postalDocument.sha256,
+      content: "ZmljdGlvbmFs",
+    };
+    await store.savePostalDraft(draft, document);
+    const other = {
+      ...unsubmittedLetter(),
+      id: randomUUID(),
+      householdId: "20",
+      members: ["20"],
+      letterAppeals: {
+        status: "pending",
+        members: [{ id: "20", status: "pending" }],
+      },
+    };
+    await store.approvePostalDraft({ ...draft, status: "approved" }, [
+      original,
+      other,
+    ]);
+    await store.returnLetterToReview(original);
+    const saved = await readSocietyLetterState();
+    const returned = saved.history.find((i) => i.id === original.id);
+    expect(returned).toMatchObject({
+      status: "cancelled",
+      returnToReview: { by: 1, reason: "no_nxt_submission_attempted" },
+      letterAppeals: original.letterAppeals,
+      postalDocument: original.postalDocument,
+      postalApproval: original.postalApproval,
+    });
+    expect(saved.history.find((i) => i.id === other.id).status).toBe(
+      "prepared",
+    );
+    expect(saved.recipient_reviews).toEqual(state.recipient_reviews);
+    expect((await readPostalDocument(document.id)).content).toBe(
+      document.content,
+    );
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    await store.reserve([
+      { ...original, id: randomUUID(), batchId: randomUUID() },
+    ]);
+    expect((await readSocietyLetterState()).history).toHaveLength(3);
+    await store.release();
+  });
+  it("compares the durable receipt and rejects stale no-attempt claims after an intent checkpoint", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = unsubmittedLetter();
+    await store.reserve([original]);
+    const attempted = structuredClone(original);
+    attempted.letterAppeals.members[1].status = "uncertain";
+    attempted.letterAppeals.members[1].attemptedAt = "2026-10-09T12:00:00Z";
+    await store.saveLetterAppeals(attempted);
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await readSocietyLetterState()).history[0]).toMatchObject({
+      status: "prepared",
+      letterAppeals: attempted.letterAppeals,
+    });
+    await expect(store.returnLetterToReview(attempted)).rejects.toMatchObject({
+      status: 409,
+    });
+    await store.release();
+  });
+  it("cannot return a letter with an expired or replaced lease", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const original = unsubmittedLetter();
+    await store.reserve([original]);
+    await execute(
+      "UPDATE stewardship_letters SET lease_until=NOW()-INTERVAL '1 second' WHERE id=1;",
+    );
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    const state = await readSocietyLetterState();
+    const next = await acquireSocietyLetters(1, state.revision);
+    await expect(store.returnLetterToReview(original)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await readSocietyLetterState()).history[0].status).toBe("prepared");
+    await next.release();
+  });
+  it("reads the overview with real JSONB projections without changing saved work", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    state.settings = { periodBasis: "calendar_year" };
+    const day = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+    }).format(new Date());
+    const period = letterPeriod(state.settings, day);
+    const row = (id) => ({
+      householdId: id,
+      members: [id],
+      period,
+      rank: 1,
+      societyKey: "ood",
+    });
+    state.snapshot = {
+      period,
+      generatedAt: new Date().toISOString(),
+      rows: [row("10"), row("20"), row("30")],
+    };
+    state.exclusions = [row("20")];
+    await store.save(state);
+    await store.reserve([
+      item({
+        ...row("30"),
+        channel: "post",
+        coveredKeys: ["ood"],
+        letterAppeals: {
+          status: "complete",
+          members: [{ id: "30", status: "verified" }],
+        },
+      }),
+    ]);
+    await store.createPostalDraft({
+      id: randomUUID(),
+      status: "draft",
+      entries: [],
+    });
+    await execute(
+      "INSERT INTO data_change_requests VALUES (1, 100, 'Open', '2000-01-01'), (2, 101, 'In Progress', '2100-01-01'), (3, 102, 'Completed', '2000-01-01'), (4, NULL, 'Open', '2000-01-01');",
+    );
+    const before = await readSocietyLetterState();
+    const db = (parts, ...values) => database.query(parts, values);
+    expect(await readStewardshipOverview(db)).toMatchObject({
+      holding: 1,
+      readyToMail: 1,
+      inProgress: 1,
+      hasDraft: true,
+      requests: { open: 1, inProgress: 1, overdue: 1 },
+    });
+    expect(await readSocietyLetterState()).toEqual(before);
+    await store.release();
+  });
+  it("saves immutable documents and atomically reserves an approved multi-household batch", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const draft = { id: randomUUID(), status: "draft", entries: [] };
+    await store.createPostalDraft(draft);
+    const document = {
+      id: randomUUID(),
+      householdId: "10",
+      sha256: "hash",
+      content: "ZmljdGlvbmFs",
+    };
+    draft.entries = [{ householdId: "10", document: { id: document.id } }];
+    await store.savePostalDraft(draft, document);
+    expect(await readPostalDocument(document.id)).toEqual({
+      sha256: "hash",
+      content: document.content,
+    });
+    await expect(
+      store.savePostalDraft(draft, { ...document, content: "changed" }),
+    ).rejects.toThrow();
+    expect((await readPostalDocument(document.id)).content).toBe(
+      document.content,
+    );
+    const revision = (await readSocietyLetterState()).revision;
+    await store.release();
+    const next = await acquireSocietyLetters(1, revision);
+    await expect(store.savePostalDraft(draft)).rejects.toMatchObject({
+      status: 409,
+    });
+    draft.status = "approved";
+    const deliveries = [
+      item({ batchId: draft.id, postalDocument: draft.entries[0].document }),
+      item({ batchId: draft.id, householdId: "20" }),
+    ];
+    await next.approvePostalDraft(draft, deliveries);
+    const saved = await readSocietyLetterState();
+    expect(saved.postalDraft).toBeNull();
+    expect(saved.history).toHaveLength(2);
+    expect(
+      saved.history.find((i) => i.householdId === "10").postalDocument,
+    ).toEqual(draft.entries[0].document);
+    await next.release();
+  });
+  it("rolls back the whole approval on a duplicate reservation and preserves its draft", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const draft = { id: randomUUID(), status: "draft", entries: [] };
+    await store.createPostalDraft(draft);
+    const existing = item();
+    await store.reserve([existing]);
+    const revision = (await readSocietyLetterState()).revision;
+    await expect(
+      store.approvePostalDraft({ ...draft, status: "approved" }, [
+        item({ batchId: draft.id, householdId: "20" }),
+        item({ batchId: draft.id }),
+      ]),
+    ).rejects.toThrow();
+    const state = await readSocietyLetterState();
+    expect(state.postalDraft).toEqual(draft);
+    expect(state.revision).toBe(revision);
+    expect(state.history.map((i) => i.id)).toEqual([existing.id]);
+    await expect(
+      store.createPostalDraft({ ...draft, id: randomUUID() }),
+    ).rejects.toThrow();
+    await store.release();
+  });
+  it("persists each letter appeal receipt across leases without altering its frozen letter", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const delivery = item({
+      members: ["10", "11"],
+      addressee: "Alex and Pat",
+      selectionSummary: {
+        version: 1,
+        total: 6,
+        selected: 1,
+        notSelected: 5,
+        excluded: 0,
+        covered: 0,
+        reserved: 0,
+      },
+      letterAppeals: {
+        status: "pending",
+        members: [
+          { id: "10", status: "pending" },
+          { id: "11", status: "pending" },
+        ],
+      },
+    });
+    await store.reserve([delivery]);
+    delivery.letterAppeals.members[0].status = "uncertain";
+    delivery.letterAppeals.comments =
+      "Legacy audit comment retained in the saved receipt";
+    delivery.letterAppeals.members[0].submittedComments = `JUMGOGPT ${delivery.id}`;
+    delivery.addressee = "MUST NOT CHANGE";
+    delivery.selectionSummary.total = 999;
+    await store.saveLetterAppeals(delivery);
+    await store.release();
+    const saved = await readSocietyLetterState();
+    expect(saved.history[0].addressee).toBe("Alex and Pat");
+    expect(saved.history[0].selectionSummary).toMatchObject({
+      total: 6,
+      selected: 1,
+      notSelected: 5,
+    });
+    expect(saved.history[0].letterAppeals.members[0].status).toBe("uncertain");
+    expect(saved.history[0].letterAppeals.comments).toBe(
+      delivery.letterAppeals.comments,
+    );
+    expect(saved.history[0].letterAppeals.members[0].submittedComments).toBe(
+      `JUMGOGPT ${delivery.id}`,
+    );
+    expect(
+      saved.history[0].letterAppeals.members[1].submittedComments,
+    ).toBeUndefined();
+    const next = await acquireSocietyLetters(1, saved.revision);
+    await expect(store.saveLetterAppeals(delivery)).rejects.toMatchObject({
+      status: 409,
+    });
+    delivery.letterAppeals.members[0].status = "verified";
+    await next.saveLetterAppeals(delivery);
+    await next.release();
+    expect(
+      (await readSocietyLetterState()).history[0].letterAppeals.members[0]
+        .status,
+    ).toBe("verified");
+    expect(
+      (await readSocietyLetterState()).history[0].letterAppeals.members[0]
+        .submittedComments,
+    ).toBe(`JUMGOGPT ${delivery.id}`);
+  });
+  it("does not mail partial appeal updates or cancel NXT-linked letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const delivery = item({
+      letterAppeals: {
+        status: "pending",
+        members: [{ id: "10", status: "pending" }],
+      },
+    });
+    await store.reserve([delivery]);
+    await expect(
+      store.finishBatch(delivery.batchId, "mailed"),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      store.finishBatch(delivery.batchId, "cancelled"),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await readSocietyLetterState()).history[0].status).toBe("prepared");
+    delivery.letterAppeals = {
+      status: "complete",
+      members: [{ id: "10", status: "verified" }],
+    };
+    await store.saveLetterAppeals(delivery);
+    await store.finishBatch(delivery.batchId, "mailed");
+    await expect(store.saveLetterAppeals(delivery)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await readSocietyLetterState()).history[0].status).toBe("mailed");
+    await store.release();
+  });
+  it("keeps an uncertain exclusion POST across lease release and later acquisition", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    state.readiness = {
+      exclusionPolicy: { periodKey: "2026", appeals: { ood: { id: "772" } } },
+    };
+    state.exclusions = [
+      {
+        id: "exclude-test",
+        members: ["10", "11"],
+        nxt: {
+          appeal: { id: "772" },
+          date: "2026-09-25",
+          comments: "Pilot reason",
+          members: [
+            { id: "10", status: "uncertain" },
+            { id: "11", status: "pending" },
+          ],
+        },
+      },
+    ];
+    await store.save(state);
+    await store.release();
+    await expect(acquireSocietyLetters(1, 0)).rejects.toMatchObject({
+      status: 409,
+    });
+    const reloaded = await readSocietyLetterState();
+    const next = await acquireSocietyLetters(1, reloaded.revision);
+    expect(reloaded.exclusions).toEqual(state.exclusions);
+    expect(reloaded.readiness).toEqual(state.readiness);
+    expect(reloaded.history).toEqual([]);
+    await next.release();
+  });
+  it("persists readiness checkpoints independently without reserving letters", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    expect(state.readiness).toEqual({});
+    state.readiness = {
+      policy: { periodKey: "2026" },
+      job: { id: "check", cursor: 2, status: "paused" },
+      results: { sample: { status: "needs_review" } },
+    };
+    await store.save(state);
+    const reloaded = await readSocietyLetterState();
+    expect(reloaded.readiness).toEqual(state.readiness);
+    reloaded.snapshot = { rows: [] };
+    reloaded.recipient_reviews = { sample: { values: { salutation: "Alex" } } };
+    await store.save(reloaded);
+    const updated = await readSocietyLetterState();
+    expect(updated.readiness).toEqual(state.readiness);
+    expect(updated.history).toEqual([]);
+    await store.release();
+  });
+  it("keeps recipient choices across snapshot replacement without changing delivery history", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    expect(state.recipient_reviews).toEqual({});
+    state.recipient_reviews = {
+      sample: {
+        values: { recipientConstituentId: "10", salutation: "Alex" },
+        savedBy: 1,
+      },
+    };
+    await store.save(state);
+    const reloaded = await readSocietyLetterState();
+    expect(reloaded.recipient_reviews).toEqual(state.recipient_reviews);
+    reloaded.snapshot = { rows: [] };
+    await store.save(reloaded);
+    const refreshed = await readSocietyLetterState();
+    expect(refreshed.recipient_reviews).toEqual(state.recipient_reviews);
+    expect(refreshed.history).toEqual([]);
+    await store.release();
+  });
+  it("persists exclusions independently of refreshed membership and retains restoration audit", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    state.exclusions = [
+      {
+        id: "hold",
+        householdId: "10",
+        members: ["10", "11"],
+        reason: "Wait",
+        excludedBy: 1,
+      },
+    ];
+    await store.save(state);
+    const reloaded = await readSocietyLetterState();
+    expect(reloaded.exclusions).toEqual(state.exclusions);
+    reloaded.snapshot = { rows: [] };
+    await store.save(reloaded);
+    expect((await readSocietyLetterState()).exclusions).toEqual(
+      state.exclusions,
+    );
+    reloaded.exclusions[0].restoredBy = 1;
+    reloaded.exclusions[0].restoredAt = "2026-09-24T14:00:00Z";
+    await store.save(reloaded);
+    expect((await readSocietyLetterState()).exclusions[0].restoredBy).toBe(1);
+    expect((await readSocietyLetterState()).history).toEqual([]);
+    await store.release();
+    await expect(acquireSocietyLetters(1, 0)).rejects.toMatchObject({
+      status: 409,
+    });
+  });
   it("allows one lease and rejects stale revisions after release", async () => {
     const store = await acquireSocietyLetters(1, 0);
     await expect(acquireSocietyLetters(1, 0)).rejects.toMatchObject({
@@ -150,7 +897,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     const store = await acquireSocietyLetters(1, 0);
     const first = item();
     await store.reserve([first]);
-    execute(
+    await execute(
       "UPDATE stewardship_letters SET lease_until=NOW()-INTERVAL '1 second' WHERE id=1;",
     );
     await expect(

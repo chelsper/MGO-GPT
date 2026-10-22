@@ -1,5 +1,6 @@
 import { ORGANIZATION_REPORTING_POLICY } from "./organizationRuntimePolicy";
 import { isOrganizationLogo } from "./organizationLogo";
+import { DEFAULT_DASHBOARD_ASSISTANT, normalizeDashboardAssistant, validateDashboardAssistant } from "./dashboardAssistantSettings";
 
 export const SUPPORTED_DATE_FORMATS = [
   "MM/DD/YYYY",
@@ -12,6 +13,7 @@ export const DEFAULT_ORGANIZATION_SETTINGS = Object.freeze({
   shortName: "JU",
   applicationName: "JUMGOGPT",
   logoDataUrl: null,
+  dashboardAssistant: DEFAULT_DASHBOARD_ASSISTANT,
   advancementServicesNotificationEmail: "devdata@ju.edu",
   notificationSenderName: "JUMGOGPT",
   timeZone: ORGANIZATION_REPORTING_POLICY.timeZone,
@@ -133,6 +135,7 @@ export function normalizeOrganizationSettings(value = {}) {
       DEFAULT_ORGANIZATION_SETTINGS.applicationName,
     ),
     logoDataUrl: isOrganizationLogo(getValue(source, "logoDataUrl", "logo_data_url")) ? getValue(source, "logoDataUrl", "logo_data_url") : null,
+    dashboardAssistant: normalizeDashboardAssistant(getValue(source, "dashboardAssistant", "dashboard_assistant")),
     advancementServicesNotificationEmail: normalizeEmail(
       getValue(
         source,
@@ -170,6 +173,8 @@ export function normalizeOrganizationSettings(value = {}) {
 
 export function validateOrganizationSettings(value = {}) {
   const source = asObject(value);
+  const assistantError = validateDashboardAssistant(source.dashboardAssistant);
+  if (assistantError) return assistantError;
   if (source.logoDataUrl != null && !isOrganizationLogo(source.logoDataUrl)) return "Choose a valid logo using the logo upload control (PNG, up to 96 KB after resizing).";
   if (Object.keys(source).some(key => !Object.hasOwn(DEFAULT_ORGANIZATION_SETTINGS, key))) {
     return "Unsupported institution setting. Query and field mappings cannot be changed through this form.";

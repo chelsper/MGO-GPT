@@ -89,12 +89,13 @@ it("renders supplied summary values and delegates narrative expansion without a 
     screen.getByRole("link", { name: "Open NXT profile" }),
   ).toHaveAttribute("href", props.linkedBlackbaudConstituentProfileUrl);
   expect(screen.queryByText("Saved narrative")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   expect(onToggleNarrative).toHaveBeenCalledOnce();
   view.rerender(
     <ProspectDetailSummary {...props} showBlackbaudNarrativeSummary />,
   );
-  expect(screen.getByText("Saved narrative")).toBeInTheDocument();
+  expect(screen.getByText("Recorded lifetime giving is $125,000.00.")).toBeInTheDocument();
+  expect(screen.queryByText("Saved narrative")).not.toBeInTheDocument();
 });
 
 it("does not imply a pledge or linked identity for an unlinked prospect", () => {

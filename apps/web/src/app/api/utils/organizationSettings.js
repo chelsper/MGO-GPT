@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { validateDashboardAssistant } from "@/utils/dashboardAssistantSettings";
 import { ORGANIZATION_REPORTING_POLICY, reportingSettingsChangeError } from "@/utils/organizationRuntimePolicy";
 import {
   normalizeOrganizationSettings,
@@ -21,6 +22,7 @@ async function readOrganizationRow(sqlClient) {
       short_name,
       application_name,
       logo_data_url,
+      dashboard_assistant,
       advancement_services_notification_email,
       notification_sender_name,
       time_zone,
@@ -73,7 +75,15 @@ export async function saveOrganizationSettings({
   if (!expectedRevision || expectedRevision !== current.revision) {
     throw settingsError("Institution settings changed or this page is out of date. Reload the saved profile, review your changes, and save again.", 409);
   }
-  const normalized = normalizeOrganizationSettings({ ...settings, logoDataUrl: Object.hasOwn(settings, "logoDataUrl") ? settings.logoDataUrl : current.settings.logoDataUrl });
+  // Older open profile forms omit the new helper fields; preserve them rather
+  // than silently resetting the organization's saved policy and wording.
+  const dashboardAssistant = { ...current.settings.dashboardAssistant, ...settings.dashboardAssistant };
+  const assistantError = validateDashboardAssistant(dashboardAssistant);
+  if (assistantError) throw settingsError(assistantError, 400);
+  const normalized = normalizeOrganizationSettings({ ...settings,
+    logoDataUrl: Object.hasOwn(settings, "logoDataUrl") ? settings.logoDataUrl : current.settings.logoDataUrl,
+    dashboardAssistant,
+  });
   const guardedChange = reportingSettingsChangeError(current.settings, normalized);
   if (guardedChange) throw settingsError(guardedChange, 400);
   const changedFields = Object.keys(normalized).filter(key => JSON.stringify(normalized[key]) !== JSON.stringify(current.settings[key]));
@@ -87,6 +97,7 @@ export async function saveOrganizationSettings({
         short_name = ${normalized.shortName},
         application_name = ${normalized.applicationName},
         logo_data_url = ${normalized.logoDataUrl},
+        dashboard_assistant = ${JSON.stringify(normalized.dashboardAssistant)}::jsonb,
         advancement_services_notification_email = ${normalized.advancementServicesNotificationEmail},
         notification_sender_name = ${normalized.notificationSenderName},
         allowed_email_domains = ${JSON.stringify(normalized.allowedEmailDomains)}::jsonb,

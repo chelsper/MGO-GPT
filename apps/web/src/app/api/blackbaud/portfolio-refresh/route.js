@@ -12,6 +12,9 @@ import {
 import sql from "@/app/api/utils/sql";
 import { isAdminRole } from "@/utils/workspaceRoles";
 import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE } from "@/app/api/utils/portfolioMaintenancePolicy";
+import { maintenanceContinuationEnabled, maintenanceOrigin, isPortfolioOvernight, MAINTENANCE_DAYTIME_ITEMS, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
+import { claimMaintenanceGate, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
+import { portfolioFreshnessStatus } from "@/app/api/utils/portfolioFreshnessStatus";
 
 const DEFAULT_CONCURRENCY = 2;
 const PROCESSING_LEASE_MINUTES = 5;
@@ -129,10 +132,11 @@ async function getInventory(workspaceUserId, failedCount = 0) {
     return { total: 0, current: 0, stale: 0, failed: numeric(failedCount) };
   }
   const snapshots = await sql`
-    SELECT constituent_id, summary_payload, data_complete, stale_after, last_error_stage
-    FROM portfolio_constituent_snapshots
-    WHERE workspace_user_id = ${workspaceUserId}
-      AND constituent_id = ANY(${ids})
+    SELECT ids.constituent_id, s.summary_payload, s.data_complete, s.stale_after, s.last_error_stage,
+      g.payload AS giving_payload, g.refreshed_at AS giving_refreshed_at
+    FROM unnest(${ids}::text[]) AS ids(constituent_id)
+    LEFT JOIN portfolio_constituent_snapshots s ON s.workspace_user_id = ${workspaceUserId} AND s.constituent_id = ids.constituent_id
+    LEFT JOIN portfolio_giving_snapshots g ON g.workspace_user_id = ${workspaceUserId} AND g.constituent_id = ids.constituent_id
   `;
   const current = snapshots.filter((snapshot) => isPortfolioSummaryCurrent(snapshot)).length;
   return {
@@ -140,6 +144,7 @@ async function getInventory(workspaceUserId, failedCount = 0) {
     current,
     stale: Math.max(0, ids.length - current),
     failed: numeric(failedCount),
+    freshness: portfolioFreshnessStatus(ids, snapshots),
   };
 }
 
@@ -209,6 +214,13 @@ async function getContext(request) {
   if (!session?.user?.email) return null;
   const context = await getWorkspaceUser(session, request);
   if (!context?.workspaceUser) return null;
+  const requestedWorkspace = new URL(request.url).searchParams.get("adminWorkspaceId");
+  if (requestedWorkspace !== null) {
+    if (!isAdminRole(context.sessionUser?.role) || context.sessionUser?.active !== true || !/^[1-9]\d*$/.test(requestedWorkspace)) return null;
+    const [workspaceUser] = await sql`SELECT * FROM users WHERE id = ${Number(requestedWorkspace)} AND active = TRUE LIMIT 1`;
+    if (!workspaceUser) return null;
+    return { ...context, workspaceUser, authUserId: context.sessionUser.id, isActing: workspaceUser.id !== context.sessionUser.id };
+  }
   return {
     ...context,
     authUserId: context.isActing
@@ -259,12 +271,24 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
   if (!fullRebuild) url.searchParams.set("reuse_giving", "1");
   const scheduled = isAuthorizedReportRefreshRequest(request);
   if (scheduled) url.searchParams.set("workspaceUserId", String(workspaceUserId));
+  // The admin override was authorized in getContext. Scope only this internal
+  // request; never change the administrator's browser workspace cookie.
+  let cookie = request.headers.get("cookie") || "";
+  if (!scheduled && new URL(request.url).searchParams.has("adminWorkspaceId")) {
+    cookie = cookie.split(";").map(value => value.trim()).filter(value => value && !value.startsWith("workspace_acting_user_id="))
+      .concat(`workspace_acting_user_id=${encodeURIComponent(String(workspaceUserId))}`).join("; ");
+  }
   const response = await fetch(url, {
     headers: scheduled ? {
       authorization: request.headers.get("authorization") || "",
       "x-mgogpt-report-refresh": "scheduled",
-    } : { cookie: request.headers.get("cookie") || "" },
+      ...(request.headers.get("x-mgogpt-portfolio-continuation") ? {
+        "x-mgogpt-portfolio-continuation": request.headers.get("x-mgogpt-portfolio-continuation"),
+      } : {}),
+    } : { cookie },
     cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(MAINTENANCE_REQUEST_MS - 10000),
   });
   const payload = await response.json().catch(() => null);
   const info = {
@@ -278,14 +302,18 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
     const reportedStatus = numeric(payload?.providerStatus);
     const lastProviderStatus = numeric(response.headers.get("x-mgogpt-nxt-last-status"));
     const providerFailure = reportedStatus >= 400 ? reportedStatus : lastProviderStatus >= 400 ? lastProviderStatus : null;
-    const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval"].includes(payload?.failureStage)
+    const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval", "blackbaud_auth"].includes(payload?.failureStage)
       ? payload.failureStage : providerFailure ? "blackbaud_retrieval" : "summary_processing";
+    const connectionFailure = failureStage === "blackbaud_auth";
     const error = new Error(payload?.error || `Portfolio refresh returned ${response.status}`);
     Object.assign(error, {
       stage: failureStage, httpStatus: providerFailure || response.status,
       retryAfterMs: numeric(response.headers.get("x-mgogpt-nxt-retry-after-ms"), numeric(payload?.retryAfterMs)),
-      endpoint: providerFailure ? info.lastEndpoint : url.pathname, apiCallCount: info.apiCallCount, requestDurationMs: info.requestDurationMs,
-      paused: response.status === 429 || payload?.quotaPaused === true,
+      endpoint: connectionFailure ? "https://oauth2.sky.blackbaud.com/token" : providerFailure ? info.lastEndpoint : url.pathname,
+      apiCallCount: info.apiCallCount, requestDurationMs: info.requestDurationMs,
+      connectionRetryable: connectionFailure && payload?.connectionRetryable === true &&
+        (providerFailure === 429 || providerFailure >= 500),
+      paused: !connectionFailure && (response.status === 429 || payload?.quotaPaused === true),
     });
     throw error;
   }
@@ -435,7 +463,10 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     await sql`
       UPDATE portfolio_constituent_snapshots
       SET
-        summary_payload = ${JSON.stringify(safeSummary)}::jsonb,
+        summary_payload = CASE WHEN COALESCE(summary_payload #>> '{mapped,annualGivingSocieties,recognitionSource,checkedAt}', '') >
+            ${safeSummary?.mapped?.annualGivingSocieties?.recognitionSource?.checkedAt || ""}
+          THEN jsonb_set(${JSON.stringify(safeSummary)}::jsonb, '{mapped,annualGivingSocieties}', summary_payload #> '{mapped,annualGivingSocieties}')
+          ELSE ${JSON.stringify(safeSummary)}::jsonb END,
         data_complete = ${complete},
         stale_after = ${getPortfolioSummaryStaleAfter(payload)},
         weekly_policy_applied = TRUE,
@@ -477,8 +508,12 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     `;
     return { status: complete ? "success" : "failed" };
   } catch (error) {
-    const paused = error?.paused === true;
-    const retryAfterMs = Math.max(0, numeric(error?.retryAfterMs));
+    // Only read-only nightly work is deferred, with a persisted ceiling. Never
+    // retry an invalid grant, an unknown response, or any NXT write here.
+    const deferConnection = job.mode === "nightly" && error?.connectionRetryable === true &&
+      numeric(item.retry_count) < 2;
+    const paused = error?.paused === true || deferConnection;
+    const retryAfterMs = Math.max(deferConnection ? 10 * 60_000 : 0, numeric(error?.retryAfterMs));
     await sql`
       UPDATE portfolio_refresh_items
       SET
@@ -551,7 +586,7 @@ export async function GET(request) {
     context.workspaceUser.id,
     job?.failed_count,
   );
-  return Response.json({ job: serializeJob(job, failedItems), inventory });
+  return Response.json({ job: serializeJob(job, failedItems), inventory, serverManaged: maintenanceContinuationEnabled() });
 }
 
 export async function POST(request) {
@@ -694,72 +729,94 @@ export async function POST(request) {
   if (job.status === "paused" && Date.parse(job.paused_until || "") > Date.now()) {
     return Response.json({ job: serializeJob(job), paused: true });
   }
-  const recovered = await requeueFixedPortfolioFailures(job.id);
-  if (recovered.length) job = await refreshJobProgress(job.id);
-  if (["completed", "completed_with_failures"].includes(job.status) && action === "process") {
-    const failedItems = isAdminRole(context.sessionUser?.role)
-      ? await getFailedItems(job.id)
-      : [];
-    return Response.json({ job: serializeJob(job, failedItems) });
+  const serverManaged = job.mode === "nightly" && maintenanceContinuationEnabled();
+  // Old browser tabs must not race a scheduled worker or bypass its daytime cap.
+  if (serverManaged && !context.scheduledRefresh) {
+    return Response.json({ job: serializeJob(job), serverManaged: true });
   }
+  const daytime = serverManaged && !isPortfolioOvernight();
+  if (body.backgroundContinuation && (!daytime || new URL(request.url).origin !== maintenanceOrigin())) {
+    return Response.json({ error: "Background continuation is not available here." }, { status: 409 });
+  }
+  let gate = null;
+  if (serverManaged && context.scheduledRefresh) {
+    if (new URL(request.url).origin !== maintenanceOrigin()) return Response.json({ error: "Invalid maintenance origin" }, { status: 409 });
+    gate = await claimMaintenanceGate(maintenanceOrigin(), job.id);
+    if (!gate) return Response.json({ job: serializeJob(job), deferred: true, reason: "busy_cooldown_or_daily_limit" });
+    const headers = new Headers(request.headers);
+    headers.set("x-mgogpt-portfolio-continuation", gate.token);
+    request = new Request(request.url, { headers });
+  }
+  try {
+    const recovered = await requeueFixedPortfolioFailures(job.id);
+    if (recovered.length) job = await refreshJobProgress(job.id);
+    if (["completed", "completed_with_failures"].includes(job.status) && action === "process") {
+      const failedItems = isAdminRole(context.sessionUser?.role)
+        ? await getFailedItems(job.id)
+        : [];
+      return Response.json({ job: serializeJob(job, failedItems) });
+    }
 
-  await sql`
-    UPDATE portfolio_refresh_items
-    SET status = 'pending', updated_at = NOW()
-    WHERE job_id = ${job.id}
-      AND status = 'processing'
-      AND updated_at < NOW() - (${PROCESSING_LEASE_MINUTES} * INTERVAL '1 minute')
-  `;
-  const claimed = await sql`
-    WITH next_items AS (
-      SELECT id
-      FROM portfolio_refresh_items
-      WHERE job_id = ${job.id} AND status = 'pending'
-      ORDER BY position ASC
-      LIMIT ${numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE portfolio_refresh_items AS item
-    SET status = 'processing', started_at = NOW(), updated_at = NOW()
-    FROM next_items
-    WHERE item.id = next_items.id
-    RETURNING item.*
-  `;
-  await sql`
-    UPDATE portfolio_refresh_jobs
-    SET status = 'processing', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-    WHERE id = ${job.id} AND cancel_requested = FALSE
-  `;
+    await sql`
+      UPDATE portfolio_refresh_items
+      SET status = 'pending', updated_at = NOW()
+      WHERE job_id = ${job.id}
+        AND status = 'processing'
+        AND updated_at < NOW() - (${PROCESSING_LEASE_MINUTES} * INTERVAL '1 minute')
+    `;
+    const claimed = await sql`
+      WITH next_items AS (
+        SELECT id
+        FROM portfolio_refresh_items
+        WHERE job_id = ${job.id} AND status = 'pending'
+        ORDER BY position ASC
+        LIMIT ${daytime ? MAINTENANCE_DAYTIME_ITEMS : numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE portfolio_refresh_items AS item
+      SET status = 'processing', started_at = NOW(), updated_at = NOW()
+      FROM next_items
+      WHERE item.id = next_items.id
+      RETURNING item.*
+    `;
+    await sql`
+      UPDATE portfolio_refresh_jobs
+      SET status = 'processing', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+      WHERE id = ${job.id} AND cancel_requested = FALSE
+    `;
 
-  const batchResult = await runPortfolioRefreshBatch({
-    items: claimed,
-    concurrency: numeric(job.concurrency, DEFAULT_CONCURRENCY),
-    processItem: (item) =>
-      processItem({
-        request,
-        item,
-        job,
-        workspaceUserId,
-        authUserId: context.authUserId,
-      }),
-    releaseItem: async (item) => {
+    const batchResult = await runPortfolioRefreshBatch({
+      items: claimed,
+      concurrency: gate ? 1 : numeric(job.concurrency, DEFAULT_CONCURRENCY),
+      processItem: (item) =>
+        processItem({
+          request,
+          item,
+          job,
+          workspaceUserId,
+          authUserId: context.authUserId,
+        }),
+      releaseItem: async (item) => {
         await sql`
           UPDATE portfolio_refresh_items
           SET status = 'pending', updated_at = NOW()
           WHERE id = ${item.id} AND status = 'processing'
         `;
-    },
-  });
-  if (batchResult.paused) {
-    await sql`
-      UPDATE portfolio_refresh_items
-      SET status = 'pending', updated_at = NOW()
-      WHERE job_id = ${job.id} AND status = 'processing'
-    `;
+      },
+    });
+    if (batchResult.paused) {
+      await sql`
+        UPDATE portfolio_refresh_items
+        SET status = 'pending', updated_at = NOW()
+        WHERE job_id = ${job.id} AND status = 'processing'
+      `;
+    }
+    const refreshed = await refreshJobProgress(job.id);
+    const failedItems = isAdminRole(context.sessionUser?.role)
+      ? await getFailedItems(job.id)
+      : [];
+    return Response.json({ job: serializeJob(refreshed, failedItems) });
+  } finally {
+    if (gate) await releaseMaintenanceGate(gate).catch(() => {});
   }
-  const refreshed = await refreshJobProgress(job.id);
-  const failedItems = isAdminRole(context.sessionUser?.role)
-    ? await getFailedItems(job.id)
-    : [];
-  return Response.json({ job: serializeJob(refreshed, failedItems) });
 }

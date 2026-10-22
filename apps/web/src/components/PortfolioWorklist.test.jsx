@@ -344,7 +344,7 @@ describe("portfolio worklist", () => {
     expect(screen.getAllByRole("article")).toHaveLength(25);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("clears group selection on grouping changes and new workspace visits, not in stored preferences", () => {
+  it("clears selection on grouping changes but restores it on return to the same workspace", () => {
     const { rerender } = render(<View key="first" />);
     fireEvent.change(screen.getByLabelText("Organize by"), {
       target: { value: "solicitor" },
@@ -363,6 +363,7 @@ describe("portfolio worklist", () => {
       density: "compact",
       quickView: "all",
       group: "category",
+      selectedGroup: "category",
       sort: "open",
       pageSize: 25,
     });
@@ -370,11 +371,99 @@ describe("portfolio worklist", () => {
     expect(screen.queryByLabelText("Show group")).not.toBeInTheDocument();
     rerender(<View key="return" />);
     expect(screen.getByLabelText("Organize by")).toHaveValue("category");
-    expect(screen.getByLabelText("Show group")).toHaveValue("");
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
     fireEvent.change(screen.getByLabelText("Organize by"), {
       target: { value: "all" },
     });
     expect(screen.queryByLabelText("Show group")).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("restores separate selections when storage keys change without a parent remount", () => {
+    const otherKey = portfolioViewKey(1, 3);
+    localStorage.setItem(otherKey, JSON.stringify({ group: "solicitor", selectedGroup: "support" }));
+    const { rerender } = render(<View />);
+    fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "category" } });
+    fireEvent.change(screen.getByLabelText("Show group"), { target: { value: "category" } });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Person 01" } });
+    rerender(<View storageKey={otherKey} />);
+    expect(screen.getByLabelText("Organize by")).toHaveValue("solicitor");
+    expect(screen.getByLabelText("Show group")).toHaveValue("support");
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(JSON.parse(localStorage.getItem(storageKey)).selectedGroup).toBe("category");
+    rerender(<View storageKey={portfolioViewKey(3, 2)} />);
+    expect(screen.getByLabelText("Organize by")).toHaveValue("all");
+    rerender(<View />);
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
+    expect(JSON.parse(localStorage.getItem(otherKey)).selectedGroup).toBe("support");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("waits for category results without losing the saved category", () => {
+    localStorage.setItem(storageKey, JSON.stringify({ group: "category", selectedGroup: "category" }));
+    const { rerender } = render(<View categoryTiers={[]} categoriesLoading />);
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading saved categories");
+    expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument();
+    rerender(<View />);
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
+    expect(screen.getByRole("heading", { name: "My category" })).toBeVisible();
+    expect(JSON.parse(localStorage.getItem(storageKey)).selectedGroup).toBe("category");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("restores preferences when the viewer/workspace key arrives after mount", () => {
+    localStorage.setItem(storageKey, JSON.stringify({ group: "solicitor", selectedGroup: "support", sort: "name" }));
+    const { rerender } = render(<View storageKey={null} />);
+    expect(screen.getByLabelText("Organize by")).toHaveValue("all");
+    expect(JSON.parse(localStorage.getItem(storageKey)).selectedGroup).toBe("support");
+    rerender(<View />);
+    expect(screen.getByLabelText("Show group")).toHaveValue("support");
+    expect(screen.getByLabelText("Sort by")).toHaveValue("name");
+    expect(firstPerson()).toContain("Person 31");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(["category-9", "category-10", "uncategorized"])("restores %s on reload but not searches, pages or expanded cards", selectedGroup => {
+    const categoryTiers = [
+      { key: "category-9", title: "Planned giving", items: people.slice(0, 10) },
+      { key: "category-10", title: "- Follow-up", items: people.slice(10, 20) },
+      { key: "uncategorized", title: "Uncategorized", items: people.slice(20) },
+    ];
+    const { unmount } = render(<View categoryTiers={categoryTiers} />);
+    fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "category" } });
+    fireEvent.change(screen.getByLabelText("Show group"), { target: { value: selectedGroup } });
+    fireEvent.click(screen.getAllByRole("button", { name: /Show details for/ })[0]);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Person" } });
+    const next = topNav().getByRole("button", { name: "Next" });
+    if (!next.disabled) fireEvent.click(next);
+    unmount();
+    render(<View categoryTiers={categoryTiers} />);
+    expect(screen.getByLabelText("Organize by")).toHaveValue("category");
+    expect(screen.getByLabelText("Show group")).toHaveValue(selectedGroup);
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(topNav().getByText(/Page 1 of/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Hide details for/ })).not.toBeInTheDocument();
+    const saved = localStorage.getItem(storageKey);
+    expect(saved).not.toMatch(/Person|Planned giving|Follow-up|expandedIds|search/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("retains a removed category across visits until Show all groups is chosen and saved", () => {
+    localStorage.setItem(storageKey, JSON.stringify({ group: "category", selectedGroup: "category-999" }));
+    const { rerender } = render(<View />);
+    expect(screen.getByRole("option", { name: "Unavailable group (0)" })).toBeInTheDocument();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all groups" }));
+    expect(JSON.parse(localStorage.getItem(storageKey)).selectedGroup).toBe("");
+    rerender(<View key="reload" />);
+    expect(screen.getByLabelText("Show group")).toHaveValue("");
+    expect(screen.getAllByRole("article")).toHaveLength(25);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("loads older view preferences without resetting grouping or sort", () => {
+    localStorage.setItem(storageKey, JSON.stringify({ group: "category", sort: "name", density: "focus", pageSize: 50 }));
+    render(<View />);
+    expect(screen.getByLabelText("Organize by")).toHaveValue("category");
+    expect(screen.getByLabelText("Show group")).toHaveValue("");
+    expect(screen.getByLabelText("Sort by")).toHaveValue("name");
+    expect(screen.getByLabelText("View")).toHaveValue("focus");
+    expect(screen.getByLabelText("Per page")).toHaveValue("50");
     expect(fetch).not.toHaveBeenCalled();
   });
   it("keeps an explicitly opened Focus card in view without scrolling on density changes", () => {
@@ -547,6 +636,7 @@ describe("portfolio worklist", () => {
       density: "focus",
       quickView: "all",
       group: "all",
+      selectedGroup: "",
       sort: "open",
       pageSize: 25,
     });
@@ -728,6 +818,7 @@ describe("portfolio worklist", () => {
     });
     expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({
       group: "category",
+      selectedGroup: "",
       pageSize: 50,
       sort: "open",
       density: "compact",
@@ -880,6 +971,9 @@ describe("portfolio worklist", () => {
       target: { value: "50" },
     });
     expect(screen.getAllByRole("article")).toHaveLength(50);
+    fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "category" } });
+    fireEvent.change(screen.getByLabelText("Show group"), { target: { value: "category" } });
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
   });
   it("shows an actionable empty search state", () => {
     render(<View />);

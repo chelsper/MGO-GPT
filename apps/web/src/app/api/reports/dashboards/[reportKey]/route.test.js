@@ -38,6 +38,7 @@ vi.mock("@/app/api/utils/reportRefresh", () => ({
 }));
 import { GET, POST } from "./route";
 import { getDashboardTableFingerprint } from "@/app/api/utils/dashboardConfiguration";
+import { newFundraisingTracker, trackerFingerprint, TRACKER_DONOR_VERSION } from "@/utils/fundraisingTracker";
 
 const record = {
   report_key: "demo",
@@ -74,6 +75,17 @@ describe("generic dashboard routes", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.user).toHaveBeenCalled();
+  });
+  it("allows campaign viewers to read saved totals but only managers to refresh", async () => {
+    mocks.record.mockResolvedValue({ ...record, data_configuration: { version: 1, panels: [newFundraisingTracker("campaign")] } });
+    const response = await GET(request(), context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).configuration.canRefresh).toBe(false);
+    expect((await POST(request(), context)).status).toBe(403);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    mocks.user.mockResolvedValue({ id: 1, active: true, role: "advancement_services" });
+    expect((await POST(request(), context)).status).toBe(200);
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
   });
   it("blocks disabled and non-allowlisted public reports including managers", async () => {
     mocks.user.mockResolvedValue({ id: 1, active: true, role: "admin" });
@@ -158,6 +170,26 @@ describe("generic dashboard routes", () => {
     const blocked = await GET(request(), context);
     expect(blocked.status).toBe(403);
     expect(JSON.stringify(await blocked.json())).not.toContain("Example Member");
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+  });
+  it("serves sanitized donor names only to authorized dashboard viewers without live reads", async () => {
+    const panel = { ...newFundraisingTracker("campaign"), funds: [{ id: "123", name: "A-Train Campaign" }] };
+    mocks.record.mockResolvedValue({ ...record, data_configuration: { version: 1, panels: [panel] } });
+    mocks.snapshot.mockResolvedValue({ trackerState: { campaign: { fingerprint: trackerFingerprint(panel), donorVersion: TRACKER_DONOR_VERSION,
+      committedCents: 10000, receivedCents: 10000, pledgedCents: 0, refreshedAt: "2026-10-13T12:00:00Z",
+      donors: [{ kind: "constituent", constituentId: "42", name: "Example Donor", email: "private@example.test", committedCents: 10000, receivedCents: 10000, pledgedCents: 0 }],
+      pending: { ownerId: 1, nameIds: ["77"], next: "private continuation" },
+    } } });
+    const response = await GET(request(), context);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const payload = await response.json();
+    expect(payload.snapshot.trackers[0].donors[0]).toMatchObject({ name: "Example Donor", receivedCents: 10000 });
+    expect(JSON.stringify(payload)).not.toMatch(/private@example|ownerId|nameIds|trackerState|private continuation/);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    mocks.snapshot.mockClear();
+    mocks.user.mockResolvedValue({ id: 2, active: true, role: "mgo" });
+    expect((await GET(request(), context)).status).toBe(403);
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 });

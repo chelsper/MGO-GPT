@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
 import SetupReturnLink from "@/components/SetupReturnLink";
+import { invitationEmailMessage, canResendInvitationEmail } from "@/utils/invitationEmail";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
 import {
@@ -588,16 +589,16 @@ export default function AccessManagementPage() {
           ? `${roleLabels.mgo} workspace created. You can now build out their portfolio before sending an invite.`
           : data?.mode === "user-updated"
           ? "Existing user role updated."
-          : "Invitation saved. The invited user can now sign in with this email to claim access.",
+          : invitationEmailMessage(data?.emailDelivery),
       );
       setToast({
-        tone: "success",
+        tone: data?.mode === "invitation-created" && data?.emailDelivery?.status !== "accepted" ? "error" : "success",
         message:
           data?.mode === "workspace-created"
             ? `${roleLabels.mgo} workspace created.`
             : data?.mode === "user-updated"
               ? "Existing user updated."
-              : "Invitation saved.",
+              : invitationEmailMessage(data?.emailDelivery),
       });
       await loadAccessState();
     } catch (err) {
@@ -777,6 +778,7 @@ export default function AccessManagementPage() {
   }
 
   async function handleResendInvitation(invitation) {
+    if (resendingInvitationId || !canResendInvitationEmail(invitation.invitation_email)) return;
     setResendingInvitationId(invitation.id);
     setStatusMessage("");
     setError("");
@@ -797,8 +799,8 @@ export default function AccessManagementPage() {
         throw new Error(data?.error || "Failed to resend invitation");
       }
 
-      setStatusMessage("Invitation refreshed and ready to resend.");
-      setToast({ tone: "success", message: "Invitation refreshed." });
+      setStatusMessage(invitationEmailMessage(data?.emailDelivery));
+      setToast({ tone: data?.emailDelivery?.status === "accepted" ? "success" : "error", message: invitationEmailMessage(data?.emailDelivery) });
       await loadAccessState();
     } catch (err) {
       console.error(err);
@@ -2074,6 +2076,10 @@ export default function AccessManagementPage() {
                           Workspace ready as {invitation.existing_user_name || invitation.email}
                         </div>
                       ) : null}
+                      <p style={{ fontSize: "13px", color: "#4B5563", marginTop: "8px", maxWidth: "36rem" }}>
+                        {invitationEmailMessage(invitation.invitation_email)}
+                        {invitation.invitation_email?.attemptedAt ? ` Last attempt: ${new Date(invitation.invitation_email.attemptedAt).toLocaleString()}.` : ""}
+                      </p>
                     </div>
                     <div style={{ display: "grid", gap: "8px" }}>
                       {canUseMgoWorkspaceRole(invitation.role) ? (
@@ -2122,7 +2128,7 @@ export default function AccessManagementPage() {
                       <button
                         type="button"
                         onClick={() => handleResendInvitation(invitation)}
-                        disabled={resendingInvitationId === invitation.id}
+                        disabled={!!resendingInvitationId || !canResendInvitationEmail(invitation.invitation_email)}
                         style={{
                           padding: "10px 14px",
                           borderRadius: "10px",
@@ -2133,7 +2139,7 @@ export default function AccessManagementPage() {
                           cursor: resendingInvitationId === invitation.id ? "not-allowed" : "pointer",
                         }}
                       >
-                        {resendingInvitationId === invitation.id ? "Refreshing..." : "Re-send"}
+                        {resendingInvitationId === invitation.id ? "Sending..." : "Re-send email"}
                       </button>
                       <button
                         type="button"

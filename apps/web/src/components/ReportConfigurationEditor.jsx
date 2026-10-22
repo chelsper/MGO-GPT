@@ -14,6 +14,7 @@ import ReportLayoutTransfer from "./ReportLayoutTransfer";
 import ListSourceEditor from "./ListSourceEditor";
 import { LIST_SCHEMA, listMetadata, validateListSource } from "@/utils/constituentLists";
 import { defaultLegacyListSource, isQueryList } from "@/utils/listQueryConfiguration";
+import { newFundraisingTracker } from "@/utils/fundraisingTracker";
 
 const NEW_REPORT_KEY = "__new-report-draft__";
 const TABS = ["Configure", "Access", "Preview"];
@@ -164,6 +165,13 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const [pageFeedback, setPageFeedback] = useState(null);
   const [newReport, setNewReport] = useState(null);
   const [importFocus, setImportFocus] = useState(0);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (initialConfigurations.some(report => report.key === params.get("report"))) {
+      setSelectedKey(params.get("report"));
+      if (TABS.includes(params.get("tab"))) setTab(params.get("tab"));
+    }
+  }, [initialConfigurations]);
   const allReports = newReport ? [...configurations, newReport] : configurations;
   const configuration = allReports.find((report) => report.key === selectedKey);
   const draft = drafts[selectedKey];
@@ -201,6 +209,15 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
     setSelectedKey(NEW_REPORT_KEY);
     setSearch("");
     setTab("Configure");
+  }
+
+  function addCampaign() {
+    if (newReport && !window.confirm("Replace the unsaved new-report draft with The A-Train Campaign? Saved reports will not change.")) return;
+    const report = { ...getDashboardReportMetadata(NEW_REPORT_KEY), key: NEW_REPORT_KEY, title: "The A-Train Campaign",
+      description: "Track committed and received revenue toward our campaign goal.", visibility: "specific_users", specificUserIds: [], active: false,
+      dataConfiguration: { version: 1, panels: [newFundraisingTracker("a-train-campaign", true)] } };
+    setNewReport(report); setDrafts((current) => ({ ...current, [NEW_REPORT_KEY]: createReportDraft(report) }));
+    setSelectedKey(NEW_REPORT_KEY); setSearch(""); setTab("Configure");
   }
 
   function addList() {
@@ -317,6 +334,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
         {getReportTypeDefinitions().map((type) => <optgroup key={type.key} label={type.label}>{matchingReports.filter((report) => report.reportType === type.key).map((report) => <option value={report.key} key={report.key}>{drafts[report.key]?.title || report.title || "New report"}{dirtyKeys.includes(report.key) ? " (unsaved)" : ""}</option>)}</optgroup>)}
       </select></label>
       <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport && !isList(newReport) ? "Continue new report" : "Add report"}</button>
+      <button className={styles.button} disabled={saving} onClick={addCampaign}>Set up A-Train Campaign</button>
       <button className={styles.button} disabled={saving} onClick={addList}><Plus size={17} />{newReport && isList(newReport) ? "Continue new list" : "Add list"}</button>
     </section>
     <ReportLayoutTransfer draft={generic ? draft : null} disabled={saving} onImport={importLayout} />

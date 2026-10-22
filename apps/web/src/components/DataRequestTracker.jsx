@@ -704,9 +704,13 @@ export default function DataRequestTracker() {
                       <strong>Advancement Services note:</strong> {item.reviewer_notes}
                     </div>
                   ) : null}
+                  {item.source_pending_action_id && <p className="mt-3 text-sm text-emerald-800">This request is linked to your stewardship follow-up. Its completion does not confirm delivery.
+                    {isReviewer && <a className="ml-2 font-semibold underline" href={`/stewardship/requests?requestId=${encodeURIComponent(item.id)}`}>Manage in Stewardship</a>}
+                    {!isReviewer && <a className="ml-2 font-semibold underline" href={`/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(item.source_pending_action_id)}&status=${item.source_pending_action_status === "Done" ? "Done" : "Open"}`}>View linked follow-up</a>}
+                  </p>}
                 </div>
 
-                {isReviewer ? (
+                {isReviewer && !item.source_pending_action_id ? (
                   <div style={{ backgroundColor: "#F8FAFC", borderRadius: "14px", padding: "14px" }}>
                     <label style={{ display: "grid", gap: "6px", fontSize: "13px", color: "#111827", fontWeight: 700 }}>
                       Status

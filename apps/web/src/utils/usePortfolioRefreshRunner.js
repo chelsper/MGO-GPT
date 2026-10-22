@@ -11,9 +11,9 @@ export function getPortfolioRefreshDelay(job, now = Date.now()) {
   return Number.isFinite(deadline) ? Math.max(BATCH_DELAY_MS, deadline - now + 250) : null;
 }
 
-export default function usePortfolioRefreshRunner({ job, enabled, isPending, error, onProcess }) {
+export default function usePortfolioRefreshRunner({ job, enabled, isPending, error, onProcess, serverManaged = false }) {
   useEffect(() => {
-    if (!enabled || isPending || error) return undefined;
+    if (!enabled || isPending || error || (serverManaged && job?.mode === "nightly")) return undefined;
     const delay = getPortfolioRefreshDelay(job);
     if (delay === null) return undefined;
     let timer;
@@ -30,5 +30,5 @@ export default function usePortfolioRefreshRunner({ job, enabled, isPending, err
     };
     schedule(delay);
     return () => window.clearTimeout(timer);
-  }, [enabled, isPending, error, onProcess, job?.jobId, job?.status, job?.processedCount, job?.pausedUntil]);
+  }, [enabled, isPending, error, onProcess, serverManaged, job?.mode, job?.jobId, job?.status, job?.processedCount, job?.pausedUntil]);
 }

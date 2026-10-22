@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Activity, ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
+import PortfolioMaintenanceDetails from "./PortfolioMaintenanceDetails";
 
 const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-50";
 const tones = { quiet: "border-emerald-200 bg-emerald-50 text-emerald-900", notice: "border-gray-200 bg-gray-50 text-gray-700",
@@ -64,6 +65,7 @@ function ActivityCoverage({ activity }) {
 }
 
 export default function IntegrationHealthPage() {
+  const [maintenanceWorkspace, setMaintenanceWorkspace] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -77,6 +79,7 @@ export default function IntegrationHealthPage() {
     // Clear the prior response on reload, including when an Admin's access has
     // changed. No shared cache, localStorage, polling, or provider status request.
     setData(null);
+    setMaintenanceWorkspace(null);
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20_000);
     fetch("/api/admin/integration-health", { cache: "no-store", signal: controller.signal })
       .then(async response => {
@@ -94,7 +97,7 @@ export default function IntegrationHealthPage() {
       .finally(() => { clearTimeout(timer); if (active) setLoading(false); });
     return () => { active = false; clearTimeout(timer); controller.abort(); };
   }, [attempt]);
-  const { quota, connections, portfolios, capacity, activity, verifications } = data?.sections || {};
+  const { quota, connections, portfolios, capacity, activity, verifications, maintenance } = data?.sections || {};
   const connectionItems = connections?.items || [];
   const portfolioItems = portfolios?.items || [];
   const verificationItems = verifications?.items || [];
@@ -109,7 +112,7 @@ export default function IntegrationHealthPage() {
       <button className={button} disabled={loading} onClick={() => setAttempt(value => value + 1)}><RefreshCw size={16} aria-hidden="true" />{loading ? "Reading saved status..." : "Reload saved status"}</button>
     </header>
     <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-4 text-sm text-emerald-950">
-      Opening or reloading this page does not contact Blackbaud, reconnect accounts, restart refreshes, or resend submissions. Times are Eastern. Routine successes need no action.
+      Opening or reloading this page only reads saved status. Maintenance controls below run checks only when you choose them. Times are Eastern. Routine successes need no action.
       {data && <p className="mt-2 font-semibold">Saved status read {when(data.readAt)}</p>}
     </div>
     {loading && <p role="status">Loading saved integration status...</p>}
@@ -164,12 +167,24 @@ export default function IntegrationHealthPage() {
       <Section id="health-portfolios" title="Portfolio maintenance" available={portfolios?.available}
         description="Current assigned constituents only. Summary and giving backlogs overlap and must not be added together. Missing snapshots are unknown, not zero activity.">
         <div className="mb-4 flex flex-wrap gap-3"><a className={button} href="/my-top-prospects?tab=portfolio">Open portfolios</a><a className={button} href="/access-management">Security & Access</a></div>
-        <p className="mb-4 text-sm text-gray-600">Select the named MGO in My Prospects before inspecting a job. This page never changes your selected workspace.</p>
+        <p className="mb-4 text-sm text-gray-600">Inspect maintenance here without changing your selected workspace. When server-managed continuation is enabled, routine work rotates across active, mapped MGOs.</p>
+        {maintenance?.enabled && <div className="mb-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-600">
+          <p>Background read reservations today: {maintenance.nightCalls ?? "Not recorded"} / {maintenance.nightLimit} overnight; {maintenance.dayCalls ?? "Not recorded"} / {maintenance.dayLimit} daytime. Each batch stops at {maintenance.batchLimit} calls.</p>
+          <p className="mt-2">These are conservative limits for this maintenance worker, not the subscription's remaining quota. Interactive work and other integrations use additional capacity. Blackbaud cooldowns take priority.</p>
+          <Details><p>New active MGOs with a fundraiser mapping join automatically on an overnight turn; their first portfolio visit is not required. Missing mappings still need administrator setup.</p>
+            <p>New and existing portfolios share rotating turns. Failed setup attempts wait at least an hour so one workspace cannot block the others.</p>
+            <p>Next allowed maintenance batch: {when(maintenance.nextAllowedAt)}. Lease ends: {when(maintenance.leaseUntil)}.</p>
+            {(maintenance.turns || []).map(turn => <p key={turn.id}>{turn.name}: last turn {when(turn.lastServedAt)}; {turn.result}; eligible after {when(turn.nextAttemptAt)}.</p>)}
+          </Details>
+        </div>}
         {!portfolioItems.length && <p className="text-sm text-gray-600">No active MGO workspaces were found.</p>}
         <div className="space-y-3">{portfolioItems.map(item => <article key={item.id} className="rounded-xl border border-gray-200 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold">{item.name}</h3><Badge level={item.level}>{item.label}</Badge></div>
           <p className="mt-3 text-sm text-gray-600">{item.total === null ? "No saved assignment counts available." : `${item.total} assigned / ${item.summaryDue} summaries due / ${item.givingDue} giving checks due / ${item.failed} summaries with errors`}</p>
           <p className="mt-2 text-sm leading-relaxed text-gray-700">{item.guidance}</p>
+          <button type="button" className={`${button} mt-3`} onClick={() => setMaintenanceWorkspace(maintenanceWorkspace === item.id ? null : item.id)}
+            aria-expanded={maintenanceWorkspace === item.id}>{maintenanceWorkspace === item.id ? "Close maintenance details" : `Maintenance details for ${item.name}`}</button>
+          {maintenanceWorkspace === item.id && <PortfolioMaintenanceDetails key={item.id} workspaceId={item.id} />}
           <Details><p>Assignments checked: {when(item.assignmentsCheckedAt)}</p><p>Most recent successful summary check: {when(item.lastSummaryCheck)}</p><p>Most recent successful giving check: {when(item.lastGivingCheck)}</p>
             <p>These are the most recent individual checks, not confirmation that the entire portfolio was refreshed.</p>
             {item.job && <><p>Latest job: {item.job.processed} / {item.job.total} processed; {item.job.completed} completed; {item.job.failed} failed.</p><p>Job updated: {when(item.job.updatedAt)}</p>{item.job.pausedUntil && <p>Saved pause ends: {when(item.job.pausedUntil)}</p>}</>}

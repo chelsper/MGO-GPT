@@ -94,3 +94,19 @@ it.each([{ isPrimary: true }, { needsDiscussion: true }, { prospectOpportunityId
   expect(mocks.sql).toHaveBeenCalledTimes(1);
   expect(mocks.discussion).not.toHaveBeenCalled();
 });
+it.each([{ isPrimary: true }, { needsDiscussion: true }, { prospectOpportunityId: 90 }])("keeps gift-origin tasks additional and independently linked: %j", async body => {
+  mocks.sql.mockResolvedValue([{ id: 40, owner_user_id: 7, source_gift_id: "900" }]);
+  expect((await PUT(request(body), { params: { id: "40" } })).status).toBe(400);
+  expect(mocks.sql).toHaveBeenCalledTimes(1);
+  expect(mocks.discussion).not.toHaveBeenCalled();
+});
+it("preserves gift provenance while editing or completing a follow-up", async () => {
+  mocks.sql.mockResolvedValue([{ id: 40, owner_user_id: 7, title: "Call", is_primary: false, source_gift_id: "900", source_gift_snapshot: { amount: 2500 } }]);
+  const response = await PUT(request({ title: "Updated plan", status: "Done" }), { params: { id: "40" } });
+  expect(response.status).toBe(200);
+  expect((await response.json()).source_gift_id).toBe("900");
+  expect(mocks.discussion).not.toHaveBeenCalled();
+  const update = mocks.sql.mock.calls[1][0].join("?");
+  expect(update).not.toMatch(/source_gift_(id|snapshot)\s*=/);
+  expect(mocks.sql.mock.calls.some(([parts]) => parts.join("").includes("UPDATE prospects"))).toBe(false);
+});

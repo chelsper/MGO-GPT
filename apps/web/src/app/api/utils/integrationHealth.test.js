@@ -47,6 +47,7 @@ describe("saved status classifications", () => {
     expect(portfolioHealth({ ...current, has_mapping: false }, now).label).toBe("Fundraiser mapping needed");
     expect(portfolioHealth({ ...current, summary_current: 4 }, now).label).toBe("Refresh backlog");
     expect(portfolioHealth({ ...current, summary_failed: 1 }, now).level).toBe("review");
+    expect(portfolioHealth({ ...current, job_status: "completed_with_failures", failed_count: 1 }, now).level).toBe("review");
   });
   it("prioritizes an active cooldown and does not promise a worker heartbeat", () => {
     expect(portfolioHealth({ ...current, summary_failed: 5, paused_until: "2026-09-17T16:00:00Z" }, now).level).toBe("wait");
@@ -56,6 +57,26 @@ describe("saved status classifications", () => {
 });
 
 describe("read-only health projection", () => {
+  it("reads maintenance budgets and fair turns without exposing tokens or initializing schema", async () => {
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://app.example");
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => {
+      const query = s.join(" ");
+      if (query.includes("to_regclass('portfolio_maintenance_gate')")) return [{ has_gate: true, has_schedule: true }];
+      if (query.includes("FROM portfolio_maintenance_gate WHERE")) return [{ day_calls: 15, night_calls: 100, lease_token: "PRIVATE-TOKEN" }];
+      if (query.includes("FROM portfolio_maintenance_schedule")) return [{ id: 7, name: "Test MGO", last_result: "queued", lease_token: "PRIVATE-TOKEN" }];
+      return original(s, ...v);
+    });
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.maintenance).toMatchObject({ enabled: true, initialized: true, dayCalls: 15, nightCalls: 100, dayLimit: 360, nightLimit: 2160,
+      turns: [{ id: "7", name: "Test MGO", result: "queued" }] });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE-TOKEN");
+    expect(sql.mock.calls.map(([s]) => s.join(" ")).join(" ")).not.toMatch(/\b(INSERT|UPDATE|DELETE|ALTER|CREATE)\b/);
+    sql.mockClear();
+    expect((await readIntegrationHealth({ viewerId: 7, origin: "https://other.example" })).sections.maintenance.enabled).toBe(false);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("portfolio_maintenance"))).toBe(false);
+  });
   it("returns only allowlisted operational data, with no provider calls or writes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     try {

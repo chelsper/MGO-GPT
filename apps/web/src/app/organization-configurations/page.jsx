@@ -1,8 +1,12 @@
 "use client";
 
+import DashboardAssistantSettings from "@/components/DashboardAssistantSettings";
+import { normalizeDashboardAssistant } from "@/utils/dashboardAssistantSettings";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
 import SetupReturnLink from "@/components/SetupReturnLink";
+import { societyLetterReturnPath } from "@/utils/societyLetterNavigation";
 import { GripVertical, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import OrganizationConfigurationStatus from "@/components/OrganizationConfigurationStatus";
@@ -126,6 +130,7 @@ function normalizeInstitutionSettingsForForm(settings) {
     shortName: settings?.shortName || "",
     applicationName: settings?.applicationName || "",
     logoDataUrl: settings?.logoDataUrl || null,
+    dashboardAssistant: normalizeDashboardAssistant(settings?.dashboardAssistant),
     advancementServicesNotificationEmail:
       settings?.advancementServicesNotificationEmail || "devdata@ju.edu",
     notificationSenderName: settings?.notificationSenderName || "JUMGOGPT",
@@ -175,6 +180,10 @@ function SaveFeedback({ error, statusMessage }) {
 }
 
 export default function OrganizationConfigurationsPage() {
+  const [returnTo, setReturnTo] = useState("");
+  useEffect(() => {
+    setReturnTo(societyLetterReturnPath(new URLSearchParams(window.location.search).get("returnTo")));
+  }, []);
   const queryClient = useQueryClient();
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -600,7 +609,7 @@ export default function OrganizationConfigurationsPage() {
             marginBottom: "28px",
           }}
         >
-          <SetupReturnLink canManageWorkspace={canManageWorkspaceRole(profile?.role)} className="mb-4" />
+          <SetupReturnLink canManageWorkspace={canManageWorkspaceRole(profile?.role)} className="mb-4" returnTo={returnTo} />
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: "clamp(24px, 4vw, 40px)", lineHeight: 1.1, overflowWrap: "anywhere" }}>
               Organization Configurations
@@ -694,6 +703,7 @@ export default function OrganizationConfigurationsPage() {
           <OrganizationConfigurationStatus policy={reportingPolicy} history={settingsHistory} />
           <fieldset disabled={institutionSettingsSaving || !institutionSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <OrganizationLogoEditor value={institutionSettings?.logoDataUrl} shortName={institutionSettings?.shortName || "JU"} disabled={institutionSettingsSaving || settingsReloadNeeded || !institutionSettings} onChange={(logoDataUrl) => updateInstitutionSettings({ logoDataUrl })} onBusyChange={setLogoPreparing} />
+          <DashboardAssistantSettings value={institutionSettings?.dashboardAssistant} disabled={institutionSettingsSaving || settingsReloadNeeded || !institutionSettings} onChange={dashboardAssistant => updateInstitutionSettings({ dashboardAssistant })} />
           <div
             id="notification-delivery"
             className="scroll-mt-24"

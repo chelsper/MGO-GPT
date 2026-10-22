@@ -216,6 +216,13 @@ function getActionSummary(action) {
 
 function normalizeActionRecord(action) {
   return {
+    identityVersion: 1,
+    // Lifecycle joins must never mistake a constituent lookup ID for a system ID.
+    constituentSystemId: String(firstDefined(action, ["constituent_id", "constituentId",
+      "constituent_summary.system_record_id", "constituentSummary.systemRecordId",
+      "action_summary.constituent_summary.system_record_id", "actionSummary.constituentSummary.systemRecordId",
+      "constituent.id", "value.constituent_id", "value.constituentId", "value.constituent.id"]) || "").trim(),
+    completed: typeof action.completed === "boolean" ? action.completed : null,
     actionId: getActionId(action),
     date: getActionDate(action),
     category: getActionCategory(action),

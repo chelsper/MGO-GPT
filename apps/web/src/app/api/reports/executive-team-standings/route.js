@@ -413,6 +413,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     source:
       "Raiser's Edge NXT fundraiser-attributed gift credit and actions; JUMGOGPT local pipeline and next-step records",
     scoringVersion: 2,
+    actionIdentityVersion: 1,
     comparison,
     generatedAt: new Date().toISOString(),
     refreshUnavailableSources: [...refreshUnavailableSources],

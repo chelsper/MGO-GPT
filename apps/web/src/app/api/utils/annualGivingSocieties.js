@@ -140,7 +140,7 @@ function getAnnualDefinitionWindow(definition, now) {
   };
 }
 
-function getEarliestAnnualStartDate(definitions, now) {
+export function getEarliestAnnualStartDate(definitions, now) {
   const startDates = definitions
     .filter((definition) => definition.active !== false && definition.basis === "annual")
     .map((definition) => getAnnualDefinitionWindow(definition, now).startDate)
@@ -264,7 +264,7 @@ function getGiftFundNames(gift) {
     }
   }
 
-  const arrayPaths = ["funds", "designations", "payments.0.applications", "applications"];
+  const arrayPaths = ["funds", "designations", "gift_splits", "payments.0.applications", "applications"];
   for (const path of arrayPaths) {
     const value = getNestedValue(gift, path);
     if (!Array.isArray(value)) continue;
@@ -434,10 +434,14 @@ function calculateGivingTotalsForWindow({
   let recognitionCreditGiftCount = 0;
   let plannedGiftCount = 0;
   const countedGiftIds = new Set();
+  const seenGiftIds = new Set();
   const countedPlannedGiftIds = new Set();
   const realizedPlannedGiftIdSet = normalizeGiftIdSet(realizedPlannedGiftIds);
 
   for (const gift of gifts) {
+    const giftId = getGiftId(gift);
+    if (giftId && seenGiftIds.has(giftId)) continue;
+    if (giftId) seenGiftIds.add(giftId);
     const giftDate = getGiftDate(gift);
     const giftTime = giftDate ? new Date(giftDate).getTime() : Number.NaN;
     if (!Number.isFinite(giftTime) || giftTime < startTime || giftTime > endTime) {
@@ -447,7 +451,6 @@ function calculateGivingTotalsForWindow({
     const context = getGiftConstituentContext(gift, constituentId);
     const { recognitionCredits, directMatches } = context;
 
-    const giftId = getGiftId(gift);
     if (
       isPlannedGiftForConstituent(gift, constituentId, context) &&
       !realizedPlannedGiftIdSet.has(giftId)
@@ -471,7 +474,11 @@ function calculateGivingTotalsForWindow({
     }
 
     let recognitionAmountForGift = 0;
-    for (const credit of recognitionCredits) {
+    const seenCredits = new Set();
+    for (const credit of directMatches ? [] : recognitionCredits) {
+      const key = String(credit.id || `${constituentId}:${getRecognitionCreditAmount(credit)}`);
+      if (seenCredits.has(key)) continue;
+      seenCredits.add(key);
       const amount = toFiniteAmount(getRecognitionCreditAmount(credit));
       if (amount != null && amount > 0) {
         recognitionAmountForGift += amount;
@@ -509,6 +516,7 @@ function calculatePlannedGiftPresence({
 
   for (const gift of gifts) {
     const giftId = getGiftId(gift);
+    if (giftId && plannedGiftIds.has(giftId)) continue;
     if (
       !isPlannedGiftForConstituent(gift, constituentId) ||
       realizedPlannedGiftIdSet.has(giftId)
@@ -659,6 +667,7 @@ function calculateLifetimeGivingSocieties({
 export function calculateAnnualGivingSocieties({
   constituentId,
   gifts = [],
+  lifetimeGifts = gifts,
   now = new Date(),
   societyDefinitions,
   lifetimeGiving = null,
@@ -673,7 +682,7 @@ export function calculateAnnualGivingSocieties({
   const lifetimeSummary = calculateLifetimeGivingSocieties({
     societyDefinitions: definitions,
     lifetimeGiving,
-    gifts,
+    gifts: lifetimeGifts,
     constituentId,
     realizedPlannedGiftIds,
   });
@@ -832,6 +841,8 @@ export async function fetchAnnualGivingSocieties({
   lifetimeGiving,
   loadLifetimeGiving,
   resolveRealizedPlannedGiftIds,
+  loadAnnualGifts,
+  loadSavedSocieties,
   strict = false,
 } = {}) {
   if (!listGifts) {
@@ -843,6 +854,18 @@ export async function fetchAnnualGivingSocieties({
 
   const definitions = normalizeGivingSocietyConfigurations(societyDefinitions);
   const startGiftDate = getEarliestAnnualStartDate(definitions, now);
+  // A donor-filtered Gift list cannot discover credits on another donor's gift.
+  // Production callers supply the completed, connection-scoped background source.
+  let annualSource = null;
+  if (typeof loadAnnualGifts === "function") {
+    try {
+      annualSource = await loadAnnualGifts({ startDate: startGiftDate, endDate: formatDateOnly(now) });
+    } catch (error) {
+      const previous = typeof loadSavedSocieties === "function" ? await loadSavedSocieties() : null;
+      if (previous) return { ...previous, refreshPending: true };
+      throw error;
+    }
+  }
   const giftSearchParams = {
     constituent_id: String(constituentId),
     ...(needsFullGiftHistory(definitions)
@@ -852,8 +875,8 @@ export async function fetchAnnualGivingSocieties({
           end_gift_date: formatDateOnly(now),
         }),
   };
-  const [gifts, resolvedLifetimeGiving] = await Promise.all([
-    listGifts({
+  const [history, resolvedLifetimeGiving] = await Promise.all([
+    annualSource && !needsFullGiftHistory(definitions) ? Promise.resolve([]) : listGifts({
       userId,
       authUserId,
       origin,
@@ -867,19 +890,27 @@ export async function fetchAnnualGivingSocieties({
         ? Promise.resolve().then(loadLifetimeGiving).catch((error) => { if (strict) throw error; return null; })
         : Promise.resolve(null),
   ]);
+  const gifts = annualSource ? annualSource.gifts : history;
+  const annualIds = new Set(gifts.map(getGiftId));
+  const lifetimeGifts = annualSource
+    ? [...gifts, ...history.filter((gift) => !annualIds.has(getGiftId(gift)))]
+    : history;
   const realizedPlannedGiftIds =
     typeof resolveRealizedPlannedGiftIds === "function"
       ? await Promise.resolve()
-          .then(() => resolveRealizedPlannedGiftIds(gifts))
+          .then(() => resolveRealizedPlannedGiftIds(lifetimeGifts))
           .catch((error) => { if (strict) throw error; return new Set(); })
       : new Set();
 
-  return calculateAnnualGivingSocieties({
+  const result = calculateAnnualGivingSocieties({
     constituentId,
     gifts,
+    lifetimeGifts,
     now,
     societyDefinitions: definitions,
     lifetimeGiving: resolvedLifetimeGiving,
     realizedPlannedGiftIds,
   });
+  if (annualSource) result.recognitionSource = annualSource.source;
+  return result;
 }

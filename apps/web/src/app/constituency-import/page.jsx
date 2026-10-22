@@ -18,481 +18,25 @@ import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import { importRecoveryState } from "@/utils/quickImportWorkflow";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
-import ImportCompletionNotice from "@/components/ImportCompletionNotice";
+import ImportFieldResults from "@/components/ImportFieldResults";
+import { importFieldResultExport } from "@/utils/importFieldResults";
+import ImportContactRecovery from "@/components/ImportContactRecovery";
+import ImportContactPreflight from "@/components/ImportContactPreflight";
+import ImportSetupLibrary from "@/components/ImportSetupLibrary";
+import ImportColumnMapping from "@/components/ImportColumnMapping";
+import { importSetupActiveFields, importSetupFileBlockers } from "@/utils/importSetups";
+import ImportReviewOverview from "@/components/ImportReviewOverview";
+import ImportRowChangeSummary from "@/components/ImportRowChangeSummary";
+import { importReviewGroup, importReviewOverview, firstImportReviewRow, formatContactReviewChange } from "@/utils/importReviewOverview";
+import { importContactPreflight } from "@/utils/importContactPreflight";
 import { isImportVerificationComplete } from "@/utils/importCompletion";
 import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget, importErrorLabel, withFocusedImportRow } from "@/utils/importMatchReview";
 import { importMatchEvidence } from "@/utils/importMatchEvidence";
 
-const IMPORT_FIELDS = [
-  {
-    key: "blackbaudConstituentId",
-    header: "NXT System ID",
-    label: "NXT System ID",
-    group: "Match fields",
-    description: "Best match key when available. This is the internal Blackbaud record ID.",
-    recommended: true,
-  },
-  {
-    key: "lookupId",
-    header: "NXT Lookup ID",
-    label: "NXT Lookup ID",
-    group: "Match fields",
-    description:
-      "Strong match key commonly visible on the NXT constituent profile. For a reviewed new record with no match, the value is assigned as the new NXT lookup ID after the final duplicate check.",
-    recommended: true,
-  },
-  {
-    key: "externalConstituentId",
-    header: "External Constituent ID",
-    label: "External Constituent ID",
-    group: "Match fields",
-    description:
-      "An identifier from another system. It is retained in the import audit only and is never used as an NXT ID or written to NXT.",
-  },
-  {
-    key: "firstName",
-    header: "First Name",
-    label: "First Name",
-    group: "Name fields",
-    description: "Used for matching and, when selected below, to update the matched NXT first name.",
-    recommended: true,
-  },
-  {
-    key: "lastName",
-    header: "Last Name",
-    label: "Last Name",
-    group: "Name fields",
-    description: "Used for matching and, when selected below, to update the matched NXT last name.",
-    recommended: true,
-  },
-  {
-    key: "preferredName",
-    header: "Preferred Name",
-    label: "Preferred Name",
-    group: "Name fields",
-    description: "Optional, but can update the matched NXT preferred name when it differs from the current value.",
-  },
-  {
-    key: "title",
-    header: "Title",
-    label: "Title",
-    group: "Individual profile fields",
-    description: "Optional NXT title, such as Dr., Mr., Ms., or Rev.",
-  },
-  {
-    key: "gender",
-    header: "Gender",
-    label: "Gender",
-    group: "Individual profile fields",
-    description: "Optional NXT gender value. The CSV value is reviewed against the current record before import.",
-  },
-  {
-    key: "ethnicity",
-    header: "Ethnicity",
-    label: "Ethnicity",
-    group: "Individual profile fields",
-    description: "Optional NXT ethnicity value. The CSV value is reviewed against the current record before import.",
-  },
-  {
-    key: "birthDate",
-    header: "Birth Date",
-    label: "Birth Date",
-    group: "Individual profile fields",
-    description: "Optional full birth date in MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD format. Partial dates are not imported automatically.",
-  },
-  {
-    key: "suffix",
-    header: "Suffix",
-    label: "Suffix",
-    group: "Individual profile fields",
-    description: "Optional NXT suffix, such as Jr., Sr., III, or Ph.D.",
-  },
-  {
-    key: "addressee",
-    header: "Addressee",
-    label: "Addressee",
-    group: "Addressee and salutation fields",
-    description: "Optional custom primary NXT addressee. A file-wide builder can supply a default when this column is blank.",
-  },
-  {
-    key: "salutation",
-    header: "Salutation",
-    label: "Salutation",
-    group: "Addressee and salutation fields",
-    description: "Optional custom primary NXT salutation. A file-wide builder can supply a default when this column is blank.",
-  },
-  {
-    key: "email",
-    header: "Email Address",
-    label: "Email Address",
-    group: "Email fields",
-    description:
-      "Use for matching or, when selected below, to add an email address to the matched NXT record.",
-  },
-  {
-    key: "emailType",
-    header: "Email Type",
-    label: "Email Type",
-    group: "Email fields",
-    description: "Optional NXT email type, such as Home, Business, or Other.",
-  },
-  {
-    key: "emailMakePrimary",
-    header: "Email Make Primary?",
-    label: "Email Make Primary?",
-    group: "Email fields",
-    description: "Optional yes/no flag for whether this email should become primary.",
-  },
-  {
-    key: "email2",
-    header: "Email 2 Address",
-    label: "Email 2 Address",
-    group: "Email fields",
-    description: "Second email address to add or update.",
-    additionalSet: "secondEmail",
-  },
-  {
-    key: "email2Type",
-    header: "Email 2 Type",
-    label: "Email 2 Type",
-    group: "Email fields",
-    description: "NXT email type for the second email, such as Home, Business, or Other.",
-    additionalSet: "secondEmail",
-  },
-  {
-    key: "email2MakePrimary",
-    header: "Email 2 Make Primary?",
-    label: "Email 2 Make Primary?",
-    group: "Email fields",
-    description: "Optional yes/no flag for whether the second email should become primary.",
-    additionalSet: "secondEmail",
-  },
-  {
-    key: "phoneNumber",
-    header: "Phone Number",
-    label: "Phone Number",
-    group: "Phone fields",
-    description: "Phone number to add or update.",
-  },
-  {
-    key: "phoneType",
-    header: "Phone Type",
-    label: "Phone Type",
-    group: "Phone fields",
-    description: "Optional NXT phone type, such as Home, Mobile, Business, or Other.",
-  },
-  {
-    key: "phoneMakePrimary",
-    header: "Phone Make Primary?",
-    label: "Phone Make Primary?",
-    group: "Phone fields",
-    description: "Optional yes/no flag for whether this phone should become primary.",
-  },
-  {
-    key: "phone2Number",
-    header: "Phone 2 Number",
-    label: "Phone 2 Number",
-    group: "Phone fields",
-    description: "Second phone number to add or update.",
-    additionalSet: "secondPhone",
-  },
-  {
-    key: "phone2Type",
-    header: "Phone 2 Type",
-    label: "Phone 2 Type",
-    group: "Phone fields",
-    description: "NXT phone type for the second phone, such as Home, Mobile, Business, or Other.",
-    additionalSet: "secondPhone",
-  },
-  {
-    key: "phone2MakePrimary",
-    header: "Phone 2 Make Primary?",
-    label: "Phone 2 Make Primary?",
-    group: "Phone fields",
-    description: "Optional yes/no flag for whether the second phone should become primary.",
-    additionalSet: "secondPhone",
-  },
-  {
-    key: "addressType",
-    header: "Address Type",
-    label: "Address Type",
-    group: "Address fields",
-    description: "Optional NXT address type, such as Home, Business, Seasonal, or Other.",
-  },
-  {
-    key: "addressValidFrom",
-    header: "Address Valid From",
-    label: "Address Valid From",
-    group: "Address fields",
-    description: "Optional date this address becomes valid, in MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD format.",
-  },
-  {
-    key: "addressLine1",
-    header: "Address Line 1",
-    label: "Address Line 1",
-    group: "Address fields",
-    description: "Primary street address line.",
-  },
-  {
-    key: "addressLine2",
-    header: "Address Line 2",
-    label: "Address Line 2",
-    group: "Address fields",
-    description: "Apartment, suite, unit, or secondary address line.",
-  },
-  {
-    key: "city",
-    header: "City",
-    label: "City",
-    group: "Address fields",
-    description: "Address city.",
-  },
-  {
-    key: "state",
-    header: "State",
-    label: "State",
-    group: "Address fields",
-    description: "Address state or province.",
-  },
-  {
-    key: "postalCode",
-    header: "ZIP/Postal Code",
-    label: "ZIP/Postal Code",
-    group: "Address fields",
-    description: "Address ZIP or postal code.",
-  },
-  {
-    key: "country",
-    header: "Country",
-    label: "Country",
-    group: "Address fields",
-    description: "Address country. Can be blank when the import source already assumes United States.",
-  },
-  {
-    key: "addressMakePrimary",
-    header: "Address Make Primary?",
-    label: "Address Make Primary?",
-    group: "Address fields",
-    description: "Optional yes/no flag for whether this address should become primary.",
-  },
-  {
-    key: "sourceConstituency",
-    header: "Current Constituent Code",
-    label: "Current Constituent Code",
-    group: "Constituent code fields",
-    description: "Use when replacing or end-dating an existing constituent code.",
-  },
-  {
-    key: "targetConstituency",
-    header: "New Constituent Code",
-    label: "New Constituent Code",
-    group: "Constituent code fields",
-    description: "The constituent code to add or replace with. Choose the behavior below this field.",
-    recommended: true,
-  },
-  {
-    key: "startDate",
-    header: "New Constituent Code Start Date",
-    label: "New Constituent Code Start Date",
-    group: "Constituent code fields",
-    description:
-      "Optional start date for the new code. When replacing, the selected current code and its dates are removed; leave this blank to create the new code without a start date.",
-  },
-  {
-    key: "endDate",
-    header: "New Constituent Code End Date",
-    label: "New Constituent Code End Date",
-    group: "Constituent code fields",
-    description:
-      "Optional end date for the new code. When replacing, it applies only to the newly created code.",
-  },
-  {
-    key: "educationInstitution",
-    header: "Education Institution",
-    label: "Education Institution",
-    group: "Education relationship fields",
-    description: "School, college, or university name for an education relationship.",
-  },
-  {
-    key: "educationDegree",
-    header: "Education Degree",
-    label: "Education Degree",
-    group: "Education relationship fields",
-    description: "Degree name or credential, when available.",
-  },
-  {
-    key: "educationMajor",
-    header: "Education Major",
-    label: "Education Major",
-    group: "Education relationship fields",
-    description: "Major, program, or academic area, when available.",
-  },
-  {
-    key: "educationMinor",
-    header: "Education Minor",
-    label: "Education Minor",
-    group: "Education relationship fields",
-    description: "Minor or secondary academic area, when available.",
-  },
-  {
-    key: "educationSchoolType",
-    header: "Education School Type",
-    label: "Education School Type",
-    group: "Education relationship fields",
-    description: "Active NXT School type table entry, when available.",
-  },
-  {
-    key: "educationCampus",
-    header: "Education Campus",
-    label: "Education Campus",
-    group: "Education relationship fields",
-    description: "Campus name, when available.",
-  },
-  {
-    key: "educationFraternitySorority",
-    header: "Education Fraternity/Sorority",
-    label: "Education Fraternity/Sorority",
-    group: "Education relationship fields",
-    description: "Fraternity or sorority affiliation, when available.",
-  },
-  {
-    key: "educationGpa",
-    header: "Education GPA",
-    label: "Education GPA",
-    group: "Education relationship fields",
-    description: "Numeric GPA, when available.",
-  },
-  {
-    key: "educationClassYear",
-    header: "Education Class Year",
-    label: "Education Class Year",
-    group: "Education relationship fields",
-    description: "Graduation or class year, when available.",
-  },
-  {
-    key: "educationStatus",
-    header: "Education Status",
-    label: "Education Status",
-    group: "Education relationship fields",
-    description: "Active NXT education status table entry, when available.",
-  },
-  {
-    key: "educationDateGraduated",
-    header: "Education Date Graduated",
-    label: "Education Date Graduated",
-    group: "Education relationship fields",
-    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
-  },
-  {
-    key: "educationDateEntered",
-    header: "Education Date Entered",
-    label: "Education Date Entered",
-    group: "Education relationship fields",
-    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
-  },
-  {
-    key: "educationDateLeft",
-    header: "Education Date Left",
-    label: "Education Date Left",
-    group: "Education relationship fields",
-    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
-  },
-  {
-    key: "educationRelationshipMakePrimary",
-    header: "Education Relationship Make Primary?",
-    label: "Education Relationship Make Primary?",
-    group: "Education relationship fields",
-    description: "Optional yes/no flag for whether this education relationship should be primary.",
-  },
-  {
-    key: "organizationName",
-    header: "Organization Name",
-    label: "Organization Name",
-    group: "Organization relationship fields",
-    description: "Organization or employer name for an organization relationship.",
-  },
-  {
-    key: "organizationRelationshipType",
-    header: "Organization Relationship Type",
-    label: "Organization Relationship Type",
-    group: "Organization relationship fields",
-    description: "Relationship type, such as Employee, Board Member, Owner, or Other.",
-  },
-  {
-    key: "organizationTitle",
-    header: "Organization Title",
-    label: "Organization Title",
-    group: "Organization relationship fields",
-    description: "Title, role, or position at the organization.",
-  },
-  {
-    key: "organizationStartDate",
-    header: "Organization Relationship Start Date",
-    label: "Organization Relationship Start Date",
-    group: "Organization relationship fields",
-    description: "Optional start date for the organization relationship.",
-  },
-  {
-    key: "organizationEndDate",
-    header: "Organization Relationship End Date",
-    label: "Organization Relationship End Date",
-    group: "Organization relationship fields",
-    description: "Optional end date for the organization relationship.",
-  },
-  {
-    key: "organizationRelationshipMakePrimary",
-    header: "Organization Relationship Make Primary?",
-    label: "Organization Relationship Make Primary?",
-    group: "Organization relationship fields",
-    description: "Optional yes/no flag for whether this organization relationship should be primary.",
-  },
-];
-
-const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
-  acc[field.key] = field;
-  return acc;
-}, {});
-
-const IMPORT_HEADER_ALIASES = {
-  externalConstituentId: [
-    "External Constituent ID",
-    "Source Constituent ID",
-    "Source Constituent ID #",
-    "Constituent ID",
-    "Constituent ID #",
-    "Legacy Constituent ID",
-    "Legacy ID",
-  ],
-};
-
-function normalizeImportHeader(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
-function getUploadedHeaderForField(fieldKey, availableHeaders) {
-  const field = FIELD_BY_KEY[fieldKey];
-  if (!field) return "";
-
-  const headerByNormalizedValue = new Map(
-    (Array.isArray(availableHeaders) ? availableHeaders : [])
-      .map((header) => [normalizeImportHeader(header), String(header || "").trim()])
-      .filter(([normalizedHeader, header]) => normalizedHeader && header),
-  );
-  const candidates = [field.header, ...(IMPORT_HEADER_ALIASES[fieldKey] || [])];
-  for (const candidate of candidates) {
-    const matchedHeader = headerByNormalizedValue.get(normalizeImportHeader(candidate));
-    if (matchedHeader) return matchedHeader;
-  }
-  return "";
-}
+import { IMPORT_FIELDS, FIELD_BY_KEY, getUploadedHeaderForField } from "@/utils/importFieldDefinitions";
 
 const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "ethnicity", "birthDate", "suffix"];
 const NAME_FORMAT_FIELD_KEYS = ["addressee", "salutation"];
-const EMAIL_FIELD_KEYS = ["email", "email2"];
-const PHONE_FIELD_KEYS = ["phoneNumber", "phone2Number"];
 const ADDRESS_FIELD_KEYS = ["addressType", "addressValidFrom", "addressLine1", "addressLine2", "city", "state", "postalCode", "country"];
 
 function getDetectedHeaders(headerSet, fieldKeys) {
@@ -914,7 +458,9 @@ function parseCsv(text) {
       )
     : [];
   const headers = parsed.meta?.fields?.filter(Boolean) || [];
-  return { rows, headers, errors: parsed.errors || [] };
+  const rawHeaders = Papa.parse(text, { preview: 1 }).data?.[0]?.map((header) => String(header).trim()) || [];
+  const duplicateHeaders = new Set(rawHeaders).size !== rawHeaders.length;
+  return { rows, headers, errors: [...(parsed.errors || []), ...(duplicateHeaders ? [{ message: "Duplicate CSV column names" }] : [])] };
 }
 
 function statusTone(status) {
@@ -1062,10 +608,12 @@ function formatBirthDateForDisplay(value) {
 
 function formatWritePlanItem(write) {
   if (!write || typeof write !== "object") return "";
+  const contactChange = formatContactReviewChange(write);
+  if (contactChange) return contactChange;
   if (write.type === "contact_detail_review") return "Load current NXT contacts before adding or updating contact details";
 
   if (write.type === "constituent_code") {
-    const action = write.action === "replace" ? "Replace" : "Add";
+    const action = { replace: "Replace", "end-date": "End-date", reorder: "Reorder" }[write.action] || "Add";
     const from = write.sourceConstituency ? `${write.sourceConstituency} to ` : "";
     const reviewState =
       write.action === "replace"
@@ -1097,6 +645,7 @@ function formatWritePlanItem(write) {
     const fields = [
       write.title && `title to ${write.title}`,
       write.gender && `gender to ${write.gender}`,
+      write.ethnicity && `ethnicity to ${write.ethnicity}`,
       write.birthDate && `birth date to ${formatBirthDateForDisplay(write.birthDate)}`,
       write.suffix && `suffix to ${write.suffix}`,
     ]
@@ -1108,27 +657,6 @@ function formatWritePlanItem(write) {
   if (write.type === "constituent_name_format") {
     const label = write.kind === "salutation" ? "salutation" : "addressee";
     return `Set primary NXT ${label} to ${write.value || "unspecified"}`;
-  }
-
-  if (write.type === "email_address") {
-    if (write.action === "replace") {
-      return `Replace selected email: ${write.address || "unspecified"}`;
-    }
-    const primary = write.makePrimary ? " and set as primary" : "";
-    const type = write.emailType ? ` (${write.emailType})` : "";
-    return `Add email as additional: ${write.address || "unspecified"}${type}${primary}`;
-  }
-  if (write.type === "phone") {
-    if (write.action === "replace") {
-      return `Replace selected phone: ${write.number || "unspecified"}`;
-    }
-    return `Add phone as additional: ${write.number || "unspecified"}${write.makePrimary ? " and set as primary" : ""}`;
-  }
-  if (write.type === "address") {
-    if (write.action === "replace") {
-      return `Replace selected address: ${write.addressLine1 || "unspecified"}`;
-    }
-    return `Add address as additional: ${write.addressLine1 || "unspecified"}${write.makePrimary ? " and set as primary" : ""}`;
   }
 
   if (write.type === "education_relationship") {
@@ -3457,25 +2985,6 @@ function getImportRowConstituentProfileUrl(row) {
   return buildBlackbaudConstituentProfileUrl(getImportRowConstituentId(row));
 }
 
-function hasWritePlanType(row, types) {
-  const typeSet = new Set(types);
-  return Array.isArray(row?.writePlan)
-    ? row.writePlan.some((write) => typeSet.has(write?.type))
-    : false;
-}
-
-function isClearlySafeReadyRow(row) {
-  if (!row || row.status !== "Ready" || row.appliedAt) return false;
-  if (row.intentDisposition?.key !== "ready_update") return false;
-  if ((row.confidence || 0) < 95) return false;
-  if (hasWritePlanType(row, ["email_address", "phone", "address"])) return false;
-  if (hasWritePlanType(row, ["education_relationship", "organization_relationship"])) return false;
-  if (Array.isArray(row?.writePlan) && row.writePlan.some((write) => write?.requiresReview)) {
-    return false;
-  }
-  return true;
-}
-
 export default function ConstituencyImportPage() {
   const { data: user, loading } = useUser();
   const access = useImportAccess({ user, loading });
@@ -3483,6 +2992,12 @@ export default function ConstituencyImportPage() {
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
   const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
   const [importIntent, setImportIntent] = useState("updates");
+  const [selectedSetup, setSelectedSetup] = useState(null);
+  const [setupInUse, setSetupInUse] = useState(false);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupConfirmation, setSetupConfirmation] = useState("");
+  const [mappingOverrides, setMappingOverrides] = useState({});
+  const [readingFile, setReadingFile] = useState(false);
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(false);
@@ -3496,6 +3011,7 @@ export default function ConstituencyImportPage() {
   const [salutationFormat, setSalutationFormat] = useState("dear-preferred");
   const [updateEmailFields, setUpdateEmailFields] = useState(false);
   const [updatePhoneFields, setUpdatePhoneFields] = useState(false);
+  const [contactImportDefaults, setContactImportDefaults] = useState({ contactMatchingOnly: {} });
   const [updateAddressFields, setUpdateAddressFields] = useState(false);
   const [contactDecisions, setContactDecisions] = useState({});
   const [contactDecisionsDirty, setContactDecisionsDirty] = useState(false);
@@ -3503,6 +3019,7 @@ export default function ConstituencyImportPage() {
   const [fieldDecisionsDirty, setFieldDecisionsDirty] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
+  const [csvWarningCount, setCsvWarningCount] = useState(0);
   const [sourceFilename, setSourceFilename] = useState("");
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
@@ -3535,7 +3052,7 @@ export default function ConstituencyImportPage() {
   const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
   const [showBatchTools, setShowBatchTools] = useState(false);
   const [reviewMode, setReviewMode] = useState(true);
-  const [reviewingSkippedRows, setReviewingSkippedRows] = useState(false);
+  const [reviewFilter, setReviewFilter] = useState("all");
   const [startingReviewMode, setStartingReviewMode] = useState(false);
   const [focusedRowId, setFocusedRowId] = useState("");
   const [reconcilingRun, setReconcilingRun] = useState(false);
@@ -3566,8 +3083,10 @@ export default function ConstituencyImportPage() {
   const hasDirtyReviewChoices = contactDecisionsDirty || fieldDecisionsDirty;
   const unsavedImportDraft = Boolean(hasDirtyReviewChoices || editingSavedRowId ||
     editingPreviewRowNumber !== null || (rows.length && !preview?.savedRun));
-  const importBusy = Boolean(previewing || savingRun || loadingRunId || applyingRun || directSendingRowNumber ||
+  const importBusy = Boolean(setupBusy || readingFile || previewing || savingRun || loadingRunId || applyingRun || directSendingRowNumber ||
     creatingRowId || retryingRowId || reconcilingRun || quickCreating || savingSavedRowCorrectionId || savingCombinedReviewRowId);
+  const reviewEditsPending = Boolean(hasDirtyReviewChoices || editingSavedRowId || editingPreviewRowNumber !== null);
+  const reviewControlsBusy = Boolean(importBusy || skippingRowId || savingReviewOnlyRowId || selectingManualMatchRowId);
   useUnsavedChangesWarning(unsavedImportDraft || importBusy);
   function canReplaceImportDraft() {
     if (importBusy) { setError("Wait for the current import operation to finish before changing files or runs."); return false; }
@@ -3585,21 +3104,23 @@ export default function ConstituencyImportPage() {
   const uploadedHeadersByField = useMemo(
     () =>
       IMPORT_FIELDS.reduce((acc, field) => {
-        acc[field.key] = getUploadedHeaderForField(field.key, headers);
+        acc[field.key] = Object.hasOwn(mappingOverrides, field.key)
+          ? (headers.includes(mappingOverrides[field.key]) ? mappingOverrides[field.key] : "")
+          : getUploadedHeaderForField(field.key, headers);
         return acc;
       }, {}),
-    [headers],
+    [headers, mappingOverrides],
   );
   const expectedHeaders = selectedFields.map(
-    (field) => uploadedHeadersByField[field.key] || field.header,
+    (field) => Object.hasOwn(mappingOverrides, field.key) ? mappingOverrides[field.key] : uploadedHeadersByField[field.key] || field.header,
   );
   const mappings = useMemo(
     () =>
       selectedFields.reduce((acc, field) => {
-        acc[field.key] = uploadedHeadersByField[field.key] || field.header;
+        acc[field.key] = Object.hasOwn(mappingOverrides, field.key) ? mappingOverrides[field.key] : uploadedHeadersByField[field.key] || field.header;
         return acc;
       }, {}),
-    [selectedFields, uploadedHeadersByField],
+    [selectedFields, uploadedHeadersByField, mappingOverrides],
   );
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
   const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
@@ -3630,8 +3151,6 @@ export default function ConstituencyImportPage() {
   const individualProfileFieldsActive = Boolean(
     activeFields.title || activeFields.gender || activeFields.ethnicity || activeFields.birthDate || activeFields.suffix,
   );
-  const emailFieldsActive = Boolean(activeFields.email || activeFields.email2);
-  const phoneFieldsActive = Boolean(activeFields.phoneNumber || activeFields.phone2Number);
   const addressFieldsActive = Boolean(
     activeFields.addressType || activeFields.addressValidFrom || activeFields.addressLine1,
   );
@@ -3666,6 +3185,19 @@ export default function ConstituencyImportPage() {
     updatePhoneFields &&
       (hasUploadedHeader("phoneNumber") || hasUploadedHeader("phone2Number")),
   );
+  const contactPlan = importContactPreflight(rows, mappings, {
+    ...contactImportDefaults, updateEmailFields, updatePhoneFields,
+  });
+  const importDefaults = {
+    ...contactImportDefaults, importIntent, defaultAction: constituencyAction, educationRelationshipAction,
+    useHierarchy, updateNameFields, updateIndividualProfileFields, updateNameFormatFields, buildNameFormats,
+    addresseeFormat, salutationFormat, newRecordNameFormats, updateEmailFields, updatePhoneFields, updateAddressFields,
+  };
+  const setupPlanKey = JSON.stringify({ rows, mappings, defaults: importDefaults });
+  const setupConfirmed = setupConfirmation === setupPlanKey;
+  const setupBlockers = importSetupFileBlockers(rows, mappings, { ...importDefaults, reusableSetup: setupInUse });
+  if (setupInUse && csvWarningCount) setupBlockers.push("Correct the CSV formatting warnings or duplicate column names, then upload the file again.");
+  if (setupInUse && !setupConfirmed) setupBlockers.push("Confirm this file's setup and primary-field plan below.");
   const mappedAddressUpdate = Boolean(
     updateAddressFields && hasUploadedHeader("addressLine1"),
   );
@@ -3727,8 +3259,11 @@ export default function ConstituencyImportPage() {
     rows.length > 0 &&
     identityRequirementMet &&
     hasImportOperation &&
-    mappedImportOperation;
+    mappedImportOperation &&
+    contactPlan.blockers.length === 0 && setupBlockers.length === 0;
   const previewBlockers = [
+    ...setupBlockers.slice(0, 5),
+    ...contactPlan.blockers.slice(0, 5),
     rows.length === 0 ? "Add at least one CSV data row." : "",
     identityRequirementMet ? "" : identityRequirementCopy,
     hasImportOperation
@@ -3740,10 +3275,9 @@ export default function ConstituencyImportPage() {
   ].filter(Boolean);
   const readyApplyRows =
     preview?.savedRun && Array.isArray(preview?.rows)
-      ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt)
+      ? preview.rows.filter((row) => importReviewGroup(row) === "updates")
       : [];
   const readySavedRows = readyApplyRows.length;
-  const clearlySafeReadyRows = readyApplyRows.filter(isClearlySafeReadyRow);
   const selectedApplyRows = readyApplyRows.filter((row) =>
     selectedApplyRowIds.includes(String(row.id)),
   );
@@ -3758,45 +3292,11 @@ export default function ConstituencyImportPage() {
   const unverifiedReconciliationRows = appliedReconciliationRows.filter(
     (row) => !isImportVerificationComplete(row),
   );
-  const potentialNewRows =
-    preview?.savedRun && Array.isArray(preview?.rows)
-      ? preview.rows.filter(
-          (row) =>
-            (row.intentDisposition?.key === "potential_new" ||
-              row.intentDisposition?.key === "ready_new") &&
-            !row.createdBlackbaudConstituentId,
-        ).length
-      : 0;
   const importRows = Array.isArray(preview?.rows) ? preview.rows : [];
-  const manuallySkippedRows = preview?.savedRun
-    ? importRows.filter(isManuallySkippedImportRow)
-    : [];
-  const reviewQueueRows = preview?.savedRun ? getReviewQueueRows(importRows) : [];
-  const reviewActionRows = preview?.savedRun
-    ? reviewQueueRows.filter((row) => row.status !== "Ready")
-    : [];
-  const defaultNavigationRows = preview?.savedRun
-    ? reviewingSkippedRows && manuallySkippedRows.length
-      ? manuallySkippedRows
-      : reviewActionRows.length
-        ? reviewActionRows
-        : readyApplyRows.length
-          ? readyApplyRows
-          : reviewQueueRows.length
-            ? reviewQueueRows
-            : importRows
-    : importRows;
+  const reviewOverview = importReviewOverview(importRows);
+  const filteredReviewRows = reviewFilter === "all" ? importRows : reviewOverview.groups[reviewFilter] || [];
+  const defaultNavigationRows = filteredReviewRows;
   const reviewNavigationRows = withFocusedImportRow(defaultNavigationRows, importRows, focusedRowId);
-  const rowsNeedingAttention = reviewActionRows.length;
-  const progressReviewRows = preview?.savedRun
-    ? reviewActionRows
-    : importRows.filter(isUnresolvedImportRow);
-  const progressRowsNeedingAttention = progressReviewRows.filter(
-    (row) => row.status !== "Ready",
-  ).length;
-  const verifiedReconciliationRows = appliedReconciliationRows.filter(
-    isImportVerificationComplete,
-  );
   const focusedReviewRow =
     reviewNavigationRows.find((row) => String(row.id) === String(focusedRowId)) ||
     reviewNavigationRows[0] ||
@@ -3804,17 +3304,8 @@ export default function ConstituencyImportPage() {
   const focusedReviewRowIndex = focusedReviewRow
     ? reviewNavigationRows.findIndex((row) => String(row.id) === String(focusedReviewRow.id))
     : -1;
-  const visiblePreviewRows =
-    preview?.savedRun && reviewMode && focusedReviewRow ? [focusedReviewRow] : importRows;
-  const readyProgressRows = preview?.savedRun
-    ? readySavedRows
-    : Number(preview?.summary?.ready || 0);
-  const nextProgressRow = reviewingSkippedRows
-    ? manuallySkippedRows[0] || null
-    : progressReviewRows.find((row) => row.status !== "Ready") ||
-      readyApplyRows[0] ||
-      reviewNavigationRows[0] ||
-      null;
+  const visiblePreviewRows = preview?.savedRun && reviewMode
+    ? focusedReviewRow ? [focusedReviewRow] : [] : filteredReviewRows;
 
   async function refreshNxtAvailability() {
     setCheckingNxtAvailability(true);
@@ -3846,14 +3337,23 @@ export default function ConstituencyImportPage() {
 
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
+    setCsvWarningCount(parsed.errors.length);
+    setSetupConfirmation("");
+    if (selectedSetup) {
+      applySetupConfiguration(selectedSetup.configuration);
+      setRows(parsed.rows);
+      setHeaders(parsed.headers);
+      setParseMessage(`Parsed ${parsed.rows.length} rows using ${selectedSetup.configuration.name}. Review columns and confirm this file's plan below.${parsed.errors.length ? " The CSV has formatting warnings; correct the file before continuing." : ""}`);
+      return;
+    }
+    setMappingOverrides({});
+    setSetupInUse(false);
     const parsedHeaderSet = new Set(parsed.headers);
     const detectedIndividualProfileHeaders = getDetectedHeaders(
       parsedHeaderSet,
       INDIVIDUAL_PROFILE_FIELD_KEYS,
     );
     const detectedNameFormatHeaders = getDetectedHeaders(parsedHeaderSet, NAME_FORMAT_FIELD_KEYS);
-    const detectedEmailHeaders = getDetectedHeaders(parsedHeaderSet, EMAIL_FIELD_KEYS);
-    const detectedPhoneHeaders = getDetectedHeaders(parsedHeaderSet, PHONE_FIELD_KEYS);
     const detectedAddressHeaders = getDetectedHeaders(parsedHeaderSet, ADDRESS_FIELD_KEYS);
     const hasDirectNxtIdentifier = Boolean(
       getUploadedHeaderForField("blackbaudConstituentId", parsed.headers),
@@ -3861,6 +3361,7 @@ export default function ConstituencyImportPage() {
     const detectedOperations = [];
     setRows(parsed.rows);
     setHeaders(parsed.headers);
+    setContactImportDefaults({ contactMatchingOnly: {} });
     setActiveFields((current) => {
       let changed = false;
       const next = { ...current };
@@ -3882,16 +3383,9 @@ export default function ConstituencyImportPage() {
       setUpdateNameFormatFields(true);
       detectedOperations.push("addressee and salutation updates");
     }
-    // Email, phone, and address can be used to find a record. Only select their update
-    // operations automatically when the same CSV has a direct NXT identifier.
-    if (hasDirectNxtIdentifier && detectedEmailHeaders.length) {
-      setUpdateEmailFields(true);
-      detectedOperations.push("email updates");
-    }
-    if (hasDirectNxtIdentifier && detectedPhoneHeaders.length) {
-      setUpdatePhoneFields(true);
-      detectedOperations.push("phone updates");
-    }
+    // A new upload must not inherit a previous file's contact-write choices.
+    setUpdateEmailFields(false);
+    setUpdatePhoneFields(false);
     if (hasDirectNxtIdentifier && detectedAddressHeaders.length) {
       setUpdateAddressFields(true);
       detectedOperations.push("address updates");
@@ -3956,35 +3450,6 @@ export default function ConstituencyImportPage() {
     };
   }, []);
 
-  const summaryCards = useMemo(() => {
-    const summary = preview?.summary || {};
-    if (importIntent !== "updates") {
-      return [
-        ["Ready updates", summary.ready || 0, "green"],
-        ["Potential new records", summary.potentialNew || 0, "blue"],
-        ["Needs resolution", summary.needsResolution || 0, "amber"],
-        ["Conflicts", summary.conflict || 0, "red"],
-        ["Skipped", summary.skipped || 0, "blue"],
-        ["Total", summary.total || rows.length || 0, "neutral"],
-      ];
-    }
-    return [
-      ["Ready", summary.ready || 0, "green"],
-      ["Needs Review", summary.needsReview || 0, "amber"],
-      ["Conflicts", summary.conflict || 0, "red"],
-      ["Skipped", summary.skipped || 0, "blue"],
-      ["Total", summary.total || rows.length || 0, "neutral"],
-    ];
-  }, [importIntent, preview, rows.length]);
-
-  const summaryToneColors = {
-    green: "#166534",
-    blue: "#1D4ED8",
-    amber: "#92400E",
-    red: "#991B1B",
-    neutral: "#374151",
-  };
-
   function selectImportIntent(nextIntent) {
     setImportIntent(nextIntent);
     setPreview(null);
@@ -3995,9 +3460,61 @@ export default function ConstituencyImportPage() {
     setSaveMessage("");
   }
 
+  function applySetupConfiguration(configuration) {
+    const defaults = configuration.defaults;
+    setSetupInUse(true);
+    setSetupConfirmation("");
+    setActiveFields(importSetupActiveFields(configuration));
+    setOpenFieldGroups({});
+    setMappingOverrides(configuration.mappings);
+    setImportIntent(defaults.importIntent);
+    setConstituencyAction(defaults.defaultAction);
+    setEducationRelationshipAction(defaults.educationRelationshipAction);
+    setUseHierarchy(defaults.useHierarchy);
+    setUpdateNameFields(defaults.updateNameFields);
+    setUpdateIndividualProfileFields(defaults.updateIndividualProfileFields);
+    setUpdateNameFormatFields(defaults.updateNameFormatFields);
+    setBuildNameFormats(defaults.buildNameFormats);
+    setAddresseeFormat(defaults.addresseeFormat);
+    setSalutationFormat(defaults.salutationFormat);
+    setNewRecordNameFormats(defaults.newRecordNameFormats);
+    setUpdateEmailFields(defaults.updateEmailFields);
+    setUpdatePhoneFields(defaults.updatePhoneFields);
+    setUpdateAddressFields(defaults.updateAddressFields);
+    setContactImportDefaults({ defaultEmailType: defaults.defaultEmailType, defaultPhoneType: defaults.defaultPhoneType, contactMatchingOnly: defaults.contactMatchingOnly });
+    setContactDecisions({});
+    setFieldDecisions({});
+    setContactDecisionsDirty(false);
+    setFieldDecisionsDirty(false);
+    setSelectedApplyRowIds([]);
+    setPreview(null);
+    setSaveMessage("");
+  }
+
+  function selectSavedSetup(setup) {
+    if (importBusy || preview?.savedRun) return;
+    if (!setup) {
+      setSelectedSetup(null);
+      return;
+    }
+    if (rows.length && !window.confirm("Replace the current file's configuration with this setup? Unsaved review choices will be cleared. Nothing will be sent to NXT.")) return;
+    setSelectedSetup(setup);
+    applySetupConfiguration(setup.configuration);
+  }
+
   function toggleField(key) {
     setActiveFields((current) => ({ ...current, [key]: !current[key] }));
     setPreview(null);
+  }
+
+  function chooseContactImport(group, mode) {
+    if (importBusy) return;
+    (group.key === "email" ? setUpdateEmailFields : setUpdatePhoneFields)(mode === "import");
+    setContactImportDefaults((current) => ({ ...current, contactMatchingOnly: {
+      ...current.contactMatchingOnly, [group.key]: mode === "matching" ? group.mappingKey : null,
+    } }));
+    setPreview(null);
+    setSaveMessage("");
   }
 
   function setContactFieldSetActive(group, active) {
@@ -4144,7 +3661,7 @@ export default function ConstituencyImportPage() {
   }
 
   function downloadTemplateCsv() {
-    const csv = makeTemplateRows(selectedFields);
+    const csv = makeTemplateRows(selectedFields.map((field) => ({ ...field, header: mappings[field.key] || field.header })));
     const templateName =
       importIntent === "new"
         ? "new-constituents-import-template.csv"
@@ -4175,7 +3692,6 @@ export default function ConstituencyImportPage() {
     setPreview(null);
     setFocusedRowId("");
     setReviewMode(false);
-    setReviewingSkippedRows(false);
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
     setEditingSavedRowId("");
@@ -4198,6 +3714,7 @@ export default function ConstituencyImportPage() {
     setFieldDecisions({});
     setFieldDecisionsDirty(false);
     setSourceFilename(file.name || "");
+    setReadingFile(true);
     setFileReadStatus(`Reading ${file.name || "selected CSV"}...`);
     try {
       const csvText = await file.text();
@@ -4210,6 +3727,8 @@ export default function ConstituencyImportPage() {
       setHeaders([]);
       setFileReadStatus("");
       setError("The selected CSV could not be read. Please save it as a UTF-8 CSV and try again.");
+    } finally {
+      if (fileReadVersion === fileReadVersionRef.current) setReadingFile(false);
     }
   }
 
@@ -4218,6 +3737,12 @@ export default function ConstituencyImportPage() {
   }
 
   function resetImportWorkspace({ completion = "", resetFieldConfiguration = false } = {}) {
+    setSetupConfirmation("");
+    setSetupInUse(false);
+    setMappingOverrides({});
+    setReadingFile(false);
+    setReviewFilter("all");
+    setContactImportDefaults({ contactMatchingOnly: {} });
     fileReadVersionRef.current += 1;
     lastReadFileRef.current = null;
     hydratedDetailRowsRef.current.clear();
@@ -4226,6 +3751,7 @@ export default function ConstituencyImportPage() {
     manualMatchHydrationSuppressionsRef.current.clear();
     setHydratingDetailRows({});
     if (resetFieldConfiguration) {
+      setSelectedSetup(null);
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
       setOpenFieldGroups(DEFAULT_OPEN_FIELD_GROUPS);
       setImportIntent("updates");
@@ -4245,6 +3771,7 @@ export default function ConstituencyImportPage() {
     }
     setRows([]);
     setHeaders([]);
+    setCsvWarningCount(0);
     setSourceFilename("");
     setFileReadStatus("");
     setParseMessage("");
@@ -4270,7 +3797,6 @@ export default function ConstituencyImportPage() {
     setLoadingSuggestionFieldKey("");
     setShowBatchTools(false);
     setReviewMode(true);
-    setReviewingSkippedRows(false);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setFieldDecisions({});
@@ -4326,11 +3852,14 @@ export default function ConstituencyImportPage() {
       }
       const nextFocusedRowId = String(
         focusRowId ||
-          getReviewQueueRows(payload?.rows)[0]?.id ||
+          firstImportReviewRow(payload?.rows)?.id ||
           payload?.rows?.[0]?.id ||
           "",
       );
       const restoredDecisions = getSavedReviewDecisionState(payload);
+      setSelectedSetup(null);
+      setSetupInUse(false);
+      setSetupConfirmation("");
       setPreview(payload);
       if (payload.rows?.[0]?.importIntent) setImportIntent(payload.rows[0].importIntent);
       setNewRecordNameFormats(payload.rows?.[0]?.input?.newRecordNameFormats || { addressee: "", salutation: "" });
@@ -4367,7 +3896,7 @@ export default function ConstituencyImportPage() {
       const focusedRow = (payload?.rows || []).find(
         (row) => String(row?.id) === nextFocusedRowId,
       );
-      setReviewingSkippedRows(isManuallySkippedImportRow(focusedRow));
+      setReviewFilter(focusedRow ? importReviewGroup(focusedRow) : "all");
       if (focusedRow) {
         seedReviewCandidatesFromSnapshots(focusedRow);
         if (preload) {
@@ -4386,6 +3915,7 @@ export default function ConstituencyImportPage() {
   }
 
   function toggleApplyRow(rowId) {
+    if (reviewControlsBusy || reviewEditsPending) return;
     const normalizedRowId = String(rowId);
     setSelectedApplyRowIds((current) =>
       current.includes(normalizedRowId)
@@ -4395,24 +3925,15 @@ export default function ConstituencyImportPage() {
   }
 
   function selectAllReadyRows() {
+    if (reviewControlsBusy || reviewEditsPending) return;
     setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
-  }
-
-  function selectClearlySafeRows() {
-    setSelectedApplyRowIds(clearlySafeReadyRows.map((row) => String(row.id)));
-    setSaveMessage(
-      clearlySafeReadyRows.length
-        ? `Selected ${clearlySafeReadyRows.length} clearly safe row${clearlySafeReadyRows.length === 1 ? "" : "s"} for batch import.`
-        : "No clearly safe ready rows were found in this batch yet.",
-    );
-    setError("");
   }
 
   function focusImportRowState(row) {
     if (!row?.id) return;
     setFocusedRowId(String(row.id));
     setReviewMode(true);
-    setReviewingSkippedRows(isManuallySkippedImportRow(row));
+    if (reviewFilter !== "all" && importReviewGroup(row) !== reviewFilter) setReviewFilter(importReviewGroup(row));
     preloadFocusedImportRow(row);
     window.setTimeout(() => {
       document
@@ -4425,6 +3946,22 @@ export default function ConstituencyImportPage() {
     if (!rowId) return;
     const row = (preview?.rows || []).find((candidate) => String(candidate.id) === String(rowId));
     focusImportRowState(row);
+  }
+
+  function filterImportReview(group, { together = false } = {}) {
+    if (reviewControlsBusy || reviewEditsPending || preview?.savedRun?.status === "preparing") return;
+    const groupRows = group === "all" ? importRows : reviewOverview.groups[group] || [];
+    setReviewFilter(group);
+    setFocusedRowId(String(groupRows[0]?.id || ""));
+    setReviewMode(!together);
+    setSelectedApplyRowIds([]);
+    setShowBatchTools(group === "updates" && together);
+    if (!together && groupRows[0]) preloadFocusedImportRow(groupRows[0]);
+  }
+
+  function reviewNewRecordApproval() {
+    filterImportReview("new");
+    document.getElementById("quick-constituent-import")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function needsProfileDetailHydration(row) {
@@ -5114,7 +4651,7 @@ export default function ConstituencyImportPage() {
   }
 
   function navigateImportRows(direction) {
-    if (!reviewNavigationRows.length) return;
+    if (!reviewNavigationRows.length || reviewControlsBusy || reviewEditsPending) return;
     const currentIndex = Math.max(0, focusedReviewRowIndex);
     const targetIndex =
       (currentIndex + direction + reviewNavigationRows.length) % reviewNavigationRows.length;
@@ -5312,7 +4849,7 @@ export default function ConstituencyImportPage() {
     { singleRecord = false, runIdOverride = null, skipConfirmation = false } = {},
   ) {
     const runId = runIdOverride || preview?.savedRun?.id;
-    if (!runId || applyingRun || !rowsToApply.length) return;
+    if (!runId || reviewControlsBusy || reviewEditsPending || preview?.savedRun?.status === "preparing" || !rowsToApply.length) return;
 
     const writeCount = rowsToApply.reduce(
       (count, row) => count + (Array.isArray(row.writePlan) ? row.writePlan.length : 0),
@@ -5386,10 +4923,6 @@ export default function ConstituencyImportPage() {
 
   async function applySavedRun() {
     await applyRowsToNxt(selectedApplyRows);
-  }
-
-  async function applyClearlySafeRows() {
-    await applyRowsToNxt(clearlySafeReadyRows);
   }
 
   async function applySingleRow(row) {
@@ -5920,22 +5453,16 @@ export default function ConstituencyImportPage() {
     previewAbortControllerRef.current?.abort();
     const controller = new AbortController();
     previewAbortControllerRef.current = controller;
-    const defaultsPayload = {
-      importIntent,
-      defaultAction: constituencyAction,
-      educationRelationshipAction,
-      useHierarchy,
-      updateNameFields,
-      updateIndividualProfileFields,
-      updateNameFormatFields,
-      buildNameFormats,
-      addresseeFormat,
-      salutationFormat,
-      newRecordNameFormats,
-      updateEmailFields,
-      updatePhoneFields,
-      updateAddressFields,
-    };
+    const defaultsPayload = { ...importDefaults, ...(setupInUse ? { reusableSetup: true, importSetupConfirmed: setupConfirmed } : {}) };
+    const currentSetupBlockers = importSetupFileBlockers(inputRows, mappings, defaultsPayload);
+    if (setupInUse && csvWarningCount) currentSetupBlockers.push("Correct the CSV formatting warnings or duplicate column names, then upload the file again.");
+    if (setupInUse && !setupConfirmed) currentSetupBlockers.push("Confirm this file's setup and primary-field plan before preparing the review.");
+    if (currentSetupBlockers.length) { setError(currentSetupBlockers.slice(0, 5).join(" ")); return null; }
+    const contacts = importContactPreflight(inputRows, mappings, defaultsPayload);
+    if (contacts.blockers.length) {
+      setError(contacts.blockers.slice(0, 5).join(" "));
+      return null;
+    }
     // A saved run is required for multi-row reviews so each batch survives an
     // upstream NXT timeout or a page reload. No NXT writes occur here.
     const useBatchedPreview = inputRows.length > 1;
@@ -6048,14 +5575,13 @@ export default function ConstituencyImportPage() {
         return null;
       }
       const restoredDecisions = getSavedReviewDecisionState(payload);
-      const initialFocusedRow =
-        getReviewQueueRows(payload?.rows)[0] || payload?.rows?.[0] || null;
+      const initialFocusedRow = firstImportReviewRow(payload?.rows);
       setPreview(payload);
+      setReviewFilter(initialFocusedRow ? importReviewGroup(initialFocusedRow) : "all");
       setContactDecisions(restoredDecisions.contact);
       setFieldDecisions(restoredDecisions.fields);
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(initialFocusedRow?.id || ""));
-      setReviewingSkippedRows(isManuallySkippedImportRow(initialFocusedRow));
       setReviewMode(
         typeof preferReviewMode === "boolean" ? preferReviewMode : Boolean(payload?.savedRun),
       );
@@ -6148,6 +5674,7 @@ export default function ConstituencyImportPage() {
       preview.rows.map((row) => ({
         rowNumber: row.rowNumber,
         status: row.status,
+        ...importFieldResultExport(row),
         confidence: row.confidence,
         matchMethod: row.matchMethod,
         firstName: row.input?.firstName || "",
@@ -6179,6 +5706,7 @@ export default function ConstituencyImportPage() {
         applyError: row.blackbaudError || "",
         reasons: (row.reasons || []).join(" | "),
       })),
+      { escapeFormulae: true },
     );
     downloadCsv(csv, `${importIntent}-constituency-import-review.csv`);
   }
@@ -6248,6 +5776,12 @@ export default function ConstituencyImportPage() {
 
         <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loadedRowId={focusedRowId} loading={Boolean(loadingRunId)} />
 
+        <ImportSetupLibrary selected={selectedSetup} configuration={{ mappings, defaults: importDefaults }}
+          disabled={importBusy || reviewEditsPending || Boolean(preview?.savedRun)}
+          canSave={rows.length > 0 && selectedFields.length > 0 && !preview?.savedRun}
+          onSelect={selectSavedSetup} onBusyChange={setSetupBusy}
+          onSaved={(setup) => { setSelectedSetup(setup); setSetupConfirmation(""); if (setup) setSetupInUse(true); }} />
+
         <section
           style={{
             backgroundColor: "#ECFDF5",
@@ -6281,8 +5815,7 @@ export default function ConstituencyImportPage() {
                 1. Upload CSV
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                Start with the file. JUMGOGPT automatically maps recognized headers, then you can
-                confirm its purpose and adjust the selected fields.
+                Choose a saved setup above or start with the file. Review its columns and purpose before preparing the import.
               </p>
             </div>
             <label
@@ -6343,7 +5876,7 @@ export default function ConstituencyImportPage() {
               </div>
               <div style={{ marginTop: "4px", color: "#64748B", lineHeight: 1.4 }}>
                 {sourceFilename
-                  ? "Headers were mapped automatically. Review the highlighted fields below before checking the import."
+                  ? setupInUse ? "Configured columns applied. Review any missing columns and confirm this file's plan below." : "Headers were mapped automatically. Review the highlighted fields below before checking the import."
                   : "Choose one CSV file to begin the import review."}
               </div>
             </div>
@@ -7130,106 +6663,8 @@ export default function ConstituencyImportPage() {
                           ) : null}
                         </div>
                       ) : null}
-                      {group === "Email fields" && emailFieldsActive ? (
-                        <div
-                          style={{
-                            border: "1px solid #BBF7D0",
-                            borderRadius: "16px",
-                            backgroundColor: "#F0FDF4",
-                            padding: "14px",
-                          }}
-                        >
-                          <label
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: "10px",
-                              color: "#111827",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              name="updateMatchedNxtEmailFields"
-                              checked={updateEmailFields}
-                              onChange={(event) => {
-                                setUpdateEmailFields(event.target.checked);
-                                setPreview(null);
-                              }}
-                              style={{ marginTop: "4px" }}
-                            />
-                            <span>
-                              <span style={{ display: "block", fontWeight: 900 }}>
-                                Review and import email addresses
-                              </span>
-                              <span
-                                style={{
-                                  display: "block",
-                                  marginTop: "4px",
-                                  color: "#166534",
-                                  fontSize: "14px",
-                                  lineHeight: 1.45,
-                                }}
-                              >
-                                A real NXT system ID or lookup ID allows automatic application.
-                                Without one, the import review can propose a match from name, email, and
-                                address evidence, but it stays in review until a person confirms it.
-                                Each import review will show the current NXT email addresses beside the
-                                CSV value. You can add a new address or replace one selected NXT
-                                address before the run is saved.
-                              </span>
-                            </span>
-                          </label>
-                        </div>
-                      ) : null}
-                      {group === "Phone fields" && phoneFieldsActive ? (
-                        <div
-                          style={{
-                            border: "1px solid #BBF7D0",
-                            borderRadius: "16px",
-                            backgroundColor: "#F0FDF4",
-                            padding: "14px",
-                          }}
-                        >
-                          <label
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: "10px",
-                              color: "#111827",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              name="updateMatchedNxtPhoneFields"
-                              checked={updatePhoneFields}
-                              onChange={(event) => {
-                                setUpdatePhoneFields(event.target.checked);
-                                setPreview(null);
-                              }}
-                              style={{ marginTop: "4px" }}
-                            />
-                            <span>
-                              <span style={{ display: "block", fontWeight: 900 }}>
-                                Review and import phone numbers
-                              </span>
-                              <span
-                                style={{
-                                  display: "block",
-                                  marginTop: "4px",
-                                  color: "#166534",
-                                  fontSize: "14px",
-                                  lineHeight: 1.45,
-                                }}
-                              >
-                                The import review compares each CSV phone number with current NXT phone
-                                numbers. Choose whether to add it or replace a selected NXT value
-                                before saving the run.
-                              </span>
-                            </span>
-                          </label>
-                        </div>
+                      {["Email fields", "Phone fields"].includes(group) ? (
+                        <p className="text-sm text-slate-600">Select the columns here, then choose whether to import these contacts in the contact plan under Review import.</p>
                       ) : null}
                       {group === "Address fields" && addressFieldsActive ? (
                         <div
@@ -7408,7 +6843,8 @@ export default function ConstituencyImportPage() {
                   ? "Import operation selected"
                   : "Select a constituent code, relationship, name, or email operation"}
               </Pill>
-              {mappedEmailUpdate ? <Pill tone="blue">Email: Add if new</Pill> : null}
+              {mappedEmailUpdate ? <Pill tone="blue">Email: Included for review</Pill> : null}
+              {mappedPhoneUpdate ? <Pill tone="blue">Phone: Included for review</Pill> : null}
               {mappedIndividualProfileUpdate ? (
                 <Pill tone="blue">Individual profile: Review and update</Pill>
               ) : null}
@@ -7519,6 +6955,38 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
+          {!preview?.savedRun && <ImportColumnMapping fields={selectedFields} headers={headers} mappings={mappings} disabled={importBusy}
+            onChange={(key, value) => {
+              if (importBusy) return;
+              setSetupInUse(true);
+              setMappingOverrides((current) => ({ ...current, [key]: value }));
+              setSetupConfirmation("");
+              setPreview(null);
+              setSaveMessage("");
+            }} />}
+          <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
+            disabled={importBusy} onChoice={chooseContactImport}
+            onDefaultType={(key, value) => {
+              if (importBusy) return;
+              setContactImportDefaults((current) => ({ ...current, [key]: value }));
+              setPreview(null);
+              setSaveMessage("");
+            }} />
+          {setupInUse && rows.length > 0 && !preview?.savedRun && <section aria-label="Confirm saved setup" className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+            <h3 className="font-bold text-slate-900">Confirm this file's plan</h3>
+            <p className="mt-1 text-sm text-slate-700">{importIntent === "updates" ? "Update existing records only. Every row needs an NXT System ID or Lookup ID; no new constituents will be created."
+              : importIntent === "new" ? "Check potential new constituents. Possible duplicates still need review before creation."
+                : "Check new and existing records. Creation and existing-record updates require separate approvals."}</p>
+            <p className="mt-2 text-sm text-slate-700">Primary choices come only from this file, not previous imports. Blank flags do not request primary changes.</p>
+            <ul className="mt-2 list-inside list-disc text-sm text-slate-700">{selectedFields.filter((field) => /MakePrimary$/.test(field.key)).map((field) => {
+              const count = rows.filter((row) => ["yes", "true", "1", "y"].includes(String(row[mappings[field.key]] ?? "").trim().toLowerCase())).length;
+              return <li key={field.key}>{field.label.replace(" Make Primary?", "")}: {count} {count === 1 ? "row" : "rows"} marked primary</li>;
+            })}</ul>
+            <label className="mt-3 flex min-h-11 items-start gap-2 text-sm font-semibold text-slate-900">
+              <input type="checkbox" className="mt-1" checked={setupConfirmed} disabled={importBusy} onChange={(event) => setSetupConfirmation(event.target.checked ? setupPlanKey : "")} />
+              I checked the columns, import purpose, included contacts, and primary-field choices for this file. Continue to review; do not send anything yet.
+            </label>
+          </section>}
           {nxtAvailability?.paused ? (
             <div
               role="status"
@@ -7704,169 +7172,15 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
-          <div
-            id="constituency-import-preview-results"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-              gap: "10px",
-            }}
-          >
-            {summaryCards.map(([label, value, tone]) => (
-              <div
-                key={label}
-                style={{
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "14px",
-                  padding: "14px",
-                  backgroundColor: "#F9FAFB",
-                }}
-              >
-                <div style={{ color: "#6B7280", fontSize: "12px", fontWeight: 900, textTransform: "uppercase" }}>
-                  {label}
-                </div>
-                <div
-                  style={{
-                    marginTop: "8px",
-                    fontSize: "26px",
-                    fontWeight: 900,
-                    color: summaryToneColors[tone] || "#374151",
-                  }}
-                >
-                  {value}
-                </div>
-                <div style={{ marginTop: "4px" }}>
-                  <Pill tone={tone}>{label}</Pill>
-                </div>
-              </div>
-            ))}
-          </div>
-
           {preview?.rows?.length ? (
-            <section
-              aria-label="Import progress"
-              style={{
-                position: "sticky",
-                top: "12px",
-                zIndex: 20,
-                border: "1px solid #C7D2FE",
-                borderRadius: "16px",
-                backgroundColor: "#F8FAFF",
-                boxShadow: "0 10px 26px rgba(30, 64, 175, 0.12)",
-                padding: "14px",
-                display: "grid",
-                gap: "12px",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "12px", flexWrap: "wrap" }}>
-                <div style={{ display: "grid", gap: "3px" }}>
-                  <div style={{ color: "#1E3A8A", fontSize: "14px", fontWeight: 900 }}>
-                    Import progress
-                  </div>
-                  <div style={{ color: "#475569", fontSize: "13px", lineHeight: 1.4 }}>
-                    {preview?.savedRun
-                      ? `Import run #${preview.savedRun.id}. Confirm a record only after its review choices are correct.`
-                      : "This is a draft import review. Nothing has been written to Raiser's Edge NXT."}
-                  </div>
-                </div>
-                {focusedReviewRow ? (
-                  <div style={{ color: "#3730A3", fontSize: "13px", fontWeight: 900 }}>
-                    Current: {focusedReviewRowIndex + 1} of {reviewNavigationRows.length}
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: "8px" }}>
-                {[
-                  ["Needs action", progressRowsNeedingAttention, "#92400E", "#FFFBEB"],
-                  ["Ready", readyProgressRows, "#047857", "#ECFDF5"],
-                  ["Imported", appliedReconciliationRows.length, "#1D4ED8", "#EFF6FF"],
-                  ["Verified", verifiedReconciliationRows.length, "#4338CA", "#EEF2FF"],
-                ].map(([label, value, color, backgroundColor]) => (
-                  <div
-                    key={label}
-                    style={{
-                      border: `1px solid ${color}33`,
-                      borderRadius: "10px",
-                      backgroundColor,
-                      color,
-                      padding: "8px 10px",
-                    }}
-                  >
-                    <div style={{ fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
-                    <div style={{ marginTop: "2px", fontSize: "20px", fontWeight: 900 }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                {preview?.savedRun ? (
-                  <button
-                    type="button"
-                    onClick={() => focusImportRow(nextProgressRow?.id)}
-                    disabled={!nextProgressRow}
-                    style={{
-                      border: "1px solid #1D4ED8",
-                      borderRadius: "999px",
-                      backgroundColor: nextProgressRow ? "#1D4ED8" : "#DBEAFE",
-                      color: nextProgressRow ? "white" : "#1E40AF",
-                      padding: "9px 14px",
-                      fontWeight: 900,
-                      cursor: nextProgressRow ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    {reviewingSkippedRows
-                      ? "Open skipped record"
-                      : progressRowsNeedingAttention
-                        ? "Review required record"
-                        : readyProgressRows
-                          ? "Open next ready record"
-                          : "Open import records"}
-                  </button>
-                ) : null}
-                {preview?.savedRun && manuallySkippedRows.length ? (
-                  <button
-                    type="button"
-                    onClick={() => focusImportRow(manuallySkippedRows[0]?.id)}
-                    style={{
-                      border: "1px solid #93C5FD",
-                      borderRadius: "999px",
-                      backgroundColor: reviewingSkippedRows ? "#EFF6FF" : "white",
-                      color: "#1D4ED8",
-                      padding: "9px 14px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Review skipped records ({manuallySkippedRows.length})
-                  </button>
-                ) : null}
-                {preview?.savedRun ? (
-                  <button
-                    type="button"
-                    onClick={() => setReviewMode((current) => !current)}
-                    style={{
-                      border: "1px solid #C7D2FE",
-                      borderRadius: "999px",
-                      backgroundColor: "white",
-                      color: "#4338CA",
-                      padding: "9px 14px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {reviewMode ? "Show all records" : "Review one record"}
-                  </button>
-                ) : null}
-                <span style={{ color: "#64748B", fontSize: "12px", lineHeight: 1.35 }}>
-                  {preview?.savedRun
-                    ? manuallySkippedRows.length
-                      ? "Skipped records stay in this batch. Open them later to restore a record to active review."
-                      : "Reviewing this batch does not send changes. Use its explicit create or send controls only when ready."
-                    : "Review the draft below, then use Confirm and send to NXT or save the run for batch work."}
-                </span>
-              </div>
-            </section>
+            <ImportReviewOverview overview={reviewOverview} filter={reviewFilter}
+              saved={Boolean(preview.savedRun)} busy={reviewControlsBusy} dirty={reviewEditsPending}
+              preparing={preview.savedRun?.status === "preparing"} reviewingOne={reviewMode}
+              onFilter={filterImportReview}
+              onReviewExceptions={() => filterImportReview("attention")}
+              onReviewUpdates={() => filterImportReview("updates", { together: true })}
+              onReviewNew={reviewNewRecordApproval}
+              onShowAll={() => setReviewMode((current) => !current)} />
           ) : null}
 
           {preview?.rows?.length ? (
@@ -7917,25 +7231,7 @@ export default function ConstituencyImportPage() {
                 >
                   {savingRun || startingReviewMode
                     ? "Preparing row review..."
-                    : "Start row-by-row review"}
-                </button>
-              ) : null}
-              {!preview?.savedRun ? (
-                <button
-                  type="button"
-                  onClick={() => requestPreview({ saveRun: true })}
-                  disabled={savingRun || startingReviewMode}
-                  style={{
-                    border: "1px solid #A7F3D0",
-                    borderRadius: "14px",
-                    backgroundColor: savingRun || startingReviewMode ? "#E5E7EB" : "#ECFDF5",
-                    color: savingRun || startingReviewMode ? "#64748B" : "#047857",
-                    padding: "12px 16px",
-                    fontWeight: 900,
-                    cursor: savingRun || startingReviewMode ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {savingRun ? "Saving batch review..." : "Save review for batch"}
+                    : "Save and continue review"}
                 </button>
               ) : null}
               <button
@@ -7976,26 +7272,6 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
-          {preview?.rows?.length && !preview?.savedRun ? (
-            <div
-              style={{
-                border: "1px solid #C7D2FE",
-                borderRadius: "14px",
-                backgroundColor: "#EEF2FF",
-                color: "#312E81",
-                padding: "12px",
-                display: "grid",
-                gap: "5px",
-                lineHeight: 1.45,
-              }}
-            >
-              <strong>Choose how to continue</strong>
-              <span>
-                Use <strong>Start row-by-row review</strong> when you want the audit run saved up front so the first record moves faster. Use <strong>Save review for batch</strong> only when you want to confirm several rows first and send them together later. Saving alone never changes NXT.
-              </span>
-            </div>
-          ) : null}
-
           {saveMessage ? (
             <WorkflowNotice kind="info">
               {saveMessage}
@@ -8019,6 +7295,12 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
+          {isReviewer && preview?.savedRun ? (
+            <ImportContactRecovery key={`contact-recovery-${preview.savedRun.id}`}
+              run={preview.savedRun} rows={preview.rows}
+              disabled={Boolean(quickCreating || applyingRun || creatingRowId || previewing || savingRun || loadingRunId || hasDirtyReviewChoices || editingSavedRowId || savingCombinedReviewRowId || savingSavedRowCorrectionId)}
+              onOpen={loadSavedRun} />
+          ) : null}
           {preview?.savedRun && preview.rows.some((row) => ["ready_new", "potential_new", "created_new_record"].includes(row.intentDisposition?.key)) ? (
             <QuickNewConstituentImport
               key={preview.savedRun.id}
@@ -8051,18 +7333,7 @@ export default function ConstituencyImportPage() {
                   <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
                     Import run #{preview.savedRun.id}
                   </div>
-                  <div style={{ marginTop: "4px" }}>
-                    {readySavedRows
-                      ? `${readySavedRows} reviewed update${readySavedRows === 1 ? " is" : "s are"} ready to send to Raiser's Edge NXT. Open a record below to send it now, or use batch actions to send several together.`
-                      : appliedReconciliationRows.length
-                        ? `All reviewed updates from this run have been imported to Raiser's Edge NXT.`
-                        : rowsNeedingAttention
-                          ? `${rowsNeedingAttention} record${rowsNeedingAttention === 1 ? " needs" : "s need"} attention before anything can be sent to NXT. Open the highlighted record below to resolve the required review.`
-                          : "No reviewed updates are ready to send from this run."}
-                    {potentialNewRows
-                      ? ` ${potentialNewRows} unmatched row${potentialNewRows === 1 ? " is" : "s are"} available for new-record handling below.`
-                      : ""}
-                  </div>
+                  <p className="mt-1 text-sm font-normal text-emerald-900">Choose a group above, then review its records below. Finished records remain available under Completed.</p>
                 </div>
 
                 {reviewNavigationRows.length ? (
@@ -8074,27 +7345,14 @@ export default function ConstituencyImportPage() {
                       gap: "8px",
                     }}
                   >
-                    <div style={{ color: "#1D4ED8", fontSize: "13px", fontWeight: 900 }}>
-                      {reviewingSkippedRows
-                        ? "Review skipped records"
-                        : reviewActionRows.length
-                          ? "Review one record at a time"
-                          : "Work through ready records"}
-                    </div>
-                    <div style={{ color: "#1E3A8A", fontSize: "14px" }}>
-                      {reviewingSkippedRows
-                        ? `${manuallySkippedRows.length} skipped record${manuallySkippedRows.length === 1 ? " is" : "s are"} retained in this batch. Restore a record to return it to active review.`
-                        : reviewActionRows.length
-                          ? `Record ${focusedReviewRowIndex + 1} of ${reviewNavigationRows.length} needs your review or action.`
-                          : readyApplyRows.length
-                            ? `${reviewNavigationRows.length} ready row${reviewNavigationRows.length === 1 ? "" : "s"} can be sent without additional review.`
-                            : `All rows are applied or skipped. Browse the ${reviewNavigationRows.length} recorded row${reviewNavigationRows.length === 1 ? "" : "s"} in this batch.`}
+                    <div className="text-sm font-semibold text-slate-700">
+                      {reviewMode ? `Record ${focusedReviewRowIndex + 1} of ${reviewNavigationRows.length} in this group` : `${visiblePreviewRows.length} records shown in this group`}
                     </div>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
                         type="button"
                         onClick={() => navigateImportRows(-1)}
-                        disabled={reviewNavigationRows.length < 2}
+                        disabled={reviewNavigationRows.length < 2 || reviewControlsBusy || reviewEditsPending}
                         style={{
                           border: "1px solid #93C5FD",
                           borderRadius: "999px",
@@ -8110,7 +7368,7 @@ export default function ConstituencyImportPage() {
                       <button
                         type="button"
                         onClick={() => navigateImportRows(1)}
-                        disabled={reviewNavigationRows.length < 2}
+                        disabled={reviewNavigationRows.length < 2 || reviewControlsBusy || reviewEditsPending}
                         style={{
                           border: "1px solid #1D4ED8",
                           borderRadius: "999px",
@@ -8123,41 +7381,12 @@ export default function ConstituencyImportPage() {
                       >
                         Next record
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (reviewMode) {
-                            setReviewMode(false);
-                            return;
-                          }
-                          focusImportRow(
-                            reviewingSkippedRows
-                              ? manuallySkippedRows[0]?.id
-                              : focusedReviewRow?.id,
-                          );
-                        }}
-                        style={{
-                          border: "1px solid #C7D2FE",
-                          borderRadius: "999px",
-                          backgroundColor: "white",
-                          color: "#4338CA",
-                          padding: "9px 14px",
-                          fontWeight: 900,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {reviewMode
-                          ? "Show all batch rows"
-                          : reviewingSkippedRows
-                            ? "Resume skipped-record review"
-                            : "Resume one-record review"}
-                      </button>
                     </div>
                   </section>
                 ) : null}
 
-                {readySavedRows ? (
-                  <section
+                {readySavedRows > 0 && reviewFilter === "updates" ? (
+                  <fieldset disabled={reviewControlsBusy || reviewEditsPending || preview.savedRun.status === "preparing"}
                     style={{
                       borderTop: "1px solid #A7F3D0",
                       paddingTop: "10px",
@@ -8166,10 +7395,10 @@ export default function ConstituencyImportPage() {
                     }}
                   >
                     <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
-                      Optional batch action
+                      Approve reviewed updates together
                     </div>
                     <div style={{ color: "#047857", fontSize: "14px" }}>
-                      Review and apply the current record below by default. Use batch actions only when every selected row is ready to send.
+                      Review the prepared changes below. Only selected ready updates are sent; new records, exceptions, and previous attempts are not included.
                     </div>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
@@ -8196,40 +7425,6 @@ export default function ConstituencyImportPage() {
                             : "Select individual rows below, or select every ready row."}
                         </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            onClick={applyClearlySafeRows}
-                            disabled={applyingRun || !clearlySafeReadyRows.length}
-                            style={{
-                              border: "1px solid #047857",
-                              borderRadius: "999px",
-                              backgroundColor: !clearlySafeReadyRows.length || applyingRun ? "#D1FAE5" : "#047857",
-                              color: !clearlySafeReadyRows.length || applyingRun ? "#047857" : "white",
-                              padding: "9px 14px",
-                              fontWeight: 900,
-                              cursor: applyingRun || !clearlySafeReadyRows.length ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            {applyingRun
-                              ? "Importing clearly safe rows..."
-                              : `Import clearly safe now (${clearlySafeReadyRows.length})`}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={selectClearlySafeRows}
-                            disabled={applyingRun || !clearlySafeReadyRows.length}
-                            style={{
-                              border: "1px solid #A7F3D0",
-                              borderRadius: "999px",
-                              backgroundColor: clearlySafeReadyRows.length ? "#ECFDF5" : "#F0FDF4",
-                              color: clearlySafeReadyRows.length ? "#047857" : "#6B7280",
-                              padding: "9px 14px",
-                              fontWeight: 900,
-                              cursor: applyingRun || !clearlySafeReadyRows.length ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            Select clearly safe ({clearlySafeReadyRows.length})
-                          </button>
                           <button
                             type="button"
                             onClick={selectAllReadyRows}
@@ -8285,7 +7480,7 @@ export default function ConstituencyImportPage() {
                         </div>
                       </div>
                     ) : null}
-                  </section>
+                  </fieldset>
                 ) : null}
 
                 {appliedReconciliationRows.length ? (
@@ -8337,6 +7532,7 @@ export default function ConstituencyImportPage() {
 
           {preview?.rows?.length ? (
             <div style={{ display: "grid", gap: "12px" }}>
+              {!visiblePreviewRows.length && <p role="status" className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">No records in this group. Choose another group above.</p>}
               {visiblePreviewRows.map((row) => {
                 const colors = statusTone(row.status);
                 const isNxtChecksPaused = isNxtChecksPausedRow(row);
@@ -8378,6 +7574,7 @@ export default function ConstituencyImportPage() {
                 );
                 const canApplyRow = Boolean(
                   preview?.savedRun &&
+                    importReviewGroup(row) === "updates" &&
                     !isImportMatchRejected(row) &&
                     row.status === "Ready" &&
                     !row.appliedAt &&
@@ -8621,7 +7818,7 @@ export default function ConstituencyImportPage() {
                             <input
                               type="checkbox"
                               checked={applyRowSelected}
-                              disabled={applyingRun}
+                              disabled={reviewControlsBusy || reviewEditsPending}
                               onChange={() => toggleApplyRow(row.id)}
                             />
                             Include in NXT batch
@@ -8630,12 +7827,25 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
-                    {hasAttemptedWrites && preview?.savedRun ? (
-                      <ImportCompletionNotice row={row} reviewer={isReviewer}
-                        busy={Boolean(reconcilingRun || applyingRun || retryingRowId || creatingRowId)}
-                        onVerify={() => reconcileRows([row], { singleRecord: true, completeIfMatches: row.status !== "Applied" })}
+                    {preview?.savedRun && (hasAttemptedWrites || row.createdBlackbaudConstituentId || row.quickCreateStatus === "uncertain") ? (
+                      <ImportFieldResults row={row} dirty={reviewEditsPending}
+                        busy={Boolean(reviewControlsBusy || importBusy || reconcilingRun || retryingRowId)}
+                        onAction={(action) => {
+                          if (action.kind === "verify") return reconcileRows([row], { singleRecord: true, completeIfMatches: action.completeIfMatches });
+                          if (action.kind === "correction") return loadSavedRun(action.runId);
+                          if (action.kind === "review") return startRequiredReview(row, reviewTargetKey);
+                          const target = action.kind === "recover" ? "import-contact-recovery"
+                            : action.kind === "resume" ? "quick-constituent-import"
+                            : `import-saved-results-${row.id}`;
+                          const element = document.getElementById(target) || document.getElementById(`constituency-import-row-${row.id}-staged-writes`);
+                          if (element?.tagName === "DETAILS") element.open = true;
+                          element?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          element?.focus({ preventScroll: true });
+                        }}
                       />
                     ) : null}
+
+                    <ImportRowChangeSummary row={row} formatWrite={formatWritePlanItem} dirty={reviewEditsPending} />
 
                     <div id={`constituency-import-row-${row.id}-match-review`} tabIndex={-1}>
                     <ImportMatchReview
@@ -9080,42 +8290,6 @@ export default function ConstituencyImportPage() {
                       </section>
                     ) : null}
 
-                    {row.writePlan?.length ? (
-                      <div
-                        id={`constituency-import-row-${row.id}-staged-writes`}
-                        style={{
-                          border: "1px solid #C7D2FE",
-                          borderRadius: "12px",
-                          backgroundColor: "#EEF2FF",
-                          padding: "11px 12px",
-                          display: "grid",
-                          gap: "8px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            color: "#312E81",
-                            fontSize: "12px",
-                            fontWeight: 900,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                          }}
-                        >
-                          {hasAttemptedWrites ? "Original import plan (history)" : "Staged writes"}
-                        </div>
-                        <div style={{ display: "grid", gap: "6px" }}>
-                          {row.writePlan.map((write, writeIndex) => (
-                            <div
-                              key={`${write.type || "write"}-${writeIndex}`}
-                              style={{ color: "#1E1B4B", fontWeight: 800, lineHeight: 1.4 }}
-                            >
-                              {formatWritePlanItem(write)}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
                     {!hasAttemptedWrites && !isEditingThisRow && !isEditingSavedRow ? (
                       <section
                         style={{
@@ -9458,6 +8632,8 @@ export default function ConstituencyImportPage() {
                     {Array.isArray(row.blackbaudResult?.results) &&
                       row.blackbaudResult.results.length ? (
                       <details
+                        id={`import-saved-results-${row.id}`}
+                        tabIndex={-1}
                         style={{
                           border: "1px solid #BAE6FD",
                           borderRadius: "12px",

@@ -11,10 +11,12 @@ export default function ReportSetupGuide({ draft, configuration, isNew, disabled
         queryId: cell.queryId,
       })));
   const mapped = sources.filter(({ queryId }) => !validateDashboardQueryId(queryId)).length;
+  const trackers = panels.filter((panel) => panel.layout === "fundraising_tracker");
+  const trackerDetail = trackers.length ? `${trackers.filter((panel) => panel.funds.length).length} of ${trackers.length} campaigns have funds selected. Verify totals with Refresh data after saving.` : "";
   const emptyValues = panels.flatMap((panel) => panel.values || []).filter((cell) => cell.source === "static" && cell.staticValue === null).length;
   const steps = [
     ["Define report", "Configure", `${draft.title.trim() ? "Title entered" : "Add a title"}; ${panels.length} panel${panels.length === 1 ? "" : "s"}.`],
-    ["Connect data", "Configure", sources.length ? `${mapped} of ${sources.length} query IDs entered. IDs are not verified here.` : "Manual values only; no NXT queries configured."],
+    ["Connect data", "Configure", sources.length ? `${mapped} of ${sources.length} query IDs entered. IDs are not verified here. ${trackerDetail}` : trackerDetail || "Manual values only; no NXT queries configured."],
     ["Review layout", "Preview", "Preview the layout with compatible saved values only."],
     ["Choose viewers", "Access", isNew ? "Create a disabled report first, then select viewers." : `${configuration.active ? "Enabled" : "Disabled"} in saved settings; ${configuration.specificUserIds.length} saved viewer${configuration.specificUserIds.length === 1 ? "" : "s"}.`],
   ];

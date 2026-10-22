@@ -26,7 +26,7 @@ export const REVIEWER_NAV_ITEMS = [
   { label: "Work Queue", href: "/submissions", section: "Daily Work", primaryOrder: 1, description: "Review outstanding requests and NXT exceptions in one queue." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work" },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
-  { label: "Stewardship", href: "/stewardship", section: "Stewardship", description: "Prepare society letters by household and track acknowledgments across giving periods." },
+  { label: "Stewardship", href: "/stewardship", section: "Stewardship", description: "Coordinate gift follow-ups, prepare society letters, and track acknowledgments." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
   { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 3 },
   { label: "List Request Queue", href: "/list-requests", section: "Requests" },
@@ -149,6 +149,25 @@ export function isNavigationItemActive(pathname, href) {
 
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
+  if (pathname === "/stewardship/inventory/import") return [
+    { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" },
+    { label: "Gift Inventory", href: "/stewardship/inventory" }, { label: "Received Items", href: "/stewardship/inventory/recipients" },
+    { label: "Import NXT Gift History" },
+  ];
+  if (pathname === "/stewardship/inventory/recipients") return [
+    { label: "Home", href: "/" },
+    ...(canManageWorkspace ? [{ label: "Stewardship", href: "/stewardship" }, { label: "Gift Inventory", href: "/stewardship/inventory" }]
+      : [{ label: "Follow-ups & Discussion", href: "/follow-ups" }]), { label: "Received Items" },
+  ];
+  if (pathname === "/stewardship/inventory") return [
+    { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Gift Inventory" },
+  ];
+  if (pathname === "/stewardship/requests") return [
+    { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Assistance Requests" },
+  ];
+  if (pathname === "/stewardship/gift-follow-ups") return [
+    { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Gift Follow-ups" },
+  ];
   if (pathname === "/stewardship/society-letters") return [
     { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Society Letter Creation" },
   ];

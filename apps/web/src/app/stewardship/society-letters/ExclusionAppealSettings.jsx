@@ -1,0 +1,254 @@
+import { useState } from "react";
+import AppealVerificationStatus from "./AppealVerificationStatus";
+import AppealPicker, {
+  AppealChoicesLoader,
+  useAppealChoices,
+} from "./AppealPicker";
+
+const button =
+  "min-h-11 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 disabled:opacity-50";
+const input =
+  "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal";
+
+export default function ExclusionAppealSettings({ data, busy, act }) {
+  const choices = useAppealChoices();
+  const [appeals, setAppeals] = useState(
+    data.exclusionAppeals?.policy?.appeals || {},
+  );
+  const [confirm, setConfirm] = useState(false);
+  const tiers = data.definitions.filter((d) =>
+    data.settings?.societyKeys.includes(d.key),
+  );
+  const complete = tiers.every(
+    (tier) =>
+      appeals[tier.key]?.lookupId?.trim() &&
+      appeals[tier.key]?.description?.trim(),
+  );
+  const unchanged = tiers.every((tier) => {
+    const saved = data.exclusionAppeals?.policy?.appeals?.[tier.key];
+    return (
+      saved &&
+      appeals[tier.key]?.lookupId === saved.lookupId &&
+      appeals[tier.key]?.description === saved.description
+    );
+  });
+  if (
+    !data.period ||
+    !tiers.length ||
+    data.settings?.sourceMode !== "society_queries"
+  )
+    return null;
+  function edit(key, field, value) {
+    setAppeals((current) => ({
+      ...current,
+      [key]: { ...current[key], [field]: value },
+    }));
+    setConfirm(false);
+  }
+  return (
+    <details className="rounded-2xl border border-gray-200 bg-white p-5">
+      <summary className="cursor-pointer font-semibold">
+        NXT exclusion appeal settings
+      </summary>
+      <p className="mt-2 text-sm text-gray-600">
+        For {data.period.start} through {data.period.end}. Excluding a household
+        will record its highest qualifying society&apos;s exclusion appeal on
+        each member, with your date and reason. This is not a letter-sent
+        appeal. Existing exclusions are not backfilled.
+      </p>
+      <p className="mt-2 text-sm text-gray-600">
+        Choose an appeal by name or code. Saving settings re-verifies your
+        choices; it does not assign appeals.
+      </p>
+      <form
+        className="mt-4 space-y-4"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (busy || choices.loading || !confirm || !complete) return;
+          if (
+            await act({ action: "exclusion_appeal_settings", appeals, confirm })
+          )
+            setConfirm(false);
+        }}
+      >
+        <AppealChoicesLoader choices={choices} disabled={busy} />
+        {tiers.map((tier) => (
+          <fieldset
+            key={tier.key}
+            disabled={busy || choices.loading}
+            className="space-y-4 rounded-xl border border-gray-200 p-4"
+          >
+            <legend className="mb-2 font-semibold">{tier.name}</legend>
+            <AppealPicker
+              tier={tier}
+              period={data.period}
+              purpose="exclusion"
+              value={appeals[tier.key]}
+              choices={choices}
+              disabled={busy || choices.loading}
+              onSelect={(selected) => {
+                setAppeals((current) => ({ ...current, [tier.key]: selected }));
+                setConfirm(false);
+              }}
+            />
+            <details>
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold text-emerald-800">
+                Enter or edit exclusion appeal manually
+              </summary>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-semibold">
+                  Exclusion appeal code (Lookup ID)
+                  <input
+                    className={input}
+                    aria-label={`${tier.name} exclusion appeal code`}
+                    required
+                    maxLength={100}
+                    value={appeals[tier.key]?.lookupId || ""}
+                    onChange={(e) => edit(tier.key, "lookupId", e.target.value)}
+                  />
+                </label>
+                <label className="text-sm font-semibold">
+                  Exact exclusion appeal description
+                  <input
+                    className={input}
+                    aria-label={`${tier.name} exclusion appeal description`}
+                    required
+                    maxLength={300}
+                    value={appeals[tier.key]?.description || ""}
+                    onChange={(e) =>
+                      edit(tier.key, "description", e.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            </details>
+          </fieldset>
+        ))}
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            disabled={busy || choices.loading}
+            className="mt-1"
+            checked={confirm}
+            onChange={(e) => setConfirm(e.target.checked)}
+          />
+          These appeals are dedicated to exclusions for this recognition period,
+          not sent letters. I want future confirmed exclusions recorded in NXT
+          for every household member.
+        </label>
+        <button
+          className={button}
+          disabled={busy || choices.loading || !confirm || !complete}
+        >
+          Verify and save exclusion appeals
+        </button>
+        {data.exclusionAppeals?.current && unchanged && (
+          <p role="status" className="text-sm text-emerald-800">
+            Exclusion appeal settings verified for this period.
+          </p>
+        )}
+      </form>
+    </details>
+  );
+}
+
+export function ExclusionSyncStatus({ item, busy, act, automatic = false }) {
+  const [confirm, setConfirm] = useState(false);
+  const nxt = item.nxt;
+  if (!nxt)
+    return (
+      <p className="mt-2 text-sm text-gray-500">
+        App-only exclusion. No NXT appeal was applied.
+      </p>
+    );
+  const uncertain = nxt.members.some((m) => m.status === "uncertain");
+  const complete = nxt.status === "complete";
+  const count = nxt.members.filter((m) =>
+    ["verified", "existing"].includes(m.status),
+  ).length;
+  const failures = nxt.members.filter(
+    (m) => m.lastWriteFailure && !["verified", "existing"].includes(m.status),
+  );
+  return (
+    <div className="mt-3 max-w-2xl space-y-2 text-sm">
+      <p className="font-semibold">
+        {nxt.societyName}: {nxt.appeal.lookupId}
+      </p>
+      <p>
+        Appeal date: {nxt.date}. {count} of {nxt.members.length} member
+        assignments confirmed.
+      </p>
+      <p
+        role="status"
+        className={complete ? "text-emerald-800" : "text-amber-900"}
+      >
+        {nxt.message}
+      </p>
+      {failures.length > 0 && (
+        <details className="text-gray-600">
+          <summary className="cursor-pointer">Last NXT request details</summary>
+          {failures.map((member) => (
+            <p key={member.id} className="mt-2">
+              Member {member.id}:{" "}
+              {member.lastWriteFailure.httpStatus
+                ? `HTTP ${member.lastWriteFailure.httpStatus}`
+                : "No confirmed HTTP response"}
+              .
+              {member.lastWriteFailure.providerName && (
+                <>
+                  {" "}
+                  Provider code: {member.lastWriteFailure.providerName} (
+                  {member.lastWriteFailure.providerCode}).
+                </>
+              )}
+            </p>
+          ))}
+        </details>
+      )}
+      {!complete && (
+        <>
+          <AppealVerificationStatus
+            receipt={nxt}
+            automatic={automatic}
+            busy={busy}
+            onVerify={() =>
+              act({ action: "verify_exclusion_appeal", exclusionId: item.id })
+            }
+          />
+          {!uncertain && (
+            <>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={confirm}
+                  onChange={(e) => setConfirm(e.target.checked)}
+                />
+                Apply this appeal, date, and reason only to members not yet
+                submitted. Existing assignments will not be changed.
+              </label>
+              <button
+                className={button}
+                disabled={busy || !confirm}
+                onClick={async () => {
+                  await act({
+                    action: "sync_exclusion_appeal",
+                    exclusionId: item.id,
+                    confirmNxt: true,
+                  });
+                  setConfirm(false);
+                }}
+              >
+                Continue remaining NXT updates
+              </button>
+            </>
+          )}
+        </>
+      )}
+      <p className="text-gray-500">
+        To restore, the app first verifies that this exclusion appeal is absent
+        from every member. If it exists in NXT, remove it there first. The app
+        never deletes NXT history.
+      </p>
+    </div>
+  );
+}

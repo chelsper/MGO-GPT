@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: vi.fn() }));
 vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn() }));
-import { BlackbaudQueryResultTooLargeError, downloadBlackbaudQueryResultWithMetadata } from "./blackbaud";
+import { BlackbaudQueryResultTooLargeError, downloadBlackbaudQueryResultWithMetadata, streamBlackbaudQueryResultWithMetadata } from "./blackbaud";
 
 const resultUrl = "https://query-results.example/result.csv?signature=not-real";
 const bytes = (text) => new TextEncoder().encode(text);
@@ -145,5 +145,82 @@ describe("optional bounded metadata downloads", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await assertion;
     expect(reader.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("streams successful chunks to a consumer without allocating a result body", async () => {
+    const { response, reader } = streamedResponse([bytes("N\n"), Uint8Array.of(0xe9)]);
+    const consumer = { write: vi.fn(), finish: vi.fn(() => ({ rows: 1 })) };
+    const create = vi.fn(() => consumer);
+    const result = await streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 3 }, create);
+    expect(result).toEqual({ httpStatus: 200, statusText: "OK", contentType: "text/csv; charset=windows-1252", contentLength: null, result: { rows: 1 } });
+    expect(consumer.write.mock.calls.map(([chunk]) => [...chunk])).toEqual([[78, 10], [233]]);
+    expect(consumer.finish).toHaveBeenCalledOnce();
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+    expect(response.arrayBuffer).not.toHaveBeenCalled();
+    expect(response.text).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0][1].redirect).toBe("error");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(fetchMock.mock.calls[0][1].headers["Bb-Api-Subscription-Key"]).toBeUndefined();
+  });
+  it("bounds the size of decoded chunks even if a transport supplies one large chunk", async () => {
+    streamedResponse([new Uint8Array(150000)]);
+    const sizes = [];
+    await streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 150000 }, () => ({ write: chunk => sizes.push(chunk.length), finish: () => null }));
+    expect(sizes).toEqual([65536, 65536, 18928]);
+  });
+  it("awaits asynchronous batch writes and finish before reporting success", async () => {
+    streamedResponse([bytes("first"),bytes("second")]);
+    let active = false;
+    const events = [];
+    const result = await streamBlackbaudQueryResultWithMetadata(resultUrl,{ maxBytes: 100 },() => ({
+      async write(chunk) { expect(active).toBe(false); active = true; await Promise.resolve(); events.push(new TextDecoder().decode(chunk)); active = false; },
+      async finish() { expect(active).toBe(false); await Promise.resolve(); events.push("finished"); return { saved: true }; },
+    }));
+    expect(events).toEqual(["first","second","finished"]); expect(result.result).toEqual({ saved: true });
+  });
+  it("aborts the stream when an asynchronous storage write rejects", async () => {
+    const { reader } = streamedResponse([bytes("first"),bytes("unread")]);
+    const finish = vi.fn();
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl,{ maxBytes: 100 },() => ({ async write() { throw new Error("staging unavailable"); },finish }))).rejects.toThrow("staging unavailable");
+    expect(reader.cancel).toHaveBeenCalledOnce(); expect(finish).not.toHaveBeenCalled();
+  });
+  it.each([{}, { "Content-Length": "1" }, { "Content-Length": "invalid" }])("cancels streamed overflows and never finishes the consumer: %s", async headers => {
+    const { reader } = streamedResponse([bytes("12"), bytes("345"), bytes("unread")], headers);
+    const consumer = { write: vi.fn(), finish: vi.fn() };
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 4 }, () => consumer)).rejects.toBeInstanceOf(BlackbaudQueryResultTooLargeError);
+    expect(consumer.write).toHaveBeenCalledOnce();
+    expect(consumer.finish).not.toHaveBeenCalled();
+    expect(reader.cancel).toHaveBeenCalledOnce();
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+  });
+  it("cancels when a chunk consumer rejects and retains the original validation error", async () => {
+    const { reader } = streamedResponse([bytes("invalid")]);
+    const error = new Error("invalid CSV");
+    const finish = vi.fn();
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 100 }, () => ({ write() { throw error; }, finish }))).rejects.toBe(error);
+    expect(reader.cancel).toHaveBeenCalledOnce();
+    expect(finish).not.toHaveBeenCalled();
+  });
+  it.each([undefined, 0, -1, Infinity, "4"])("requires a bounded streaming contract: %s", async maxBytes => {
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes }, () => ({}))).rejects.toThrow(/positive byte limit/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("forbids redirect following on the streaming path", async () => {
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 10, redirect: "follow" }, () => ({}))).rejects.toThrow(/redirects/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("does not invoke the CSV consumer for unsuccessful responses", async () => {
+    streamedResponse([bytes("failure")], {}, 403);
+    const create = vi.fn();
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 100 }, create)).rejects.toMatchObject({ httpStatus: 403 });
+    expect(create).not.toHaveBeenCalled();
+  });
+  it("retains HTTP failure metadata even when the streaming error page exceeds its separate bound", async () => {
+    const { reader } = streamedResponse([new Uint8Array(65537)], { "Retry-After": "60" }, 429);
+    const create = vi.fn();
+    await expect(streamBlackbaudQueryResultWithMetadata(resultUrl, { maxBytes: 100000 }, create)).rejects.toMatchObject({ httpStatus: 429, retryAfterMs: 60000 });
+    expect(reader.cancel).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
   });
 });

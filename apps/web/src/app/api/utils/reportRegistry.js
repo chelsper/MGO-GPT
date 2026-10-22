@@ -1,6 +1,9 @@
 import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
 import { LIST_SCHEMA } from "@/utils/constituentLists";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
+import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
+import { CAMPAIGN_REPORT_KEY } from "@/utils/campaignPriorities";
+import { FY_REVENUE_KEY } from "@/utils/fyRevenueGoals";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -57,7 +60,7 @@ export const REPORT_TYPE_DEFINITIONS = Object.freeze({
     key: REPORT_TYPES.QUERY_BASED,
     label: "Query-Based Reports",
     description:
-      "Reports backed by approved, count-only NXT Query API definitions and saved snapshots.",
+      "Reports backed by approved NXT Query API definitions and saved snapshots.",
   }),
   [REPORT_TYPES.CUSTOM_FIELD]: Object.freeze({
     key: REPORT_TYPES.CUSTOM_FIELD,
@@ -81,6 +84,23 @@ const CONFIGURABLE_REPORT_TYPE_KEYS = Object.freeze([
   REPORT_TYPES.MGO_GPT,
 ]);
 
+const CAMPAIGN_REPORT_DEFINITION = Object.freeze({
+  key: CAMPAIGN_REPORT_KEY,
+  reportType: REPORT_TYPES.QUERY_BASED,
+  adapterKey: "campaign-priorities",
+  configurationSchema: "campaign-priorities-v1",
+  configurationSchemaVersion: 1,
+  href: "/reports/dashboards/future-made-campaign",
+  title: "Future. Made. Campaign",
+  description: "Campaign giving by priority, with fund assignments and auditable local gift-allocation adjustments.",
+  audienceMode: "shared_snapshot",
+  defaultVisibility: "specific_users",
+  dataConfigurationType: null,
+  configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+  presentationNote: "Select viewers here. Configure the saved Gift query, fund priorities and campaign-only adjustments inside the dashboard. Opening it never refreshes NXT.",
+  presentationNoteTone: "info",
+});
+
 export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
   Object.freeze({
     key: PORTFOLIO_GIVING_REPORT_KEY,
@@ -96,6 +116,22 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
     presentationNote: "",
     presentationNoteTone: "neutral",
+  }),
+  Object.freeze({
+    key: PIPELINE_REPORT_KEY,
+    reportType: REPORT_TYPES.MGO_GPT,
+    adapterKey: PIPELINE_REPORT_KEY,
+    configurationSchema: "standard-report-v1",
+    configurationSchemaVersion: 1,
+    href: "/reports/opportunity-pipeline",
+    title: "Opportunity Pipeline",
+    description: "Review saved opportunities across all workspaces by expected fiscal year, stage, and fundraiser, with closed and archived history separate.",
+    audienceMode: "organization_pipeline",
+    defaultVisibility: "all_users",
+    dataConfigurationType: null,
+    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    presentationNote: "Organization-wide saved app opportunities, not all opportunities in NXT. Shared opportunities count once. No NXT requests are made when this report opens.",
+    presentationNoteTone: "info",
   }),
   Object.freeze({
     key: FUTURE_MADE_PHASE_TWO_REPORT_KEY,
@@ -146,6 +182,23 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     configurationCapabilities: ALUMNI_FAMILY_DASHBOARD_CONFIGURATION_CAPABILITIES,
     presentationNote:
       "This dashboard uses saved NXT query snapshots. Standard report visits do not make a new NXT request.",
+    presentationNoteTone: "info",
+  }),
+  CAMPAIGN_REPORT_DEFINITION,
+  Object.freeze({
+    key: FY_REVENUE_KEY,
+    reportType: REPORT_TYPES.QUERY_BASED,
+    adapterKey: "fy-revenue-goals",
+    configurationSchema: "fy-revenue-goals-v1",
+    configurationSchemaVersion: 1,
+    href: "/reports/dashboards/fy-revenue-goals",
+    title: "FY Revenue Goals",
+    description: "Track eligible gifts received and projected gift re-investment from saved NXT query 31074.",
+    audienceMode: "shared_snapshot",
+    defaultVisibility: "specific_users",
+    dataConfigurationType: null,
+    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    presentationNote: "Choose viewers here. Configure and refresh query 31074 inside the dashboard. Opening it never refreshes NXT or changes gifts.",
     presentationNoteTone: "info",
   }),
 ]);

@@ -1,5 +1,6 @@
 import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 import { smallActionButton } from "./prospectPresentation";
+const TechnicalStatus = ({ children }) => <>{children}</>;
 
 export default function PortfolioRefreshProgress({
   state,
@@ -10,18 +11,21 @@ export default function PortfolioRefreshProgress({
   onResume,
   onRetryFailures,
   onCancel,
+  technical = false,
 }) {
   const job = state?.job || null;
   const inventory = state?.inventory || null;
   const active = ["queued", "processing"].includes(job?.status);
   const paused = job?.status === "paused";
   const completed = ["completed", "completed_with_failures"].includes(job?.status);
+  const serverManaged = state?.serverManaged === true && job?.mode === "nightly";
   const processed = Number(job?.processedCount || 0);
   const total = Number(job?.totalCount || 0);
   const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const Status = technical ? TechnicalStatus : PortfolioRefreshStatus;
 
   return (
-    <PortfolioRefreshStatus state={state} isPending={isPending} error={error}>
+    <Status state={state} isPending={isPending} error={error}>
     <div
       style={{
         border: "1px solid #BFDBFE",
@@ -76,7 +80,7 @@ export default function PortfolioRefreshProgress({
           ) : null}
           {paused ? (
             <button type="button" onClick={onResume} disabled={isPending || Date.parse(job.pausedUntil || "") > Date.now()} style={smallActionButton}>
-              {Date.parse(job.pausedUntil || "") > Date.now() ? "Waiting for Blackbaud" : "Resume now"}
+              {Date.parse(job.pausedUntil || "") > Date.now() ? serverManaged ? "Background check paused" : "Waiting for Blackbaud" : "Resume now"}
             </button>
           ) : null}
           {completed && Number(job?.failedCount || 0) > 0 ? (
@@ -109,9 +113,10 @@ export default function PortfolioRefreshProgress({
             <strong>{processed} / {total} processed.</strong>{" "}
             {`${Number(job.successCount || 0)} completed · ${Number(job.failedCount || 0)} failed. `}
             {job.status === "processing" || job.status === "queued"
-              ? `Currently processing in batches of 10 from checkpoint ${Number(job.currentCursor || 0) + 1}.`
+              ? serverManaged ? "Continuing automatically in small background batches. You can leave this page."
+                : `Currently processing in batches of 10 from checkpoint ${Number(job.currentCursor || 0) + 1}.`
               : paused
-                ? `Waiting for Blackbaud's rate limit${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
+                ? `Background check paused${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
                 : job.status === "cancelled"
                   ? "Refresh cancelled. Saved summaries were preserved."
                   : "Refresh pass completed."}
@@ -124,9 +129,9 @@ export default function PortfolioRefreshProgress({
 
       {paused && !error && Number.isFinite(Date.parse(job.pausedUntil || "")) ? (
         <div role="status" style={{ color: "#92400E", fontSize: "12px", lineHeight: 1.5 }}>
-          This refresh will continue automatically after the cooldown while this page is open.
-          If you leave, overnight maintenance picks it up. Saved summaries remain available;
-          a rate-limit pause does not count as a failed record.
+          {serverManaged
+            ? "Scheduled maintenance will continue when the cooldown and daily request allowance permit, even with this page closed. Saved summaries remain available; a pause does not count as a failed record."
+            : "Keep these maintenance details open to continue this manual refresh after its cooldown. Saved summaries remain available; a pause does not count as a failed record."}
         </div>
       ) : null}
 
@@ -163,6 +168,6 @@ export default function PortfolioRefreshProgress({
       ) : null}
       {error ? <div style={{ color: "#991B1B", fontSize: "12px", fontWeight: 700 }}>{error.message}</div> : null}
     </div>
-    </PortfolioRefreshStatus>
+    </Status>
   );
 }

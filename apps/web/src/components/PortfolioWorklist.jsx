@@ -172,10 +172,16 @@ export function PortfolioCard({
   );
 }
 
-export default function PortfolioWorklist({
+export default function PortfolioWorklist(props) {
+  // Load the new workspace's preferences before any persistence effect can run.
+  return <PortfolioWorklistView key={props.storageKey || "unsaved"} {...props} />;
+}
+
+function PortfolioWorklistView({
   people,
   roleTiers,
   categoryTiers,
+  categoriesLoading = false,
   signals,
   storageKey,
   matchesSearch,
@@ -183,7 +189,8 @@ export default function PortfolioWorklist({
 }) {
   const [view, setView] = useState(() => savedView(storageKey));
   const [search, setSearch] = useState("");
-  const [selectedGroup, setSelectedGroup] = useState("");
+  const selectedGroup = view.selectedGroup;
+  const waitingForCategories = view.group === "category" && categoriesLoading;
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState([]);
   const [today, setToday] = useState(() => getStandingsPeriods().asOf);
@@ -313,9 +320,12 @@ export default function PortfolioWorklist({
   }, [page, result.page]);
 
   function changeView(patch) {
-    const next = normalizePortfolioView({ ...view, ...patch });
+    const next = normalizePortfolioView({
+      ...view,
+      ...patch,
+      ...(patch.group && patch.group !== view.group ? { selectedGroup: "" } : {}),
+    });
     setView(next);
-    if (patch.group) setSelectedGroup("");
     if (patch.density === "focus")
       setExpandedIds((current) => current.slice(-1));
     if (patch.sort || patch.group || patch.pageSize || patch.quickView)
@@ -328,7 +338,7 @@ export default function PortfolioWorklist({
       );
   }
   function changeGroup(key) {
-    setSelectedGroup(key);
+    changeView({ selectedGroup: key });
     setPage(1);
   }
   function changePage(next) {
@@ -390,6 +400,7 @@ export default function PortfolioWorklist({
         ref={listRef}
         tabIndex={-1}
         aria-label="Portfolio worklist"
+        aria-busy={waitingForCategories}
       >
         <div className="portfolio-worklist__toolbar">
           <label className="portfolio-worklist__search" htmlFor={searchId}>
@@ -443,7 +454,7 @@ export default function PortfolioWorklist({
                   )
                 </option>
                 {selectedGroup && !activeGroup && (
-                  <option value={selectedGroup}>Unavailable group (0)</option>
+                  <option value={selectedGroup}>{waitingForCategories ? "Loading saved category..." : "Unavailable group (0)"}</option>
                 )}
                 {filteredTiers.map((tier) => (
                   <option key={tier.key} value={tier.key}>
@@ -488,7 +499,7 @@ export default function PortfolioWorklist({
             Focus view keeps one constituent's details open at a time.
           </p>
         )}
-        {selectedGroup && (
+        {selectedGroup && !waitingForCategories && (
           <p className="portfolio-worklist__filter-note">
             {activeGroup
               ? `Showing only ${activeGroup.title.trim()}. Counts reflect this group and your search.${view.group === "category" ? " Subcategories are separate groups." : ""}`
@@ -554,8 +565,9 @@ export default function PortfolioWorklist({
               each constituent once, before pagination. Show group narrows the
               list without changing assignments or categories. Group-option
               counts also respect the selected quick view. Subcategories are
-              separate groups. Search and group selection apply only to this
-              visit; they are not saved as preferences. Follow-ups due uses
+              separate groups. Your selected group and view settings are remembered
+              in this browser for you and this MGO workspace. Search and expanded
+              details apply only to this visit. Follow-ups due uses
               unfinished saved next steps due today or earlier (Eastern), not
               NXT action history. Background updates may change filter
               membership, but do not reorder existing cards. Reapply sort to use
@@ -605,10 +617,11 @@ export default function PortfolioWorklist({
             </button>
           )}
         </div>
-        {pagination("Top")}
+        {!waitingForCategories && pagination("Top")}
         <div className="portfolio-worklist__groups">
-          {result.tiers.map((tier) => renderTier(tier, view.density))}
-          {!result.total && (
+          {waitingForCategories ? <p role="status">Loading saved categories...</p>
+            : result.tiers.map((tier) => renderTier(tier, view.density))}
+          {!waitingForCategories && !result.total && (
             <div className="portfolio-worklist__empty">
               <p>
                 {selectedGroup
@@ -626,8 +639,7 @@ export default function PortfolioWorklist({
                   type="button"
                   onClick={() => {
                     setSearch("");
-                    setSelectedGroup("");
-                    changeView({ quickView: "all" });
+                    changeView({ quickView: "all", selectedGroup: "" });
                   }}
                 >
                   Show all constituents
@@ -636,7 +648,7 @@ export default function PortfolioWorklist({
             </div>
           )}
         </div>
-        {result.pageCount > 1 && pagination("Bottom")}
+        {!waitingForCategories && result.pageCount > 1 && pagination("Bottom")}
       </section>
     </PortfolioExpansionContext.Provider>
   );

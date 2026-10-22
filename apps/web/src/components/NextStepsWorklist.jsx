@@ -2,11 +2,13 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import NextStepFields, { nextStepDateChoices } from "./NextStepFields";
+import GiftFollowUpSource from "./GiftFollowUpSource";
 import WorkflowNotice, { actionNoticeKind } from "./WorkflowNotice";
 import { buildNextStepGroups, formatNextStepCompletion, formatNextStepDate, nextStepDay, nextStepName, pageNextStepGroups } from "@/utils/nextStepWorklist";
 
 const buttonClass = "inline-flex min-h-11 items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600";
 const NextStepActionDialog = lazy(() => import("./NextStepActionDialog"));
+const StewardshipAssistanceDialog = lazy(() => import("./StewardshipAssistanceDialog"));
 
 export default function NextStepsWorklist({ viewerId, workspaceId, active = true }) {
   const queryClient = useQueryClient();
@@ -15,6 +17,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState(null);
   const [actionItem, setActionItem] = useState(null);
+  const [assistanceItem, setAssistanceItem] = useState(null);
   const [notice, setNotice] = useState("");
   const [noticeKind, setNoticeKind] = useState("app");
   const [linkedId, setLinkedId] = useState(null);
@@ -188,6 +191,11 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                 {item.category === "Stewardship" && <span className="mt-2 inline-block rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">Stewardship</span>}
               </div>
               {workspace?.canEdit && !isEditing && <div className="flex flex-wrap gap-2" role="group" aria-label={`Actions for ${item.title}`}>
+                {item.source_gift_id && (status === "Open" || item.stewardship_request_id) && <button type="button"
+                  className={`${buttonClass} !border-emerald-700 !bg-emerald-700 !text-white`} disabled={save.isPending || Boolean(assistanceItem)}
+                  onClick={() => { if (discardEditor()) { setNotice(""); setAssistanceItem(item); } }}>
+                  {item.stewardship_request_id ? "View stewardship request" : "Request stewardship assistance"}
+                </button>}
                 {status === "Open" ? <>
                   <button type="button" className={`${buttonClass} !border-emerald-200 !bg-emerald-50 !text-emerald-800`} onClick={() => quickAction(item, "complete")} disabled={save.isPending}>
                     {save.isPending && save.variables?.source.id === item.id ? "Saving..." : "Mark complete"}
@@ -201,11 +209,13 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                 }}>{item.nxt_action_state ? "View NXT submission" : "Add NXT action"}</button>}
               </div>}
             </div>
+            {item.stewardship_request_id && <p className="mt-3 text-sm font-medium text-emerald-800">Stewardship request #{item.stewardship_request_id}: {item.stewardship_request_status}. Tracked separately from this reminder.</p>}
             <details className="mt-3 text-sm text-gray-600">
               <summary className="inline-flex min-h-11 cursor-pointer items-center gap-2 font-semibold text-gray-700">Details <ChevronDown size={15} aria-hidden="true" /></summary>
               <div className="space-y-3 pb-1">
                 {workspace?.canEdit && status === "Open" && !isEditing && <button type="button" className={buttonClass} onClick={() => edit(item)} disabled={save.isPending}>Edit next step</button>}
                 {item.details ? <p className="whitespace-pre-wrap break-words">{item.details}</p> : <p>No additional notes.</p>}
+                {item.source_gift_id && <div><p className="mb-2 font-semibold">Gift that prompted this follow-up</p><GiftFollowUpSource snapshot={item.source_gift_snapshot} /></div>}
                 {item.opportunity_title && <p>Opportunity: <strong>{item.opportunity_title}</strong></p>}
                 {item.prospect_id && <a className="block font-semibold text-indigo-700 underline" href={`/my-top-prospects?prospectId=${encodeURIComponent(item.prospect_id)}&panel=next-step`}>Open prospect workspace</a>}
                 {item.discussion_item_id && <p><a className="font-semibold text-indigo-700 underline" href={`/team-discussion?discussionId=${encodeURIComponent(item.discussion_item_id)}&status=${encodeURIComponent(item.discussion_status || "Open")}`}>Open linked discussion</a> ({item.discussion_status === "Resolved" ? "Resolved" : "Open"}). Discussion and task completion are separate.</p>}
@@ -242,6 +252,10 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
         })}</div>
       </section>)}
     </>}
+    {assistanceItem && <Suspense fallback={<p role="status">Opening stewardship request...</p>}>
+      <StewardshipAssistanceDialog key={`${viewerId}-${workspaceId}-${assistanceItem.id}`} item={assistanceItem} viewerId={viewerId} workspaceId={workspaceId}
+        onClose={() => { setAssistanceItem(null); query.refetch(); }} />
+    </Suspense>}
     {actionItem && <Suspense fallback={<p role="status">Opening action form...</p>}>
       <NextStepActionDialog key={`${workspaceId}-${actionItem.id}`} item={actionItem} viewerId={viewerId} workspaceId={workspaceId}
         onClose={() => { setActionItem(null); query.refetch(); }} onSaved={receipt => {

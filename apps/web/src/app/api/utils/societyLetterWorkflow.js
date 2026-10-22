@@ -1,10 +1,30 @@
 import { createHash, randomUUID } from "node:crypto";
+import { letterSelectionSummary } from "@/utils/societyLetterBatchSummary";
+import {
+  inspectDocumentRequirements,
+  documentReadinessForRow,
+} from "./societyLetterDocumentReadiness";
 import { advanceQueryList } from "./constituentQueryList";
+import { getQueryJobMetadataRowCount } from "./savedQueryExecution";
+import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
+import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
+import {
+  recipientReviewForRow,
+  saveLetterRecipientReview,
+  validateLetterRecipientChoices,
+} from "./societyLetterRecipients";
+import { getBlackbaudSavedQueryById } from "./blackbaud";
+import {
+  letterReadinessForRow,
+  letterReadinessWorkspace,
+} from "./societyLetterReadiness";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
+import { exclusionAppealWorkspace } from "./societyLetterExclusionAppeals";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
 import {
   renderSocietyLetter,
   validateLetterTemplate,
+  inspectLetterTemplate,
 } from "./societyLetterDocuments";
 import {
   LETTER_BATCH_LIMIT,
@@ -15,6 +35,11 @@ import {
   letterDisposition,
   letterIssue,
   validateLetterSettings,
+  verifyConstituentLetterIdColumns,
+  CONSTITUENT_LETTER_PREVIEW_NOTICE,
+  isLetterPreviewSource,
+  normalizeLetterMergeSettings,
+  normalizeLetterAddress,
 } from "@/utils/societyLetters";
 
 const hash = (value) =>
@@ -43,25 +68,62 @@ function sourceIssue(state, definitions, today) {
     Date.now() - Date.parse(state.snapshot.generatedAt) > 24 * 60 * 60 * 1000
   )
     return "Refresh household eligibility before preparing letters; this snapshot is more than 24 hours old.";
+  if (isLetterPreviewSource(state.settings))
+    return CONSTITUENT_LETTER_PREVIEW_NOTICE;
   return null;
 }
 
 export function letterWorkspace(state, definitions, today) {
-  const hierarchy = letterHierarchy(definitions, state.settings);
   const issue = sourceIssue(state, definitions, today);
+  const signature = letterSourceSignature(state, definitions);
   const period = state.settings ? letterPeriod(state.settings, today) : null;
+  const documentRequirements = new Map();
+  if (state.settings?.sourceMode === "society_queries") {
+    for (const key of state.settings.societyKeys || [])
+      documentRequirements.set(
+        key,
+        inspectDocumentRequirements(activeTemplate(state, key)),
+      );
+  }
+  let sourceConfigured = false;
+  try {
+    validateLetterSettings(
+      { ...state.settings, confirmSource: true },
+      definitions,
+      today,
+    );
+    sourceConfigured = true;
+  } catch {
+    // Saved settings may need attention after a period or society change.
+  }
   const currentRows =
     period && state.snapshot?.period?.key === period.key
       ? state.snapshot.rows
       : [];
   return {
     revision: state.revision,
+    csvRuns: state.csvRuns || [],
+    csvFormats: state.csv_formats || {},
+    postalDraft: state.postalDraft || null,
     settings: state.settings,
     today,
     emailEnabled: emailDeliveryEnabled(),
     definitions: definitions.filter((d) => d.active && d.basis === "annual"),
     period,
-    templates: hierarchy.map((d) => {
+    setup: {
+      key: hash([signature, period?.key]),
+      sourceConfigured,
+      membershipCurrent: Boolean(
+        sourceConfigured &&
+        state.snapshot?.period?.key === period?.key &&
+        state.snapshot?.signature === signature,
+      ),
+    },
+    templates: letterHierarchy(definitions, {
+      societyKeys: definitions
+        .filter((d) => d.active && d.basis === "annual")
+        .map((d) => d.key),
+    }).map((d) => {
       const t = activeTemplate(state, d.key);
       return {
         societyKey: d.key,
@@ -73,33 +135,146 @@ export function letterWorkspace(state, definitions, today) {
               subject: t.subject,
               emailBody: t.emailBody,
               savedAt: t.savedAt,
+              mergeSettings: normalizeLetterMergeSettings(t.mergeSettings),
+              usedFields:
+                documentRequirements.get(d.key)?.fields || t.usedFields || [],
+              wordFields: t.wordFields || null,
             }
           : {}),
       };
     }),
     sourceIssue: issue,
+    readiness: letterReadinessWorkspace(state, definitions, today),
+    exclusionAppeals: exclusionAppealWorkspace(state, definitions, today),
+    exclusions: (state.exclusions || []).filter(
+      (item) =>
+        !item.restoredAt &&
+        period &&
+        item.period.start <= period.end &&
+        item.period.end >= period.start,
+    ),
     refreshedAt: state.snapshot?.generatedAt || null,
+    sources: state.snapshot?.sources || [],
     job: state.job
       ? {
           id: state.job.id,
           status: state.job.status,
           message: state.job.message || "",
+          completedSources:
+            state.job.completedSources ?? state.job.sourceIndex ?? 0,
+          totalSources:
+            state.job.totalSources ??
+            state.settings?.societySources?.length ??
+            1,
         }
       : null,
-    rows: currentRows.map((row) => ({
-      ...row,
-      ...letterDisposition(row, state.history),
-      issues: {
-        email:
-          issue ||
-          letterIssue(row, "email", activeTemplate(state, row.societyKey)),
-        post:
-          issue ||
-          letterIssue(row, "post", activeTemplate(state, row.societyKey)),
-      },
-    })),
+    rows: currentRows.map((sourceRow) => {
+      const recipientReview = recipientReviewForRow(
+        state,
+        sourceRow,
+        signature,
+      );
+      const row = normalizeLetterAddress({
+        ...sourceRow,
+        ...recipientReview?.values,
+      });
+      return {
+        ...row,
+        ...(row.recipientCandidates
+          ? {
+              recipientCandidates: row.recipientCandidates.map((candidate) =>
+                normalizeLetterAddress(candidate),
+              ),
+            }
+          : {}),
+        ...(recipientReview ? { recipientReview } : {}),
+        ...(state.settings?.sourceMode === "society_queries"
+          ? {
+              documentReadiness: documentReadinessForRow(
+                row,
+                recipientReview,
+                documentRequirements.get(row.societyKey) ||
+                  inspectDocumentRequirements(null),
+              ),
+              readiness: {
+                post: letterReadinessForRow(
+                  state,
+                  definitions,
+                  today,
+                  sourceRow,
+                  "post",
+                ),
+                email: letterReadinessForRow(
+                  state,
+                  definitions,
+                  today,
+                  sourceRow,
+                  "email",
+                ),
+              },
+            }
+          : {}),
+        ...letterDisposition(row, state.history, state.exclusions),
+        issues: {
+          email:
+            issue ||
+            letterIssue(row, "email", activeTemplate(state, row.societyKey)),
+          post:
+            issue ||
+            letterIssue(row, "post", activeTemplate(state, row.societyKey)),
+        },
+      };
+    }),
     history: state.history,
   };
+}
+
+function currentRecipientRow(state, today, householdId) {
+  const period = state.settings && letterPeriod(state.settings, today);
+  return period && state.snapshot?.period?.key === period.key
+    ? state.snapshot.rows.find((item) => item.householdId === householdId)
+    : null;
+}
+
+// Draft rendering reads saved data only and never grants delivery permission.
+export function previewLetterRecipient(state, definitions, today, body) {
+  const row = currentRecipientRow(state, today, body.householdId);
+  const values = validateLetterRecipientChoices(
+    state,
+    row,
+    letterSourceSignature(state, definitions),
+    body,
+  );
+  const template = activeTemplate(state, row.societyKey);
+  if (!template)
+    throw letterError(
+      "Save a Word template for this society before previewing its letters.",
+    );
+  if (body.templateVersion !== template.version)
+    throw letterError(
+      "The saved template changed. Reload the holding list before previewing.",
+      409,
+    );
+  return renderSocietyLetter(template, { ...row, ...values }, today);
+}
+
+export async function updateLetterRecipient(
+  state,
+  definitions,
+  today,
+  body,
+  store,
+  userId,
+) {
+  const row = currentRecipientRow(state, today, body.householdId);
+  await saveLetterRecipientReview(
+    state,
+    row,
+    letterSourceSignature(state, definitions),
+    body,
+    store,
+    userId,
+  );
 }
 
 export function previewLetters(state, definitions, today, body) {
@@ -123,9 +298,13 @@ export function previewLetters(state, definitions, today, body) {
     );
   const rows = selected.map((householdId) => {
     const row = state.snapshot.rows.find((r) => r.householdId === householdId);
-    if (!row || letterDisposition(row, state.history).status !== "ready")
+    if (
+      !row ||
+      isLetterPreviewSource(row) ||
+      letterDisposition(row, state.history, state.exclusions).status !== "ready"
+    )
       throw letterError(
-        "A selected household is already covered or held. Reload the worklist.",
+        "A selected household is excluded, already covered or held. Reload the worklist.",
         409,
       );
     if (
@@ -172,11 +351,96 @@ export function previewLetters(state, definitions, today, body) {
     throw letterError(
       "Different households share an email address. Review them individually instead of sending this batch.",
     );
+  const selectionSummary = letterSelectionSummary(state, rows);
   return {
     rows,
     channel: body.channel,
-    token: hash([state.revision, body.channel, rows]),
+    selectionSummary,
+    token: hash([state.revision, body.channel, rows, selectionSummary]),
   };
+}
+
+export async function updateLetterExclusion(
+  state,
+  definitions,
+  today,
+  body,
+  store,
+  userId,
+  nxt = null,
+) {
+  const period = state.settings && letterPeriod(state.settings, today);
+  if (!period) throw letterError("Choose a letter period first.");
+  const exclusions = state.exclusions || [];
+  const timestamp = new Date().toISOString();
+  if (body.action === "restore_recipient") {
+    const item = exclusions.find(
+      (item) => item.id === body.exclusionId && !item.restoredAt,
+    );
+    if (
+      !item ||
+      item.period.start > period.end ||
+      item.period.end < period.start
+    )
+      throw letterError(
+        "This exclusion changed or belongs to another period. Reload the holding list.",
+        409,
+      );
+    item.restoredAt = timestamp;
+    item.restoredBy = userId;
+  } else {
+    if (body.action !== "exclude_recipient")
+      throw letterError("Choose an exclusion action.");
+    // Exclusions do not assert send eligibility, but must identify a reviewed, current source row.
+    if (
+      state.snapshot?.period?.key !== period.key ||
+      state.snapshot?.signature !== letterSourceSignature(state, definitions)
+    )
+      throw letterError(
+        "Refresh membership for the current source settings before excluding a recipient.",
+        409,
+      );
+    const row = state.snapshot.rows.find(
+      (row) => row.householdId === body.householdId,
+    );
+    if (
+      !row ||
+      letterDisposition(row, state.history, exclusions).status !== "ready"
+    )
+      throw letterError(
+        "This recipient is no longer in the holding list. Prepared letters must be cancelled in Letter history first.",
+        409,
+      );
+    if (typeof body.reason !== "string" || body.reason.trim().length > 500)
+      throw letterError(
+        "Keep the optional exclusion reason to 500 characters.",
+      );
+    if (exclusions.length >= 20000)
+      throw letterError(
+        "The exclusion history needs archiving before adding more entries.",
+      );
+    exclusions.push({
+      id: randomUUID(),
+      householdId: row.householdId,
+      members: [...row.members],
+      name: row.name,
+      period: { ...period },
+      reason: body.reason.trim(),
+      ...(nxt
+        ? {
+            nxt,
+            exclusionDate: nxt.date,
+            societyKey: nxt.societyKey,
+            societyName: nxt.societyName,
+          }
+        : {}),
+      excludedAt: timestamp,
+      excludedBy: userId,
+    });
+  }
+  state.exclusions = exclusions;
+  await store.save(state);
+  return body.action === "exclude_recipient" ? exclusions.at(-1) : null;
 }
 
 export async function updateLetterSettings(
@@ -222,10 +486,49 @@ export async function updateLetterSettings(
   await store.save(state);
 }
 
-export async function saveLetterTemplate(state, body, today, store, userId) {
-  if (!state.settings?.societyKeys.includes(body.societyKey))
-    throw letterError("Choose a configured society.");
-  const template = validateLetterTemplate(body.template);
+export async function saveLetterTemplate(
+  state,
+  body,
+  today,
+  store,
+  userId,
+  definitions,
+) {
+  if (
+    !definitions?.some(
+      (d) => d.key === body.societyKey && d.active && d.basis === "annual",
+    )
+  )
+    throw letterError(
+      "Choose an active annual society from Organization Settings.",
+    );
+  let raw = body.template;
+  if (body.existingVersion) {
+    const existing = activeTemplate(state, body.societyKey);
+    if (!existing || existing.version !== body.existingVersion)
+      throw letterError(
+        "The saved letter template changed. Reload it before editing its merge settings.",
+        409,
+      );
+    if (raw?.content || raw?.filename)
+      throw letterError(
+        "Choose either a new Word file or the saved template, not both.",
+      );
+    raw = {
+      ...existing,
+      subject: raw?.subject ?? existing.subject,
+      emailBody: raw?.emailBody ?? existing.emailBody,
+      mergeSettings: raw?.mergeSettings ?? existing.mergeSettings,
+    };
+  }
+  const template = validateLetterTemplate(raw);
+  if (
+    !template.mergeSettings.wordBindings &&
+    inspectLetterTemplate(template.content).legacy
+  )
+    throw letterError(
+      "Read fields from Word letter and save a value for each placeholder before saving this template.",
+    );
   const version = hash([body.societyKey, template.version]);
   if (!state.templates[version]) {
     if (Object.keys(state.templates).length >= 100)
@@ -260,6 +563,16 @@ export async function refreshLetterSource(
     throw letterError("Configure the household query first.");
   const signature = letterSourceSignature(state, definitions);
   const period = letterPeriod(state.settings, today);
+  if (state.settings.sourceMode === "society_queries")
+    return refreshMultipleSocietySources({
+      state,
+      signature,
+      period,
+      hierarchy: letterHierarchy(definitions, state.settings),
+      body,
+      store,
+      context,
+    });
   if (["refresh", "restart"].includes(body.action)) {
     if (body.action === "restart" && body.confirm !== true)
       throw letterError("Confirm the query restart first.");
@@ -297,10 +610,44 @@ export async function refreshLetterSource(
       );
   }
   try {
+    const definitionSignature = async () => {
+      const definition = await getBlackbaudSavedQueryById({
+        userId: context.user.id,
+        origin: context.origin,
+        queryId: state.settings.queryId,
+      });
+      verifyConstituentLetterIdColumns(definition, state.settings);
+      return hash([
+        definition.type_id,
+        definition.select_fields,
+        definition.filter_fields,
+        definition.summary_fields,
+        definition.gift_processing_options,
+        definition.constituent_filters,
+      ]);
+    };
+    if (
+      state.settings.sourceMode === "constituents" &&
+      state.job.stage === "members"
+    ) {
+      state.job.definitionSignature = await definitionSignature();
+      await store.save(state);
+    }
     const { job, snapshot } = await advanceQueryList({
       job: state.job,
       user: context.user,
       origin: context.origin,
+      ...(state.settings.sourceMode === "constituents"
+        ? {
+            readResult: (url, options, result) =>
+              readSocietyConstituentQueryResult(
+                url,
+                options,
+                state.settings,
+                getQueryJobMetadataRowCount(result),
+              ),
+          }
+        : {}),
       source: {
         source: "query",
         queryId: state.settings.queryId,
@@ -309,6 +656,14 @@ export async function refreshLetterSource(
     });
     state.job = job;
     if (snapshot) {
+      if (
+        state.settings.sourceMode === "constituents" &&
+        (!job.definitionSignature ||
+          job.definitionSignature !== (await definitionSignature()))
+      )
+        throw letterError(
+          "The saved NXT query changed during this refresh. Prior results were retained. Restart after confirming the query output fields.",
+        );
       const rows = householdsFromQuery(
         snapshot,
         state.settings,
@@ -320,6 +675,7 @@ export async function refreshLetterSource(
         signature,
         period,
         generatedAt: snapshot.generatedAt,
+        deduplication: snapshot.metadata?.deduplication || null,
       };
       state.job = {
         id: job.id,
@@ -363,6 +719,7 @@ export async function prepareLetterBatch(
     status: preview.channel === "post" ? "prepared" : "pending_email",
     preparedAt: new Date().toISOString(),
     preparedBy: userId,
+    selectionSummary: preview.selectionSummary,
   }));
   await store.reserve(items);
   return batchId;

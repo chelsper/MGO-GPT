@@ -26,12 +26,21 @@ git diff --check
 cd apps/web
 npm ci
 npm test
-npm run typecheck
 npm run build
 npm run check:release
 ```
 
 Stop on failures. Do not weaken a test or bypass a guard merely to release.
+
+`npm run build` now requires the [automatic release gate](automatic-release-gate-2026-10-21.md):
+workflow checks, route type generation, typecheck, production build, and unchanged
+source verification. This applies to the ordinary Vercel Git and CLI source-build
+paths too. Do not override the build command or use prebuilt output to bypass it.
+
+The [role/workflow gate](role-workflow-checks-2026-10-21.md) uses fictional data,
+removes inherited credentials, blocks unmocked network access, and requires every
+listed test to run without skips. It complements the full suite and separate
+database/provider checks; it is not proof of live Okta/NXT acceptance.
 
 `check:release` only detects dirty versions of two known experimental paths
 (`plugins/layouts.ts` and `src/__create/PolymorphicComponent.tsx` in the web app).
@@ -51,6 +60,14 @@ Publish only reviewed commits through the authorized release path to `main`.
 Never force-push or amend shared release history as part of routine deployment.
 Wait for the hosting deployment to finish; a successful push is not a successful
 production release. Record deployment URL/ID and previous known-good release.
+
+For the CLI path, create a staged production build with `--skip-domain` and the
+explicit `apps/web/vercel.json` manifest. Then use `npm run release:verify --
+--deployment <id> --sha <full-sha>` from `apps/web`. Only after user approval use
+`npm run release:promote -- --deployment <id> --sha <full-sha>
+--approve-production <same-id>`. Both commands verify the exact JU candidate;
+the latter rechecks it before promotion and verifies the live domain afterward.
+See the automatic gate document for secure bypass setup and activation limits.
 
 ## 4. Verify Production
 

@@ -1,4 +1,5 @@
 import { validateDashboardConfiguration } from "@/app/api/utils/dashboardConfiguration";
+import { newFundraisingTracker } from "./fundraisingTracker";
 
 export const REPORT_LAYOUT_FORMAT = "fundraising-report-layout";
 export const REPORT_LAYOUT_MAX_BYTES = 131072;
@@ -19,9 +20,9 @@ function validateTemplate(template) {
   }
   for (const panel of template.panels) {
     const fields = ["key", "title", "layout", "width"];
-    if (panel?.layout !== "query_results") fields.push("rows", "columns", "values");
+    if (!["query_results", "fundraising_tracker"].includes(panel?.layout)) fields.push("rows", "columns", "values");
     if (!exactKeys(panel, fields)) throw new Error("The layout contains unsupported panel fields. Export a layout without data or connections.");
-    if (panel.layout === "query_results") continue;
+    if (["query_results", "fundraising_tracker"].includes(panel.layout)) continue;
     if (!["rows", "columns", "values"].every((key) => Array.isArray(panel[key]) && panel[key].length <= 100) ||
         !panel.rows.every((entry) => exactKeys(entry, ["key", "label"])) ||
         !panel.columns.every((entry) => exactKeys(entry, ["key", "label"])) ||
@@ -39,6 +40,7 @@ function materialize(template, queryId = "") {
     version: 1,
     panels: template.panels.map((panel) => {
       const base = { key: panel.key, title: panel.title, layout: panel.layout, width: panel.width };
+      if (panel.layout === "fundraising_tracker") return { ...newFundraisingTracker(panel.key), ...base };
       return panel.layout === "query_results"
         ? { ...base, queryId, refreshPolicy: "refreshable", columnSettings: [], rows: [], columns: [], values: [] }
         : {
@@ -63,7 +65,7 @@ export function buildReportLayoutTemplate(draft) {
     title: draft.title, description: draft.description,
     panels: data.panels.map((panel) => ({
       key: panel.key, title: panel.title, layout: panel.layout, width: panel.width,
-      ...(panel.layout === "query_results" ? {} : {
+      ...(["query_results", "fundraising_tracker"].includes(panel.layout) ? {} : {
         rows: panel.rows?.map(({ key, label }) => ({ key, label })),
         columns: panel.columns?.map(({ key, label }) => ({ key, label })),
         values: panel.values?.map(({ key, rowKey, columnKey, source }) => ({ key, rowKey, columnKey, source })),
@@ -88,6 +90,7 @@ export function parseReportLayoutTemplate(contents) {
 }
 
 export const REPORT_STARTERS = [
+  { key: "fundraising_tracker", title: "Fundraising tracker", description: "Track selected NXT funds against a campaign goal and milestone." },
   { key: "query_results", title: "Query results list", description: "Show the rows and columns from one saved NXT query." },
   { key: "query_count", title: "Key metric", description: "Show a saved query's row count as a single number. Not a gift total." },
   { key: "static", title: "Manual comparison", description: "Enter your own values in two side-by-side columns." },
@@ -95,7 +98,9 @@ export const REPORT_STARTERS = [
 
 export function createReportStarter(kind) {
   let panel;
-  if (kind === "query_results") {
+  if (kind === "fundraising_tracker") {
+    panel = newFundraisingTracker("campaign");
+  } else if (kind === "query_results") {
     panel = { key: "results", title: "Query results", layout: "query_results", width: "full", queryId: "", refreshPolicy: "refreshable", columnSettings: [], rows: [], columns: [], values: [] };
   } else if (kind === "query_count" || kind === "static") {
     const columns = kind === "query_count"

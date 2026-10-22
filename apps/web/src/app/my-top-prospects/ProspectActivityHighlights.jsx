@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { calendarDate, formatCalendarDate, latestDatedAction } from "@/utils/prospectActivity";
 
-export default function ProspectActivityHighlights({ prospectId, linked, updates = [] }) {
-  const { data, isLoading, isError } = useQuery({
+export function useProspectRecentActivity(prospectId, linked) {
+  return useQuery({
     queryKey: ["prospect-recent-activity", prospectId],
     queryFn: async () => {
       const response = await fetch(`/api/prospects/${encodeURIComponent(prospectId)}/recent-activity`);
@@ -11,6 +11,15 @@ export default function ProspectActivityHighlights({ prospectId, linked, updates
     },
     enabled: Boolean(linked), staleTime: 60 * 60 * 1000, retry: false,
   });
+}
+
+export default function ProspectActivityHighlights({ prospectId, linked, updates = [] }) {
+  const activityState = useProspectRecentActivity(prospectId, linked);
+  return <SavedProspectActivityHighlights linked={linked} updates={updates} activityState={activityState} />;
+}
+
+export function SavedProspectActivityHighlights({ linked, updates = [], activityState }) {
+  const { data, isLoading, isError } = activityState;
   const localAction = latestDatedAction(updates.filter((item) => item.action_category || item.action_type).map((item) => ({
     id: item.blackbaud_action_id || `local-${item.id}`, date: item.update_date,
     summary: item.update_title || "Logged action", category: item.action_category, type: item.action_type,

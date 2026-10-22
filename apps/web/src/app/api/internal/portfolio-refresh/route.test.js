@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ensureAppSchemaMock, getReportRefreshUserMock, sqlMock } = vi.hoisted(() => ({
+const { ensureAppSchemaMock, getReportRefreshUserMock, sqlMock, claimTurn, finishTurn, claimGate, releaseGate } = vi.hoisted(() => ({
   ensureAppSchemaMock: vi.fn(),
   getReportRefreshUserMock: vi.fn(),
   sqlMock: vi.fn(),
+  claimTurn: vi.fn(), finishTurn: vi.fn(), claimGate: vi.fn(), releaseGate: vi.fn(),
 }));
+vi.mock("@/app/api/utils/portfolioMaintenanceScheduler", () => ({ claimPortfolioTurn: claimTurn, finishPortfolioTurn: finishTurn }));
+vi.mock("@/app/api/utils/portfolioMaintenanceStore", () => ({ claimMaintenanceGate: claimGate, releaseMaintenanceGate: releaseGate }));
 
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/reportRefresh", () => ({
@@ -22,10 +25,16 @@ describe("scheduled portfolio refresh worker", () => {
   const originalSecret = process.env.CRON_SECRET;
 
   beforeEach(() => {
+    vi.stubEnv("VERCEL_ENV", "test");
+    vi.stubEnv("AUTH_URL", "https://jumgogpt.app");
     process.env.CRON_SECRET = "test-secret";
     ensureAppSchemaMock.mockReset().mockResolvedValue();
     getReportRefreshUserMock.mockReset().mockResolvedValue({ id: 99, role: "admin" });
     sqlMock.mockReset().mockResolvedValue([]);
+    claimTurn.mockReset().mockResolvedValue(null);
+    finishTurn.mockReset().mockResolvedValue();
+    claimGate.mockReset().mockResolvedValue({ token: "fixture-token" });
+    releaseGate.mockReset().mockResolvedValue();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -34,6 +43,37 @@ describe("scheduled portfolio refresh worker", () => {
     else process.env.CRON_SECRET = originalSecret;
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it("continues one existing nightly job in daytime with no page visit or new manifest", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T16:00:00Z"));
+    claimTurn.mockResolvedValueOnce({ workspaceUserId: 7, turnToken: "turn", job: { id: 44, status: "queued" } });
+    fetch.mockResolvedValueOnce(Response.json({ job: { jobId: "44", status: "queued" } }));
+    const { GET } = await import("./route.js");
+    expect((await GET(request(""))).status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ action: "process", jobId: 44, backgroundContinuation: true });
+    expect(claimTurn).toHaveBeenCalledWith(true);
+    expect(finishTurn).toHaveBeenCalledWith(expect.objectContaining({ turnToken: "turn" }), "queued");
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it("does not start a daytime job when no unfinished nightly work is ready", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T16:00:00Z"));
+    const { GET } = await import("./route.js");
+    expect(await (await GET(request(""))).json()).toMatchObject({ status: "complete" });
+    expect(claimTurn).toHaveBeenCalledWith(true);
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("rejects requests without the cron secret", async () => {
@@ -41,6 +81,31 @@ describe("scheduled portfolio refresh worker", () => {
     const response = await GET(request("?force=1", "wrong"));
     expect(response.status).toBe(401);
     expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["success", "unavailable", "budget"])("gives new membership a single fenced overnight turn: %s", async result => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T06:00:00Z"));
+    const target = { workspaceUserId: 7, turnToken: "turn", refreshAssignments: true, job: null };
+    claimTurn.mockResolvedValue(target);
+    if (result === "budget") claimGate.mockResolvedValue(null);
+    fetch.mockResolvedValue(Response.json({ leadSolicitor: [], supportingSolicitor: [],
+      portfolioMeta: { assignmentDataStatus: result === "success" ? "live" : "unavailable" } }));
+    const { GET } = await import("./route.js");
+    const response = await GET(request(""));
+    expect(response.status).toBe(result === "unavailable" ? 502 : 200);
+    expect(claimTurn).toHaveBeenCalledWith(false);
+    expect(claimGate).toHaveBeenCalledWith("https://jumgogpt.app", null, { workspaceUserId: 7 });
+    if (result === "budget") expect(fetch).not.toHaveBeenCalled();
+    else {
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(fetch.mock.calls[0][1].headers["x-mgogpt-portfolio-continuation"]).toBe("fixture-token");
+      expect(releaseGate).toHaveBeenCalledOnce();
+    }
+    expect(finishTurn).toHaveBeenCalledWith(target, result === "success" ? "completed" : result === "budget" ? "deferred" : "failed");
   });
 
   it("processes exactly one batch for the oldest queued job", async () => {
@@ -86,6 +151,28 @@ describe("scheduled portfolio refresh worker", () => {
     expect(String(fetch.mock.calls[0][0])).toContain("refreshAssignments=1");
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "start", mode: "nightly" });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("creates and processes new manifests through the main domain, not the protected cron host", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://jumgogpt.app");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T06:00:00Z"));
+    claimTurn.mockResolvedValue({ workspaceUserId: 7, turnToken: "turn", job: null });
+    fetch.mockResolvedValueOnce(Response.json({ job: { jobId: "45" } }))
+      .mockResolvedValueOnce(Response.json({ job: { jobId: "45", status: "queued" } }));
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://deployment.vercel.app/api/internal/portfolio-refresh", {
+      headers: { authorization: "Bearer test-secret" },
+    }));
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetch.mock.calls) {
+      expect(new URL(url).origin).toBe("https://jumgogpt.app");
+      expect(options.redirect).toBe("error");
+      expect(options.headers.authorization).toBe("Bearer test-secret");
+    }
   });
 
   it("completes verified-empty assignment refresh without requesting an enrichment batch", async () => {

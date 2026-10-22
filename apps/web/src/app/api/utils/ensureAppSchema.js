@@ -1,4 +1,14 @@
 import sql from "@/app/api/utils/sql";
+import stewardshipAssistanceSchema from "./stewardshipAssistanceSchema";
+import stewardshipInventorySchema from "./stewardshipInventorySchema";
+import stewardshipGiftRequestsSchema from "./stewardshipGiftRequestsSchema";
+import stewardshipReceiptsSchema from "./stewardshipReceiptsSchema";
+import stewardshipHistorySchema from "./stewardshipHistorySchema";
+import stewardshipStockSchema from "./stewardshipStockSchema";
+import prospectLifecycleSchema from "./prospectLifecycleSchema";
+import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
+import campaignPrioritiesSchema from "./campaignPrioritiesSchema";
+import pipelineChangeGuardSchema from "./pipelineChangeGuardSchema";
 
 let schemaReadyPromise;
 
@@ -30,6 +40,9 @@ export default async function ensureAppSchema() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
+
+    await relationshipOriginatorSchema(sql);
+    await campaignPrioritiesSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS standings_annual_goals (
@@ -395,6 +408,14 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE user_invitations
       ADD COLUMN IF NOT EXISTS blackbaud_name TEXT
+    `;
+    await sql`
+      DO $invitation_email_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 18);
+        ALTER TABLE user_invitations ADD COLUMN IF NOT EXISTS invitation_email JSONB;
+      END;
+      $invitation_email_schema$
     `;
 
     // Auth.js owns the user/account tables. Password-reset records keep the
@@ -1201,6 +1222,23 @@ export default async function ensureAppSchema() {
       ON pending_actions (source_discussion_id, owner_user_id, source_topic_key)
       WHERE source_discussion_id IS NOT NULL
     `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS source_gift_id TEXT,
+      ADD COLUMN IF NOT EXISTS source_gift_snapshot JSONB
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_actions_gift_origin
+      ON pending_actions (owner_user_id, source_gift_id)
+      WHERE source_gift_id IS NOT NULL
+    `;
+
+    await stewardshipAssistanceSchema(sql);
+    await stewardshipInventorySchema(sql);
+    await stewardshipGiftRequestsSchema(sql);
+    await stewardshipReceiptsSchema(sql);
+    await stewardshipHistorySchema(sql);
+    await stewardshipStockSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (
@@ -1335,6 +1373,40 @@ export default async function ensureAppSchema() {
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS purpose TEXT
     `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS nxt_checked_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS nxt_retry_after TIMESTAMPTZ
+    `;
+    await sql`ALTER TABLE prospect_opportunities ADD COLUMN IF NOT EXISTS pipeline_change_id UUID`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_nxt_identity
+      ON prospect_opportunities(blackbaud_opportunity_id) WHERE blackbaud_opportunity_id IS NOT NULL`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_shared_identity
+      ON prospect_opportunities(shared_opportunity_key) WHERE shared_opportunity_key IS NOT NULL`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS opportunity_change_receipts (
+        id UUID PRIMARY KEY,
+        opportunity_id BIGINT NOT NULL,
+        nxt_id TEXT NOT NULL,
+        constituent_id TEXT NOT NULL,
+        actor_id BIGINT NOT NULL,
+        operation TEXT NOT NULL CHECK (operation IN ('edit', 'archive')),
+        state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'complete', 'rejected')),
+        patch JSONB NOT NULL,
+        before_remote JSONB NOT NULL,
+        copies JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
+      )
+    `;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS opportunity_change_pending_nxt
+      ON opportunity_change_receipts(nxt_id) WHERE state = 'pending'`;
+    // An older editor may already be in flight when a pipeline change claims
+    // the row. Block its local overwrite rather than silently lose the receipt.
+    await pipelineChangeGuardSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunity_gift_links (
@@ -1985,6 +2057,18 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS constituency_import_setups (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        configuration JSONB NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS constituency_import_setup_name ON constituency_import_setups (user_id, lower(name))`;
+    await sql`
       CREATE TABLE IF NOT EXISTS constituency_import_runs (
         id BIGSERIAL PRIMARY KEY,
         created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -2524,6 +2608,18 @@ export default async function ensureAppSchema() {
       BEGIN
         PERFORM pg_advisory_xact_lock(734019, 3);
         ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS logo_data_url TEXT;
+        ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS dashboard_assistant JSONB;
+        CREATE TABLE IF NOT EXISTS dashboard_priority_preferences (
+          viewer_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          item_key TEXT NOT NULL,
+          item_revision TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('dismissed', 'snoozed')),
+          snooze_until DATE,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (viewer_user_id, workspace_user_id, item_key),
+          CHECK ((state = 'snoozed' AND snooze_until IS NOT NULL) OR (state = 'dismissed' AND snooze_until IS NULL))
+        );
         CREATE TABLE IF NOT EXISTS organization_settings_audits (
           id BIGSERIAL PRIMARY KEY,
           actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -2531,6 +2627,16 @@ export default async function ensureAppSchema() {
           settings JSONB NOT NULL,
           changed_fields JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_documentation_checks (
+          viewer_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          scope_key TEXT NOT NULL,
+          item_key TEXT NOT NULL,
+          item_revision TEXT NOT NULL,
+          claim_token UUID NOT NULL,
+          retry_after TIMESTAMPTZ NOT NULL,
+          result JSONB
         );
       END $organization_audit_schema$
     `;
@@ -2654,6 +2760,21 @@ export default async function ensureAppSchema() {
       )
       ON CONFLICT (report_key) DO NOTHING
     `;
+    await sql`
+      INSERT INTO report_configurations (report_key, title, description, visibility, specific_user_ids)
+      VALUES (
+        'opportunity-pipeline',
+        'Opportunity Pipeline',
+        'Review saved opportunities across all workspaces by expected fiscal year, stage, and fundraiser.',
+        'all_users',
+        '[]'::jsonb
+      )
+      ON CONFLICT (report_key) DO NOTHING
+    `;
+    // Expand only the original untouched seed, never an administrator's policy.
+    await sql`UPDATE report_configurations SET visibility = 'all_users', updated_at = NOW()
+      WHERE report_key = 'opportunity-pipeline' AND visibility = 'executive'
+        AND created_by IS NULL AND updated_by IS NULL`;
     // Rename the former default without changing custom titles or report access.
     await sql`
       UPDATE report_configurations
@@ -2728,6 +2849,7 @@ export default async function ensureAppSchema() {
       CREATE INDEX IF NOT EXISTS idx_custom_field_reports_active
       ON custom_field_reports (active, updated_at DESC)
     `;
+    await prospectLifecycleSchema(sql);
   })().catch((error) => {
     // A failed cold start must not poison all later requests on this worker.
     schemaReadyPromise = null;

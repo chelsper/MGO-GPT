@@ -47,6 +47,14 @@ beforeEach(() => {
 });
 
 describe("standard import failure recovery", () => {
+  it.each([{}, { value: [], count: 1 }, { value: [], next_link: "/next" }])("does not add recovered contacts after an incomplete contact read: %j", async (payload) => {
+    row.preview.contactRecovery = { targetId: "123", sourceRunId: "40", sourceRowId: "8" };
+    setWrites([{ type: "email_address", action: "add", address: "new@example.test", emailType: "Personal", makePrimary: true }]);
+    mock.nxt.mockResolvedValue(payload);
+    await send();
+    expect(row.status).not.toBe("Applied");
+    expect(mock.nxt.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
   const sendAutomatic = () => POST(new Request("https://example.test/api/constituency-import/runs/42/apply", { method: "POST", body: JSON.stringify({ rowIds: ["9"], quickImport: true }) }), { params: { id: "42" } });
   function approveAutomatic() {
     row.created_blackbaud_constituent_id = "123";

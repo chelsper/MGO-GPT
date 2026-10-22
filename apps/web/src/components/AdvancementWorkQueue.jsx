@@ -8,6 +8,10 @@ import {
 } from "@/utils/advancementQueue";
 import styles from "./AdvancementWorkQueue.module.css";
 import { getSubmissionActivityNotice, isSubmissionHistoryOnly } from "@/utils/submissionReview";
+import GiftFollowUpSource from "./GiftFollowUpSource";
+import { isPersonalGiftRequest } from "@/utils/stewardshipAssistance";
+import { StaffGiftChoice, SavedGiftPreference } from "./StewardshipGiftChoice";
+import StewardshipReceiptForm from "./StewardshipReceiptForm";
 
 const SOURCES = [
   ["data", "Data updates and research", "/api/data-requests?view=reviewer"],
@@ -35,6 +39,14 @@ function Detail({ label, value }) {
 
 function RequestDetails({ item }) {
   const r = item.record;
+  if (item.category === "stewardship") return <div className="grid gap-4">
+    <GiftFollowUpSource snapshot={r.source_gift_snapshot} />
+    <SavedGiftPreference request={r} />
+    <dl className={styles.details}><Detail label="Request" value={r.request_note} /><Detail label="Portfolio" value={r.owner_user_name} />
+      <Detail label="Needed by" value={r.needed_by ? formatQueueDate(r.needed_by) : null} /><Detail label="NXT constituent ID" value={r.blackbaud_constituent_id} /></dl>
+    <p className={styles.notice}>This is the request linked to the fundraiser's follow-up. Progress notes are shared with them. Completing this request does not complete the reminder, send anything, or confirm delivery.</p>
+    {isPersonalGiftRequest(r) ? <a href={`/stewardship/inventory/recipients?${new URLSearchParams({ constituentId: r.blackbaud_constituent_id, returnTo: `/stewardship/requests?requestId=${r.id}` })}`}>View this recipient's received items</a> : <a href="/stewardship/society-letters">Open Society Letter Creation</a>}
+  </div>;
   if (item.source === "lists") return <dl className={styles.details}>
     <Detail label="Purpose" value={r.purpose_other || r.purpose} />
     <Detail label="Delivery" value={r.output_type} />
@@ -67,7 +79,7 @@ function RequestDetails({ item }) {
   </>;
 }
 
-export default function AdvancementWorkQueue({ initialCategory = "all" }) {
+export default function AdvancementWorkQueue({ initialCategory = "all", returnToStewardship = false, stewardshipOnly = false }) {
   const [sources, setSources] = useState({ data: [], lists: [], submissions: [] });
   const [loads, setLoads] = useState({});
   const [sourceErrors, setSourceErrors] = useState({});
@@ -83,6 +95,11 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
   const [message, setMessage] = useState("");
   const savingRef = useRef(false);
   const hasDrafts = Object.keys(drafts).length > 0;
+  const sourcesToLoad = stewardshipOnly ? [["data", "Stewardship requests", "/api/data-requests?view=reviewer&category=stewardship"]] : SOURCES;
+  const [linkedRequest, setLinkedRequest] = useState(() => {
+    const value = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("requestId");
+    return stewardshipOnly && /^[1-9]\d*$/.test(value || "") ? value : null;
+  });
 
   useEffect(() => {
     if (!hasDrafts) return;
@@ -93,8 +110,8 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoads(Object.fromEntries(SOURCES.map(([key]) => [key, true])));
-    for (const [key, , url] of SOURCES) {
+    setLoads(Object.fromEntries(sourcesToLoad.map(([key]) => [key, true])));
+    for (const [key, , url] of sourcesToLoad) {
       loadQueueSource(key, url, controller.signal)
         .then((rows) => {
           if (controller.signal.aborted) return;
@@ -109,13 +126,20 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
         });
     }
     return () => controller.abort();
-  }, [refreshKey]);
+  }, [refreshKey, stewardshipOnly]);
 
   const busy = Object.keys(loads).length === 0 || Object.values(loads).some(Boolean);
   const incomplete = busy || Object.values(sourceErrors).some(Boolean);
-  const items = buildQueueItems(sources);
+  const items = buildQueueItems(sources).filter(item => !stewardshipOnly || item.category === "stewardship");
   const visible = filterQueueItems(items, { category, view, search, sort });
   const viewCounts = Object.fromEntries(QUEUE_VIEWS.map(([key]) => [key, items.filter((item) => item.group === key).length]));
+  useEffect(() => {
+    if (!linkedRequest || incomplete) return;
+    const item = items.find(value => String(value.record.id) === linkedRequest);
+    if (item) { setView(item.group); setExpanded(current => ({ ...current, [item.key]: true })); }
+    else setMessage("This linked request is no longer available in Stewardship.");
+    setLinkedRequest(null);
+  }, [linkedRequest, incomplete, items]);
 
   function changeView(next) {
     setView(next);
@@ -155,21 +179,21 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
   }
 
   return <main className={styles.page}>
-    <a className={styles.back} href="/"><ArrowLeft size={16} />Back to dashboard</a>
+    <a className={styles.back} href={returnToStewardship || stewardshipOnly ? "/stewardship" : "/"}><ArrowLeft size={16} />{returnToStewardship || stewardshipOnly ? "Back to Stewardship" : "Back to dashboard"}</a>
     <header className={styles.header}>
-      <div><p className={styles.eyebrow}>Advancement Services</p><h1>Work Queue</h1>
-        <p>Requests that need a person, all in one place. Routine activity stays in History without an approval step. NXT sync issues stay in Open work.</p></div>
+      <div><p className={styles.eyebrow}>{stewardshipOnly ? "Stewardship" : "Advancement Services"}</p><h1>{stewardshipOnly ? "Assistance Requests" : "Work Queue"}</h1>
+        <p>{stewardshipOnly ? "Help fundraisers with letters, personal gifts, and recognition. Each request stays linked to the original follow-up. Progress updates here appear there too." : "Requests that need a person, all in one place. Routine activity stays in History without an approval step. NXT sync issues stay in Open work."}</p></div>
       <button className={styles.secondary} disabled={busy || Boolean(saving)} onClick={() => setRefreshKey((n) => n + 1)}><RefreshCw size={16} />{busy ? "Refreshing..." : "Refresh queues"}</button>
     </header>
 
     <nav className={styles.views} aria-label="Work queue views">
-      {QUEUE_VIEWS.map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => changeView(key)}>
+      {QUEUE_VIEWS.filter(([key]) => !stewardshipOnly || key !== "waiting").map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => changeView(key)}>
         <span>{label}</span><strong>{viewCounts[key]}{incomplete ? "+" : ""}</strong>
         <small>{key === "active" ? "New requests, in progress, and exceptions" : key === "waiting" ? "Clarification requested; waiting for a reply" : "Routine activity and completed requests"}</small>
       </button>)}
     </nav>
     {busy && <p role="status" className={styles.notice}>Loading saved queue records. Counts are provisional until all queues finish loading.</p>}
-    {SOURCES.filter(([key]) => sourceErrors[key]).map(([key, label]) => <p key={key} role="alert" className={styles.warning}>
+    {sourcesToLoad.filter(([key]) => sourceErrors[key]).map(([key, label]) => <p key={key} role="alert" className={styles.warning}>
       <strong>{label} could not refresh.</strong> {sourceErrors[key]} Last loaded records are retained; counts may be incomplete. Use Refresh queues to retry.
     </p>)}
     {message && <p className={styles.success} role="status">{message}</p>}
@@ -179,16 +203,16 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
         <label className={styles.search}><Search size={17} /><span className={styles.srOnly}>Search requests</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, requester, type, or request ID" /></label>
         <label className={styles.sort}>Sort by <select value={sort} onChange={(event) => setSort(event.target.value)}><option value="priority">Priority, then overdue</option><option value="oldest">Oldest first</option><option value="newest">Newest first</option></select></label>
       </div>
-      <nav className={styles.categories} aria-label="Request type">
+      {!stewardshipOnly && <nav className={styles.categories} aria-label="Request type">
         {QUEUE_CATEGORIES.map(([key, label]) => <button key={key} aria-pressed={category === key} onClick={() => setCategory(key)}>
           {label} <span>{items.filter((item) => item.group === view && (key === "all" || item.category === key)).length}{incomplete ? "+" : ""}</span>
         </button>)}
-      </nav>
+      </nav>}
       <div className={styles.resultHeading}><h2>{QUEUE_CATEGORIES.find(([key]) => key === category)?.[1] || "Requests"}</h2><span>{visible.length} shown{incomplete ? " so far" : ""}</span></div>
       {!visible.length && <div className={styles.empty}>
         <h3>{busy ? "Loading this view..." : incomplete ? "This view may be incomplete" : view === "active" ? "No open work in this view" : "No requests in this view"}</h3>
-        <p>{view === "active" && viewCounts.history > 0 ? "Completed requests are in History, not mixed in with today's work." : "Try another request type or clear your search."}</p>
-        {(category !== "all" || search) && <button className={styles.secondary} onClick={() => { setCategory("all"); setSearch(""); }}>Show all request types</button>}
+        <p>{view === "active" && viewCounts.history > 0 ? "Completed requests are in History, not mixed in with today's work." : stewardshipOnly ? "Requests will appear here when a fundraiser asks for assistance from a gift follow-up." : "Try another request type or clear your search."}</p>
+        {((!stewardshipOnly && category !== "all") || search) && <button className={styles.secondary} onClick={() => { setCategory(stewardshipOnly ? "stewardship" : "all"); setSearch(""); }}>{stewardshipOnly ? "Clear search" : "Show all request types"}</button>}
       </div>}
       <div className={styles.rows}>
         {visible.map((item) => {
@@ -203,23 +227,35 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
             </button>
             {open && <div className={styles.expanded} id={`details-${item.key}`}>
               <RequestDetails item={item} />
-              {!(item.source === "submissions" && isSubmissionHistoryOnly(item.record)) && <div className={styles.review}>
+              {item.category === "stewardship" && !stewardshipOnly && <a className={styles.primary} href={`/stewardship/requests?requestId=${encodeURIComponent(item.record.id)}`}>Manage in Stewardship</a>}
+              {!(item.source === "submissions" && isSubmissionHistoryOnly(item.record)) && (item.category !== "stewardship" || stewardshipOnly) && <div className={styles.review}>
                 <div className={styles.reviewHeader}><h3>Review this request</h3><span>These controls update the app queue, not NXT.</span></div>
+                {isPersonalGiftRequest(item.record) && (item.record.stewardship_received_item ? <p>This gift is recorded as received. To correct it, void the receipt from Received Items first.</p> : item.group === "history" ? <p>Reopen this request before changing its gift preference.</p> :
+                  <StaffGiftChoice viewerKey={item.record.request_viewer_id} value={Object.hasOwn(draft, "giftItemId") ? draft.giftItemId : item.record.stewardship_gift_item_id}
+                    current={item.record.stewardship_gift_item_snapshot} disabled={disabled} onChange={giftItemId => updateDraft(item, { giftItemId })} />)}
                 {item.source === "lists" && <label>Priority<select aria-label={`Priority for ${item.title}`} disabled={disabled} value={draft.queuePriority ?? item.priority} onChange={(event) => updateDraft(item, { queuePriority: Number(event.target.value) })}><option value={1}>Urgent</option><option value={2}>Normal</option><option value={3}>Backlog</option></select></label>}
-                <label>Reviewer notes<textarea rows={3} aria-label={`Reviewer notes for ${item.title}`} disabled={disabled} value={draft.reviewerNotes ?? item.record.reviewer_notes ?? ""} onChange={(event) => updateDraft(item, { reviewerNotes: event.target.value })} placeholder="Add the next step, completion details, or a clarification question." /></label>
+                <label>{item.category === "stewardship" ? "Progress note (shared with the fundraiser)" : "Reviewer notes"}<textarea rows={3} maxLength={item.category === "stewardship" ? 2000 : undefined} aria-label={`Reviewer notes for ${item.title}`} disabled={disabled} value={draft.reviewerNotes ?? item.record.reviewer_notes ?? ""} onChange={(event) => updateDraft(item, { reviewerNotes: event.target.value })} placeholder="Add the next step, completion details, or a clarification question." /></label>
                 {item.record.reviewed_by_name || item.record.reviewer_name ? <p>Last reviewed by {item.record.reviewed_by_name || item.record.reviewer_name}</p> : null}
                 {rowErrors[item.key] && <p className={styles.warning} role="alert">{rowErrors[item.key]}</p>}
                 <div className={styles.actions}>
-                  <button className={styles.secondary} disabled={disabled} onClick={() => save(item)}>{saving === item.key ? "Saving..." : item.source === "lists" ? "Save notes & priority" : "Save notes"}</button>
+                  <button className={styles.secondary} disabled={disabled} onClick={() => save(item)}>{saving === item.key ? "Saving..." : item.category === "stewardship" && isPersonalGiftRequest(item.record) ? "Save request updates" : item.source === "lists" ? "Save notes & priority" : "Save notes"}</button>
                   {getQueueActions(item).map(([status, label]) => <button className={status === "Declined" ? styles.danger : styles.primary} disabled={disabled} key={status} onClick={() => save(item, status)}>{label}</button>)}
                   {drafts[item.key] && <span className={styles.unsaved}>Unsaved changes</span>}
                 </div>
               </div>}
+              {stewardshipOnly && isPersonalGiftRequest(item.record) && <StewardshipReceiptForm
+                key={`${item.key}:${item.record.request_version}:${refreshKey}`} request={item.record}
+                disabled={disabled || !!drafts[item.key] || !!sourceErrors.data}
+                onSaved={receipt => {
+                  setSources(current => ({ ...current, data: current.data.map(row => String(row.id) === String(item.record.id)
+                    ? { ...row, request_version: receipt.request_version, stewardship_received_item: receipt } : row) }));
+                  setMessage(`${item.title}: received item recorded. Request status is unchanged.`);
+                }} />}
             </div>}
           </article>;
         })}
       </div>
     </section>
-    <footer className={styles.footer}>Portfolio assignments and import results have their own pages. <a href="/prospect-pool">Prospect Pool</a><a href="/import-history">Import History</a><a href="/submissions?view=activity">Detailed submission review</a></footer>
+    <footer className={styles.footer}>{stewardshipOnly ? <><a href="/stewardship">Back to Stewardship</a><span>Request completion is not proof of delivery. No NXT records are changed here.</span></> : <>Portfolio assignments and import results have their own pages. <a href="/prospect-pool">Prospect Pool</a><a href="/import-history">Import History</a><a href="/submissions?view=activity">Detailed submission review</a></>}</footer>
   </main>;
 }

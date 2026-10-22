@@ -16,11 +16,15 @@ export const DEFAULT_PORTFOLIO_VIEW = {
   density: "compact",
   quickView: "all",
   group: "all",
+  selectedGroup: "",
   sort: "open",
   pageSize: 25,
 };
 
 export function normalizePortfolioView(value) {
+  const group = ["all", "solicitor", "category"].includes(value?.group)
+    ? value.group
+    : "all";
   return {
     density: ["compact", "focus", "detailed"].includes(value?.density)
       ? value.density
@@ -28,9 +32,12 @@ export function normalizePortfolioView(value) {
     quickView: ["all", "open", "due"].includes(value?.quickView)
       ? value.quickView
       : "all",
-    group: ["all", "solicitor", "category"].includes(value?.group)
-      ? value.group
-      : "all",
+    group,
+    selectedGroup:
+      group !== "all" && typeof value?.selectedGroup === "string" &&
+      /^[A-Za-z0-9_-]{1,80}$/.test(value.selectedGroup)
+        ? value.selectedGroup
+        : "",
     sort: PORTFOLIO_SORT_OPTIONS.some((option) => option.value === value?.sort)
       ? value.sort
       : "open",

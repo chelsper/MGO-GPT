@@ -9,6 +9,8 @@ import {
   validateDashboardQueryId,
 } from "@/app/api/utils/dashboardConfiguration";
 import QueryResultsTable from "./QueryResultsTable";
+import { newFundraisingTracker } from "@/utils/fundraisingTracker";
+import { FundraisingTrackerEditor } from "./FundraisingTracker";
 import { isQueryResultColumnVisible } from "./queryResultColumns";
 import styles from "./reportDashboard.module.css";
 
@@ -580,6 +582,7 @@ export default function ReportDashboardBuilder({
   value,
   onChange,
   disabled = false,
+  allowFundraisingTrackers = true,
   panelLimit = DASHBOARD_LIMITS.panels,
 }) {
   const panels = Array.isArray(value?.panels) ? value.panels : [];
@@ -819,6 +822,8 @@ export default function ReportDashboardBuilder({
           >
             Add Output Query panel
           </button>
+          {allowFundraisingTrackers && <button type="button" className={styles.button} disabled={disabled || panels.length >= maxPanels || panels.filter((p) => p.layout === "fundraising_tracker").length >= 4}
+            onClick={() => changePanels([...panels, newFundraisingTracker(newKey("campaign"))])}>Add fundraising tracker</button>}
         </div>
       </div>
       <p className={styles.help}>
@@ -864,9 +869,9 @@ export default function ReportDashboardBuilder({
                 }
               />
             </label>
-            {panel.layout === "query_results" ? (
+            {["query_results", "fundraising_tracker"].includes(panel.layout) ? (
               <div className={styles.field}>
-                Panel type<span className={styles.help}>Output Query</span>
+                Panel type<span className={styles.help}>{panel.layout === "fundraising_tracker" ? "Fundraising tracker" : "Output Query"}</span>
               </div>
             ) : (
               <label className={styles.field}>
@@ -903,7 +908,7 @@ export default function ReportDashboardBuilder({
               </select>
             </label>
           </div>
-          {panel.layout === "query_results" ? (
+          {panel.layout === "fundraising_tracker" ? <FundraisingTrackerEditor panel={panel} disabled={disabled} onChange={(patch) => updatePanel(panel, patch)} /> : panel.layout === "query_results" ? (
             <QueryTableEditor
               panel={panel}
               disabled={disabled}

@@ -3,7 +3,6 @@ import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useState, useRef, useEffect } from "react";
 import useUser from "@/utils/useUser";
-import useUpload from "@/utils/useUpload";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Mic, Square, Loader, Upload } from "lucide-react";
 
@@ -30,7 +29,6 @@ function getDefaultFY() {
 
 export default function LogDonorUpdatePage() {
   const { data: user, loading } = useUser();
-  const [upload, { loading: uploadLoading }] = useUpload();
   const [donorName, setDonorName] = useState("");
   const [interactionType, setInteractionType] = useState("visit");
   const [notes, setNotes] = useState("");
@@ -367,24 +365,12 @@ export default function LogDonorUpdatePage() {
 
       const file = new File([blob], `recording.${ext}`, { type: mimeType });
 
-      // Upload the audio file
-      setTranscriptionStatus(`Uploading ${sourceLabel.toLowerCase()}...`);
-      const uploadResult = await upload({ file });
-
-      if (uploadResult.error) {
-        const uploadError = new Error(uploadResult.error);
-        uploadError.stage = "upload";
-        throw uploadError;
-      }
-
-      const audioUrl = uploadResult.url;
-
-      // Send to transcribe endpoint
+      const formData = new FormData();
+      formData.append("file", file);
       setTranscriptionStatus("Transcribing audio...");
       const transcriptionResponse = await fetch("/api/transcribe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioUrl }),
+        body: formData,
       });
 
       if (!transcriptionResponse.ok) {
@@ -1202,8 +1188,7 @@ export default function LogDonorUpdatePage() {
                 )}
               </div>
             </div>
-            {(uploadLoading ||
-              transcriptionStatus ||
+            {(transcriptionStatus ||
               transcriptionError ||
               lastAudioFileName ||
               liveTranscript) && (
@@ -1246,11 +1231,6 @@ export default function LogDonorUpdatePage() {
                     }}
                   >
                     {liveTranscript}
-                  </div>
-                )}
-                {uploadLoading && !transcriptionStatus && (
-                  <div style={{ fontSize: "13px", color: "#374151", fontWeight: 500 }}>
-                    Uploading audio...
                   </div>
                 )}
                 {transcriptionError && (

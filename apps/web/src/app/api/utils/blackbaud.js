@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import sql from "@/app/api/utils/sql";
+import { hasBlackbaudReadBudget, reserveBlackbaudRead } from "./blackbaudReadBudget";
 
 const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization";
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
@@ -198,10 +199,12 @@ async function assertBlackbaudQuotaAvailable() {
   }
 }
 
-async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs }) {
+async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs, rateLimited = false }) {
   const blockedUntil = new Date(Date.now() + retryAfterMs).toISOString();
-  const message = formatQuotaMessage({ responseText, retryAfterMs });
-  await sql`
+  const message = rateLimited
+    ? "Blackbaud requested a pause before more API requests. Saved data remains available."
+    : formatQuotaMessage({ responseText, retryAfterMs });
+  const rows = await sql`
     INSERT INTO blackbaud_api_limit_state (
       state_key,
       blocked_until,
@@ -216,17 +219,20 @@ async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs }) {
     )
     ON CONFLICT (state_key) DO UPDATE
     SET
-      blocked_until = EXCLUDED.blocked_until,
-      message = EXCLUDED.message,
+      blocked_until = GREATEST(blackbaud_api_limit_state.blocked_until, EXCLUDED.blocked_until),
+      message = CASE WHEN blackbaud_api_limit_state.blocked_until > EXCLUDED.blocked_until
+        THEN blackbaud_api_limit_state.message ELSE EXCLUDED.message END,
       updated_at = NOW()
+    RETURNING blocked_until, message
   `;
+  const savedUntil = Math.max(Date.parse(rows?.[0]?.blocked_until || blockedUntil), blackbaudQuotaStateCache.blockedUntil);
   blackbaudQuotaStateCache = {
     checkedAt: Date.now(),
-    blockedUntil: new Date(blockedUntil).getTime(),
-    message,
+    blockedUntil: savedUntil,
+    message: rows?.[0]?.message || message,
     updatedAt: new Date().toISOString(),
   };
-  return new BlackbaudQuotaExceededError({ message, retryAfterMs });
+  return new BlackbaudQuotaExceededError({ message: blackbaudQuotaStateCache.message, retryAfterMs: Math.max(0, savedUntil - Date.now()) });
 }
 
 export function getBlackbaudConfig(origin) {
@@ -313,11 +319,24 @@ async function requestBlackbaudToken(params, config) {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       payload?.error_description ||
         payload?.error ||
         "Blackbaud token exchange failed",
     );
+    // Preserve the cause without replaying OAuth requests or classifying a
+    // rejected/uncertain renewal as a temporary failure.
+    Object.assign(error, {
+      name: "BlackbaudTokenError",
+      stage: "blackbaud_auth",
+      httpStatus: response.status,
+      connectionRetryable: params.grant_type === "refresh_token" &&
+        (response.status === 429 || response.status >= 500) &&
+        !["invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope", "unsupported_grant_type", "access_denied"].includes(payload?.error),
+      retryAfterMs: response.status === 429 || response.status >= 500
+        ? Math.max(60_000, parseRetryAfterMs(response)) : null,
+    });
+    throw error;
   }
 
   return payload;
@@ -437,11 +456,11 @@ export async function refreshBlackbaudConnection(connection, origin) {
     expiresAt: getExpiresAt(token.expires_in),
   };
 
-  await saveBlackbaudConnection(connection.user_id, nextConnection);
+  await saveBlackbaudConnection(connection.user_id, nextConnection, { tokenRefresh: true });
   return nextConnection;
 }
 
-export async function saveBlackbaudConnection(userId, connection) {
+export async function saveBlackbaudConnection(userId, connection, { tokenRefresh = false } = {}) {
   await ensureAppSchema();
 
   const rows = await sql`
@@ -471,6 +490,7 @@ export async function saveBlackbaudConnection(userId, connection) {
       token_type = EXCLUDED.token_type,
       scope = EXCLUDED.scope,
       expires_at = EXCLUDED.expires_at,
+      connected_at = CASE WHEN ${tokenRefresh} THEN blackbaud_connections.connected_at ELSE NOW() END,
       updated_at = NOW()
     RETURNING *
   `;
@@ -564,13 +584,15 @@ export async function blackbaudApiFetch(
     headers["Content-Type"] = "application/json";
   }
 
-  const requestTimeoutMs = Math.max(1000, Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS);
+  const budgeted = hasBlackbaudReadBudget();
+  const requestTimeoutMs = Math.min(budgeted ? 8000 : Infinity, Math.max(1000, Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS));
   // A create may have committed even when its response was lost. Never replay
   // POSTs, including when a caller explicitly requests transport retries.
-  const requestMaxRetries = String(method).toUpperCase() === "POST"
+  const requestMaxRetries = budgeted || String(method).toUpperCase() === "POST"
     ? 0 : Math.max(0, Number(maxRetries) || 0);
 
   for (let attempt = 0; attempt <= requestMaxRetries; attempt += 1) {
+    await reserveBlackbaudRead(method);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
     const requestStartedAt = Date.now();
@@ -600,11 +622,12 @@ export async function blackbaudApiFetch(
 
       if (!response.ok) {
         const responseText = await response.clone().text().catch(() => "");
-        if (isQuotaExceededResponse(response, responseText)) {
+        if (isQuotaExceededResponse(response, responseText) || (budgeted && response.status === 429)) {
           clearTimeout(timeoutId);
           throw await recordBlackbaudQuotaExceeded({
             responseText,
             retryAfterMs: parseRetryAfterMs(response, responseText),
+            rateLimited: response.status === 429,
           });
         }
       }
@@ -773,6 +796,8 @@ export async function createBlackbaudQueryJob({
   origin,
   queryId,
   includeResponseMetadata = false,
+  maxRetries,
+  timeoutMs,
 }) {
   if (!queryId) throw new Error("A Blackbaud query ID is required");
 
@@ -796,6 +821,8 @@ export async function createBlackbaudQueryJob({
         sql_generation_mode: "Query",
       },
       includeResponseMetadata,
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   );
 }
@@ -908,6 +935,8 @@ export async function getBlackbaudQueryJob({
   origin,
   jobId,
   includeResponseMetadata = false,
+  maxRetries,
+  timeoutMs,
 }) {
   if (!jobId) throw new Error("A Blackbaud query job ID is required");
 
@@ -923,6 +952,8 @@ export async function getBlackbaudQueryJob({
         include_read_url: "OnceCompleted",
       },
       includeResponseMetadata,
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   );
 }
@@ -1004,7 +1035,7 @@ export class BlackbaudQueryResultTooLargeError extends Error {
   }
 }
 
-async function readBoundedQueryResult(response, maxBytes, controller) {
+async function readBoundedQueryResult(response, maxBytes, controller, onChunk) {
   const contentLength = response.headers.get("content-length");
   if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
     controller.abort();
@@ -1024,7 +1055,12 @@ async function readBoundedQueryResult(response, maxBytes, controller) {
       if (byteLength > maxBytes) {
         throw new BlackbaudQueryResultTooLargeError(maxBytes);
       }
-      chunks.push(value);
+      if (onChunk) {
+        for (let offset = 0; offset < value.byteLength; offset += 65536) {
+          await onChunk(value.subarray(offset, offset + 65536));
+        }
+      }
+      else chunks.push(value);
     }
   } catch (error) {
     controller.abort();
@@ -1034,6 +1070,7 @@ async function readBoundedQueryResult(response, maxBytes, controller) {
     reader.releaseLock();
   }
 
+  if (onChunk) return;
   const body = new Uint8Array(byteLength);
   let offset = 0;
   for (const chunk of chunks) {
@@ -1048,6 +1085,33 @@ async function readBoundedQueryResult(response, maxBytes, controller) {
 // downloader unchanged.
 export async function downloadBlackbaudQueryResultWithMetadata(
   resultUrl,
+  options = {},
+) {
+  return readBlackbaudQueryResultWithMetadata(resultUrl, options);
+}
+
+// Consumers must validate every chunk and publish only from finish(), after EOF.
+// This path never accumulates the raw file and never forwards SKY credentials
+// to a signed-file host. Existing buffered readers retain their original limits.
+export async function streamBlackbaudQueryResultWithMetadata(
+  resultUrl,
+  options,
+  createConsumer,
+) {
+  if (!Number.isSafeInteger(options?.maxBytes) || options.maxBytes < 1 ||
+      typeof createConsumer !== "function") {
+    throw new Error("Streaming query results require a positive byte limit and a consumer.");
+  }
+  if (options.redirect !== undefined && options.redirect !== "error") {
+    throw new Error("Streaming query results do not allow redirects.");
+  }
+  return readBlackbaudQueryResultWithMetadata(
+    resultUrl, { ...options, redirect: "error" }, createConsumer,
+  );
+}
+
+async function readBlackbaudQueryResultWithMetadata(
+  resultUrl,
   {
     userId,
     authUserId,
@@ -1056,6 +1120,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     maxBytes,
     redirect = "follow",
   } = {},
+  createConsumer,
 ) {
   if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
     throw new Error("The query result byte limit must be a nonnegative integer.");
@@ -1103,10 +1168,39 @@ export async function downloadBlackbaudQueryResultWithMetadata(
       signal: controller.signal,
       redirect,
     });
+    const metadata = {
+      httpStatus: response.status,
+      statusText: response.statusText || null,
+      contentType: response.headers.get("content-type") || null,
+      contentLength: response.headers.get("content-length") || null,
+    };
+    if (response.ok && createConsumer) {
+      let consumer;
+      try {
+        consumer = createConsumer(metadata);
+        if (typeof consumer?.write !== "function" || typeof consumer?.finish !== "function") {
+          throw new Error("Invalid query result stream consumer.");
+        }
+      } catch (error) {
+        controller.abort();
+        await response.body?.cancel().catch(() => {});
+        throw error;
+      }
+      await readBoundedQueryResult(response, maxBytes, controller, (chunk) => consumer.write(chunk));
+      return { ...metadata, result: await consumer.finish() };
+    }
     // Diagnostics retain their original unbounded behavior unless opted in.
-    const body = maxBytes === undefined
-      ? new Uint8Array(await response.arrayBuffer())
-      : await readBoundedQueryResult(response, maxBytes, controller);
+    let body;
+    try {
+      body = maxBytes === undefined
+        ? new Uint8Array(await response.arrayBuffer())
+        : await readBoundedQueryResult(response, createConsumer ? Math.min(maxBytes, 65536) : maxBytes, controller);
+    } catch (error) {
+      // An oversized error page is not an oversized CSV. Keep its HTTP status
+      // and Retry-After so signed-link expiry and throttling remain recoverable.
+      if (createConsumer && !response.ok && error instanceof BlackbaudQueryResultTooLargeError) body = new Uint8Array();
+      else throw error;
+    }
 
     if (!response.ok) {
       const responseText = new TextDecoder().decode(body);
@@ -1126,10 +1220,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     }
 
     return {
-      httpStatus: response.status,
-      statusText: response.statusText || null,
-      contentType: response.headers.get("content-type") || null,
-      contentLength: response.headers.get("content-length") || null,
+      ...metadata,
       body,
     };
   } catch (error) {
@@ -2186,6 +2277,8 @@ export async function getBlackbaudAction({
   authUserId,
   origin,
   actionId,
+  maxRetries,
+  timeoutMs,
 }) {
   if (!actionId) {
     throw new Error("A Blackbaud action ID is required to fetch an action");
@@ -2198,6 +2291,8 @@ export async function getBlackbaudAction({
       authUserId,
       origin,
       method: "GET",
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   );
 }

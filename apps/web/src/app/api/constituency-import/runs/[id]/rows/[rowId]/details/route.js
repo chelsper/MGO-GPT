@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { completeImportContactCollection } from "@/utils/importContactCollection";
 import { isImportMatchRejected } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
@@ -400,8 +401,12 @@ async function fetchCurrentContacts({
   results.forEach((result, index) => {
     const [kind] = requests[index];
     if (result.status === "fulfilled") {
-      contacts[kind] = getCollection(result.value);
-      loaded[kind] = true;
+      try {
+        contacts[kind] = completeImportContactCollection(result.value);
+        loaded[kind] = true;
+      } catch (error) {
+        errors.push(error.message);
+      }
       return;
     }
     errors.push(

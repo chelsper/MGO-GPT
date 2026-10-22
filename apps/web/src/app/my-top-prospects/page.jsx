@@ -19,7 +19,7 @@ import {
 } from "./prospectDetailPresentation";
 
 import PortfolioTier from "./PortfolioTier";
-import PortfolioRefreshProgress from "./PortfolioRefreshProgress";
+import PortfolioMaintenanceIndicator from "@/components/PortfolioMaintenanceIndicator";
 import PortfolioCategoryManagerModal from "./PortfolioCategoryManagerModal";
 import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
 import { AnnualGivingSocietyBadge } from "./ProspectGiving";
@@ -64,7 +64,8 @@ import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal"
 import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/prospectDisplay";
 import ProspectRaisedCard from "./ProspectRaisedCard";
 import OpportunityRollover from "./OpportunityRollover";
-import ProspectActivityHighlights from "./ProspectActivityHighlights";
+import OpportunityRefresh from "./OpportunityRefresh";
+import { SavedProspectActivityHighlights, useProspectRecentActivity } from "./ProspectActivityHighlights";
 import { formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
 
 const ASK_TYPES = [
@@ -1106,7 +1107,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName, returnLabel = "Back to Top Prospects" }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName, draftScope, returnLabel = "Back to Top Prospects" }) {
   const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
@@ -1282,6 +1283,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
     null;
   const linkedBlackbaudConstituentProfileUrl =
     buildBlackbaudConstituentProfileUrl(linkedBlackbaudConstituentId);
+  const recentActivityState = useProspectRecentActivity(prospectId, Boolean(linkedBlackbaudConstituentId));
 
   const {
     data: blackbaudSummary,
@@ -5321,11 +5323,22 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             }}
           >
           <ProspectDetailSummary
+            readOnly={readOnly}
+            draftScope={draftScope}
             linkedBlackbaudConstituentId={linkedBlackbaudConstituentId}
             linkedBlackbaudConstituentProfileUrl={linkedBlackbaudConstituentProfileUrl}
             blackbaudSummary={blackbaudSummary}
             blackbaudSummaryLoading={blackbaudSummaryLoading}
             blackbaudSummaryError={blackbaudSummaryError}
+            name={prospect.prospect_name}
+            recentActivity={recentActivityState.data}
+            localActions={updates}
+            opportunities={opportunities}
+            nextStep={primaryPendingAction
+              ? primaryPendingAction
+              : prospect.status === "Active" && !prospect.next_action_completed_at
+                ? { title: prospect.next_action_text, due_date: prospect.next_action_due_date, status: "Open" }
+                : null}
             pledgeData={pledgeData}
             showBlackbaudNarrativeSummary={showBlackbaudNarrativeSummary}
             onToggleNarrative={() =>
@@ -5450,14 +5463,17 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             editingOpportunityId={editingOpportunityId}
             opportunityEditFeedback={opportunityEditFeedback}
             renderOpportunityCard={renderOpportunityCard}
+            refreshControl={<OpportunityRefresh key={prospectId} prospectId={prospectId}
+              hasLinkedOpportunities={opportunities.some((opportunity) => Boolean(opportunity.blackbaud_opportunity_id))}
+              editing={Boolean(editingOpportunityId)} />}
           />
           </div>
 
           <ProspectDetailActivity
             timelineEvents={timelineEvents}
             highlights={
-              <ProspectActivityHighlights
-                prospectId={prospectId}
+              <SavedProspectActivityHighlights
+                activityState={recentActivityState}
                 linked={Boolean(linkedBlackbaudConstituentId)}
                 updates={updates}
               />
@@ -5783,6 +5799,7 @@ export default function MyTopProspectsPage() {
 
   const {
     data: portfolioCategoryData = { categories: [], assignments: [] },
+    isLoading: isPortfolioCategoryLoading,
     isError: isPortfolioCategoryError,
   } = useQuery({
     queryKey: portfolioCategoryQueryKey,
@@ -5966,7 +5983,9 @@ export default function MyTopProspectsPage() {
       !isExecutiveReadOnly,
     staleTime: 0,
     refetchInterval: (query) =>
-      query.state.data?.job?.status === "paused"
+      query.state.data?.serverManaged && query.state.data?.job?.mode === "nightly" && ["queued", "processing", "paused"].includes(query.state.data?.job?.status)
+        ? 60000
+        : query.state.data?.job?.status === "paused"
         ? 10000
         : ["queued", "processing"].includes(query.state.data?.job?.status) ? 3000 : false,
     refetchOnWindowFocus: false,
@@ -6000,6 +6019,7 @@ export default function MyTopProspectsPage() {
   const portfolioRefreshJob = portfolioRefreshState?.job || null;
   usePortfolioRefreshRunner({
     job: portfolioRefreshJob,
+    serverManaged: portfolioRefreshState?.serverManaged === true,
     enabled: activeWorkspaceTab === "portfolio" && !!user && !isExecutiveReadOnly,
     isPending: portfolioRefreshMutation.isPending,
     error: portfolioRefreshMutation.error,
@@ -7484,32 +7504,10 @@ export default function MyTopProspectsPage() {
             </div>
 
             {!isExecutiveReadOnly && !isLocalPortfolioFallback ? (
-              <PortfolioRefreshProgress
+              <PortfolioMaintenanceIndicator
                 state={portfolioRefreshState}
-                isPending={portfolioRefreshMutation.isPending}
                 error={portfolioRefreshMutation.error || portfolioRefreshQueryError}
                 isAdmin={isAdmin}
-                onStart={(mode) =>
-                  portfolioRefreshMutation.mutate({ action: "start", mode })
-                }
-                onResume={() =>
-                  portfolioRefreshMutation.mutate({
-                    action: "resume",
-                    jobId: portfolioRefreshJob?.jobId,
-                  })
-                }
-                onRetryFailures={() =>
-                  portfolioRefreshMutation.mutate({
-                    action: "retry_failed",
-                    jobId: portfolioRefreshJob?.jobId,
-                  })
-                }
-                onCancel={() =>
-                  portfolioRefreshMutation.mutate({
-                    action: "cancel",
-                    jobId: portfolioRefreshJob?.jobId,
-                  })
-                }
               />
             ) : null}
 
@@ -7621,6 +7619,7 @@ export default function MyTopProspectsPage() {
                 signals={portfolioSignals}
                 matchesSearch={matchesPortfolioSearch}
                 categoryTiers={portfolioCategoryTiers}
+                categoriesLoading={isPortfolioCategoryLoading}
                 roleTiers={[
                   {
                     key: "lead",
@@ -8807,6 +8806,7 @@ export default function MyTopProspectsPage() {
 
       {selectedProspectId && (
         <ProspectDetailModal
+          draftScope={`${profileStatus?.user?.id}:${activeWorkspaceUserId}`}
           pledgeData={pledgeData}
           ownerName={profileStatus?.workspaceUser?.name}
           prospectId={selectedProspectId}

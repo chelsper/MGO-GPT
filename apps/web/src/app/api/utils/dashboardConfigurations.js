@@ -25,6 +25,8 @@ export function canUserViewDashboard({ user, active, specificUserIds }) {
 
 export function serializeDashboardConfiguration(record, user) {
   const specificUserIds = parseReportSpecificUserIds(record.specific_user_ids);
+  const dataConfiguration = normalizeDashboardConfiguration(record.data_configuration);
+  const canView = canUserViewDashboard({ user, active: record.active, specificUserIds });
   return {
     ...getDashboardReportMetadata(record.report_key),
     key: record.report_key,
@@ -33,14 +35,9 @@ export function serializeDashboardConfiguration(record, user) {
     active: record.active === true,
     visibility: "specific_users",
     specificUserIds,
-    dataConfiguration: normalizeDashboardConfiguration(
-      record.data_configuration,
-    ),
-    canView: canUserViewDashboard({
-      user,
-      active: record.active,
-      specificUserIds,
-    }),
+    dataConfiguration,
+    canView,
+    canRefresh: canView && (!dataConfiguration.panels.some((panel) => panel.layout === "fundraising_tracker") || canManageWorkspaceRole(user.role)),
     canPreview: user?.active === true && canManageWorkspaceRole(user.role),
     canArrange: user?.active === true && isAdminRole(user.role),
     updatedAt: record.updated_at

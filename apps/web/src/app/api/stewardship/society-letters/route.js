@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { confirmStraightforwardRecipients } from "@/app/api/utils/societyLetterBulkRecipientReviews";
+import { finishSelectedLetterAppeals } from "@/app/api/utils/societyLetterBulkAppeals";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -8,10 +10,15 @@ import {
   ensureSocietyLetterSchema,
   readSocietyLetterState,
   acquireSocietyLetters,
+  readLetterCsvRun,
 } from "@/app/api/utils/societyLetterStore";
 import {
   letterArchive,
+  letterTemplateFile,
   renderSocietyLetter,
+  validateLetterTemplate,
+  inspectLetterTemplate,
+  renderSocietyLetterSample,
 } from "@/app/api/utils/societyLetterDocuments";
 import {
   letterWorkspace,
@@ -22,8 +29,57 @@ import {
   refreshLetterSource,
   sendLetterBatch,
   verifyLetterEmail,
+  updateLetterExclusion,
+  updateLetterRecipient,
+  previewLetterRecipient,
 } from "@/app/api/utils/societyLetterWorkflow";
-import { letterError } from "@/utils/societyLetters";
+import { inspectLetterQueryFields } from "@/app/api/utils/societyLetterQueryFields";
+import { letterAppealChoices } from "@/app/api/utils/societyLetterAppealChoices";
+import {
+  runLetterReadiness,
+  saveReadinessPolicy,
+} from "@/app/api/utils/societyLetterReadiness";
+import { letterError, letterPeriod } from "@/utils/societyLetters";
+import {
+  previewFinalPostalLetter,
+  finalizePostalLetter,
+  syncLetterAppeals,
+  assertLetterAppealsComplete,
+} from "@/app/api/utils/societyLetterFinalization";
+import {
+  saveExclusionAppealPolicy,
+  prepareExclusionAppeal,
+  syncExclusionAppeal,
+  verifyExclusionRemoval,
+} from "@/app/api/utils/societyLetterExclusionAppeals";
+import { postalPdfCapability } from "@/app/api/utils/societyLetterPdf";
+import { postalBatchPrintPdf } from "@/app/api/utils/societyLetterPrintPdf";
+import {
+  startPostalDraft,
+  preparePostalDocument,
+  draftPostalDocument,
+  reviewPostalDocument,
+  approvePostalDraft,
+  discardPostalDraft,
+  updateLetterDates,
+  continuePostalBatch,
+  savedPostalDocument,
+  postalBatchDownload,
+} from "@/app/api/utils/societyLetterPostalBatches";
+
+import { returnLetterToReview } from "@/app/api/utils/societyLetterRecovery";
+import { mailSelectedLetters } from "@/app/api/utils/societyLetterDispatch";
+import { selectedPostalLetters } from "@/utils/societyLetterDispatch";
+import { printReadyPdfFilename } from "@/utils/societyLetterDownloads";
+import { exportSocietyLetterCsv } from "@/app/api/utils/societyLetterCsvExport";
+import {
+  createTrackedCsvRun,
+  confirmCsvLetters,
+  assertCsvRun,
+  csvRunReview,
+  saveCsvFormat,
+  mailSelectedCsvLetters,
+} from "@/app/api/utils/societyLetterCsvTracking";
 
 export const maxDuration = 120;
 const headers = {
@@ -37,6 +93,7 @@ const failure = (error) =>
       error: error.status
         ? error.message
         : "The stewardship operation could not finish. Reload saved history before retrying; letters are never resent automatically.",
+      ...(error.status && error.blockers ? { blockers: error.blockers } : {}),
     },
     error.status || 500,
   );
@@ -73,9 +130,45 @@ export async function GET(request) {
   try {
     const ctx = await context(request);
     const state = await readSocietyLetterState();
-    const batchId = new URL(request.url).searchParams.get("download");
+    const params = new URL(request.url).searchParams;
+    if (params.has("csvRun")) {
+      const run = assertCsvRun(await readLetterCsvRun(params.get("csvRun")));
+      if (params.get("format") === "csv")
+        return new Response(run.csv, {
+          headers: {
+            ...headers,
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${run.filename}"`,
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
+      return json(csvRunReview(state, ctx.definitions, ctx.today, run));
+    }
+    if (params.has("templateVersion")) {
+      const version = params.get("templateVersion");
+      const template = /^[a-f0-9]{64}$/.test(version || "")
+        ? state.templates[version]
+        : null;
+      if (!template)
+        throw letterError(
+          "Saved letter template not found. Reload the template list.",
+          404,
+        );
+      // Revalidate archive safety before serving a stored document to the browser.
+      const validated = validateLetterTemplate(template);
+      return new Response(letterTemplateFile(validated), {
+        headers: {
+          ...headers,
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition": `attachment; filename="${validated.filename}"`,
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
+    const batchId = params.get("download");
     if (batchId) {
-      const items = state.history.filter(
+      let items = state.history.filter(
         (item) =>
           item.batchId === batchId &&
           item.channel === "post" &&
@@ -83,10 +176,47 @@ export async function GET(request) {
       );
       if (!items.length)
         throw letterError("Prepared postal batch not found.", 404);
+      if (items.some((item) => item.csvMailMerge))
+        throw letterError(
+          "These letters were created in Word from a tracked CSV. Download the original CSV from Saved CSV exports; the app does not have your external Word or PDF document.",
+          409,
+        );
       const deliveryId = new URL(request.url).searchParams.get("deliveryId");
+      const selectedIds = params.getAll("selectedDeliveryId");
+      if (selectedIds.length) {
+        if (deliveryId)
+          throw letterError(
+            "Choose either an individual letter or selected letters, not both.",
+            400,
+          );
+        items = selectedPostalLetters(state.history, batchId, selectedIds);
+      }
+      if (params.get("format") === "combined-pdf") {
+        if (deliveryId)
+          throw letterError("Choose the whole batch for a print-ready PDF.");
+        assertLetterAppealsComplete(items);
+        return new Response(await postalBatchPrintPdf(items), {
+          headers: {
+            ...headers,
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${printReadyPdfFilename(items, selectedIds.length > 0)}"`,
+          },
+        });
+      }
       if (deliveryId) {
         const item = items.find((item) => item.id === deliveryId);
         if (!item) throw letterError("Prepared letter not found.", 404);
+        assertLetterAppealsComplete([item]);
+        if (item.postalDocument) {
+          const document = await savedPostalDocument(item.postalDocument);
+          return new Response(document.bytes, {
+            headers: {
+              ...headers,
+              "Content-Type": document.mime,
+              "Content-Disposition": `attachment; filename="${document.filename}"`,
+            },
+          });
+        }
         return new Response(
           renderSocietyLetter(
             state.templates[item.templateVersion],
@@ -104,15 +234,27 @@ export async function GET(request) {
           },
         );
       }
-      return new Response(letterArchive(items, state.templates), {
-        headers: {
-          ...headers,
-          "Content-Type": "application/zip",
-          "Content-Disposition": 'attachment; filename="society-letters.zip"',
+      assertLetterAppealsComplete(items);
+      return new Response(
+        items.every((item) => item.postalDocument)
+          ? await postalBatchDownload(items)
+          : letterArchive(items, state.templates),
+        {
+          headers: {
+            ...headers,
+            "Content-Type": "application/zip",
+            "Content-Disposition": selectedIds.length
+              ? 'attachment; filename="society-letters-selected.zip"'
+              : 'attachment; filename="society-letters.zip"',
+          },
         },
-      });
+      );
     }
-    return json(letterWorkspace(state, ctx.definitions, ctx.today));
+    return json({
+      ...letterWorkspace(state, ctx.definitions, ctx.today),
+      postalPdf: postalPdfCapability(),
+      reviewerId: String(ctx.user.id),
+    });
   } catch (error) {
     return failure(error);
   }
@@ -137,6 +279,111 @@ export async function POST(request) {
     } catch {
       throw letterError("Invalid stewardship request.", 400);
     }
+    if (body?.action === "inspect_query")
+      return json(await inspectLetterQueryFields(body, ctx));
+    if (body?.action === "inspect_appeals")
+      return json(await letterAppealChoices(ctx));
+    if (body?.action === "export_merge_csv") {
+      const state = await readSocietyLetterState();
+      const exported = exportSocietyLetterCsv(
+        letterWorkspace(state, ctx.definitions, ctx.today),
+        body,
+      );
+      return new Response(exported.csv, {
+        headers: {
+          ...headers,
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${exported.filename}"`,
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
+    if (body?.action === "preview_template_sample") {
+      const state = await readSocietyLetterState();
+      const template = /^[a-f0-9]{64}$/.test(body.templateVersion || "")
+        ? state.templates[body.templateVersion]
+        : null;
+      const society = ctx.definitions.find(
+        (item) =>
+          item.key === template?.societyKey &&
+          item.active &&
+          item.basis === "annual",
+      );
+      if (!template || !society)
+        throw letterError(
+          "Saved annual society letter not found. Reload setup.",
+          404,
+        );
+      const latest = Object.values(state.templates)
+        .filter((item) => item.societyKey === society.key)
+        .sort((a, b) => b.sequence - a.sequence)[0];
+      if (latest.version !== template.version)
+        throw letterError(
+          "This letter was replaced. Reload setup to preview the current version.",
+          409,
+        );
+      const period = letterPeriod(
+        state.settings || { periodBasis: "calendar_year" },
+        ctx.today,
+      );
+      const rendered = renderSocietyLetterSample(
+        template,
+        society.name,
+        period,
+        ctx.today,
+      );
+      return new Response(rendered.document, {
+        headers: {
+          ...headers,
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition":
+            'attachment; filename="society-letter-sample.docx"',
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
+    if (body?.action === "inspect_template") {
+      let content = body.content;
+      if (body.templateVersion) {
+        if (content)
+          throw letterError(
+            "Choose a saved template or a new Word file, not both.",
+          );
+        const state = await readSocietyLetterState();
+        const template = /^[a-f0-9]{64}$/.test(body.templateVersion)
+          ? state.templates[body.templateVersion]
+          : null;
+        if (!template)
+          throw letterError(
+            "Saved letter template not found. Reload the template list.",
+            404,
+          );
+        content = template.content;
+      }
+      if (typeof content !== "string")
+        throw letterError("Choose a Word template first.");
+      return json(inspectLetterTemplate(content));
+    }
+    if (body?.action === "preview_recipient_document") {
+      const state = await readSocietyLetterState();
+      const rendered = previewLetterRecipient(
+        state,
+        ctx.definitions,
+        ctx.today,
+        body,
+      );
+      return new Response(rendered.document, {
+        headers: {
+          ...headers,
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition":
+            'attachment; filename="society-letter-draft.docx"',
+          "Cross-Origin-Resource-Policy": "same-origin",
+        },
+      });
+    }
     const actions = [
       "settings",
       "template",
@@ -148,15 +395,338 @@ export async function POST(request) {
       "prepare",
       "send",
       "mailed",
+      "mail_selected_letters",
+      "create_csv_run",
+      "save_csv_format",
+      "confirm_csv_letters",
+      "mail_selected_csv_letters",
       "cancel",
       "verify",
+      "exclude_recipient",
+      "restore_recipient",
+      "save_recipient",
+      "confirm_recipient_suggestions",
+      "readiness_settings",
+      "check_readiness",
+      "resume_readiness",
+      "cancel_readiness",
+      "exclusion_appeal_settings",
+      "sync_exclusion_appeal",
+      "verify_exclusion_appeal",
+      "preview_final_postal",
+      "preview_final_postal_document",
+      "finalize_postal",
+      "verify_letter_appeals",
+      "continue_letter_appeals",
+      "finish_selected_letter_appeals",
+      "start_postal_draft",
+      "prepare_postal_document",
+      "preview_postal_document",
+      "review_postal_document",
+      "approve_postal_draft",
+      "discard_postal_draft",
+      "update_letter_dates",
+      "continue_postal_batch",
+      "return_letter_to_review",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
+    if (
+      body.automatic === true &&
+      !["verify_letter_appeals", "verify_exclusion_appeal"].includes(
+        body.action,
+      )
+    )
+      throw letterError("Automatic checks must be read-only.");
     store = await acquireSocietyLetters(ctx.user.id, body.revision);
     const state = await readSocietyLetterState();
     let batchId;
+    let bulkAppealUpdate;
+    let csvRunId, csvDeliveryIds;
     switch (body.action) {
+      case "save_csv_format":
+        await saveCsvFormat(state, ctx.definitions, body, store);
+        break;
+      case "create_csv_run":
+        csvRunId = await createTrackedCsvRun(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "confirm_csv_letters":
+        csvDeliveryIds = await confirmCsvLetters(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+          await readLetterCsvRun(body.runId),
+        );
+        break;
+      case "mail_selected_csv_letters":
+        await mailSelectedCsvLetters(state, body, store);
+        break;
+      case "mail_selected_letters":
+        await mailSelectedLetters(state, body, store);
+        break;
+      case "return_letter_to_review":
+        await returnLetterToReview(state, body, store);
+        break;
+      case "finish_selected_letter_appeals":
+        bulkAppealUpdate = await finishSelectedLetterAppeals(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "update_letter_dates":
+        await updateLetterDates(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "start_postal_draft":
+        await startPostalDraft(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "prepare_postal_document":
+        await preparePostalDocument(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+        );
+        break;
+      case "preview_postal_document": {
+        const document = await draftPostalDocument(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+        );
+        return new Response(document.bytes, {
+          headers: {
+            ...headers,
+            "Content-Type": document.mime,
+            "Content-Disposition": `attachment; filename="${document.filename}"`,
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
+      }
+      case "review_postal_document":
+        await reviewPostalDocument(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "approve_postal_draft":
+        batchId = await approvePostalDraft(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "discard_postal_draft":
+        await discardPostalDraft(state, body, store);
+        break;
+      case "continue_postal_batch":
+        await continuePostalBatch(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "preview_final_postal":
+        return json({
+          finalPreview: previewFinalPostalLetter(
+            state,
+            ctx.definitions,
+            ctx.today,
+            body,
+          ),
+        });
+      case "preview_final_postal_document": {
+        const preview = previewFinalPostalLetter(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+        );
+        if (preview.token !== body.previewToken)
+          throw letterError(
+            "Letter details changed. Reload the final confirmation.",
+            409,
+          );
+        const rendered = renderSocietyLetter(
+          state.templates[preview.row.templateVersion],
+          preview.row,
+          ctx.today,
+        );
+        return new Response(rendered.document, {
+          headers: {
+            ...headers,
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Content-Disposition":
+              'attachment; filename="society-letter-draft.docx"',
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
+      }
+      case "finalize_postal":
+        batchId = await finalizePostalLetter(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "verify_letter_appeals":
+      case "continue_letter_appeals":
+        if (body.action === "continue_letter_appeals") {
+          const item = state.history.find((i) => i.id === body.deliveryId);
+          if (item?.postalDocument)
+            await savedPostalDocument(item.postalDocument);
+        }
+        await syncLetterAppeals(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "exclusion_appeal_settings":
+        await saveExclusionAppealPolicy(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "sync_exclusion_appeal":
+      case "verify_exclusion_appeal": {
+        if (body.action === "sync_exclusion_appeal" && body.confirmNxt !== true)
+          throw letterError(
+            "Confirm applying the exclusion appeal to remaining household members.",
+          );
+        const item = (state.exclusions || []).find(
+          (e) => e.id === body.exclusionId && !e.restoredAt,
+        );
+        await syncExclusionAppeal(
+          state,
+          item,
+          store,
+          ctx,
+          undefined,
+          body.action === "verify_exclusion_appeal",
+          body.action === "verify_exclusion_appeal" && body.automatic === true,
+        );
+        break;
+      }
+      case "readiness_settings":
+        await saveReadinessPolicy(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "check_readiness":
+      case "resume_readiness":
+      case "cancel_readiness":
+        await runLetterReadiness(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx,
+        );
+        break;
+      case "save_recipient":
+        await updateLetterRecipient(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx.user.id,
+        );
+        break;
+      case "confirm_recipient_suggestions":
+        await confirmStraightforwardRecipients(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx.user.id,
+        );
+        break;
+      case "exclude_recipient":
+      case "restore_recipient": {
+        if (body.action === "restore_recipient") {
+          const item = (state.exclusions || []).find(
+            (e) => e.id === body.exclusionId && !e.restoredAt,
+          );
+          await verifyExclusionRemoval(item, ctx);
+        }
+        // Once configured, an exclusion cannot silently omit its NXT write-back.
+        const shouldRecord =
+          body.action === "exclude_recipient" &&
+          (body.confirmNxt === true || !!state.readiness?.exclusionPolicy);
+        const nxt = shouldRecord
+          ? prepareExclusionAppeal(state, ctx.definitions, ctx.today, body)
+          : null;
+        const item = await updateLetterExclusion(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx.user.id,
+          nxt,
+        );
+        if (nxt) await syncExclusionAppeal(state, item, store, ctx);
+        break;
+      }
       case "settings":
         await updateLetterSettings(
           state,
@@ -168,7 +738,14 @@ export async function POST(request) {
         );
         break;
       case "template":
-        await saveLetterTemplate(state, body, ctx.today, store, ctx.user.id);
+        await saveLetterTemplate(
+          state,
+          body,
+          ctx.today,
+          store,
+          ctx.user.id,
+          ctx.definitions,
+        );
         break;
       case "refresh":
       case "resume":
@@ -228,7 +805,8 @@ export async function POST(request) {
         if (body.confirm !== true)
           throw letterError("Confirm this batch action first.");
         const items = state.history.filter(
-          (item) => item.batchId === body.batchId,
+          (item) =>
+            item.batchId === body.batchId && item.status !== "cancelled",
         );
         if (
           !items.some((item) =>
@@ -243,6 +821,26 @@ export async function POST(request) {
           items.some((item) => item.channel !== "post")
         )
           throw letterError("Only postal batches can be marked mailed.");
+        if (body.action === "mailed") assertLetterAppealsComplete(items);
+        if (
+          body.action === "mailed" &&
+          items.some((item) => item.csvMailMerge)
+        ) {
+          await mailSelectedCsvLetters(
+            state,
+            { ...body, deliveryIds: items.map((item) => item.id) },
+            store,
+          );
+          break;
+        }
+        if (
+          body.action === "cancel" &&
+          items.some((item) => item.letterAppeals)
+        )
+          throw letterError(
+            "This letter has reserved NXT appeal updates and cannot be released automatically. Verify its history first; no NXT history is deleted.",
+            409,
+          );
         await store.finishBatch(
           body.batchId,
           body.action === "mailed" ? "mailed" : "cancelled",
@@ -251,12 +849,17 @@ export async function POST(request) {
       }
     }
     return json({
+      reviewerId: String(ctx.user.id),
+      postalPdf: postalPdfCapability(),
       ...letterWorkspace(
         await readSocietyLetterState(),
         ctx.definitions,
         ctx.today,
       ),
       ...(batchId ? { batchId } : {}),
+      ...(bulkAppealUpdate ? { bulkAppealUpdate } : {}),
+      ...(csvRunId ? { csvRunId } : {}),
+      ...(csvDeliveryIds ? { csvDeliveryIds } : {}),
     });
   } catch (error) {
     return failure(error);

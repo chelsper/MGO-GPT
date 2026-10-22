@@ -12,6 +12,9 @@ import { savedPortfolioActivity } from "@/utils/portfolioActivity";
 import { savedActivityEntry } from "@/app/api/utils/portfolioActivityData";
 import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
 import { portfolioContactCacheKey } from "@/app/api/utils/portfolioContactCacheKey";
+import { withBlackbaudReadBudget } from "@/app/api/utils/blackbaudReadBudget";
+import { reserveMaintenanceCall } from "@/app/api/utils/portfolioMaintenanceStore";
+import { maintenanceContinuationEnabled, maintenanceOrigin } from "@/app/api/utils/portfolioMaintenanceContinuation";
 import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
@@ -1006,6 +1009,21 @@ async function buildCachedPortfolioOrLocalFallback({
 }
 
 export async function GET(request) {
+  const token = request.headers.get("x-mgogpt-portfolio-continuation");
+  if (!token) return handleGet(request);
+  const url = new URL(request.url);
+  const workspaceUserId = url.searchParams.get("workspaceUserId");
+  if (!isAuthorizedReportRefreshRequest(request) || !maintenanceContinuationEnabled() ||
+      url.origin !== maintenanceOrigin() || url.searchParams.get("refreshAssignments") !== "1" ||
+      !/^[a-f0-9-]{36}$/.test(token) || !/^[1-9]\d*$/.test(workspaceUserId || "")) {
+    return Response.json({ error: "Invalid background membership request" }, { status: 403 });
+  }
+  return withBlackbaudReadBudget(() => reserveMaintenanceCall({
+    origin: url.origin, token, workspaceUserId, constituentId: null,
+  }), () => handleGet(request));
+}
+
+async function handleGet(request) {
   const url = new URL(request.url);
   const scheduledRefresh = isAuthorizedReportRefreshRequest(request);
   const session = scheduledRefresh ? null : await auth(request);

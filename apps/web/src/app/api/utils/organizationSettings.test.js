@@ -35,6 +35,7 @@ describe("organization settings", () => {
       shortName: "EC",
       applicationName: "Advancement Hub",
       logoDataUrl: null,
+      dashboardAssistant: DEFAULT_ORGANIZATION_SETTINGS.dashboardAssistant,
       advancementServicesNotificationEmail: "devdata@example.edu",
       notificationSenderName: "Example Advancement Hub",
       timeZone: "America/Chicago",

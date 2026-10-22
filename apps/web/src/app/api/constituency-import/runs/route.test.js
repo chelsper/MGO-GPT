@@ -105,6 +105,25 @@ describe("constituency import runs route", () => {
     expect(getBlackbaudQuotaStatusMock).not.toHaveBeenCalled();
   });
 
+  it("adds saved omitted-contact context without exposing the raw upload or making NXT requests", async () => {
+    const { GET } = await import("./route.js");
+    getBlackbaudQuotaStatusMock.mockResolvedValue({ paused: false });
+    sqlMock.mockResolvedValueOnce([{ id: "42", mappings: { email: "Contact", emailMakePrimary: "Primary" },
+      defaults: { contactRecoveryRuns: { 9: "77" } } }]).mockResolvedValueOnce([{ id: "9", run_id: "42", row_number: 1,
+      status: "Applied", created_blackbaud_constituent_id: "123", raw_row: { Contact: "example@example.test", Primary: "Yes", Unrelated: "not returned" },
+      preview: { input: {}, writePlan: [] }, blackbaud_result: {} }]);
+    const response = await GET(makeRequest());
+    const payload = await response.json();
+    expect(payload.rows[0].savedContactContext).toEqual({ correctionRunId: "77", omissions: [
+      { kind: "email", value: "example@example.test", type: "", makePrimary: true, intentional: false },
+    ] });
+    expect(payload.rows[0]).not.toHaveProperty("raw_row");
+    expect(JSON.stringify(payload)).not.toContain("not returned");
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    expect(sqlMock.mock.calls.every(([query]) => query.join(" ").trim().startsWith("SELECT"))).toBe(true);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+  });
+
   it("sanitizes a legacy quota-paused row when reopening a saved import", async () => {
     const { GET } = await import("./route.js");
     const quotaResponse =

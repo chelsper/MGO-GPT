@@ -23,6 +23,17 @@ describe("live import identity verification", () => {
     expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents/100", expect.objectContaining({ method: "GET", userId: 7, authUserId: 7 }));
   });
 
+  it("verifies a contact correction against its saved created ID, never its age", async () => {
+    const value = row();
+    value.preview.input.blackbaudConstituentId = "100";
+    value.preview.contactRecovery = { targetId: "100", sourceRunId: "40", sourceRowId: "8" };
+    expect(await verify(value)).toEqual({ ok: true });
+    value.preview.contactRecovery.targetId = "999";
+    blackbaudApiFetchMock.mockClear();
+    expect(await verify(value)).toMatchObject({ ok: false, diagnostic: { code: "contact_recovery_target_changed" } });
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("blocks a saved 629381 match when the friend now has Lookup ID 729381", async () => {
     blackbaudApiFetchMock.mockResolvedValue({ ...live, lookup_id: "729381" });
     expect(await verify()).toMatchObject({ ok: false, diagnostic: { code: "lookup_id_changed" } });

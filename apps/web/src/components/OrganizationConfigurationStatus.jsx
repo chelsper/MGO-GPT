@@ -3,6 +3,7 @@ const fieldLabels = {
   advancementServicesNotificationEmail: "Notification inbox", notificationSenderName: "Sender name",
   terminology: "Workspace labels", allowedEmailDomains: "Documented email domains",
   logoDataUrl: "Organization logo",
+  dashboardAssistant: "Dashboard helper",
 };
 
 export default function OrganizationConfigurationStatus({ policy, history = [] }) {

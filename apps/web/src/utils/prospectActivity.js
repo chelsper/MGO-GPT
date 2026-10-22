@@ -19,6 +19,7 @@ const normalize = (value) => String(value || "").trim().toLowerCase()
 
 export function closedOpportunityKind(opportunity = {}) {
   const labels = [opportunity.current_stage, opportunity.opportunity_status, opportunity.status].map(normalize);
+  if (labels.includes("inactive")) return "Inactive";
   if (labels.some((label) => ["withdrawn", "closed withdrawn"].includes(label))) return "Withdrawn";
   if (labels.some((label) => ["declined", "closed declined"].includes(label))) return "Declined";
   if (labels.some((label) => ["funded", "closed gift secured"].includes(label)) || Number(opportunity.closed_amount || 0) > 0) return "Funded";

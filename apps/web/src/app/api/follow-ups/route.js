@@ -27,12 +27,15 @@ export async function GET(request) {
     const items = await sql`
       SELECT pa.id, pa.title, pa.details, pa.due_date, pa.status, pa.category,
         pa.is_primary, pa.completed_at, pa.updated_at::text AS updated_at, pa.source_topic_key,
+        pa.source_gift_id, pa.source_gift_snapshot,
+        sr.id AS stewardship_request_id, sr.status AS stewardship_request_status,
         p.id AS prospect_id, p.prospect_name,
         c.id AS constituent_id, c.name AS constituent_name,
         c.blackbaud_constituent_id,
         po.title AS opportunity_title, nr.state AS nxt_action_state,
         di.id AS discussion_item_id, di.status AS discussion_status
       FROM pending_actions pa
+      LEFT JOIN data_change_requests sr ON sr.source_pending_action_id = pa.id AND sr.owner_user_id = pa.owner_user_id
       LEFT JOIN prospects p ON p.id = pa.prospect_id AND p.user_id = pa.owner_user_id
       LEFT JOIN constituents c ON c.id = pa.constituent_id AND c.user_id = pa.owner_user_id
       LEFT JOIN prospect_opportunities po ON po.id = pa.prospect_opportunity_id AND po.prospect_id = p.id

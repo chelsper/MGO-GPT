@@ -68,7 +68,8 @@ function useUpload() {
 				if (response.status === 413) {
 					throw new Error('Upload failed: File too large.');
 				}
-				throw new Error('Upload failed');
+				const details = await response.json().catch(() => null);
+				throw new Error(details?.error || 'Upload failed');
 			}
 			const data = await response.json();
 			return { url: data.url, mimeType: data.mimeType || null };

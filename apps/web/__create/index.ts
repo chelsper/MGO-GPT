@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { contextStorage } from 'hono/context-storage';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
-import { proxy } from 'hono/proxy';
+import { retiredIntegrationProxy } from './retired-integration-proxy';
 import { requestId } from 'hono/request-id';
 import { createRequestHandler } from 'react-router';
 import { serializeError } from 'serialize-error';
@@ -74,25 +74,7 @@ for (const method of ['post', 'put', 'patch'] as const) {
   );
 }
 
-app.all('/integrations/:path{.+}', async (c) => {
-  const queryParams = c.req.query();
-  const url = `${process.env.NEXT_PUBLIC_CREATE_BASE_URL ?? 'https://www.create.xyz'}/integrations/${c.req.param('path')}${Object.keys(queryParams).length > 0 ? `?${new URLSearchParams(queryParams).toString()}` : ''}`;
-
-  return proxy(url, {
-    method: c.req.method,
-    body: c.req.raw.body ?? null,
-    // @ts-ignore required for streaming integrations
-    duplex: 'half',
-    redirect: 'manual',
-    headers: {
-      ...c.req.header(),
-      'X-Forwarded-For': process.env.NEXT_PUBLIC_CREATE_HOST,
-      'x-createxyz-host': process.env.NEXT_PUBLIC_CREATE_HOST,
-      Host: process.env.NEXT_PUBLIC_CREATE_HOST,
-      'x-createxyz-project-group-id': process.env.NEXT_PUBLIC_PROJECT_GROUP_ID,
-    },
-  });
-});
+app.all('/integrations/:path{.+}', () => retiredIntegrationProxy());
 
 app.route(API_BASENAME, api);
 

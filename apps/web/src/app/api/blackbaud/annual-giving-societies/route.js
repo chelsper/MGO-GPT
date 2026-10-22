@@ -118,16 +118,25 @@ export async function GET(request) {
         { headers: { "Cache-Control": "private, no-store" } });
     }
 
+    const saved = await readPortfolioGivingSnapshots(user.id, constituentIds);
     await runWithConcurrency(
       constituentIds,
       CONCURRENT_REQUESTS,
       async (constituentId) => {
         try {
+          const previous = saved.get(constituentId)?.payload?.mapped?.annualGivingSocieties;
+          if (previous && (!saved.get(constituentId)?.payload?.givingSocietySignature ||
+              saved.get(constituentId).payload.givingSocietySignature === givingSocietySignature)) {
+            byConstituentId[constituentId] = previous;
+            return;
+          }
           const givingData = createPortfolioGivingDataSource({
             userId: user.id, authUserId, origin, constituentId,
           });
           byConstituentId[constituentId] = await fetchAnnualGivingSocieties({
             listGifts: givingData.listGifts,
+            loadAnnualGifts: givingData.loadAnnualGifts,
+            loadSavedSocieties: givingData.loadSavedSocieties,
             userId: user.id,
             authUserId,
             origin,
@@ -143,7 +152,7 @@ export async function GET(request) {
             loadLifetimeGiving: givingData.loadLifetimeGiving,
           });
         } catch (error) {
-          byConstituentId[constituentId] = null;
+          byConstituentId[constituentId] = saved.get(constituentId)?.payload?.mapped?.annualGivingSocieties || null;
           warnings[constituentId] =
             error instanceof Error
               ? error.message

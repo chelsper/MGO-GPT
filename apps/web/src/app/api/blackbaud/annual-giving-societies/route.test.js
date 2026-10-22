@@ -9,6 +9,8 @@ const blackbaudApiFetchMock = vi.fn();
 const listGivingSocietyConfigurationsMock = vi.fn();
 const getRealizedPlannedGiftIdsMock = vi.fn();
 const sqlMock = vi.fn();
+const loadAnnualGiftsMock = vi.fn();
+vi.mock("@/app/api/utils/societyGivingSource", () => ({ loadSocietyAnnualGifts: loadAnnualGiftsMock }));
 
 vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 
@@ -62,6 +64,10 @@ describe("annual giving societies batch route", () => {
     getRealizedPlannedGiftIdsMock.mockReset();
     sqlMock.mockReset();
     sqlMock.mockResolvedValue([]);
+    loadAnnualGiftsMock.mockReset().mockImplementation(async ({ constituentId }) => ({
+      gifts: (await listBlackbaudGiftsMock({ searchParams: { constituent_id: constituentId } })).gifts,
+      source: { version: 1, checkedAt: "2026-08-06T12:00:00Z" },
+    }));
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -150,6 +156,16 @@ describe("annual giving societies batch route", () => {
     );
     expect(payload.byConstituentId["456"].primarySociety).toBe(null);
     expect(payload.warnings).toEqual({});
+  });
+  it("uses saved top-prospect societies without any NXT refresh", async () => {
+    const saved = { recognitionSource: { version: 1 }, societies: [{ label: "President's Society" }] };
+    sqlMock.mockResolvedValueOnce([{ constituent_id: "123", payload: { mapped: { annualGivingSocieties: saved } } }]);
+    const { GET } = await import("./route.js");
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/annual-giving-societies?constituentId=123"))).json();
+    expect(payload.byConstituentId["123"]).toEqual(saved);
+    expect(loadAnnualGiftsMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
   });
 
   it("keeps the batch response usable when one constituent lookup fails", async () => {

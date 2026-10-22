@@ -8,6 +8,7 @@ import {
   sanitizeQuotaPauseWarnings,
 } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { savedImportContactContext } from "@/utils/importFieldResults";
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -20,6 +21,7 @@ function serializeRun(row, { quotaPaused = false } = {}) {
     id: String(row.id),
     status: row.status,
     sourceFilename: row.source_filename || "",
+    contactRecoverySourceRunId: row.defaults?.contactRecoverySourceRunId || null,
     rowCount: Number(row.row_count || 0),
     readyCount: Number(row.ready_count || 0),
     needsReviewCount: Number(row.needs_review_count || 0),
@@ -39,7 +41,7 @@ function serializeRun(row, { quotaPaused = false } = {}) {
   };
 }
 
-function serializeImportRow(row, { quotaPaused: blackbaudQuotaPaused = false } = {}) {
+function serializeImportRow(row, { quotaPaused: blackbaudQuotaPaused = false, run = {} } = {}) {
   const { quotaPaused, quotaRecoveryRequired, preview } = normalizeQuotaPausedImportRow(row, {
     quotaPaused: blackbaudQuotaPaused,
   });
@@ -78,6 +80,7 @@ function serializeImportRow(row, { quotaPaused: blackbaudQuotaPaused = false } =
     createdBlackbaudLookupId: row.created_blackbaud_lookup_id || null,
     quickCreateStatus: row.quick_create_status || null,
     createRequestStartedAt: row.create_request_started_at || null,
+    savedContactContext: savedImportContactContext(row, run),
   };
 }
 
@@ -155,7 +158,7 @@ export async function GET(request) {
           warnings: run.warnings,
           summary: run.summary,
           rows: rows.map((row) =>
-            serializeImportRow(row, { quotaPaused: blackbaudQuota.paused }),
+            serializeImportRow(row, { quotaPaused: blackbaudQuota.paused, run: runs[0] }),
           ),
         },
         { headers: { "Cache-Control": "private, no-store, max-age=0" } },

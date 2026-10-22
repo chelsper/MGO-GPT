@@ -137,8 +137,9 @@ export function layoutWrapperPlugin(userOpts: HierarchicalLayoutOptions = {}): P
     imports.push(`import Page from ${JSON.stringify(pagePath + NO_LAYOUT_QUERY)};`);
 
     if (routeParams.length > 0) {
+      // Use the same router dependency as the server, not the DOM compatibility shim.
       imports.push(
-        `import { useParams${hasSpreadParams ? ', useLocation' : ''} } from 'react-router-dom';`
+        `import { useParams${hasSpreadParams ? ', useLocation' : ''} } from 'react-router';`
       );
     }
 

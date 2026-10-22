@@ -25,6 +25,8 @@ describe("report snapshot refresh cron", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("VERCEL_ENV", "test");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "");
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-25T14:00:00.000Z"));
     process.env.CRON_SECRET = "test-refresh-secret";
@@ -43,6 +45,7 @@ describe("report snapshot refresh cron", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     if (originalCronSecret === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = originalCronSecret;
     if (originalReportRefreshSecret === undefined) delete process.env.REPORT_REFRESH_CRON_SECRET;
@@ -100,6 +103,27 @@ describe("report snapshot refresh cron", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(payload.refreshed[0]).toMatchObject({ key: "demo", status: "pending", remainingQueryCount: 3 });
+  });
+
+  it("calls the main production domain from a protected cron host, including polling", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("AUTH_URL", "https://jumgogpt.app");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://www.jumgogpt.app");
+    dashboardTargetsMock.mockResolvedValue([{ key: "demo", path: "/api/reports/dashboards/demo", method: "POST" }]);
+    fetchMock.mockResolvedValueOnce(Response.json({ jobId: "fixture-job" }, { status: 202 }))
+      .mockResolvedValueOnce(Response.json({ status: "complete", snapshot: {} }));
+    const { GET } = await import("./route.js");
+    const pending = GET(new Request("https://deployment.vercel.app/api/internal/report-cache-refresh", {
+      headers: { authorization: "Bearer test-refresh-secret" },
+    }));
+    await vi.runAllTimersAsync();
+    expect((await pending).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetchMock.mock.calls) {
+      expect(new URL(url).origin).toBe("https://www.jumgogpt.app");
+      expect(options.redirect).toBe("error");
+      expect(options.headers.Authorization).toBe("Bearer test-refresh-secret");
+    }
   });
 
   it("does not retry or report failure for a legacy list moved to explicit refresh", async () => {

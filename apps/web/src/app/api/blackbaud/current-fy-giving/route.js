@@ -524,6 +524,8 @@ export async function GET(request) {
             ? error.message
             : "Failed to fetch current fiscal year giving",
         providerStatus: Number(error?.httpStatus) || null,
+        failureStage: error?.stage === "blackbaud_auth" ? "blackbaud_auth" : undefined,
+        connectionRetryable: error?.connectionRetryable === true,
         retryAfterMs: Number(error?.retryAfterMs) || null,
         quotaPaused: isBlackbaudQuotaExceededError(error),
       },

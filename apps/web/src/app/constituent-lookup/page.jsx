@@ -5,7 +5,8 @@ import { ArrowLeft, ExternalLink, Search } from "lucide-react";
 import { useLocation } from "react-router";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
-import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
+import { isAdminRole, isExecutiveRole, isMgoRole } from "@/utils/workspaceRoles";
+import RelationshipOriginator from "@/components/RelationshipOriginator";
 
 function getResultKey(result, index) {
   return (
@@ -471,6 +472,7 @@ export default function ConstituentLookupPage() {
                       <ResultDetail label="Phone" value={result.phone} />
                       <ResultDetail label="Address" value={result.address} />
                     </div>
+                    {constituentId && (isAdminRole(viewerRole) || isMgoRole(viewerRole)) && <RelationshipOriginator key={constituentId} constituentId={constituentId} />}
                   </article>
                 );
               })}

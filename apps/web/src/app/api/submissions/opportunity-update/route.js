@@ -89,6 +89,7 @@ export async function POST(request) {
       `;
       existingLinkedOpportunity = linkedOpportunityRows[0] || null;
     }
+    if (existingLinkedOpportunity?.pipeline_change_id) return Response.json({ error: "A pipeline change needs NXT verification. Check sync status in Opportunity Pipeline before editing again." }, { status: 409 });
 
     let blackbaudOpportunity = null;
     let blackbaudSync = null;

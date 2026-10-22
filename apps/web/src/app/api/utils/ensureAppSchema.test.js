@@ -71,6 +71,22 @@ it("shares one initialization across concurrent requests on a worker", async () 
   expect(queries.filter(query => query.includes("CREATE TABLE IF NOT EXISTS users ("))).toHaveLength(1);
 });
 
+it("locks and checks the pipeline guard inside one transaction rather than replacing it at every startup", async () => {
+  await ensureAppSchema();
+  const queries = sqlMock.mock.calls.map(([parts]) => parts.join(" "));
+  const guards = queries.filter(query => query.includes("CREATE OR REPLACE FUNCTION protect_pending_pipeline_change"));
+  expect(guards).toHaveLength(1);
+  const [guard] = guards;
+  expect(guard).toContain("DO $pipeline_guard_schema$");
+  expect(guard).toContain("set_config('lock_timeout', '5s', true)");
+  expect(guard).toContain("pg_advisory_xact_lock(734019, 8)");
+  expect(guard.indexOf("pg_advisory_xact_lock")).toBeLessThan(guard.indexOf("guard_id := to_regprocedure"));
+  expect(guard).toContain("p.prosrc = guard_body");
+  expect(guard).toContain("CREATE TRIGGER protect_pending_pipeline_change");
+  expect(guard).toContain("tgfoid = guard_id AND tgtype = 19 AND tgenabled IN ('O', 'A')");
+  expect(guard).not.toMatch(/DROP |DISABLE TRIGGER|UPDATE prospect_opportunities|DELETE FROM/);
+});
+
 it("adds an append-only organization settings audit without changing existing profiles or report snapshots", async () => {
   await ensureAppSchema();
   const query = sqlMock.mock.calls.map(([strings]) => strings.join(" ")).find(text => text.includes("DO $organization_audit_schema$"));

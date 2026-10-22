@@ -35,7 +35,7 @@ const STANDARD_REPORT_KEYS = STANDARD_REPORT_DEFINITIONS.map((definition) => def
 
 function serializeConfiguration(definition, record, currentUser) {
   const metadata = getStandardReportMetadata(definition);
-  const visibility = normalizeReportVisibility(record?.visibility);
+  const visibility = normalizeReportVisibility(record?.visibility, definition.defaultVisibility || "all_users");
   const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
   const canView = canUserViewReport({
     user: currentUser,
@@ -165,7 +165,10 @@ export async function PATCH(request) {
       SELECT visibility, specific_user_ids FROM report_configurations
       WHERE report_key = ${definition.key} LIMIT 1
     `;
-    const visibility = normalizeReportVisibility(hasVisibilityUpdate ? body.visibility : existingRecords[0]?.visibility);
+    const visibility = normalizeReportVisibility(
+      hasVisibilityUpdate ? body.visibility : existingRecords[0]?.visibility,
+      definition.defaultVisibility || "all_users",
+    );
     const requestedUserIds = parseReportSpecificUserIds(hasSpecificUsersUpdate ? body.specificUserIds : existingRecords[0]?.specific_user_ids);
     if (visibility === "specific_users" && requestedUserIds.length === 0) {
       return Response.json(
