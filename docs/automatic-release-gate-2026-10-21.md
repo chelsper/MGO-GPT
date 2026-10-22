@@ -2,25 +2,25 @@
 
 ## Scope And Activation
 
-Prepared and deployed October 21, 2026. JU production now runs the verified
+Prepared and deployed October 21, 2026; GitHub enforcement activated October 22.
+JU production runs the verified
 release `51c77829860643cc0c319c1eb37b5ab5983c0d35`, deployment
-`dpl_3zU6uv9La3C7Vcef18AHuhvk1Qcd`. No Git push, branch-protection mutation,
-database repair, or live NXT write was performed during activation work.
+`dpl_3zU6uv9La3C7Vcef18AHuhvk1Qcd`. Repository synchronization does not replace this
+live deployment. No database repair or live NXT write was performed.
 
-The checked-in build path now runs the gate automatically. The GitHub workflow
-starts running only after it is published. A read-only GitHub check found `main`
-unprotected; required-check enforcement is not yet active. Activate it only after
-the new workflow has run successfully on GitHub, so an unavailable check does not
-block everyone. Inspect all repository-connected Vercel projects before any push.
+The checked-in build path runs the gate automatically. GitHub now requires the
+exact `JU release gate` check from GitHub Actions (app ID `15368`) on `main`, with
+strict/up-to-date checking and enforcement for administrators. Pull requests are
+required, with zero required approvals so a sole developer is not locked out.
+Force pushes and branch deletion are prohibited.
 
-Publishing remains pending: the separate `mgo-gpt-y1r7` Vercel project is also
-connected to this repository's `main` branch and automatically assigns production
-domains. The user has been asked to approve disconnecting its automatic Git
-deployment trigger while retaining its current deployment and data. That approval
-has not yet been received. Do not publish the release to `main` or imply GitHub
-required-check enforcement is active until this is resolved and CI is verified.
-The other JU projects, including the conference sandbox and PDF converter, were
-not changed by this release.
+With the user's October 22 approval, the duplicate `mgo-gpt-y1r7` project's Git
+connection was removed. Its existing production deployment, protection, cron
+configuration, and domain-assignment setting were verified unchanged. It no
+longer builds from repository pushes. The JU project's Git connection remains,
+but `autoAssignCustomDomains` is false: Git builds must not silently replace the
+tested production release. Use explicit checked promotion for future releases.
+The conference sandbox and PDF converter were not changed.
 
 ## One Build Entry Point
 
@@ -110,11 +110,10 @@ checklist; this script does not exercise an actual Okta login or database write.
 
 ## Hosting And Repository Enforcement
 
-Once the workflow is published and passes, require the exact `JU release gate`
-GitHub check for `main` (and merge queue if used), retaining appropriate review and
-emergency-recovery controls. Confirm the expected GitHub Actions source when
-configuring the required check. Verify the rule with a deliberately failing PR
-using fictional data before relying on it.
+The exact `JU release gate` check is required on `main` and is bound to the
+verified GitHub Actions app, not an arbitrary status publisher. The workflow also
+supports merge-group events if a merge queue is introduced. Enforcement was
+verified with a deliberately failing PR using only fictional test data.
 
 Do not assume branch protection covers CLI deployments. The build gate and checked
 promotion command cover the supported CLI path. A Vercel administrator can still
@@ -180,7 +179,26 @@ unchanged and now target the new deployment. The duplicate project retained its
 existing production deployment and Git settings. No real Okta login exchange,
 NXT writes, email sending, or donor-data mutation was exercised in these checks.
 
-Outstanding: publish the workflow safely, observe a successful GitHub Actions run,
-require `JU release gate` from the verified GitHub Actions app on `main` (including
-administrators), and prove a failing PR is blocked. Hosted build enforcement is
-live; GitHub branch enforcement is **not yet active**.
+## GitHub Enforcement Verification
+
+On October 22, [release PR #2](https://github.com/chelsper/MGO-GPT/pull/2) published
+the source already deployed to JU and the release workflow. The first
+[GitHub Actions run](https://github.com/chelsper/MGO-GPT/actions/runs/39806341556)
+passed the Node 24 dependency install, mandatory tests, type checks, production
+build, and report upload. The GitHub check-run API identified its source as
+`github-actions`, app ID `15368`, before that exact check was required on `main`.
+GitHub then reported the release PR's merge state as `CLEAN`.
+
+[Validation PR #3](https://github.com/chelsper/MGO-GPT/pull/3) added one deliberate
+failure in an existing mandatory test suite, isolated on
+`codex/ju-enforcement-proof`. Its
+[GitHub Actions run](https://github.com/chelsper/MGO-GPT/actions/runs/39806827376)
+failed specifically on that assertion; GitHub reported `mergeStateStatus: BLOCKED`.
+The PR was closed without merging. No merge attempt, admin bypass, fake passing
+status, or temporary weakening of branch protection was used to test enforcement.
+
+The default branch previously lagged the deployed source. PR #2 reconciles that
+history so new branches inherit the gate rather than waiting for a nonexistent
+workflow. Only committed source is published; unrelated dirty workspace files
+are not included. The main-domain production release remains the separately
+verified deployment above, even when GitHub or Vercel builds a newer commit.
