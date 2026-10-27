@@ -2,6 +2,7 @@
 
 import { ChevronDown, ChevronUp, Star } from "lucide-react";
 import { PortfolioCard } from "@/components/PortfolioWorklist";
+import PortfolioCardActions from "./PortfolioCardActions";
 import PortfolioContactDetails, { PortfolioContactLocation } from "@/components/PortfolioContactDetails";
 import PortfolioActivityDetails from "@/components/PortfolioActivityDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
@@ -11,7 +12,7 @@ import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { AnnualGivingSocietyBadge, CurrentFiscalYearGiving, formatBlackbaudCurrency } from "./ProspectGiving";
-import { buildPortfolioUpdateHref, nxtProfileLinkStyle, smallActionButton } from "./prospectPresentation";
+import { nxtProfileLinkStyle, smallActionButton } from "./prospectPresentation";
 import usePortfolioSummary from "./usePortfolioSummary";
 
 export default function PortfolioTier({
@@ -102,6 +103,24 @@ export default function PortfolioTier({
               person={person}
               signal={signals.get(String(person.constituentId))}
               density={density}
+              actions={!isReadOnly && <PortfolioCardActions
+                key={density}
+                person={person}
+                isReadOnly={isReadOnly}
+                fundraiserLabel={fundraiserLabel}
+                onOpenPortfolioNextStep={onOpenPortfolioNextStep}
+                onOpenPortfolioDiscussion={onOpenPortfolioDiscussion}
+                onAddToTopProspects={onAddToTopProspects}
+                isAdding={isAdding}
+                isTopProspect={topProspectConstituentIds.has(String(person.constituentId))}
+                topProspect={topProspectByConstituentId.get(String(person.constituentId || ""))}
+                onRemoveFromTopProspects={onRemoveFromTopProspects}
+                isRemovingFromTopProspects={isRemovingFromTopProspects}
+                allowSolicitorAssignmentRemoval={allowSolicitorAssignmentRemoval}
+                onRemoveSolicitorAssignment={onRemoveSolicitorAssignment}
+                isRemovingSolicitorAssignment={isRemovingSolicitorAssignment}
+                removingSolicitorConstituentId={removingSolicitorConstituentId}
+              />}
               isTopProspect={topProspectConstituentIds.has(String(person.constituentId))}
               categoryName={portfolioCategoryByConstituentId[String(person.constituentId)]?.displayName || portfolioCategoryByConstituentId[String(person.constituentId)]?.name || "Uncategorized"}
               location={<PortfolioContactLocation person={mergeSavedPortfolioContacts(
@@ -112,9 +131,6 @@ export default function PortfolioTier({
             >
               {(() => {
                 const isTopProspect = topProspectConstituentIds.has(
-                  String(person.constituentId || ""),
-                );
-                const topProspect = topProspectByConstituentId.get(
                   String(person.constituentId || ""),
                 );
                 const summaryState = summaryStates[person.constituentId];
@@ -145,10 +161,6 @@ export default function PortfolioTier({
                 const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
                   person.constituentId,
                 );
-                const isRemovingThisSolicitorAssignment =
-                  isRemovingSolicitorAssignment &&
-                  String(removingSolicitorConstituentId || "") ===
-                    String(person.constituentId || "");
                 const isMovingThisPortfolioCategory =
                   String(movingPortfolioCategoryConstituentId || "") ===
                   String(person.constituentId || "");
@@ -397,160 +409,9 @@ export default function PortfolioTier({
                           </select>
                         </label>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() => onOpenPortfolioNextStep?.(person)}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "8px 12px",
-                          borderRadius: "999px",
-                          border: "1px solid #BFDBFE",
-                          backgroundColor: "#EFF6FF",
-                          color: "#1D4ED8",
-                          fontSize: "12px",
-                          fontWeight: "700",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Set next step
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenPortfolioDiscussion?.(person)}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "8px 12px",
-                          borderRadius: "999px",
-                          border: "1px solid #DDD6FE",
-                          backgroundColor: "#F5F3FF",
-                          color: "#6D28D9",
-                          fontSize: "12px",
-                          fontWeight: "700",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Team discussion
-                      </button>
-                      <a
-                        href={buildPortfolioUpdateHref(person, "action")}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "8px 12px",
-                          borderRadius: "999px",
-                          border: "1px solid #C7D2FE",
-                          backgroundColor: "#EEF2FF",
-                          color: "#4338CA",
-                          fontSize: "12px",
-                          fontWeight: "700",
-                          textDecoration: "none",
-                        }}
-                      >
-                        Log action
-                      </a>
-                      <a
-                        href={buildPortfolioUpdateHref(person, "opportunity")}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "8px 12px",
-                          borderRadius: "999px",
-                          border: "1px solid #A7F3D0",
-                          backgroundColor: "#ECFDF5",
-                          color: "#047857",
-                          fontSize: "12px",
-                          fontWeight: "700",
-                          textDecoration: "none",
-                        }}
-                      >
-                        Add opportunity
-                      </a>
-                      {allowSolicitorAssignmentRemoval ? (
-                        <button
-                          type="button"
-                          onClick={() => onRemoveSolicitorAssignment?.(person)}
-                          disabled={isRemovingSolicitorAssignment}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            padding: "8px 12px",
-                            borderRadius: "999px",
-                            border: "1px solid #FECACA",
-                            backgroundColor: "#FEF2F2",
-                            color: "#991B1B",
-                            fontSize: "12px",
-                            fontWeight: "700",
-                            cursor: isRemovingSolicitorAssignment
-                              ? "not-allowed"
-                              : "pointer",
-                            opacity: isRemovingSolicitorAssignment ? 0.7 : 1,
-                          }}
-                        >
-                          {isRemovingThisSolicitorAssignment
-                            ? "Removing..."
-                            : `Remove me as ${fundraiserLabel}`}
-                        </button>
-                      ) : null}
                     </>
                   ) : null}
-                  {isTopProspect && !isReadOnly ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveFromTopProspects?.(topProspect)}
-                      disabled={isRemovingFromTopProspects || !topProspect?.id}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "999px",
-                        border: "1px solid #FDE68A",
-                        backgroundColor: "#FFFBEB",
-                        color: "#92400E",
-                        fontSize: "12px",
-                        fontWeight: "700",
-                        cursor:
-                          isRemovingFromTopProspects || !topProspect?.id
-                            ? "not-allowed"
-                            : "pointer",
-                        opacity: isRemovingFromTopProspects || !topProspect?.id ? 0.7 : 1,
-                      }}
-                    >
-                      {isRemovingFromTopProspects
-                        ? "Removing..."
-                        : "Remove from Top Prospects"}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!isReadOnly && !isTopProspect) {
-                          onAddToTopProspects?.(person);
-                        }
-                      }}
-                      disabled={isAdding || isTopProspect || isReadOnly}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "999px",
-                        border: isTopProspect ? "1px solid #FDE68A" : "1px solid #C7D2FE",
-                        backgroundColor: isTopProspect ? "#FFFBEB" : "white",
-                        color: isTopProspect ? "#92400E" : "#4338CA",
-                        fontSize: "12px",
-                        fontWeight: "700",
-                        cursor: isAdding || isTopProspect || isReadOnly ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {isTopProspect
-                        ? "Already in Top Prospects"
-                        : isReadOnly
-                          ? "Read-only view"
-                          : "Add to Top Prospects"}
-                    </button>
-                  )}
+
                 </div>
               </div>
                   </>

@@ -311,6 +311,106 @@
 .portfolio-card--detailed .portfolio-card__details {
   border-top: 0;
 }
+.portfolio-card__actions {
+  padding: 0 14px 14px;
+}
+.portfolio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  position: relative;
+  gap: 8px;
+  min-width: 0;
+}
+.portfolio-actions__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: white;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.portfolio-actions__button--primary {
+  border-color: #c7d2fe;
+  color: #4338ca;
+  background: #eef2ff;
+}
+.portfolio-actions__button:hover,
+.portfolio-actions__panel a:hover,
+.portfolio-actions__panel button:not(:disabled):hover {
+  background: #f1f5f9;
+}
+.portfolio-actions__more {
+  margin-left: auto;
+}
+.portfolio-actions__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  box-sizing: border-box;
+  width: min(280px, 100%);
+  padding: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 8px 24px #0f172a1a;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.portfolio-actions__panel--above {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.portfolio-actions__panel a,
+.portfolio-actions__panel button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.portfolio-actions__assignment {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.portfolio-actions__assignment > span {
+  display: block;
+  padding: 0 10px 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+.portfolio-actions__assignment button {
+  color: #991b1b;
+}
+.portfolio-actions button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+.portfolio-actions a:focus-visible,
+.portfolio-actions button:focus-visible,
+.portfolio-card__toggle:focus-visible {
+  outline: 2px solid #4338ca;
+  outline-offset: 2px;
+}
 @media (max-width: 1000px) {
   .portfolio-card__summary {
     grid-template-columns: minmax(0, 1fr) auto;

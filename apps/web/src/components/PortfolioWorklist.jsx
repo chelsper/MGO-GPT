@@ -57,6 +57,7 @@ export function PortfolioCard({
   categoryName,
   location,
   density,
+  actions,
   children,
 }) {
   const detailsId = useId();
@@ -173,6 +174,7 @@ export function PortfolioCard({
           </button>
         </div>
       )}
+      {!detailed && actions && <div className="portfolio-card__actions">{actions}</div>}
       <div
         id={detailsId}
         hidden={!detailed && !expanded}
@@ -182,6 +184,7 @@ export function PortfolioCard({
           {children}
         </PortfolioDetailsVisibleContext.Provider>
       </div>
+      {detailed && actions && <div className="portfolio-card__actions">{actions}</div>}
     </article>
   );
 }
