@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useUser from "@/utils/useUser";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Check } from "lucide-react";
 
@@ -164,6 +165,7 @@ function CheckboxItem({ label, checked, onClick }) {
 }
 
 export default function RequestListPage() {
+  const returnDestination = useWorkflowReturn("/submissions");
   const { data: user, loading } = useUser();
   const [requesterName, setRequesterName] = useState("");
   const [dateNeeded, setDateNeeded] = useState("");
@@ -191,6 +193,12 @@ export default function RequestListPage() {
   const [priorityLevel, setPriorityLevel] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!success) return;
+    const timer = window.setTimeout(() => window.location.assign(returnDestination.href), 900);
+    return () => window.clearTimeout(timer);
+  }, [success, returnDestination.href]);
 
   const activeLocationValue = {
     state: locationState,
@@ -227,7 +235,6 @@ export default function RequestListPage() {
     },
     onSuccess: () => {
       setSuccess(true);
-      window.setTimeout(() => returnToPreviousScreen(), 900);
     },
     onError: (err) => {
       console.error(err);
@@ -296,14 +303,6 @@ export default function RequestListPage() {
       priorityLevel,
     });
   };
-
-  function returnToPreviousScreen() {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.href = "/submissions";
-  }
 
   if (loading) {
     return (
@@ -378,7 +377,9 @@ export default function RequestListPage() {
           }}
         >
           <a
-            href="/"
+            href={returnDestination.href}
+            aria-label={returnDestination.label}
+            title={returnDestination.label}
             style={{
               display: "flex",
               alignItems: "center",
@@ -825,7 +826,7 @@ export default function RequestListPage() {
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginLeft: "auto" }}>
               <a
-                href="/"
+                href={returnDestination.href}
                 style={{
                   padding: "12px 16px",
                   borderRadius: "12px",

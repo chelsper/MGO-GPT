@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
-import SetupReturnLink from "@/components/SetupReturnLink";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
+import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 import { invitationEmailMessage, canResendInvitationEmail } from "@/utils/invitationEmail";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
@@ -252,6 +253,7 @@ function getMgoReadiness(user) {
 }
 
 export default function AccessManagementPage() {
+  const returnDestination = useWorkflowReturn("/setup");
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [workspaceUser, setWorkspaceUser] = useState(null);
@@ -974,7 +976,7 @@ export default function AccessManagementPage() {
       <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
         <main style={{ maxWidth: "760px", margin: "0 auto", padding: "24px 18px 48px" }}>
           <a
-            href="/"
+            href={returnDestination.href}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -987,7 +989,7 @@ export default function AccessManagementPage() {
             }}
           >
             <ArrowLeft size={16} />
-            Back to dashboard
+            {returnDestination.label}
           </a>
           <div style={cardStyle}>
             <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 800, color: "#111827" }}>
@@ -1005,6 +1007,7 @@ export default function AccessManagementPage() {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <main style={{ maxWidth: "860px", margin: "0 auto", padding: "24px 18px 48px" }}>
+        <WorkflowReturnLink href={returnDestination.href} className="mb-4" />
         {toast ? (
           <div
             style={{
@@ -1028,8 +1031,6 @@ export default function AccessManagementPage() {
             {toast.message}
           </div>
         ) : null}
-
-        <SetupReturnLink className="mb-4" />
 
         <div style={cardStyle}>
           <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>

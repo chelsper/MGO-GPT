@@ -3,6 +3,7 @@ import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useState, useRef, useEffect } from "react";
 import useUser from "@/utils/useUser";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Mic, Square, Loader, Upload } from "lucide-react";
 
@@ -28,6 +29,7 @@ function getDefaultFY() {
 }
 
 export default function LogDonorUpdatePage() {
+  const returnDestination = useWorkflowReturn();
   const { data: user, loading } = useUser();
   const [donorName, setDonorName] = useState("");
   const [interactionType, setInteractionType] = useState("visit");
@@ -612,7 +614,9 @@ export default function LogDonorUpdatePage() {
           }}
         >
           <a
-            href="/"
+            href={returnDestination.href}
+            aria-label={returnDestination.label}
+            title={returnDestination.label}
             style={{
               display: "flex",
               alignItems: "center",
@@ -678,10 +682,10 @@ export default function LogDonorUpdatePage() {
             </a>
             or{" "}
             <a
-              href="/"
+              href={returnDestination.href}
               style={{ color: "#065F46", textDecoration: "underline" }}
             >
-              Back to dashboard
+              {returnDestination.label}
             </a>
           </div>
         )}
@@ -1366,7 +1370,7 @@ export default function LogDonorUpdatePage() {
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginLeft: "auto" }}>
               <a
-                href="/"
+                href={returnDestination.href}
                 style={{
                   padding: "12px 16px",
                   borderRadius: "12px",

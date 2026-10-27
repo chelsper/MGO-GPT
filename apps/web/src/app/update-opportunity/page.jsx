@@ -3,6 +3,7 @@ import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useEffect, useState } from "react";
 import useUser from "@/utils/useUser";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 
@@ -25,6 +26,7 @@ function getDefaultFY() {
 }
 
 export default function UpdateOpportunityPage() {
+  const returnDestination = useWorkflowReturn();
   const { data: user, loading } = useUser();
   const [donorName, setDonorName] = useState("");
   const [opportunityStage, setOpportunityStage] = useState("Identification");
@@ -357,7 +359,9 @@ export default function UpdateOpportunityPage() {
           }}
         >
           <a
-            href="/"
+            href={returnDestination.href}
+            aria-label={returnDestination.label}
+            title={returnDestination.label}
             style={{
               display: "flex",
               alignItems: "center",
@@ -423,10 +427,10 @@ export default function UpdateOpportunityPage() {
             </a>
             or{" "}
             <a
-              href="/"
+              href={returnDestination.href}
               style={{ color: "#065F46", textDecoration: "underline" }}
             >
-              Back to dashboard
+              {returnDestination.label}
             </a>
           </div>
         )}

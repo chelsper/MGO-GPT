@@ -23,6 +23,8 @@ it.each([
   ["/my-top-prospects?tab=portfolio&search=Test%20Person", "Back to My Portfolio"],
   ["/reports", "Back to Reports"],
   ["/follow-ups?tab=next-steps", "Back to Follow-ups & Discussion"],
+  ["/reports/opportunity-pipeline?fy=2027&status=active", "Back to Opportunity Pipeline"],
+  ["/reports/dashboards", "Back to My Dashboards"],
 ])("labels the form's return destination and retains its context: %s", (href, label) => {
   window.history.replaceState({}, "", `/action-opportunity-update?${new URLSearchParams({ returnTo: href })}`);
   render(<ActionEntry />);
