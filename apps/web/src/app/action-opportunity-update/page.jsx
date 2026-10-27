@@ -12,6 +12,7 @@ import { canEditWorkspace, canUseMgoWorkspaceRole, getWorkspaceRoleLabel } from 
 import { ACTION_CATEGORIES, INTERACTION_TYPES } from "@/utils/actionEntryOptions";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 import { getSafeInternalReturnPath, getReturnDestination } from "@/utils/workflowNavigation";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
 
 const UPDATE_MODES = [
   {
@@ -191,27 +192,6 @@ function getOpportunityDisplayStatus(opportunity = {}) {
   return stage || "Identification";
 }
 
-function getSameOriginReferrerPath() {
-  if (typeof window === "undefined" || !document.referrer) {
-    return "";
-  }
-
-  try {
-    const referrerUrl = new URL(document.referrer);
-    if (referrerUrl.origin !== window.location.origin) {
-      return "";
-    }
-    if (referrerUrl.pathname === window.location.pathname) {
-      return "";
-    }
-    return getSafeInternalReturnPath(
-      `${referrerUrl.pathname}${referrerUrl.search}${referrerUrl.hash}`,
-    );
-  } catch {
-    return "";
-  }
-}
-
 function buildOutlookCalendarUrl({ subject, notes, dueDate }) {
   if (!dueDate) return null;
 
@@ -380,7 +360,7 @@ export default function ActionOpportunityUpdatePage() {
     isActing: Boolean(workspaceProfile?.actingAsUser),
   });
   const workspaceUserId = workspaceProfile?.workspaceUser?.id;
-  const [returnPath, setReturnPath] = useState("/");
+  const { href: returnPath } = useWorkflowReturn();
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
   const [actionCategory, setActionCategory] = useState(ACTION_CATEGORIES[0]);
@@ -472,7 +452,6 @@ export default function ActionOpportunityUpdatePage() {
     if (typeof window === "undefined") return;
 
     const params = new URLSearchParams(window.location.search);
-    const requestedReturnPath = params.get("returnTo") || "";
     const requestedMode = params.get("mode") || "";
     const requestedActionType = params.get("actionType") || "";
     if (INTERACTION_TYPES.includes(requestedActionType)) setInteractionType(requestedActionType);
@@ -481,14 +460,6 @@ export default function ActionOpportunityUpdatePage() {
       params.get("blackbaudConstituentId") || "";
     const requestedLookupId =
       params.get("lookupId") || params.get("blackbaudLookupId") || "";
-    const safeReturnPath =
-      getSafeInternalReturnPath(requestedReturnPath) ||
-      getSameOriginReferrerPath();
-
-    if (safeReturnPath) {
-      setReturnPath(safeReturnPath);
-    }
-
     if (UPDATE_MODES.some((mode) => mode.value === requestedMode)) {
       setUpdateMode(requestedMode);
     }

@@ -3,6 +3,7 @@ import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useEffect, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
 import useUpload from "@/utils/useUpload";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Camera, Upload } from "lucide-react";
@@ -64,6 +65,7 @@ async function prepareBusinessCardImageForExtraction(file) {
 }
 
 export default function NewConstituentPage() {
+  const returnDestination = useWorkflowReturn();
   const { data: user, loading } = useUser();
   const [upload, { loading: uploadLoading }] = useUpload();
   const fileInputRef = useRef(null);
@@ -612,7 +614,9 @@ export default function NewConstituentPage() {
           }}
         >
           <a
-            href="/"
+            href={returnDestination.href}
+            aria-label={returnDestination.label}
+            title={returnDestination.label}
             style={{
               display: "flex",
               alignItems: "center",
@@ -706,10 +710,10 @@ export default function NewConstituentPage() {
             </a>
             or{" "}
             <a
-              href="/"
+              href={returnDestination.href}
               style={{ color: "#065F46", textDecoration: "underline" }}
             >
-              Back to dashboard
+              {returnDestination.label}
             </a>
           </div>
         )}
@@ -1537,7 +1541,7 @@ export default function NewConstituentPage() {
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
               <a
-                href="/"
+                href={returnDestination.href}
                 style={{
                   padding: "12px 16px",
                   borderRadius: "12px",

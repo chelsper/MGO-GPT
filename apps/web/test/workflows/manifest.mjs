@@ -10,6 +10,9 @@ export const workflowGroups = {
     "src/app/api/utils/dashboardAuth.test.js",
   ],
   "Portfolios and work queues": [
+    "src/utils/workflowNavigation.test.js",
+    "src/utils/useWorkflowReturn.test.jsx",
+    "src/app/workflowReturns.test.jsx",
     "src/components/PortfolioWorklist.test.jsx",
     "src/app/my-top-prospects/PortfolioWorklistIntegration.test.jsx",
     "src/app/my-top-prospects/PortfolioCardActions.test.jsx",

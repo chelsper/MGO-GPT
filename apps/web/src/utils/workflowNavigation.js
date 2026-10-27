@@ -1,6 +1,10 @@
 const RETURN_PAGES = {
   "/": "Home",
   "/reports": "Reports",
+  "/reports/dashboards": "My Dashboards",
+  "/reports/lists": "Lists",
+  "/reports/opportunity-pipeline": "Opportunity Pipeline",
+  "/reports/opportunity-pipeline/lifecycle": "Prospect Lifecycle",
   "/my-top-prospects": "Top Prospects",
   "/prospect-pool": "Prospect Pool",
   "/follow-ups": "Follow-ups & Discussion",
@@ -12,6 +16,11 @@ const RETURN_PAGES = {
   "/pledge-payments": "Pledge Payments",
   "/prospect-exports": "Top Prospect Exports",
   "/setup": "Setup Hub",
+  "/settings": "My Account & Connections",
+  "/access-management": "Security & Access",
+  "/blackbaud-mapping": "Blackbaud Mapping",
+  "/integration-health": "Integration Health",
+  "/knowledge-base": "Knowledge Base",
   "/stewardship": "Stewardship",
   "/stewardship/inventory": "Gift Inventory",
   "/stewardship/inventory/recipients": "Received Items",
@@ -28,7 +37,7 @@ export function getSafeInternalReturnPath(value) {
   try {
     const url = new URL(value, "https://navigation.invalid");
     if (url.origin !== "https://navigation.invalid") return "";
-    const report = /^\/reports\/(?:future-made-phase-ii|alumni-family-engagement|executive-team-standings|(?:dashboards|custom-field)\/[a-zA-Z0-9_-]+)$/.test(url.pathname);
+    const report = /^\/reports\/(?:future-made-phase-ii|alumni-family-engagement|executive-team-standings|(?:dashboards|custom-field|lists)\/[a-zA-Z0-9_-]+|personal-dashboards\/[1-9]\d*)$/.test(url.pathname);
     return Object.hasOwn(RETURN_PAGES, url.pathname) || report
       ? `${url.pathname}${url.search}${url.hash}` : "";
   } catch { return ""; }
@@ -42,6 +51,26 @@ export function getReturnDestination(value, fallback = "/") {
   const run = url.searchParams.get("queueRun");
   if (url.pathname === "/constituency-import" && /^[1-9]\d{0,17}$/.test(run || "")) name = `Import Batch #${run}`;
   return { href, label: `Back to ${name}` };
+}
+
+export function resolveWorkflowReturnPath({ currentUrl, referrer = "", fallback = "/" }) {
+  const safeFallback = getSafeInternalReturnPath(fallback) || "/";
+  try {
+    const current = new URL(currentUrl);
+    const requested = getSafeInternalReturnPath(current.searchParams.get("returnTo"));
+    const isOtherPage = path => path && new URL(path, current.origin).pathname !== current.pathname;
+    if (isOtherPage(requested)) return requested;
+    if (referrer) {
+      const previous = new URL(referrer);
+      if (previous.origin === current.origin) {
+        const path = getSafeInternalReturnPath(`${previous.pathname}${previous.search}${previous.hash}`);
+        if (isOtherPage(path)) return path;
+      }
+    }
+  } catch {
+    // Direct visits and missing referrers still need a predictable, safe exit.
+  }
+  return safeFallback;
 }
 
 export function buildImportBatchHref(runId, rowId) {

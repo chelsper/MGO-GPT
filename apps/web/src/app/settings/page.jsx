@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
 import { ArrowLeft, RefreshCw, ShieldCheck } from "lucide-react";
 import useUser from "@/utils/useUser";
+import useWorkflowReturn from "@/utils/useWorkflowReturn";
 import { canManageWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 
 const inputStyle = {
@@ -77,6 +78,7 @@ function Detail({ label, children }) {
 }
 
 export default function SettingsPage() {
+  const returnDestination = useWorkflowReturn();
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [authentication, setAuthentication] = useState(null);
@@ -261,9 +263,9 @@ export default function SettingsPage() {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <main style={{ maxWidth: "760px", margin: "0 auto", padding: "24px 18px 48px" }}>
-        <a href="/" style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "#6A5BFF", textDecoration: "none", fontSize: "14px", fontWeight: 600, marginBottom: "18px" }}>
+        <a href={returnDestination.href} style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "#6A5BFF", textDecoration: "none", fontSize: "14px", fontWeight: 600, marginBottom: "18px" }}>
           <ArrowLeft size={16} />
-          Back to dashboard
+          {returnDestination.label}
         </a>
 
         <section style={cardStyle}>
