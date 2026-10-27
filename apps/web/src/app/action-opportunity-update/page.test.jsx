@@ -27,6 +27,7 @@ it.each([
   window.history.replaceState({}, "", `/action-opportunity-update?${new URLSearchParams({ returnTo: href })}`);
   render(<ActionEntry />);
   expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", href);
+  expect(screen.getByRole("link", { name: "Cancel", exact: true })).toHaveAttribute("href", href);
   expect(screen.getByRole("status")).toHaveTextContent("Selected MGO");
   expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
 });
@@ -34,6 +35,7 @@ it("falls back to Home rather than following an unsafe return parameter", () => 
   window.history.replaceState({}, "", `/action-opportunity-update?${new URLSearchParams({ returnTo: "/\\outside.test" })}`);
   render(<ActionEntry />);
   expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/");
+  expect(screen.getByRole("link", { name: "Cancel", exact: true })).toHaveAttribute("href", "/");
 });
 it("clearly identifies both the credited MGO and Admin author", () => {
   render(<ActionEntry />);

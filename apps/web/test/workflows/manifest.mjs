@@ -15,6 +15,7 @@ export const workflowGroups = {
     "src/app/my-top-prospects/PortfolioCardActions.test.jsx",
     "src/app/my-top-prospects/PortfolioActionPanel.test.jsx",
     "src/app/my-top-prospects/PortfolioOpportunityPanel.test.jsx",
+    "src/app/action-opportunity-update/page.test.jsx",
     "src/utils/portfolioOpportunity.test.js",
     "src/app/api/utils/portfolioOpportunityContext.test.js",
     "src/app/api/portfolio-opportunities/route.test.js",
