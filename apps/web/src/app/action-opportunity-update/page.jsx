@@ -4688,7 +4688,7 @@ export default function ActionOpportunityUpdatePage() {
             ) : null}
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <a
-                href="/"
+                href={getSafeInternalReturnPath(returnPath) || "/"}
                 style={{
                   padding: "12px 16px",
                   borderRadius: "10px",
