@@ -5,6 +5,8 @@ import { resolveConstituent } from "@/app/api/utils/constituents";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
+import { matchesCreatedRecord } from "@/app/api/utils/nxtCreateVerification";
+import { checkPortfolioOpportunityScope, validatePortfolioOpportunity, findPortfolioProspect, ensurePortfolioProspect, readPortfolioProspectSummary } from "@/app/api/utils/portfolioOpportunityContext";
 import {
   DECLINED_OPPORTUNITY_STATUS,
   FUNDED_OPPORTUNITY_STATUS,
@@ -16,6 +18,7 @@ import {
 import {
   buildBlackbaudOpportunityPayload,
   createBlackbaudOpportunity,
+  getBlackbaudOpportunity,
   updateBlackbaudOpportunity,
 } from "@/app/api/utils/blackbaud";
 
@@ -27,18 +30,27 @@ export async function POST(request) {
   try {
     const session = await auth();
     if (!session || !session.user?.email) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ error: "Unauthorized", notSubmitted: true }, { status: 401 });
     }
 
     const context = await getWorkspaceUser(session, request);
     const permissionError = workspaceWritePermissionError(context);
-    if (permissionError) return permissionError;
+    if (permissionError) return Response.json({ ...await permissionError.json(), notSubmitted: true }, { status: permissionError.status });
     const { sessionUser, workspaceUser: user } = context;
     if (!user) {
-      return Response.json({ error: "User not found" }, { status: 404 });
+      return Response.json({ error: "User not found", notSubmitted: true }, { status: 404 });
     }
 
     const body = await request.json();
+    let portfolioProspect = null;
+    if (body.portfolioContext) {
+      validatePortfolioOpportunity(body);
+      await checkPortfolioOpportunityScope(context, body.portfolioContext);
+      portfolioProspect = await findPortfolioProspect(user.id, String(body.blackbaudConstituentId));
+      if (body.linkedProspectId && String(body.linkedProspectId) !== String(portfolioProspect?.id)) {
+        return Response.json({ error: "The linked prospect changed. Close this draft and reopen the panel.", notSubmitted: true }, { status: 409 });
+      }
+    }
     const {
       donorName,
       opportunityTitle,
@@ -52,21 +64,22 @@ export async function POST(request) {
       constituentId,
       blackbaudConstituentId,
       createNewConstituent,
-      linkedProspectId,
+      linkedProspectId: requestedProspectId,
       linkedOpportunityId,
       createNewOpportunity,
       jointMgoUserIds,
       sharedOpportunityKey,
     } = body;
+    let linkedProspectId = body.portfolioContext ? portfolioProspect?.id || null : requestedProspectId;
 
     if (!donorName) {
       return Response.json(
-        { error: "Donor name is required" },
+        { error: "Donor name is required", notSubmitted: true },
         { status: 400 },
       );
     }
 
-    const constituent = await resolveConstituent({
+    let constituent = body.portfolioContext ? null : await resolveConstituent({
       userId: user.id,
       name: donorName,
       constituentId,
@@ -156,6 +169,13 @@ export async function POST(request) {
             onReceipt: receipt => { writeReceipt = receipt; },
             create: () => createBlackbaudOpportunity({ userId: user.id, authUserId: sessionUser.id, origin, payload: blackbaudPayload }),
           });
+          if (body.portfolioContext) {
+            const record = await getBlackbaudOpportunity({ userId: user.id, authUserId: sessionUser.id, origin,
+              opportunityId: blackbaudOpportunity.id });
+            if (!matchesCreatedRecord({ kind: "opportunity", constituent_id: String(linkedBlackbaudConstituentId), payload: blackbaudPayload }, record, String(blackbaudOpportunity.id))) {
+              throw new Error("NXT returned an opportunity that does not match this submission.");
+            }
+          }
           blackbaudSync = blackbaudOpportunity?.id
             ? {
                 status: "synced",
@@ -164,7 +184,7 @@ export async function POST(request) {
             : null;
         }
       } catch (error) {
-        if (writeReceipt || error?.writeReceipt) throw error;
+        if (body.portfolioContext || writeReceipt || error?.writeReceipt) throw error;
         const message =
           error instanceof Error && error.message
             ? `Could not sync NXT opportunity: ${error.message}`
@@ -174,6 +194,14 @@ export async function POST(request) {
           error: message,
         };
       }
+    }
+
+    if (body.portfolioContext) {
+      // Only create the app link after NXT has accepted and returned the exact record.
+      // Failure from here uses the durable receipt, never another provider create.
+      portfolioProspect = await ensurePortfolioProspect(user.id, body);
+      linkedProspectId = portfolioProspect.id;
+      constituent = portfolioProspect.constituent_id ? { id: portfolioProspect.constituent_id } : null;
     }
 
     const blackbaudSyncStatus = blackbaudSync?.status || "not_requested";
@@ -215,7 +243,7 @@ export async function POST(request) {
         ${resolvedOpportunityStage},
         ${askDate || null},
         ${expectedDate || null},
-        ${askAmount || null},
+        ${askAmount ?? null},
         ${notes || null},
         ${jointMgoUserIds ? JSON.stringify(jointMgoUserIds) : null},
         ${attachments ? JSON.stringify(attachments) : null},
@@ -297,6 +325,8 @@ export async function POST(request) {
     }
 
     await completeNxtCreateReceipt(writeReceipt);
+    const portfolioSummary = body.portfolioContext
+      ? await readPortfolioProspectSummary(user.id, linkedProspectId).catch(() => null) : null;
     return Response.json(
       {
         ...savedSubmission,
@@ -306,12 +336,14 @@ export async function POST(request) {
         opportunityStatus: resolvedOpportunityStatus,
         title: opportunityTitle || null,
         blackbaudSync: blackbaudSync || { status: "local-only" },
+        ...(body.portfolioContext ? { verifiedOpportunityId: String(blackbaudOpportunity.id), portfolioProspect: portfolioSummary } : {}),
       },
       { status: 201 },
     );
   } catch (error) {
     const protectedResponse = nxtCreateFailure(error, writeReceipt);
     if (protectedResponse) return protectedResponse;
+    if (error.portfolioPreflight) return Response.json({ error: error.message, notSubmitted: true }, { status: error.status });
     console.error("Error creating opportunity update:", error);
     return Response.json(
       {
