@@ -1,5 +1,6 @@
 "use client";
 import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
+import { submitActionUpdate as saveActionUpdate } from "@/utils/submitActionUpdate";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -1757,48 +1758,10 @@ export default function ActionOpportunityUpdatePage() {
 
       async function submitActionUpdate({ linkedOpportunityIdOverride = null } = {}) {
         await resolveLinkedProspectForAction();
-
-        const useDirectProspectAction = Boolean(resolvedLinkedProspectId);
-        const actionEndpoint = useDirectProspectAction
-          ? `/api/prospects/${resolvedLinkedProspectId}/actions`
-          : "/api/submissions/donor-update";
-        const actionRequestBody = useDirectProspectAction
-          ? {
-              actionDate: new Date().toISOString().split("T")[0],
-              actionCategory: payload.actionBody.actionCategory,
-              interactionType: payload.actionBody.interactionType,
-              summary: payload.actionBody.summary || "",
-              notes: payload.actionBody.notes,
-              nextStep: payload.actionBody.nextStep,
-              nextActionDueDate: payload.actionBody.nextActionDueDate || null,
-              additionalFundraiserUserId:
-                payload.actionBody.additionalFundraiserUserId || null,
-              linkedOpportunityId:
-                payload.actionBody.linkedOpportunityId ||
-                linkedOpportunityIdOverride ||
-                null,
-            }
-          : payload.actionBody;
-
-        const donorResponse = await fetch(actionEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(actionRequestBody),
-        });
-
-        if (!donorResponse.ok) {
-          const errorData = await donorResponse.json().catch(() => null);
-          throw new Error(
-            errorData?.error ||
-              (useDirectProspectAction
-                ? "Failed to save action to the prospect record"
-                : "Failed to submit action update"),
-          );
-        }
-
-        results.action = await donorResponse.json();
-        results.actionEndpoint = actionEndpoint;
-        results.actionResolvedProspectId = resolvedLinkedProspectId;
+        Object.assign(results, await saveActionUpdate(payload.actionBody, {
+          prospectId: resolvedLinkedProspectId,
+          linkedOpportunityIdOverride,
+        }));
       }
 
       if (payload.includeAction) {

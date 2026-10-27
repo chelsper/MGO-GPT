@@ -135,6 +135,54 @@ describe("prospect action route", () => {
     vi.useRealTimers();
   });
 
+  const portfolioBody = () => ({ actionDate: "2026-07-21", actionCategory: "Meeting", interactionType: "Cultivation", summary: "Visit",
+    portfolioContext: { viewerId: 44, workspaceId: 44, constituentId: "227949" } });
+  const portfolioRequest = body => new Request("https://example.com/api/prospects/7/actions", { method: "POST", body: JSON.stringify(body) });
+
+  it("rejects a changed portfolio workspace before writing", async () => {
+    const { POST } = await import("./route.js");
+    const body = portfolioBody(); body.portfolioContext.workspaceId = 45;
+    const response = await POST(portfolioRequest(body), { params: { id: "7" } });
+    expect(response.status).toBe(409);
+    expect(sqlMockImpl).not.toHaveBeenCalled();
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a prospect whose NXT link no longer matches the selected donor", async () => {
+    const { POST } = await import("./route.js");
+    queueSqlResult([{ id: 7, linked_blackbaud_constituent_id: "999" }]);
+    const response = await POST(portfolioRequest(portfolioBody()), { params: { id: "7" } });
+    expect(response.status).toBe(409);
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not attempt fuzzy link repair when a selected portfolio constituent cannot be read", async () => {
+    const { POST } = await import("./route.js");
+    queueSqlResult([{ id: 7, linked_blackbaud_constituent_id: "227949" }]);
+    getBlackbaudConstituentByIdMock.mockRejectedValue(new Error("Throttled"));
+    const response = await POST(portfolioRequest(portfolioBody()), { params: { id: "7" } });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ notSubmitted: true });
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs from the panel without clearing existing follow-ups or marking reminders complete", async () => {
+    const { POST } = await import("./route.js");
+    queueSqlResult([{ id: 7, linked_blackbaud_constituent_id: "227949", next_action_text: "Keep my follow-up" }]);
+    queueSqlResult([{ id: 901 }]);
+    createBlackbaudActionMock.mockResolvedValue({ id: "action-1" });
+    getBlackbaudConstituentByIdMock.mockResolvedValue({ blackbaudConstituentId: "227949" });
+    getBlackbaudActionMock.mockResolvedValue({ id: "action-1", constituent_id: "227949" });
+    const response = await POST(portfolioRequest(portfolioBody()), { params: { id: "7" } });
+    expect(response.status).toBe(201);
+    expect(syncPrimaryPendingActionMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl.mock.calls.some(([parts]) => parts.join("").includes("UPDATE prospects"))).toBe(false);
+    expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(expect.objectContaining({ completedDate: "2026-07-21" }));
+    expect((await response.json()).blackbaudAction.verifiedActionId).toBe("action-1");
+  });
+
   it("logs for an MGO with Admin authorship and the Admin's NXT connection", async () => {
     const { POST } = await import("./route.js");
     getWorkspaceUserMock.mockResolvedValue({

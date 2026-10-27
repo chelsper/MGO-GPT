@@ -10,6 +10,7 @@ beforeEach(() => {
   props = {
     person, fundraiserLabel: "Gift Officer", topProspect,
     onOpenPortfolioNextStep: vi.fn(), onOpenPortfolioDiscussion: vi.fn(),
+    onOpenPortfolioLogAction: vi.fn(),
     onAddToTopProspects: vi.fn(), onRemoveFromTopProspects: vi.fn(),
     onRemoveSolicitorAssignment: vi.fn(), allowSolicitorAssignmentRemoval: true,
   };
@@ -21,7 +22,8 @@ const open = () => fireEvent.click(trigger());
 
 it("shows two quick actions and reveals secondary actions only on request without fetching", () => {
   render(<PortfolioCardActions {...props} />);
-  expect(screen.getByRole("link", { name: "Log action" })).toHaveAttribute("href", buildPortfolioUpdateHref(person, "action"));
+  fireEvent.click(screen.getByRole("button", { name: "Log action" }));
+  expect(props.onOpenPortfolioLogAction).toHaveBeenCalledExactlyOnceWith(person);
   expect(screen.queryByRole("link", { name: "Add opportunity" })).not.toBeInTheDocument();
   expect(trigger()).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(screen.getByRole("button", { name: "Set next step" }));

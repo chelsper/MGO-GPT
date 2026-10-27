@@ -141,6 +141,32 @@ describe("donor update route", () => {
     vi.useRealTimers();
   });
 
+  it("rejects a stale portfolio workspace before any local or NXT write", async () => {
+    const { POST } = await import("./route.js");
+    const response = await POST(new Request("https://example.com/api/submissions/donor-update", { method: "POST", body: JSON.stringify({
+      donorName: "Fictional Donor", blackbaudConstituentId: "227949", actionDate: "2026-07-21", actionCategory: "Meeting", interactionType: "Cultivation", summary: "Visit",
+      portfolioContext: { viewerId: 2, workspaceId: 45, constituentId: "227949" },
+    }) }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ notSubmitted: true });
+    expect(resolveConstituentMock).not.toHaveBeenCalled();
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl).not.toHaveBeenCalled();
+  });
+
+  it("honors the portfolio action date and retains NXT verification and authorship", async () => {
+    const { POST } = await import("./route.js");
+    queueSqlResult([{ id: 1001 }]);
+    const response = await POST(new Request("https://example.com/api/submissions/donor-update", { method: "POST", body: JSON.stringify({
+      donorName: "Fictional Donor", blackbaudConstituentId: "227949", actionDate: "2026-07-21", actionCategory: "Meeting", interactionType: "Cultivation", summary: "Visit",
+      portfolioContext: { viewerId: 2, workspaceId: 44, constituentId: "227949" },
+    }) }));
+    expect(response.status).toBe(201);
+    expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(expect.objectContaining({ actionDate: "2026-07-21", completedDate: "2026-07-21", authorName: "Chelsea Santoro", fundraiserIds: ["234684"] }));
+    expect(getBlackbaudActionMock).toHaveBeenCalledTimes(1);
+    expect((await response.json()).blackbaudAction.verifiedActionId).toBe("bb-action-1");
+  });
+
   it("credits the selected MGO while recording and authenticating the Admin author", async () => {
     const { POST } = await import("./route.js");
 

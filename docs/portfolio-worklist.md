@@ -95,6 +95,16 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 
 ## Verification
 
+### Portfolio Log Action Panel
+
+- Log action opens a right-side panel in Compact, Focus and Detailed views without unmounting the worklist. Search, grouping, category, pagination, expansion and scroll stay in place; closing returns focus to the initiating button. Mobile uses a full-width panel with a scrollable body and persistent footer.
+- The selected constituent is fixed. Opening reads only the current app profile, verifies the viewer/workspace, and shows the credited fundraiser plus Admin author where applicable. It does not load a constituent summary or refresh NXT contacts.
+- Date, category, interaction type and summary are the primary fields. Optional notes expand in place. The existing full form remains available for dictation, additional fundraiser credit, opportunity links and new reminders; a dirty quick draft must be explicitly discarded before switching, and does not transfer.
+- Both forms use `submitActionUpdate` and the existing donor-update/prospect-action endpoints. Panel requests include a pinned viewer/workspace/constituent context. Server validation, NXT fundraiser attribution, durable create receipts and read-back verification remain authoritative. A selected prospect's failed identity preflight does not trigger fuzzy link repair from this panel.
+- Quick logging deliberately leaves existing next steps and pending reminders unchanged. The full form's existing follow-up behavior is unchanged. Successful saves invalidate relevant app caches without starting a bulk portfolio refresh.
+- The panel never automatically retries a write. Explicit pre-write rejection permits correction; uncertain results lock the form and link to Saved NXT submissions. A tab-scoped attempt marker contains only timing/receipt metadata, not donor names or notes. Read-only receipt checks can confirm a completed/verified result; absent or unresolved receipts never unlock automatic resubmission.
+- In-flight saves prevent closing. Dirty drafts have an in-panel discard choice and a reload warning. Desktop/mobile QA uses fictional records and an entirely mocked transport, not live NXT writes.
+
 Worklist and actual-page integration tests cover group scoping, duplicate membership, search, quick-view counts, pagination, Focus, unchanged category/rank data, unavailable-group recovery and workspace isolation. Browser QA uses synthetic records; new features are not tested against production until deployed.
 
 Next-step tests cover date boundaries, optional notes, request counts, failed saves, duplicate submission, keyboard focus, draft refreshes, changed primary steps, explicit field clearing and workspace write permissions. Synthetic browser QA checks the shared fields at desktop and narrow card widths without writing production records.
