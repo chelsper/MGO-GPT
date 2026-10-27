@@ -23,6 +23,7 @@ import PortfolioMaintenanceIndicator from "@/components/PortfolioMaintenanceIndi
 import PortfolioCategoryManagerModal from "./PortfolioCategoryManagerModal";
 import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
 import PortfolioActionPanel from "./PortfolioActionPanel";
+import PortfolioOpportunityPanel from "./PortfolioOpportunityPanel";
 import { AnnualGivingSocietyBadge } from "./ProspectGiving";
 import { nxtProfileLinkStyle } from "./prospectPresentation";
 
@@ -5733,6 +5734,7 @@ export default function MyTopProspectsPage() {
     useState("");
   const [portfolioFollowUp, setPortfolioFollowUp] = useState(null);
   const [portfolioLogAction, setPortfolioLogAction] = useState(null);
+  const [portfolioOpportunity, setPortfolioOpportunity] = useState(null);
   const [showPortfolioCategoryManager, setShowPortfolioCategoryManager] =
     useState(false);
   const [portfolioCategoryFeedback, setPortfolioCategoryFeedback] = useState("");
@@ -7668,6 +7670,9 @@ export default function MyTopProspectsPage() {
                       viewerId: profileStatus?.user?.id,
                       workspaceId: activeWorkspaceUserId,
                     })}
+                    onOpenPortfolioOpportunity={(person) => setPortfolioOpportunity({
+                      person, viewerId: profileStatus?.user?.id, workspaceId: activeWorkspaceUserId,
+                    })}
                     isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                     removingSolicitorConstituentId={removingSolicitorConstituentId}
                     annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
@@ -8823,6 +8828,27 @@ export default function MyTopProspectsPage() {
           readOnly={isExecutiveReadOnly}
         />
       )}
+
+      {portfolioOpportunity ? <PortfolioOpportunityPanel
+        {...portfolioOpportunity}
+        onClose={() => setPortfolioOpportunity(null)}
+        onSaved={(result) => {
+          const workspaceId = portfolioOpportunity.workspaceId;
+          const saved = result.portfolioProspect;
+          if (saved && String(saved.user_id) === String(workspaceId)) {
+            queryClient.setQueryData(["prospects", workspaceId], current => {
+              if (!Array.isArray(current)) return current;
+              const exists = current.some(row => String(row.id) === String(saved.id));
+              return exists ? current.map(row => String(row.id) === String(saved.id) ? { ...row, ...saved } : row) : [...current, saved];
+            });
+          }
+          // The server returns saved totals; do not refetch every donor's NXT activity.
+          for (const queryKey of [["prospects", workspaceId], ["prospect", result.prospect_id],
+            ["prospect-summary-base", workspaceId], ["opportunity-pipeline"]]) {
+            queryClient.invalidateQueries({ queryKey, refetchType: "none" });
+          }
+        }}
+      /> : null}
 
       {portfolioLogAction ? <PortfolioActionPanel
         {...portfolioLogAction}

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import PortfolioCardActions from "./PortfolioCardActions";
-import { buildPortfolioUpdateHref } from "./prospectPresentation";
 
 const person = { constituentId: "100", lookupId: "500", name: "Fictional Donor" };
 const topProspect = { id: 12, prospect_name: person.name };
@@ -11,6 +10,7 @@ beforeEach(() => {
     person, fundraiserLabel: "Gift Officer", topProspect,
     onOpenPortfolioNextStep: vi.fn(), onOpenPortfolioDiscussion: vi.fn(),
     onOpenPortfolioLogAction: vi.fn(),
+    onOpenPortfolioOpportunity: vi.fn(),
     onAddToTopProspects: vi.fn(), onRemoveFromTopProspects: vi.fn(),
     onRemoveSolicitorAssignment: vi.fn(), allowSolicitorAssignmentRemoval: true,
   };
@@ -24,14 +24,14 @@ it("shows two quick actions and reveals secondary actions only on request withou
   render(<PortfolioCardActions {...props} />);
   fireEvent.click(screen.getByRole("button", { name: "Log action" }));
   expect(props.onOpenPortfolioLogAction).toHaveBeenCalledExactlyOnceWith(person);
-  expect(screen.queryByRole("link", { name: "Add opportunity" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add opportunity" })).not.toBeInTheDocument();
   expect(trigger()).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(screen.getByRole("button", { name: "Set next step" }));
   expect(props.onOpenPortfolioNextStep).toHaveBeenCalledExactlyOnceWith(person);
   open();
   expect(trigger()).toHaveAttribute("aria-expanded", "true");
   expect(document.getElementById(trigger().getAttribute("aria-controls"))).toBeVisible();
-  expect(screen.getByRole("link", { name: "Add opportunity" })).toHaveAttribute("href", buildPortfolioUpdateHref(person, "opportunity"));
+  expect(screen.getByRole("button", { name: "Add opportunity" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Team discussion" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Remove me as Gift Officer" }).parentElement).toHaveClass("portfolio-actions__assignment");
   expect(props.onRemoveSolicitorAssignment).not.toHaveBeenCalled();
@@ -39,6 +39,7 @@ it("shows two quick actions and reveals secondary actions only on request withou
 });
 
 it.each([
+  ["Add opportunity", "onOpenPortfolioOpportunity", person],
   ["Team discussion", "onOpenPortfolioDiscussion", person],
   ["Add to Top Prospects", "onAddToTopProspects", person],
   ["Remove from Top Prospects", "onRemoveFromTopProspects", topProspect],

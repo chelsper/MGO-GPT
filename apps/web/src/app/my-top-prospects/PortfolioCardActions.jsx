@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { buildPortfolioUpdateHref } from "./prospectPresentation";
 
 export default function PortfolioCardActions({
   person,
@@ -9,6 +8,7 @@ export default function PortfolioCardActions({
   onOpenPortfolioNextStep,
   onOpenPortfolioDiscussion,
   onOpenPortfolioLogAction,
+  onOpenPortfolioOpportunity,
   onAddToTopProspects,
   isAdding,
   isTopProspect,
@@ -107,9 +107,10 @@ export default function PortfolioCardActions({
           <div id={panelId} ref={panelRef}
             className={`portfolio-actions__panel${placement.above ? " portfolio-actions__panel--above" : ""}`}
             style={{ maxHeight: placement.maxHeight }}>
-            <a href={buildPortfolioUpdateHref(person, "opportunity")} onClick={() => choose()}>
+            <button type="button" disabled={!onOpenPortfolioOpportunity}
+              onClick={() => choose(() => onOpenPortfolioOpportunity?.(person))}>
               Add opportunity
-            </a>
+            </button>
             <button type="button" disabled={!onOpenPortfolioDiscussion}
               onClick={() => choose(() => onOpenPortfolioDiscussion?.(person))}>
               Team discussion

@@ -27,4 +27,9 @@
 .portfolio-action-panel__recovery a { display: block; margin-top: 1rem; }
 .portfolio-action-panel__recovery button { margin-top: .75rem; }
 .portfolio-action-panel :focus-visible { outline: 2px solid #087f65; outline-offset: 3px; }
+.portfolio-opportunity-existing { margin-bottom: 1.25rem; border-bottom: 1px solid #dce5e3; }
+.portfolio-opportunity-existing h3 { font-size: .95rem; font-weight: 700; margin-bottom: .5rem; }
+.portfolio-opportunity-existing ul { max-height: 11rem; overflow-y: auto; list-style: none; padding: 0; margin-bottom: .75rem; }
+.portfolio-opportunity-existing li { padding: .65rem 0; border-bottom: 1px solid #edf1ef; overflow-wrap: anywhere; }
+.portfolio-opportunity-existing li span { display: block; font-size: .8rem; color: #55736b; margin-top: .25rem; }
 @media (max-width: 420px) { .portfolio-action-panel__row { grid-template-columns: 1fr; gap: 0; } .portfolio-action-panel__header, .portfolio-action-panel__body, .portfolio-action-panel__footer { padding-left: 1rem; padding-right: 1rem; } }

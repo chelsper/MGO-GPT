@@ -9,6 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {}, queryLoading: {}, exportProps: null }));
+const cache = vi.hoisted(() => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }));
 vi.mock("@/components/ProspectExport", () => ({ default: (props) => { state.exportProps = props; return null; } }));
 vi.mock("@/utils/useUser", () => ({
   default: () => ({ data: { id: 2 }, loading: false }),
@@ -25,13 +26,15 @@ vi.mock("@tanstack/react-query", () => ({
     refetch: vi.fn(),
   }),
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
+  useQueryClient: () => cache,
 }));
 import MyProspects from "./page";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 import { PORTFOLIO_SORT_OPTIONS, portfolioViewKey } from "@/utils/portfolioWorklist";
 
 beforeEach(() => {
+  cache.invalidateQueries.mockReset();
+  cache.setQueryData.mockReset();
   localStorage.clear();
   sessionStorage.clear();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
@@ -122,6 +125,44 @@ it.each(["compact", "focus", "detailed"])("logs in a side panel and preserves th
   expect(screen.getByLabelText("View")).toHaveValue(density);
   expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toHaveValue("Zelda");
   expect(localStorage.getItem(portfolioViewKey(2, 44))).toBe(storedView);
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it.each(["compact", "focus", "detailed"])("creates in the %s portfolio panel without changing view, focus, or refetching the portfolio", async density => {
+  const saved = { ...state.data.prospects[0], user_id: 44, portfolio_open_opportunity_count: 3, portfolio_open_pipeline_amount: 60000 };
+  fetch.mockImplementation(async url => String(url).startsWith("/api/portfolio-opportunities?")
+    ? { ok: true, json: async () => ({ viewerId: 2, workspaceId: 44, constituentId: "100", prospectId: 1,
+      ownerName: "Selected MGO", authorName: "Admin Author", opportunities: [] }) }
+    : { ok: true, json: async () => ({ verifiedOpportunityId: "812", blackbaudConstituentId: "100", prospect_id: 1,
+      blackbaudSync: { status: "synced" }, portfolioProspect: saved }) });
+  cache.setQueryData.mockImplementation((key, updater) => { state.data[key[0]] = updater(state.data[key[0]]); });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: density } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search portfolio" }), { target: { value: "Zelda" } });
+  const stored = localStorage.getItem(portfolioViewKey(2, 44));
+  const trigger = screen.getByRole("button", { name: "More actions for Zelda Donor" });
+  trigger.focus(); fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "Add opportunity" }));
+  const panel = within(screen.getByRole("dialog", { name: "Add opportunity" }));
+  await waitFor(() => expect(panel.getByRole("button", { name: "Create opportunity in NXT" })).toBeEnabled());
+  const full = new URL(panel.getByRole("link", { name: /full opportunity form/ }).href);
+  expect(full.searchParams.get("blackbaudConstituentId")).toBe("100");
+  expect(full.searchParams.get("returnTo")).toBe("/my-top-prospects?tab=portfolio");
+  fireEvent.change(panel.getByLabelText("Opportunity name"), { target: { value: "Fictional scholarship" } });
+  fireEvent.change(panel.getByLabelText("Amount ($)"), { target: { value: "25000" } });
+  fireEvent.change(panel.getByLabelText("Expected date"), { target: { value: "2027-06-01" } });
+  fireEvent.click(panel.getByRole("button", { name: "Create opportunity in NXT" }));
+  await waitFor(() => expect(panel.getByText("Opportunity saved in the app and NXT.")).toBeVisible());
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ linkedProspectId: 1, portfolioContext: { viewerId: 2, workspaceId: 44, constituentId: "100" } });
+  expect(cache.setQueryData).toHaveBeenCalledWith(["prospects", 44], expect.any(Function));
+  expect(state.data.prospects[0]).toMatchObject({ portfolio_open_pipeline_amount: 60000, next_action_text: "Call about proposal" });
+  expect(cache.invalidateQueries.mock.calls.every(([options]) => options.refetchType === "none")).toBe(true);
+  fireEvent.click(panel.getByRole("button", { name: "Back to portfolio" }));
+  expect(trigger).toHaveFocus();
+  expect(screen.getByLabelText("View")).toHaveValue(density);
+  expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toHaveValue("Zelda");
+  expect(localStorage.getItem(portfolioViewKey(2, 44))).toBe(stored);
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
@@ -689,11 +730,7 @@ it.each(["compact", "focus", "detailed"])("keeps a single action bar and the ori
   expect(nextStep).toHaveTextContent("Zelda Donor");
   fireEvent.click(within(nextStep).getByRole("button", { name: "Close" }));
   fireEvent.click(card.getByRole("button", { name: "More actions for Zelda Donor" }));
-  const opportunity = new URL(card.getByRole("link", { name: "Add opportunity" }).href);
-  expect(opportunity.searchParams.get("blackbaudConstituentId")).toBe("100");
-  expect(opportunity.searchParams.get("lookupId")).toBe("500");
-  expect(opportunity.searchParams.get("returnTo")).toBe("/my-top-prospects?tab=portfolio");
-  expect(opportunity.searchParams.get("mode")).toBe("opportunity");
+  expect(card.getByRole("button", { name: "Add opportunity" })).toBeEnabled();
   fireEvent.click(card.getByRole("button", { name: "Team discussion" }));
   const discussion = screen.getByRole("dialog", { name: "Add team discussion" });
   expect(discussion).toHaveTextContent("Zelda Donor");

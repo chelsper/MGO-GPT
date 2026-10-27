@@ -1,6 +1,7 @@
 "use client";
 import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 import { submitActionUpdate as saveActionUpdate } from "@/utils/submitActionUpdate";
+import { submitOpportunityUpdate as saveOpportunityUpdate } from "@/utils/submitOpportunityUpdate";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -1734,25 +1735,18 @@ export default function ActionOpportunityUpdatePage() {
             ),
         };
 
-        const opportunityResponse = await fetch("/api/submissions/opportunity-update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(opportunityBody),
-        });
-
-        if (!opportunityResponse.ok) {
-          const errorData = await opportunityResponse.json().catch(() => null);
+        try {
+          results.opportunity = await saveOpportunityUpdate(opportunityBody);
+        } catch (error) {
           if (results.action) {
             throw new Error(
               `Action update saved, but the opportunity update failed: ${
-                errorData?.error || "Unknown error"
+                error.message || "Unknown error"
               }`,
             );
           }
-          throw new Error(errorData?.error || "Failed to submit opportunity update");
+          throw error;
         }
-
-        results.opportunity = await opportunityResponse.json();
         return results.opportunity;
       }
 
