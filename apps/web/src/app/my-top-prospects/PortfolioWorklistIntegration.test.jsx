@@ -120,6 +120,7 @@ it("uses configured portfolio labels without renaming NXT roles or adding reques
   expect(screen.getAllByText("Lead Solicitor").some(node => node.tagName !== "OPTION")).toBe(true);
   expect(screen.getAllByText("Secondary / Athletics Solicitor").some(node => node.tagName !== "OPTION")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "More actions for Zelda Donor" }));
   fireEvent.click(screen.getByRole("button", { name: "Remove me as Gift Officer" }));
   expect(window.confirm).toHaveBeenCalledWith("Remove yourself as Gift Officer for Zelda Donor? This will change your active NXT assignment to Former Solicitor and set today's date as the end date.");
   expect(fetch).not.toHaveBeenCalled();
@@ -430,8 +431,8 @@ it("expands the actual portfolio card without fetching; briefing reads are expli
   expect(card.getByText("2 saved open opportunities")).toBeVisible();
   expect(card.getByText("Call about proposal")).toBeVisible();
   expect(
-    card.queryByRole("link", { name: "Log action" }),
-  ).not.toBeInTheDocument();
+    card.getByRole("link", { name: "Log action" }),
+  ).toBeVisible();
   fireEvent.click(
     card.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
@@ -471,7 +472,7 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(screen.getByRole("button", { name: "Set next step" })).toBeEnabled();
+  expect(screen.getAllByRole("button", { name: "Set next step" })).toHaveLength(2);
   expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Donor briefing" }));
   await waitFor(() =>
@@ -481,7 +482,7 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
     screen.getByRole("button", { name: "Show details for Amy Donor" }),
   );
   expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).not.toBeVisible();
-  expect(screen.getByRole("link", { name: "Log action" })).toHaveAttribute(
+  expect(within(screen.getByRole("button", { name: "Hide details for Amy Donor" }).closest("article")).getByRole("link", { name: "Log action" })).toHaveAttribute(
     "href",
     expect.stringContaining("blackbaudConstituentId=101"),
   );
@@ -625,7 +626,7 @@ it("loads each MGO's last view without overwriting it during profile or category
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each(["compact", "focus"])(
+it.each(["compact", "focus", "detailed"])(
   "preserves read-only protection inside %s cards",
   (density) => {
     state.profile.user.role = "executive";
@@ -634,7 +635,8 @@ it.each(["compact", "focus"])(
     fireEvent.change(screen.getByLabelText("View"), {
       target: { value: density },
     });
-    fireEvent.click(
+    expect(screen.queryByRole("button", { name: /More actions for/ })).not.toBeInTheDocument();
+    if (density !== "detailed") fireEvent.click(
       screen.getByRole("button", { name: "Show details for Zelda Donor" }),
     );
     expect(
@@ -644,11 +646,67 @@ it.each(["compact", "focus"])(
       screen.queryByRole("button", { name: "Set next step" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Open NXT profile" }),
+      screen.getAllByRole("link", { name: "Open NXT profile" })[0],
     ).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
   },
 );
+
+it.each(["compact", "focus", "detailed"])("keeps a single action bar and the original follow-up dialogs in %s view", density => {
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: density } });
+  const card = within(screen.getByRole("group", { name: "Actions for Zelda Donor" }));
+  expect(card.getAllByRole("button", { name: "Set next step" })).toHaveLength(1);
+  expect(card.getAllByRole("link", { name: "Log action" })).toHaveLength(1);
+  fireEvent.click(card.getByRole("button", { name: "Set next step" }));
+  const nextStep = screen.getByRole("dialog", { name: "Set next step" });
+  expect(nextStep).toHaveTextContent("Zelda Donor");
+  fireEvent.click(within(nextStep).getByRole("button", { name: "Close" }));
+  fireEvent.click(card.getByRole("button", { name: "More actions for Zelda Donor" }));
+  const opportunity = new URL(card.getByRole("link", { name: "Add opportunity" }).href);
+  expect(opportunity.searchParams.get("blackbaudConstituentId")).toBe("100");
+  expect(opportunity.searchParams.get("lookupId")).toBe("500");
+  expect(opportunity.searchParams.get("returnTo")).toBe("/my-top-prospects?tab=portfolio");
+  expect(opportunity.searchParams.get("mode")).toBe("opportunity");
+  fireEvent.click(card.getByRole("button", { name: "Team discussion" }));
+  const discussion = screen.getByRole("dialog", { name: "Add team discussion" });
+  expect(discussion).toHaveTextContent("Zelda Donor");
+  expect(card.getByRole("button", { name: "More actions for Zelda Donor" })).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(within(discussion).getByRole("button", { name: "Close" }));
+  if (density !== "detailed") {
+    const toggle = screen.getByRole("button", { name: "Show details for Zelda Donor" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getAllByRole("group", { name: "Actions for Zelda Donor" })).toHaveLength(1);
+  }
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("preserves Top Prospect removal confirmation and list state from the compact menu", () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search portfolio" }), { target: { value: "Zelda" } });
+  fireEvent.click(screen.getByRole("button", { name: "More actions for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove from Top Prospects" }));
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("Remove Zelda Donor from Top Prospects? This will not remove the constituent from NXT or from the portfolio assignment list.");
+  expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toHaveValue("Zelda");
+  expect(screen.getByRole("button", { name: "Show details for Zelda Donor" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("button", { name: "More actions for Zelda Donor" })).toHaveFocus();
+  expect(fetch).not.toHaveBeenCalled();
+  confirm.mockRestore();
+});
+
+it("closes action disclosures when switching views without fetching or expanding contacts", () => {
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "More actions for Zelda Donor" }));
+  expect(screen.getByRole("button", { name: "Show details for Zelda Donor" })).toHaveAttribute("aria-expanded", "false");
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: "focus" } });
+  expect(screen.getByRole("button", { name: "More actions for Zelda Donor" })).toHaveAttribute("aria-expanded", "false");
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 it("narrows the actual portfolio using saved opportunities and next steps without NXT calls", () => {
   state.data.prospects[0].next_action_due_date = "2025-09-15";

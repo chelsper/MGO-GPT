@@ -12,6 +12,7 @@ export const workflowGroups = {
   "Portfolios and work queues": [
     "src/components/PortfolioWorklist.test.jsx",
     "src/app/my-top-prospects/PortfolioWorklistIntegration.test.jsx",
+    "src/app/my-top-prospects/PortfolioCardActions.test.jsx",
     "src/app/api/worklist/route.test.js",
     "src/app/api/blackbaud/portfolio/route.test.js",
     "src/components/WorkQueuePage.test.jsx",
