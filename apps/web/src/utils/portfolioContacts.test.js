@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSavedPortfolioContacts } from "./portfolioContacts";
+import { mergeSavedPortfolioContacts, portfolioContactLocation } from "./portfolioContacts";
 
 const savedPerson = {
   constituentId: "100",
@@ -18,6 +18,7 @@ describe("saved portfolio contacts", () => {
       source: "nxt-portfolio-snapshot", checkedAt: "2026-09-15T12:00:00Z",
     })).toEqual({
       ...savedPerson, ...updatedContacts,
+      addressCity: null, addressState: null,
       contactDataSource: "nxt-portfolio-snapshot", contactCheckedAt: "2026-09-15T12:00:00.000Z",
     });
   });
@@ -46,5 +47,19 @@ describe("saved portfolio contacts", () => {
   it("accepts undated legacy contacts when no dated contact exists", () => {
     expect(mergeSavedPortfolioContacts({ name: "Donor", contactDataSource: "not-loaded" }, updatedContacts))
       .toMatchObject({ ...updatedContacts, name: "Donor", contactDataSource: "nxt-summary-cache", contactCheckedAt: null });
+  });
+
+  it("uses structured city/state only and never guesses from an address block", () => {
+    expect(portfolioContactLocation({ addressCity: " Jacksonville ", addressState: " FL " })).toBe("Jacksonville, FL");
+    expect(portfolioContactLocation({ addressCity: "London", addressState: null })).toBe("London");
+    expect(portfolioContactLocation({ address: "100 Main Street, Jacksonville, FL", addressCity: {}, addressState: 5 })).toBe("");
+  });
+
+  it("updates or clears location with the same snapshot as other contacts", () => {
+    const original = { ...savedPerson, addressCity: "Old City", addressState: "FL" };
+    const newer = mergeSavedPortfolioContacts(original, { ...updatedContacts, addressCity: "New City", addressState: "GA" }, { checkedAt: "2026-09-15T12:00:00Z" });
+    expect(portfolioContactLocation(newer)).toBe("New City, GA");
+    expect(mergeSavedPortfolioContacts(newer, original, { checkedAt: original.contactCheckedAt })).toBe(newer);
+    expect(portfolioContactLocation(mergeSavedPortfolioContacts(newer, { email: null, phone: null, address: null }, { checkedAt: "2026-09-16T12:00:00Z" }))).toBe("");
   });
 });

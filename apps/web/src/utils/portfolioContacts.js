@@ -1,6 +1,16 @@
 const CONTACT_FIELDS = ["email", "phone", "address"];
 export const PORTFOLIO_CONTACT_TTL_MS = 24 * 60 * 60 * 1000;
 
+export function portfolioContactLocationFields(contact) {
+  const text = (value) => typeof value === "string" ? value.trim() || null : null;
+  return { addressCity: text(contact?.addressCity), addressState: text(contact?.addressState) };
+}
+
+export function portfolioContactLocation(contact) {
+  const { addressCity, addressState } = portfolioContactLocationFields(contact);
+  return [addressCity, addressState].filter(Boolean).join(", ");
+}
+
 export function portfolioContactsAreFresh(person, now = Date.now()) {
   const checkedAt = Date.parse(person?.contactCheckedAt || "");
   return hasSavedPortfolioContacts(person) && Number.isFinite(checkedAt) &&
@@ -35,6 +45,7 @@ export function mergeSavedPortfolioContacts(person, constituent, {
     email: constituent.email?.trim() || null,
     phone: constituent.phone?.trim() || null,
     address: constituent.address?.trim() || null,
+    ...portfolioContactLocationFields(constituent),
     contactDataSource: source,
     contactCheckedAt: Number.isFinite(nextTime) ? new Date(nextTime).toISOString() : null,
   };

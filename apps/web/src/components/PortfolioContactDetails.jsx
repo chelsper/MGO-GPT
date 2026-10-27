@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PortfolioDetailsVisibleContext } from "./PortfolioWorklist";
 import { createPortfolioContactQueue } from "@/utils/portfolioContactQueue";
-import { mergeSavedPortfolioContacts, portfolioContactsAreFresh } from "@/utils/portfolioContacts";
+import { mergeSavedPortfolioContacts, portfolioContactsAreFresh, portfolioContactLocation } from "@/utils/portfolioContacts";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 
 const ContactQueueContext = createContext(null);
@@ -24,15 +24,27 @@ export function PortfolioContactRefreshProvider({ viewerId, workspaceId, enabled
   </ContactQueueContext.Provider>;
 }
 
-export default function PortfolioContactDetails({ person }) {
+function useSavedContactSnapshot(person) {
   const queue = useContext(ContactQueueContext);
+  const snapshot = useSyncExternalStore(queue?.subscribe || emptySubscribe, queue?.getSnapshot || getEmptySnapshot, getEmptySnapshot);
+  const state = snapshot.entries[String(person.constituentId)];
+  const contacts = mergeSavedPortfolioContacts(person, state?.contacts, { checkedAt: state?.contacts?.contactCheckedAt });
+  return { queue, snapshot, state, contacts };
+}
+
+// Reading the queue does not register a contact check for a collapsed card.
+export function PortfolioContactLocation({ person }) {
+  const { contacts } = useSavedContactSnapshot(person);
+  const location = portfolioContactLocation(contacts);
+  return location ? <span className="portfolio-card__location">{location}</span> : null;
+}
+
+export default function PortfolioContactDetails({ person }) {
+  const { queue, snapshot, state, contacts } = useSavedContactSnapshot(person);
   const expanded = useContext(PortfolioDetailsVisibleContext);
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
-  const snapshot = useSyncExternalStore(queue?.subscribe || emptySubscribe, queue?.getSnapshot || getEmptySnapshot, getEmptySnapshot);
   const id = String(person.constituentId);
-  const state = snapshot.entries[id];
-  const contacts = mergeSavedPortfolioContacts(person, state?.contacts, { checkedAt: state?.contacts?.contactCheckedAt });
   const fresh = portfolioContactsAreFresh(contacts);
   const [retryReady, setRetryReady] = useState(false);
   useEffect(() => {

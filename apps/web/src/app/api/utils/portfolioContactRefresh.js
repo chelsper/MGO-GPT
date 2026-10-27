@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import sql from "@/app/api/utils/sql";
-import { hasSavedPortfolioContacts } from "@/utils/portfolioContacts";
+import { hasSavedPortfolioContacts, portfolioContactLocationFields } from "@/utils/portfolioContacts";
 import { portfolioContactCacheKey } from "./portfolioContactCacheKey";
 export { portfolioContactCacheKey } from "./portfolioContactCacheKey";
 
@@ -46,6 +46,7 @@ export async function readPortfolioContact({ workspaceUserId, authUserId, consti
   if (!hasSavedPortfolioContacts(row?.constituent)) return null;
   return {
     email: row.constituent.email, phone: row.constituent.phone, address: row.constituent.address,
+    ...portfolioContactLocationFields(row.constituent),
     contactCheckedAt: row.checked_at ? new Date(row.checked_at).toISOString() : null,
     contactDataSource: "nxt-summary-cache",
   };
@@ -80,6 +81,8 @@ export function mapPortfolioContact(record, constituentId) {
     email: text(record.email?.address, record.email_address),
     phone: text(record.phone?.number, record.phone_number),
     address: text(record.address?.formatted_address, record.address?.line_1),
+    addressCity: text(record.address?.city),
+    addressState: text(record.address?.state),
   };
 }
 

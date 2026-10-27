@@ -102,6 +102,49 @@ const quickView = (name) =>
   ).getByRole("button", { name });
 
 describe("portfolio worklist", () => {
+  it("switches saved Detailed view to compact without changing the category, page, search or drafts", () => {
+    localStorage.setItem(storageKey, JSON.stringify({ density: "detailed", group: "category", selectedGroup: "category", sort: "name", pageSize: 25 }));
+    render(<View />);
+    fireEvent.change(screen.getByLabelText("Search portfolio"), { target: { value: "Person" } });
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    fireEvent.change(screen.getByLabelText("Draft for Person 26"), { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use compact cards" }));
+    expect(topNav().getByText("Page 2 of 3")).toBeVisible();
+    expect(screen.getByLabelText("Search portfolio")).toHaveValue("Person");
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
+    expect(JSON.parse(localStorage.getItem(storageKey))).toMatchObject({ density: "compact", group: "category", selectedGroup: "category", sort: "name" });
+    expect(screen.queryByRole("button", { name: "Action for Person 26" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show details for Person 26" }));
+    expect(screen.getByLabelText("Draft for Person 26")).toHaveValue("Keep this draft");
+    expect(screen.getByRole("button", { name: "Action for Person 26" })).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("shows essentials with exact gift cents and keeps full details accessible", () => {
+    render(<PortfolioCard person={{ ...people[0], savedActivity: {
+      gift: { date: "2026-08-31", checkedAt: "2026-09-14T12:00:00Z", amount: 1250.75 },
+      action: { date: "2026-09-10", checkedAt: "2026-09-14T12:00:00Z", summary: "Discussed scholarship plans" },
+    } }} categoryName="Cultivation" location={<span>Jacksonville, FL</span>} isTopProspect
+      signal={{ nextStep: "Arrange a visit" }} density="compact"><button>Log action</button></PortfolioCard>);
+    expect(screen.getByLabelText("Portfolio category: Cultivation")).toBeVisible();
+    expect(screen.getByLabelText("Top Prospect")).toBeVisible();
+    expect(screen.getByText("Jacksonville, FL")).toBeVisible();
+    expect(screen.getByText("$1,250.75")).toBeVisible();
+    expect(screen.getByText("Discussed scholarship plans")).toBeVisible();
+    expect(screen.getByText("Next step")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Log action" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show details for Person 01" }));
+    expect(screen.getByRole("button", { name: "Log action" })).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not promote unverified amounts or narratives into the compact summary", () => {
+    render(<PortfolioCard person={{ ...people[0], savedActivity: {
+      gift: { amount: 1250.75 }, action: { date: "2099-01-01", checkedAt: "2026-09-14T12:00:00Z", summary: "Unverified narrative" },
+    } }} density="compact">Details</PortfolioCard>);
+    expect(screen.queryByText("$1,250.75")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unverified narrative")).not.toBeInTheDocument();
+  });
   it.each(activitySorts)("applies $value before pagination, keeps group/search filters and makes no requests", (option) => {
     render(<View people={activityPeople} />);
     fireEvent.click(topNav().getByRole("button", { name: "Next" }));

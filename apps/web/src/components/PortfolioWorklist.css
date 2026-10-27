@@ -170,10 +170,30 @@
   padding: 14px;
 }
 .portfolio-card__identity {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+  min-width: 0;
+}
+.portfolio-card__heading {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.portfolio-card__category {
+  color: #475569;
+  background: #eef2f6;
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.portfolio-card__location {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .portfolio-card__name {
   font-size: 15px;
@@ -194,16 +214,40 @@
   font-size: 12px;
   color: #6b7280;
 }
-.portfolio-card__signals,
-.portfolio-card__activity-dates {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 24px;
+.portfolio-card__signals {
+  display: grid;
+  gap: 10px;
   min-width: 0;
 }
+.portfolio-card__activity-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 10px 20px;
+  min-width: 0;
+}
+.portfolio-card__activity-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.portfolio-card__gift-amount {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #047857;
+}
+.portfolio-card__activity-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: #374151;
+  line-height: 1.4;
+}
 .portfolio-card__next-step {
-  max-width: min(100%, 24rem);
+  max-width: 100%;
 }
 .portfolio-card__activity time {
   color: #374151;
@@ -212,20 +256,27 @@
 }
 .portfolio-card__opportunities--open {
   color: #047857;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
 }
 .portfolio-card__opportunities strong {
   font-size: 14px;
 }
 .portfolio-card__next-step > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   color: #4b5563;
   font-size: 13px;
+  line-height: 1.4;
 }
-.portfolio-card--expanded .portfolio-card__next-step > span {
-  white-space: normal;
-  overflow-wrap: anywhere;
+.portfolio-card--expanded .portfolio-card__next-step > span,
+.portfolio-card--expanded .portfolio-card__activity-summary {
+  -webkit-line-clamp: unset;
 }
 .portfolio-card__next-step small {
   font-size: 11px;
@@ -298,6 +349,9 @@
   }
 }
 @media (max-width: 480px) {
+  .portfolio-card__activity-dates {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .portfolio-worklist__toolbar .portfolio-worklist__wide-control {
     flex-basis: 100%;
   }

@@ -7,7 +7,7 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
-import { hasSavedPortfolioContacts, mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
+import { hasSavedPortfolioContacts, mergeSavedPortfolioContacts, portfolioContactLocationFields } from "@/utils/portfolioContacts";
 import { savedPortfolioActivity } from "@/utils/portfolioActivity";
 import { savedActivityEntry } from "@/app/api/utils/portfolioActivityData";
 import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
@@ -445,6 +445,7 @@ async function getCachedNxtPortfolioDetails({
       email: constituent.email || null,
       phone: constituent.phone || null,
       address: constituent.address || null,
+      ...portfolioContactLocationFields(constituent),
       contactDataSource: row.contact_data_source || "nxt-summary-cache",
       contactCheckedAt: row.contact_checked_at || null,
       isDeceased:
