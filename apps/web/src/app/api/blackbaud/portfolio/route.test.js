@@ -243,6 +243,7 @@ describe("Blackbaud portfolio route", () => {
       expect(response.status).toBe(200);
       expect(payload.leadSolicitor[0]).toEqual({
         ...original, email: savedContacts.email, phone: savedContacts.phone, address: savedContacts.address,
+        addressCity: null, addressState: null,
         contactDataSource: source, contactCheckedAt: "2026-09-15T12:00:00.000Z",
       });
       expect(payload.portfolioMeta).toMatchObject({ cachedAt, source: "stale-cache" });
@@ -253,6 +254,17 @@ describe("Blackbaud portfolio route", () => {
       expectNoNxtReads();
     },
   );
+
+  it("passes saved structured location through without additional NXT reads", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Fictional Donor", assignmentTypes: ["Lead Solicitor"] }], contacts: [{
+      constituent_id: "100", constituent: { ...savedContacts, addressCity: "Jacksonville", addressState: "FL" },
+      contact_checked_at: "2026-09-15T12:00:00Z",
+    }] });
+    const response = await GET(new Request("https://example.com/api/blackbaud/portfolio"));
+    expect((await response.json()).leadSolicitor[0]).toMatchObject({ addressCity: "Jacksonville", addressState: "FL" });
+    expectNoNxtReads();
+  });
 
   it("filters incomplete and giving-only payloads before selecting the latest contact snapshot", async () => {
     const { GET } = await import("./route.js");

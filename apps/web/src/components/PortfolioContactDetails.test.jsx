@@ -2,14 +2,14 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PortfolioCard } from "./PortfolioWorklist";
-import PortfolioContactDetails, { PortfolioContactRefreshProvider } from "./PortfolioContactDetails";
+import PortfolioContactDetails, { PortfolioContactLocation, PortfolioContactRefreshProvider } from "./PortfolioContactDetails";
 
 let observers;
 const person = { constituentId: "100", name: "Donor", email: "saved@example.com", phone: null,
   address: "100 Main Street", contactCheckedAt: "2020-01-01T00:00:00Z", contactDataSource: "nxt-summary-cache" };
 function View({ people = [person], density = "compact", enabled = true, workspaceId = 44 }) {
   return <PortfolioContactRefreshProvider key={workspaceId} viewerId={2} workspaceId={workspaceId} enabled={enabled}>
-    {people.map(p => <PortfolioCard key={p.constituentId} person={p} density={density}>
+    {people.map(p => <PortfolioCard key={p.constituentId} person={p} density={density} location={<PortfolioContactLocation person={p} />}>
       <PortfolioContactDetails person={p} />
     </PortfolioCard>)}
   </PortfolioContactRefreshProvider>;
@@ -29,6 +29,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("visible portfolio contacts", () => {
+  it("reads location in a collapsed card without fetching, then clears it after a newer empty address", async () => {
+    render(<View people={[{ ...person, addressCity: "Jacksonville", addressState: "FL" }]} />);
+    expect(screen.getByText("Jacksonville, FL")).toBeVisible();
+    expect(screen.getByText("100 Main Street")).not.toBeVisible();
+    await tick(1000);
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Show details for Donor" }));
+    show(); await tick(300);
+    fireEvent.click(screen.getByRole("button", { name: "Hide details for Donor" }));
+    expect(screen.queryByText("Jacksonville, FL")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("makes no contact requests for collapsed or off-screen details", async () => {
     render(<View />);
     await tick(1000); expect(fetch).not.toHaveBeenCalled();

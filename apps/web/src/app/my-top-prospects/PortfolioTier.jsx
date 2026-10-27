@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronUp, Star } from "lucide-react";
 import { PortfolioCard } from "@/components/PortfolioWorklist";
-import PortfolioContactDetails from "@/components/PortfolioContactDetails";
+import PortfolioContactDetails, { PortfolioContactLocation } from "@/components/PortfolioContactDetails";
 import PortfolioActivityDetails from "@/components/PortfolioActivityDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import DonorBriefing from "@/components/DonorBriefing";
@@ -103,6 +103,12 @@ export default function PortfolioTier({
               signal={signals.get(String(person.constituentId))}
               density={density}
               isTopProspect={topProspectConstituentIds.has(String(person.constituentId))}
+              categoryName={portfolioCategoryByConstituentId[String(person.constituentId)]?.displayName || portfolioCategoryByConstituentId[String(person.constituentId)]?.name || "Uncategorized"}
+              location={<PortfolioContactLocation person={mergeSavedPortfolioContacts(
+                person,
+                summaryStates[person.constituentId]?.contactDetails,
+                { checkedAt: summaryStates[person.constituentId]?.contactDetails?.contactCheckedAt },
+              )} />}
             >
               {(() => {
                 const isTopProspect = topProspectConstituentIds.has(

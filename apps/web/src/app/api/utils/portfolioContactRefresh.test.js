@@ -9,10 +9,10 @@ describe("portfolio contact persistence", () => {
   beforeEach(() => sql.mockReset());
   it("maps valid primary contacts, trims values, and keeps explicit absence", () => {
     expect(mapPortfolioContact({ id: "100", name: "Donor", email: { address: " a@b.com " },
-      phone: null, address: { formatted_address: "100 Main Street" } }, "100"))
-      .toMatchObject({ id: "100", email: "a@b.com", phone: null, address: "100 Main Street" });
+      phone: null, address: { formatted_address: "100 Main Street", city: " Jacksonville ", state: "FL" } }, "100"))
+      .toMatchObject({ id: "100", email: "a@b.com", phone: null, address: "100 Main Street", addressCity: "Jacksonville", addressState: "FL" });
     expect(mapPortfolioContact({ id: "100", name: "Donor" }, "100"))
-      .toMatchObject({ email: null, phone: null, address: null });
+      .toMatchObject({ email: null, phone: null, address: null, addressCity: null, addressState: null });
   });
   it.each([null, {}, { id: "101", name: "Wrong" }, { id: "100", name: "Donor", email: [] },
     { id: "100", name: "Donor", phone: {} }, { id: "100", name: "Donor", address: { line_1: 5 } },

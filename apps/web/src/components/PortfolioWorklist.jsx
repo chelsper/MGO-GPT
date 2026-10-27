@@ -19,7 +19,7 @@ import {
 import "./PortfolioWorklist.css";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
-import { savedPortfolioActivityDate } from "@/utils/portfolioActivity";
+import { portfolioActivityFields, savedPortfolioActivityDate } from "@/utils/portfolioActivity";
 
 const quickViews = [
   { key: "all", label: "All" },
@@ -34,6 +34,10 @@ const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   maximumFractionDigits: 0,
+});
+const giftCurrency = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
 });
 
 function savedView(storageKey) {
@@ -50,6 +54,8 @@ export function PortfolioCard({
   person,
   signal,
   isTopProspect,
+  categoryName,
+  location,
   density,
   children,
 }) {
@@ -78,7 +84,7 @@ export function PortfolioCard({
   const nextStep = signal?.nextStep?.trim();
   const activityDates = ["gift", "action"].flatMap((kind) => {
     const activity = savedPortfolioActivityDate(person.savedActivity?.[kind]);
-    return activity ? [{ kind, ...activity }] : [];
+    return activity ? [{ kind, ...activity, ...portfolioActivityFields(person.savedActivity[kind], kind) }] : [];
   });
   const dueDate = formatCalendarDate(signal?.dueDate, {
     month: "short",
@@ -93,6 +99,7 @@ export function PortfolioCard({
       {!detailed && (
         <div className="portfolio-card__summary">
           <div className="portfolio-card__identity">
+            <div className="portfolio-card__heading">
             <span className="portfolio-card__name">
               {person.name || "Unnamed constituent"}
             </span>
@@ -104,36 +111,43 @@ export function PortfolioCard({
                 className="portfolio-card__star"
               />
             )}
+            </div>
+            {categoryName && <span className="portfolio-card__category" aria-label={`Portfolio category: ${categoryName}`}>{categoryName}</span>}
+            {location}
           </div>
           <div className="portfolio-card__signals">
-            {openLabel && (
-              <div className="portfolio-card__opportunities portfolio-card__opportunities--open">
-                <span>{openLabel}</span>
-                {signal?.amount != null && (
-                  <strong>{currency.format(signal.amount)}</strong>
-                )}
-              </div>
-            )}
-            {nextStep && (
-              <div className="portfolio-card__next-step">
-                <span title={nextStep}>{nextStep}</span>
-                {dueDate && <small>Due {dueDate}</small>}
-              </div>
-            )}
             {activityDates.length > 0 && (
               <div className="portfolio-card__activity-dates">
-                {activityDates.map(({ kind, date, checkedAt }) => (
+                {activityDates.map(({ kind, date, checkedAt, amount, summary }) => (
                   <div
                     key={kind}
                     className="portfolio-card__activity"
                     title={`Saved NXT activity. Checked ${formatCalendarDate(getStandingsPeriods(new Date(checkedAt)).asOf)} (Eastern). Not a live check.`}
                   >
                     <span>Last {kind} (saved)</span>
+                    <div className="portfolio-card__activity-value">
+                    {amount != null && <strong className="portfolio-card__gift-amount">{giftCurrency.format(amount)}</strong>}
                     <time dateTime={date}>
                       {formatCalendarDate(date, { month: "short", day: "numeric", year: "numeric" })}
                     </time>
+                    </div>
+                    {summary && <span className="portfolio-card__activity-summary" title={summary}>{summary}</span>}
                   </div>
                 ))}
+              </div>
+            )}
+            {nextStep && (
+              <div className="portfolio-card__next-step">
+                <small>Next step{dueDate && <> · <span>Due {dueDate}</span></>}</small>
+                <span title={nextStep}>{nextStep}</span>
+              </div>
+            )}
+            {openLabel && (
+              <div className="portfolio-card__opportunities portfolio-card__opportunities--open">
+                <span>{openLabel}</span>
+                {signal?.amount != null && (
+                  <strong>{currency.format(signal.amount)}</strong>
+                )}
               </div>
             )}
           </div>
@@ -578,6 +592,11 @@ function PortfolioWorklistView({
               load NXT.
             </p>
           </details>
+          {view.density === "detailed" && (
+            <button type="button" onClick={() => changeView({ density: "compact" })}>
+              Use compact cards
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {

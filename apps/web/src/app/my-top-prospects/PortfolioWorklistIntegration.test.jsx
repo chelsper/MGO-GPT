@@ -312,13 +312,13 @@ it("uses saved activity dates in collapsed rows without additional fetches or ch
   expect(screen.getByText("Aug 31, 2026")).toBeVisible();
   expect(screen.getByText("Last action (saved)")).toBeVisible();
   expect(screen.getByText("Sep 10, 2026")).toBeVisible();
-  expect(screen.queryByText("$1,250.75")).not.toBeInTheDocument();
-  expect(screen.queryByText("Called about scholarship")).not.toBeInTheDocument();
+  expect(screen.getByText("$1,250.75")).toBeVisible();
+  expect(screen.getByText("Called about scholarship")).toBeVisible();
   const amy = within(screen.getAllByRole("article")[1]);
   expect(amy.queryByText(/Opportunity data unavailable|No saved next step|Last gift|Last action/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
-  expect(screen.getByText("$1,250.75")).toBeVisible();
-  expect(screen.getByText("Called about scholarship")).toBeVisible();
+  expect(screen.getAllByText("$1,250.75")).toHaveLength(2);
+  expect(screen.getAllByText("Called about scholarship")).toHaveLength(2);
   fireEvent.change(screen.getByLabelText("View"), { target: { value: "detailed" } });
   expect(screen.getByText("Last gift (saved)")).toBeVisible();
   expect(screen.getByText("Aug 31, 2026")).toBeVisible();
@@ -528,8 +528,12 @@ it("filters actual category and solicitor groups without writes, fetching or ran
     categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],
     assignments: [{ blackbaud_constituent_id: "100", category_id: 9 }],
   };
+  Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], { address: "100 Fictional Street", addressCity: "Jacksonville", addressState: "FL" });
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByLabelText("Portfolio category: Planned giving")).toBeVisible();
+  expect(screen.getByText("Jacksonville, FL")).toBeVisible();
+  expect(screen.getByText("100 Fictional Street")).not.toBeVisible();
   fireEvent.change(screen.getByLabelText("View"), {
     target: { value: "focus" },
   });

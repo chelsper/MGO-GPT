@@ -321,6 +321,8 @@ function mapConstituent(constituent) {
       constituent?.address?.formatted_address,
       constituent?.address?.line_1,
     ),
+    addressCity: firstTextValue(constituent?.address?.city),
+    addressState: firstTextValue(constituent?.address?.state),
     requestsNoEmail: constituent?.requests_no_email ?? null,
     fundraiserStatus: constituent?.fundraiser_status || null,
     inactive: constituent?.inactive ?? null,
