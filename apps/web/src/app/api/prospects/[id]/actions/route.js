@@ -14,6 +14,7 @@ import {
 import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
+import { validatePortfolioAction, portfolioActionRejected } from "@/app/api/utils/portfolioActionValidation";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
 
@@ -211,26 +212,30 @@ async function repairProspectBlackbaudConstituentLink({
 
 export async function POST(request, { params }) {
   let writeReceipt = null;
+  let portfolioRequest = false;
   try {
     await ensureAppSchema();
 
     const session = await auth();
     if (!session || !session.user?.email) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ error: "Unauthorized", notSubmitted: true }, { status: 401 });
     }
 
     const context = await getWorkspaceUser(session, request);
     const permissionError = workspaceWritePermissionError(context);
-    if (permissionError) return permissionError;
+    if (permissionError) return Response.json({ ...await permissionError.json(), notSubmitted: true }, { status: permissionError.status });
     const { sessionUser, workspaceUser: user } = context;
     if (!user) {
-      return Response.json({ error: "User not found" }, { status: 404 });
+      return Response.json({ error: "User not found", notSubmitted: true }, { status: 404 });
     }
     const actionAuthor = sessionUser;
     const authUserId = sessionUser?.id || user.id;
 
     const prospectId = params.id;
     const body = await request.json();
+    portfolioRequest = Boolean(body?.portfolioContext);
+    const portfolioError = validatePortfolioAction(body, context, body.portfolioContext?.constituentId);
+    if (portfolioError) return portfolioError;
     const {
       actionDate,
       actionCategory,
@@ -244,12 +249,12 @@ export async function POST(request, { params }) {
     } = body || {};
 
     if (!actionDate) {
-      return Response.json({ error: "Action date is required" }, { status: 400 });
+      return Response.json({ error: "Action date is required", notSubmitted: true }, { status: 400 });
     }
 
     if (!summary?.trim() && !notes?.trim()) {
       return Response.json(
-        { error: "Add a short action summary or notes." },
+        { error: "Add a short action summary or notes.", notSubmitted: true },
         { status: 400 },
       );
     }
@@ -266,8 +271,12 @@ export async function POST(request, { params }) {
 
     const prospect = prospectRows[0] || null;
     if (!prospect) {
-      return Response.json({ error: "Prospect not found" }, { status: 404 });
+      return Response.json({ error: "Prospect not found", notSubmitted: true }, { status: 404 });
     }
+
+    const recipientError = validatePortfolioAction(body, context,
+      prospect.linked_blackbaud_constituent_id || prospect.blackbaud_constituent_id);
+    if (recipientError) return recipientError;
 
     let linkedOpportunity = null;
     if (linkedOpportunityId) {
@@ -289,7 +298,7 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
-      const completedDate = new Date().toISOString().split("T")[0];
+      const completedDate = body.portfolioContext ? actionDate : new Date().toISOString().split("T")[0];
       const attemptedCreateVariants = [];
       let createPreflightContext = null;
       const fundraiserIds = await resolveActionFundraiserIds({
@@ -334,6 +343,9 @@ export async function POST(request, { params }) {
           origin,
           constituentId: linkedBlackbaudConstituentId,
         });
+        if (body.portfolioContext && String(preflightConstituent?.blackbaudConstituentId) !== String(linkedBlackbaudConstituentId)) {
+          return portfolioActionRejected("NXT did not confirm the selected constituent. Nothing was submitted.", 502);
+        }
         createPreflightContext = {
           ...createPreflightContext,
           preflightStatus: preflightConstituent ? "read-ok" : "read-empty",
@@ -341,6 +353,9 @@ export async function POST(request, { params }) {
           preflightLookupId: preflightConstituent?.lookupId || null,
         };
       } catch (preflightError) {
+        if (body.portfolioContext) {
+          return portfolioActionRejected("NXT could not confirm the selected constituent. Nothing was submitted. Check the connection and try again.", 502);
+        }
         const repairedConstituent = await repairProspectBlackbaudConstituentLink({
           userId: user.id,
           prospectId,
@@ -530,26 +545,29 @@ export async function POST(request, { params }) {
     `;
     const savedUpdate = updateRows[0] || null;
 
-    const nextActionText = nextStep?.trim() || null;
-    await sql`
-      UPDATE prospects
-      SET
-        next_action_text = ${nextActionText},
-        next_action_due_date = ${nextActionText ? nextActionDueDate || null : null},
-        next_action_completed_at = ${nextActionText ? null : prospect.next_action_completed_at},
-        updated_at = NOW()
-      WHERE id = ${prospectId}
-    `;
+    // Quick logging must not clear an existing next step or complete its reminder.
+    if (!body.portfolioContext) {
+      const nextActionText = nextStep?.trim() || null;
+      await sql`
+        UPDATE prospects
+        SET
+          next_action_text = ${nextActionText},
+          next_action_due_date = ${nextActionText ? nextActionDueDate || null : null},
+          next_action_completed_at = ${nextActionText ? null : prospect.next_action_completed_at},
+          updated_at = NOW()
+        WHERE id = ${prospectId}
+      `;
 
-    await syncPrimaryPendingAction({
-      ownerUserId: user.id,
-      prospectId: Number(prospectId),
-      constituentId: prospect.constituent_id || null,
-      prospectOpportunityId: linkedOpportunity?.id || null,
-      title: nextActionText,
-      dueDate: nextActionText ? nextActionDueDate || null : null,
-      completedAt: nextActionText ? null : prospect.next_action_completed_at,
-    });
+      await syncPrimaryPendingAction({
+        ownerUserId: user.id,
+        prospectId: Number(prospectId),
+        constituentId: prospect.constituent_id || null,
+        prospectOpportunityId: linkedOpportunity?.id || null,
+        title: nextActionText,
+        dueDate: nextActionText ? nextActionDueDate || null : null,
+        completedAt: nextActionText ? null : prospect.next_action_completed_at,
+      });
+    }
 
     await completeNxtCreateReceipt(writeReceipt);
     return Response.json(
@@ -567,6 +585,7 @@ export async function POST(request, { params }) {
     console.error("Error creating prospect action:", error);
     return Response.json(
       {
+        ...(portfolioRequest ? { notSubmitted: true } : {}),
         error:
           error instanceof Error ? error.message : "Failed to create prospect action",
       },

@@ -22,6 +22,7 @@ import PortfolioTier from "./PortfolioTier";
 import PortfolioMaintenanceIndicator from "@/components/PortfolioMaintenanceIndicator";
 import PortfolioCategoryManagerModal from "./PortfolioCategoryManagerModal";
 import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
+import PortfolioActionPanel from "./PortfolioActionPanel";
 import { AnnualGivingSocietyBadge } from "./ProspectGiving";
 import { nxtProfileLinkStyle } from "./prospectPresentation";
 
@@ -5731,6 +5732,7 @@ export default function MyTopProspectsPage() {
   const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
     useState("");
   const [portfolioFollowUp, setPortfolioFollowUp] = useState(null);
+  const [portfolioLogAction, setPortfolioLogAction] = useState(null);
   const [showPortfolioCategoryManager, setShowPortfolioCategoryManager] =
     useState(false);
   const [portfolioCategoryFeedback, setPortfolioCategoryFeedback] = useState("");
@@ -7661,6 +7663,11 @@ export default function MyTopProspectsPage() {
                     allowNxtSummary={!isLocalPortfolioFallback}
                     onOpenPortfolioNextStep={(person) => openPortfolioFollowUp("next-step", person)}
                     onOpenPortfolioDiscussion={(person) => openPortfolioFollowUp("discussion", person)}
+                    onOpenPortfolioLogAction={(person) => setPortfolioLogAction({
+                      person: { ...person, prospectId: topProspectByConstituentId.get(String(person.constituentId))?.id || null },
+                      viewerId: profileStatus?.user?.id,
+                      workspaceId: activeWorkspaceUserId,
+                    })}
                     isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                     removingSolicitorConstituentId={removingSolicitorConstituentId}
                     annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
@@ -8816,6 +8823,19 @@ export default function MyTopProspectsPage() {
           readOnly={isExecutiveReadOnly}
         />
       )}
+
+      {portfolioLogAction ? <PortfolioActionPanel
+        {...portfolioLogAction}
+        onClose={() => setPortfolioLogAction(null)}
+        onSaved={() => {
+          // Keep filters, pagination, expansion and scroll intact. Cached activity
+          // can refresh on its next normal read without triggering a portfolio sync.
+          queryClient.invalidateQueries({ queryKey: ["prospects", portfolioLogAction.workspaceId], refetchType: "none" });
+          if (portfolioLogAction.person.prospectId) {
+            queryClient.invalidateQueries({ queryKey: ["prospect", portfolioLogAction.person.prospectId], refetchType: "none" });
+          }
+        }}
+      /> : null}
 
       {portfolioFollowUp ? (
         <PortfolioFollowUpModal

@@ -8,6 +8,7 @@ export default function PortfolioCardActions({
   fundraiserLabel,
   onOpenPortfolioNextStep,
   onOpenPortfolioDiscussion,
+  onOpenPortfolioLogAction,
   onAddToTopProspects,
   isAdding,
   isTopProspect,
@@ -79,9 +80,11 @@ export default function PortfolioCardActions({
       >
         Set next step
       </button>
-      <a className="portfolio-actions__button" href={buildPortfolioUpdateHref(person, "action")}>
+      <button type="button" className="portfolio-actions__button"
+        disabled={!onOpenPortfolioLogAction}
+        onClick={() => onOpenPortfolioLogAction?.(person)}>
         Log action
-      </a>
+      </button>
       <div ref={moreRef} className="portfolio-actions__more" onKeyDown={(event) => {
         if (event.key === "Escape" && open) {
           event.preventDefault();

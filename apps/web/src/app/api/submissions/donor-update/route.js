@@ -4,6 +4,7 @@ import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
+import { validatePortfolioAction } from "@/app/api/utils/portfolioActionValidation";
 import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
 import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
 import {
@@ -40,23 +41,27 @@ function getBlackbaudActionConstituentId(payload) {
 
 export async function POST(request) {
   let writeReceipt = null;
+  let portfolioRequest = false;
   try {
     const session = await auth();
     if (!session || !session.user?.email) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ error: "Unauthorized", notSubmitted: true }, { status: 401 });
     }
 
     const context = await getWorkspaceUser(session, request);
     const permissionError = workspaceWritePermissionError(context);
-    if (permissionError) return permissionError;
+    if (permissionError) return Response.json({ ...await permissionError.json(), notSubmitted: true }, { status: permissionError.status });
     const { sessionUser, workspaceUser: user } = context;
     if (!user) {
-      return Response.json({ error: "User not found" }, { status: 404 });
+      return Response.json({ error: "User not found", notSubmitted: true }, { status: 404 });
     }
     const actionAuthor = sessionUser;
     const authUserId = sessionUser?.id || user.id;
 
     const body = await request.json();
+    portfolioRequest = Boolean(body?.portfolioContext);
+    const portfolioError = validatePortfolioAction(body, context, body.blackbaudConstituentId);
+    if (portfolioError) return portfolioError;
     const {
       donorName,
       interactionType,
@@ -75,7 +80,7 @@ export async function POST(request) {
 
     if (!donorName) {
       return Response.json(
-        { error: "Donor name is required" },
+        { error: "Donor name is required", notSubmitted: true },
         { status: 400 },
       );
     }
@@ -94,7 +99,7 @@ export async function POST(request) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
-      const actionDate = new Date().toISOString().split("T")[0];
+      const actionDate = body.portfolioContext ? body.actionDate : new Date().toISOString().split("T")[0];
       const completedDate = actionDate;
       const fundraiserIds = await resolveActionFundraiserIds({
         currentUser: actionAuthor,
@@ -270,6 +275,7 @@ export async function POST(request) {
     console.error("Error creating donor update:", error);
     return Response.json(
       {
+        ...(portfolioRequest ? { notSubmitted: true } : {}),
         error:
           error instanceof Error ? error.message : "Failed to create donor update",
       },

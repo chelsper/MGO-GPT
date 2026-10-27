@@ -33,6 +33,9 @@ import { PORTFOLIO_SORT_OPTIONS, portfolioViewKey } from "@/utils/portfolioWorkl
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   state.queryErrors = {};
   state.queryLoading = {};
   state.profile = {
@@ -92,6 +95,34 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
+});
+
+it.each(["compact", "focus", "detailed"])("logs in a side panel and preserves the %s worklist and focus", async density => {
+  fetch.mockImplementation(async (url, options) => url === "/api/users/profile"
+    ? { ok: true, json: async () => state.profile }
+    : { ok: true, json: async () => ({ blackbaudAction: { verifiedActionId: "812" } }) });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: density } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search portfolio" }), { target: { value: "Zelda" } });
+  const storedView = localStorage.getItem(portfolioViewKey(2, 44));
+  const trigger = screen.getByRole("button", { name: "Log action" });
+  trigger.focus(); fireEvent.click(trigger);
+  const panel = within(screen.getByRole("dialog", { name: "Log action" }));
+  await waitFor(() => expect(panel.getByRole("button", { name: "Save action in NXT" })).toBeEnabled());
+  expect(panel.getByText("Zelda Donor")).toBeVisible();
+  fireEvent.change(panel.getByLabelText("Summary"), { target: { value: "Fictional visit" } });
+  fireEvent.click(panel.getByRole("button", { name: "Save action in NXT" }));
+  await waitFor(() => expect(panel.getByText("Action saved in NXT.")).toBeVisible());
+  expect(fetch.mock.calls[1][0]).toBe("/api/prospects/1/actions");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ portfolioContext: { viewerId: 2, workspaceId: 44, constituentId: "100" } });
+  fireEvent.click(panel.getByRole("button", { name: "Back to portfolio" }));
+  expect(screen.queryByRole("dialog", { name: "Log action" })).toBeNull();
+  expect(trigger).toHaveFocus();
+  expect(screen.getByLabelText("View")).toHaveValue(density);
+  expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toHaveValue("Zelda");
+  expect(localStorage.getItem(portfolioViewKey(2, 44))).toBe(storedView);
+  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it("includes the shared originator control in My Portfolio without automatic NXT attribution reads", () => {
@@ -431,15 +462,12 @@ it("expands the actual portfolio card without fetching; briefing reads are expli
   expect(card.getByText("2 saved open opportunities")).toBeVisible();
   expect(card.getByText("Call about proposal")).toBeVisible();
   expect(
-    card.getByRole("link", { name: "Log action" }),
+    card.getByRole("button", { name: "Log action" }),
   ).toBeVisible();
   fireEvent.click(
     card.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(card.getByRole("link", { name: "Log action" })).toHaveAttribute(
-    "href",
-    expect.stringContaining("blackbaudConstituentId=100"),
-  );
+  expect(card.getByRole("button", { name: "Log action" })).toBeEnabled();
   expect(card.getByRole("button", { name: "Set next step" })).toBeEnabled();
   expect(card.getByRole("link", { name: "Open NXT profile" })).toBeVisible();
   expect(fetch).not.toHaveBeenCalled();
@@ -482,10 +510,7 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
     screen.getByRole("button", { name: "Show details for Amy Donor" }),
   );
   expect(screen.getByText("Recorded lifetime giving is $1,200.00.")).not.toBeVisible();
-  expect(within(screen.getByRole("button", { name: "Hide details for Amy Donor" }).closest("article")).getByRole("link", { name: "Log action" })).toHaveAttribute(
-    "href",
-    expect.stringContaining("blackbaudConstituentId=101"),
-  );
+  expect(within(screen.getByRole("button", { name: "Hide details for Amy Donor" }).closest("article")).getByRole("button", { name: "Log action" })).toBeEnabled();
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
@@ -640,7 +665,7 @@ it.each(["compact", "focus", "detailed"])(
       screen.getByRole("button", { name: "Show details for Zelda Donor" }),
     );
     expect(
-      screen.queryByRole("link", { name: "Log action" }),
+      screen.queryByRole("button", { name: "Log action" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Set next step" }),
@@ -658,7 +683,7 @@ it.each(["compact", "focus", "detailed"])("keeps a single action bar and the ori
   fireEvent.change(screen.getByLabelText("View"), { target: { value: density } });
   const card = within(screen.getByRole("group", { name: "Actions for Zelda Donor" }));
   expect(card.getAllByRole("button", { name: "Set next step" })).toHaveLength(1);
-  expect(card.getAllByRole("link", { name: "Log action" })).toHaveLength(1);
+  expect(card.getAllByRole("button", { name: "Log action" })).toHaveLength(1);
   fireEvent.click(card.getByRole("button", { name: "Set next step" }));
   const nextStep = screen.getByRole("dialog", { name: "Set next step" });
   expect(nextStep).toHaveTextContent("Zelda Donor");
