@@ -4,6 +4,7 @@ export const isReportDashboard = (report) =>
   report?.key === "alumni-family-engagement" ||
   report?.key === "future-made-campaign" ||
   report?.key === "fy-revenue-goals" ||
+  report?.key === "board-of-trustees" ||
   report?.configurationSchema === "query-count-dashboard-v1";
 
 export function visibleDashboards(reports = []) {

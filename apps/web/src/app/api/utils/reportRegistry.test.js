@@ -16,6 +16,11 @@ import {
 } from "./reportRegistry";
 
 describe("report registry", () => {
+  it("registers trustee giving as a restricted shared dashboard", () => {
+    const board = getReportDefinition("board-of-trustees");
+    expect(board).toMatchObject({ title: "Board of Trustees", defaultVisibility: "specific_users", reportType: REPORT_TYPES.QUERY_BASED });
+    expect(getReportHref(board)).toBe("/reports/dashboards/board-of-trustees");
+  });
   it("classifies each built-in report without changing its canonical route", () => {
     expect(getReportDefinition(EXECUTIVE_TEAM_STANDINGS_REPORT_KEY)).toMatchObject({
       title: "Team Standings",

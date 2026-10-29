@@ -4,6 +4,7 @@ import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/repo
 import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
 import { CAMPAIGN_REPORT_KEY } from "@/utils/campaignPriorities";
 import { FY_REVENUE_KEY } from "@/utils/fyRevenueGoals";
+import { BOARD_TRUSTEES_KEY } from "@/utils/boardTrustees";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -185,6 +186,22 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     presentationNoteTone: "info",
   }),
   CAMPAIGN_REPORT_DEFINITION,
+  Object.freeze({
+    key: BOARD_TRUSTEES_KEY,
+    reportType: REPORT_TYPES.QUERY_BASED,
+    adapterKey: BOARD_TRUSTEES_KEY,
+    configurationSchema: "board-of-trustees-v1",
+    configurationSchemaVersion: 1,
+    href: "/reports/dashboards/board-of-trustees",
+    title: "Board of Trustees",
+    description: "Trustee giving by fiscal year, using each year's own NXT query and saved trustee roster.",
+    audienceMode: "shared_snapshot",
+    defaultVisibility: "specific_users",
+    dataConfigurationType: null,
+    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    presentationNote: "Choose viewers here. Configure each fiscal year's Constituent query inside the dashboard, beginning with FY27 query 31092. Viewing saved results never refreshes NXT or changes gifts.",
+    presentationNoteTone: "info",
+  }),
   Object.freeze({
     key: FY_REVENUE_KEY,
     reportType: REPORT_TYPES.QUERY_BASED,

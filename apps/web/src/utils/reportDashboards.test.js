@@ -20,6 +20,8 @@ const alumni = {
 it("identifies dashboard kinds, not all query reports or arbitrary URLs", () => {
   expect(isReportDashboard(alumni)).toBe(true);
   expect(isReportDashboard({ key: "future-made-campaign" })).toBe(true);
+  expect(isReportDashboard({ key: "board-of-trustees" })).toBe(true);
+  expect(getReportHref({ key: "board-of-trustees" })).toBe("/reports/dashboards/board-of-trustees");
   expect(getReportHref({ key: "future-made-campaign" })).toBe("/reports/dashboards/future-made-campaign");
   expect(isReportDashboard(dashboard("custom"))).toBe(true);
   for (const report of [

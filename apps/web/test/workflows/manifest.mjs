@@ -77,6 +77,11 @@ export const workflowGroups = {
     "src/app/api/utils/societyLetterRecovery.test.js",
   ],
   "Dashboard visibility and ownership": [
+    "src/app/api/utils/boardTrustees.test.js",
+    "src/app/api/utils/boardTrusteeEligibility.test.js",
+    "src/utils/boardTrustees.test.js",
+    "src/app/api/reports/board-of-trustees/route.test.js",
+    "src/app/reports/dashboards/board-of-trustees/page.test.jsx",
     "src/components/PersonalDashboard.test.jsx",
     "src/components/ReportDashboardPanels.test.jsx",
     "src/app/api/utils/reportAccess.test.js",
