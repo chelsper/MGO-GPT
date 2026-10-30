@@ -1,8 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import styles from "./relationshipOriginator.module.css";
 
 export default function RelationshipOriginator({ constituentId }) {
+  const contentId = useId();
   const [open, setOpen] = useState(false);
   const [review, setReview] = useState(null);
   const [ownerUserId, setOwnerUserId] = useState("");
@@ -39,10 +41,10 @@ export default function RelationshipOriginator({ constituentId }) {
     finally { setBusy(false); }
   }
   return <section className={styles.originator} aria-label="Relationship originator">
-    <button className={styles.toggle} type="button" aria-expanded={open} onClick={() => {
+    <button className={styles.toggle} type="button" aria-expanded={open} aria-controls={contentId} onClick={() => {
       setOpen(!open); if (!open && !review && !message && !busy) check();
-    }}>Relationship originator <span aria-hidden="true">{open ? "-" : "+"}</span></button>
-    {open && <div className={styles.content}>
+    }}><ChevronRight size={14} className={styles.chevron} aria-hidden="true" />Relationship originator</button>
+    <div id={contentId} className={styles.content} hidden={!open}>{open && <>
       <p>Recognize the fundraiser who introduced this constituent to the organization. This does not change their portfolio assignment.</p>
       {message && <p role="status" className={styles.success}>{message}</p>}
       {error && <p role="alert" className={styles.error}>{error}</p>}
@@ -71,6 +73,6 @@ export default function RelationshipOriginator({ constituentId }) {
         </button>
       </form>}
       <button type="button" className={styles.button} disabled={busy} onClick={check}>Check NXT</button>
-    </div>}
+    </>}</div>
   </section>;
 }
