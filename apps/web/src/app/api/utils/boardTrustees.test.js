@@ -28,14 +28,16 @@ describe("Trustee summary identity and financial safety", () => {
     expect(result.trustees.map(row => row.id)).toEqual(["1", "2", "3"]);
     expect(boardParticipation(result)).toEqual({ total: 3, participants: 1, unknown: 0, rate: 1 / 3 });
   });
-  it("validates the FY26 preset against its own identity, aliases and annual dates", () => {
-    const previousSource = BOARD_DEFAULT_SOURCES[1];
-    const query = { ...boardQueryFixture(2026), id: 31093, name: previousSource.queryName };
-    query.select_fields[1].user_alias = previousSource.columns.cash;
-    query.select_fields[2].user_alias = previousSource.columns.commitments;
-    expect(inspectBoardQuery(query, previousSource, previousSource).suggested).toEqual(previousSource.columns);
-    const result = aggregateBoardCsv(csv("Trustee A,100,0,1\nTrustee B,0,500,2").replaceAll("FY27", "FY26"), previousSource, 2);
+  it.each(BOARD_DEFAULT_SOURCES)("validates $fiscalYear query $queryId against its own identity, aliases and annual dates", preset => {
+    const query = { ...boardQueryFixture(preset.fiscalYear), id: Number(preset.queryId), name: preset.queryName };
+    query.select_fields[1].user_alias = preset.columns.cash;
+    query.select_fields[2].user_alias = preset.columns.commitments;
+    expect(inspectBoardQuery(query, preset, preset).suggested).toEqual(preset.columns);
+    const result = aggregateBoardCsv(csv("Trustee A,100,0,1\nTrustee B,0,500,2")
+      .replaceAll("FY27", `FY${String(preset.fiscalYear).slice(-2)}`), preset, 2);
     expect(boardParticipation(result)).toMatchObject({ participants: 1, total: 2, rate: .5 });
+    query.summary_fields[0].filter_fields[0].filter_values = [`7/1/${preset.fiscalYear}`, `6/30/${preset.fiscalYear + 1}`];
+    expect(() => inspectBoardQuery(query, preset, preset)).toThrow("Gift Date");
   });
   it("never treats a blank amount as zero or publishes a misleading complete total", () => {
     const result = aggregate("Trustee A,,400,1\nTrustee B,100,0,2", 2);
@@ -109,6 +111,19 @@ describe("Trustee summary identity and financial safety", () => {
     expect(boardParticipation(result).rate).toBeNull();
     expect(result.eligibility.needsReview[0]).toMatchObject({ name: "Uncertain Trustee", status: "review" });
   });
+  it("excludes later joiners from historical giving and participation even with a blank end date", () => {
+    const historical = BOARD_DEFAULT_SOURCES.find(item => item.fiscalYear === 2017);
+    const result = aggregateBoardCsv(csv("").replaceAll("FY27", "FY17") + [
+      "Serving Trustee,100,200,1,Trustee,2010,",
+      "Non-Giving Trustee,0,0,2,Trustee,2010,",
+      "Future Joiner,9000,9000,3,Trustee,7/1/2017,",
+      "Future Joiner,9000,9000,3,Trustee-Former,2026,",
+    ].join("\n"), historical, 4);
+    expect(result).toMatchObject({ trusteeCount: 2, cashCents: 10000, commitmentCents: 20000,
+      eligibility: { candidateCount: 3, excludedCount: 1, reviewCount: 0 } });
+    expect(boardParticipation(result)).toMatchObject({ total: 2, participants: 1, rate: .5 });
+    expect(result.eligibility.excluded[0]).toMatchObject({ id: "3", reason: "Trustee service began after this fiscal year" });
+  });
 });
 
 describe("Saved fiscal-year snapshots", () => {
@@ -126,6 +141,15 @@ describe("Saved fiscal-year snapshots", () => {
     expect(publicBoardState(state).years[0]).not.toHaveProperty("updatedBy");
     expect(f.transport.metadata).toHaveBeenCalledTimes(2);
     expect(f.db).toHaveBeenCalledTimes(2);
+  });
+  it("preserves all other years and their saved mappings when refreshing an eleven-year report", async () => {
+    const f = fixture();
+    const years = BOARD_DEFAULT_SOURCES.map(item => ({ source: item, snapshot: { marker: item.fiscalYear } }));
+    f.db.mockReset().mockResolvedValueOnce([{ payload: { revision: "before", years } }]).mockResolvedValue([{ report_key: "saved" }]);
+    const state = await refreshBoardYear(f);
+    expect(state.years).toHaveLength(11);
+    expect(state.years.slice(1)).toEqual(years.slice(1));
+    expect(state.years[0].snapshot).toMatchObject({ trusteeCount: 1, cashCents: 10000 });
   });
   it("upgrades legacy three-column mappings but cannot bypass the new eligibility rule", async () => {
     const f = fixture(); const { name, cash, commitments } = source.columns;

@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_DEFAULT_SOURCES, BOARD_MEMBERSHIP_RULE, boardCashStatus, boardParticipation, boardParticipationChange, boardPercent, boardPointChange, boardYearStage, validateBoardSource } from "./boardTrustees";
+import { BOARD_DEFAULT_SOURCES, BOARD_INITIAL_SOURCE, BOARD_MEMBERSHIP_RULE, BOARD_SERVICE_COLUMNS, boardCashStatus, boardParticipation, boardParticipationChange, boardPercent, boardPointChange, boardYearStage, validateBoardSource } from "./boardTrustees";
 
 const snapshot = (cash, commitments = []) => ({ trusteeCount: cash.length, eligibility: { rule: BOARD_MEMBERSHIP_RULE, reviewCount: 0 },
   trustees: cash.map((cashCents, index) => ({ id: String(index + 1), cashCents, commitmentCents: commitments[index] ?? 0 })) });
 const entry = (year, cash) => ({ source: { fiscalYear: year }, snapshot: snapshot(cash) });
 
 describe("Cash-only trustee participation", () => {
-  it("preconfigures distinct, correctly mapped FY27 and FY26 queries", () => {
-    expect(BOARD_DEFAULT_SOURCES.map(validateBoardSource).map(item => [item.fiscalYear, item.queryId, item.columns.cash]))
-      .toEqual([[2027, "31092", "Total Gifts FY27 (Cash)"], [2026, "31093", "Total Gifts FY26 (Cash)"]]);
+  it("preconfigures every supplied FY17-FY27 query in newest-first order", () => {
+    expect(BOARD_DEFAULT_SOURCES.map(validateBoardSource).map(item => [item.fiscalYear, item.queryId]))
+      .toEqual([[2027, "31092"], [2026, "31093"], [2025, "31094"], [2024, "31095"],
+        [2023, "31096"], [2022, "31097"], [2021, "31098"], [2020, "31099"],
+        [2019, "31100"], [2018, "31101"], [2017, "31102"]]);
+    expect(BOARD_INITIAL_SOURCE).toBe(BOARD_DEFAULT_SOURCES[0]);
+    expect(Object.isFrozen(BOARD_DEFAULT_SOURCES)).toBe(true);
+    for (const source of BOARD_DEFAULT_SOURCES) {
+      const fy = `FY${String(source.fiscalYear).slice(-2)}`;
+      expect(source.queryName).toBe(`${fy} BoT Giving - MGOGPT`);
+      expect(source.columns).toEqual({ name: "Name", cash: `Total Gifts ${fy} (Cash)`,
+        commitments: `Total Pledges or Planned Gifts ${fy}`, ...BOARD_SERVICE_COLUMNS });
+      expect(Object.isFrozen(source)).toBe(true);
+      expect(Object.isFrozen(source.columns)).toBe(true);
+    }
   });
   it("counts positive annual cash only, including one cent but excluding pledges, zero and negative net cash", () => {
     const result = boardParticipation(snapshot([1, 0, -100, 200], [0, 50000, 0, 0]));
@@ -40,6 +52,9 @@ describe("Cash-only trustee participation", () => {
     expect(boardParticipation(data).rate).toBeNull();
     delete data.eligibility;
     expect(boardParticipation(data).rate).toBeNull();
+    data.eligibility = { rule: "trustee-service-six-months-v1", reviewCount: 0 };
+    expect(boardParticipation(data).rate).toBeNull();
+    expect(boardParticipationChange([{ source: { fiscalYear: 2027 }, snapshot: data }, entry(2026, [0])], 2027)).toBeNull();
   });
   it("uses each year's own denominator, comparing unrounded rates in percentage points", () => {
     const entries = [entry(2027, [100, 0, 0]), entry(2026, [100, 0, 0, 0, 0, 0])];
