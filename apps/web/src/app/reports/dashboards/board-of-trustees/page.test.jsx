@@ -45,20 +45,48 @@ it("switches rosters by fiscal year without applying the present roster to the p
   expect(screen.getByText("July 1, 2025 through June 30, 2026")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
 });
-it("preconfigures FY26 query 31093 and never refreshes FY27 when FY26 is selected", async () => {
+it.each(BOARD_DEFAULT_SOURCES.slice(1))("preconfigures $fiscalYear query $queryId without refreshing FY27", async preset => {
+  const year = String(preset.fiscalYear), label = `FY${year.slice(-2)}`;
   render(<Page />); await screen.findByText("Example Trustee");
-  fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: "2026" } });
-  expect(screen.getByText(/FY26 BoT Giving - MGOGPT, query 31093/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: year } });
+  expect(screen.getByText(new RegExp(`${preset.queryName}, query ${preset.queryId}`))).toBeVisible();
   expect(screen.queryByText("Example Trustee")).not.toBeInTheDocument();
   expect(screen.queryByText("0%")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Manage fiscal years" }));
-  expect(screen.getByLabelText("NXT query system record ID")).toHaveValue("31093");
+  expect(screen.getByLabelText("NXT query system record ID")).toHaveValue(preset.queryId);
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.getByLabelText("Fiscal year")).toHaveValue("2026");
-  fetch.mockResolvedValueOnce(json({ ...saved, years: [...saved.years, { source: previousSource, snapshot }] }));
-  fireEvent.click(screen.getByRole("button", { name: "Refresh FY26" }));
+  expect(screen.getByLabelText("Fiscal year")).toHaveValue(year);
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [...saved.years, { source: preset, snapshot }] }));
+  fireEvent.click(screen.getByRole("button", { name: `Refresh ${label}` }));
   await screen.findByText("Example Trustee");
-  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "refresh", input: previousSource, revision: "one" });
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "refresh", input: preset, revision: "one" });
+});
+it("offers all eleven years before refresh without running queries or showing false zeroes", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, revision: null, years: [] }));
+  render(<Page />); await screen.findByRole("button", { name: "Refresh FY27" });
+  expect(within(screen.getByLabelText("Fiscal year")).getAllByRole("option").map(option => option.value))
+    .toEqual(["2027", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017"]);
+  const history = within(screen.getByRole("region", { name: "Fiscal-year comparison table" }));
+  expect(history.getAllByRole("button")).toHaveLength(11);
+  fireEvent.click(history.getByRole("button", { name: "FY17", exact: true }));
+  expect(screen.getByLabelText("Fiscal year")).toHaveValue("2017");
+  expect(screen.getByText("July 1, 2016 through June 30, 2017")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Refresh FY17" })).toBeEnabled();
+  expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("preserves a saved source override rather than replacing it with a newly added default", async () => {
+  const custom = { ...BOARD_DEFAULT_SOURCES.at(-1), queryId: "30000", queryName: "Custom FY17 trustees" };
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [...saved.years, { source: custom, snapshot }] }));
+  render(<Page />); await screen.findByText("Example Trustee");
+  fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: "2017" } });
+  expect(screen.getByText("2 eligible trustees / Custom FY17 trustees / Query 30000")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Manage fiscal years" }));
+  expect(screen.getByLabelText("NXT query system record ID")).toHaveValue("30000");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh FY17" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(fetch.mock.calls[1][1].body).input).toEqual(custom);
 });
 it("shows pledge-only trustees by name without counting them as cash participants", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: { ...snapshot, cashCents: 0, trustees: snapshot.trustees.map(row => ({ ...row, cashCents: 0 })) } }] }));
@@ -150,10 +178,11 @@ it("shows service decisions and the blank Trustee / Former exception without sil
   expect(screen.getByText("Example Trustee")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
 });
-it("requires a refresh before showing old unfiltered snapshots as eligible results", async () => {
-  const oldSnapshot = { ...snapshot }; delete oldSnapshot.eligibility;
+it.each([undefined, "trustee-service-six-months-v1"])("requires a refresh before showing snapshots using outdated rule %s", async rule => {
+  const oldSnapshot = { ...snapshot, eligibility: rule ? { ...snapshot.eligibility, rule } : undefined };
   fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: oldSnapshot }] }));
-  render(<Page />); await screen.findByText(/Previous query-only figures are not shown/);
+  render(<Page />); await screen.findByText(/Previous-rule figures are not shown/);
+  expect(screen.getByText(/including the start-date check/)).toBeVisible();
   expect(screen.queryByText("Example Trustee")).not.toBeInTheDocument();
   expect(screen.queryByText("50%")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh FY27" })).toBeEnabled();

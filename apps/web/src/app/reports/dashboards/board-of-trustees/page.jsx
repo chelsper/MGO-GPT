@@ -18,7 +18,7 @@ function EligibilityDetails({ eligibility }) {
   const pages = Math.max(1, Math.ceil(rows.length / 50)), current = Math.min(page, pages - 1);
   return <details className={styles.details} open={eligibility.reviewCount > 0 ? true : undefined}>
     <summary>Eligibility details: {eligibility.includedCount} included, {eligibility.excludedCount} excluded, {eligibility.reviewCount} need review</summary>
-    <p>Only the Trustee code establishes service. A blank Date To qualifies. A Date To within the selected FY qualifies after at least six calendar months of service in that FY, including the end date. Service ending before the FY is excluded; service continuing past the FY remains eligible. Trustee-Former dates are not used as service dates.</p>
+    <p>Only the Trustee code establishes service. A start date after the selected FY is excluded, even with a blank Date To. Otherwise, a blank Date To qualifies. A Date To within the selected FY qualifies after at least six calendar months of service in that FY, including the end date. Service ending before the FY is excluded; service continuing past the FY remains eligible. Trustee-Former dates are not used as service dates.</p>
     <label>Find an eligibility decision<input type="search" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} placeholder="Name or constituent ID" /></label>
     <div className={styles.tableScroll} tabIndex={0} role="region" aria-label="Trustee eligibility decisions"><table><thead><tr><th scope="col">Trustee</th><th scope="col">Decision</th><th scope="col">Trustee service dates</th><th scope="col">Reason</th></tr></thead><tbody>
       {rows.slice(current * 50, (current + 1) * 50).map(row => <tr key={row.id}><th scope="row">{row.name}<small>Constituent {row.id}</small></th><td>{row.status === "review" ? "Needs review" : "Excluded"}</td>
@@ -114,7 +114,7 @@ export default function BoardTrusteesPage() {
             <button type="button" onClick={() => { setEditing(false); setInspection(null); setDraft(source); }}>Cancel</button></div>
         </fieldset></form><p className={styles.help}>Choose who can view this dashboard in <a href="/report-configurations">Report configurations</a>. Only Admins and Advancement Services can manage sources.</p>
       </section>}
-      {saved?.snapshot && !snapshot && <p role="status" className={styles.notice}>Refresh this fiscal year to apply the updated Trustee service-date rule. Previous query-only figures are not shown as eligible totals.</p>}
+      {saved?.snapshot && !snapshot && <p role="status" className={styles.notice}>Refresh this fiscal year to apply the updated Trustee service-date rule, including the start-date check. Previous-rule figures are not shown as eligible totals.</p>}
       <section className={styles.metrics} aria-label={`${boardYearLabel(year)} giving totals`} aria-busy={busy}>
         <article className={styles.primaryMetric}><p>{boardYearLabel(year)} CASH PARTICIPATION</p><strong>{snapshot ? boardPercent(participation.rate) : "Not refreshed"}</strong>
           <span>{snapshot ? `${participation.participants} of ${participation.total} included trustees with positive cash giving` : "Based on this year's eligible trustees"}</span>
@@ -126,7 +126,7 @@ export default function BoardTrusteesPage() {
         <article><p>PLEDGES &amp; PLANNED GIFT CREDIT</p><strong>{snapshot ? boardMoney(snapshot.commitmentCents) : "Not refreshed"}</strong><span>Separate commitments, not added to cash</span></article>
       </section>
       <nav className={styles.sectionLinks} aria-label="Trustee dashboard sections"><a href="#trustee-names">Trustee names</a><a href="#participation-history">Year-over-year participation</a></nav>
-      <p className={styles.basis}>Cash participation uses eligible trustees only. Blank Trustee end dates are included; end dates within this FY require six or more months of service in this FY.</p>
+      <p className={styles.basis}>Cash participation uses eligible trustees only. Trustees who joined after this FY are excluded, even with a blank end date. Otherwise, blank Trustee end dates are included; end dates within this FY require six or more months of service in this FY.</p>
       {snapshot?.eligibility.reviewCount > 0 && <p role="status" className={styles.notice}>{snapshot.eligibility.reviewCount} service-date decisions need review below. Giving totals and the participation percentage are withheld until eligibility is resolved; confirmed eligible names remain visible.</p>}
       {snapshot?.eligibility.openAndFormerCount > 0 && <p className={styles.notice}>{snapshot.eligibility.openAndFormerCount} included trustees also have a Trustee-Former code. They remain included because their Trustee end date is blank, as specified.</p>}
       {snapshot?.warnings.length > 0 && <details className={styles.notice}><summary>Check roster criteria: some trustees who served during the year may be missing.</summary>

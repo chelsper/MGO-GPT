@@ -1,21 +1,26 @@
 export const BOARD_TRUSTEES_KEY = "board-of-trustees";
-export const BOARD_MEMBERSHIP_RULE = "trustee-service-six-months-v1";
+export const BOARD_MEMBERSHIP_RULE = "trustee-service-six-months-v2";
 export const BOARD_SERVICE_COLUMNS = Object.freeze({ code: "Constituency Code", start: "Constituency Date From", end: "Constituency Date To" });
-export const BOARD_INITIAL_SOURCE = Object.freeze({
-  fiscalYear: 2027,
-  queryId: "31092",
-  queryName: "FY27 BoT Giving - MGOGPT",
-  columns: Object.freeze({ name: "Name", cash: "Total Gifts FY27 (Cash)", commitments: "Total Pledges or Planned Gifts FY27", ...BOARD_SERVICE_COLUMNS }),
-});
 export const BOARD_DEFAULT_SOURCES = Object.freeze([
-  BOARD_INITIAL_SOURCE,
-  Object.freeze({
-    fiscalYear: 2026,
-    queryId: "31093",
-    queryName: "FY26 BoT Giving - MGOGPT",
-    columns: Object.freeze({ name: "Name", cash: "Total Gifts FY26 (Cash)", commitments: "Total Pledges or Planned Gifts FY26", ...BOARD_SERVICE_COLUMNS }),
-  }),
-]);
+  [2027, "31092"],
+  [2026, "31093"],
+  [2025, "31094"],
+  [2024, "31095"],
+  [2023, "31096"],
+  [2022, "31097"],
+  [2021, "31098"],
+  [2020, "31099"],
+  [2019, "31100"],
+  [2018, "31101"],
+  [2017, "31102"],
+].map(([fiscalYear, queryId]) => {
+  const fy = `FY${String(fiscalYear).slice(-2)}`;
+  return Object.freeze({ fiscalYear, queryId, queryName: `${fy} BoT Giving - MGOGPT`,
+    columns: Object.freeze({ name: "Name", cash: `Total Gifts ${fy} (Cash)`,
+      commitments: `Total Pledges or Planned Gifts ${fy}`, ...BOARD_SERVICE_COLUMNS }),
+  });
+}));
+export const BOARD_INITIAL_SOURCE = BOARD_DEFAULT_SOURCES[0];
 
 export const boardError = (message, status = 400) => Object.assign(new Error(message), { boardSafe: true, status });
 export const boardYearLabel = year => `FY${String(year).slice(-2)}`;

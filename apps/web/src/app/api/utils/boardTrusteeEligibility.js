@@ -32,7 +32,12 @@ function exactTerm(start, end, fyStart, fyEnd) {
 
 function termEligibility(term, fyStart, fyEnd) {
   const start = boardDateRange(term.start), end = boardDateRange(term.end);
-  if (!end) return result("included", "Trustee end date is blank");
+  if (!end) {
+    if (start?.invalid) return result("review", "Trustee start date is invalid");
+    if (start?.min > fyEnd) return result("excluded", "Trustee service began after this fiscal year");
+    if (start?.max > fyEnd) return result("review", "Complete Trustee start date is needed to confirm service began by this fiscal year's end");
+    return result("included", "Trustee end date is blank");
+  }
   if (end.invalid) return result("review", "Trustee end date is invalid");
   if (end.max < fyStart) return result("excluded", "Trustee service ended before this fiscal year");
   if (start?.invalid) return result("review", "Trustee start date is invalid");
@@ -50,9 +55,10 @@ export function evaluateBoardService(records, fiscalYear) {
   const terms = records.filter(row => row.code.trim().toLowerCase() === "trustee");
   if (!terms.length) return result("excluded", "No Trustee code returned; Trustee-Former does not establish service dates");
   const fyStart = Date.UTC(fiscalYear - 1, 6, 1), fyEnd = Date.UTC(fiscalYear, 5, 30);
-  // Blank Trustee end dates qualify explicitly, even when Trustee-Former is also present.
-  if (terms.some(term => !term.end.trim())) return result("included", "Trustee end date is blank");
   const decisions = terms.map(term => termEligibility(term, fyStart, fyEnd));
+  // An open term still qualifies alongside Trustee-Former, but never before it began.
+  const openTerm = decisions.find((decision, index) => !terms[index].end.trim() && decision.status === "included");
+  if (openTerm) return openTerm;
   const relevant = terms.filter((term, i) => decisions[i].status !== "excluded" ||
     (boardDateRange(term.end)?.max >= fyStart && boardDateRange(term.start)?.min <= fyEnd));
   const endsByStart = new Map();

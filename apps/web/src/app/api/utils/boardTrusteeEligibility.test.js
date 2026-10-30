@@ -26,6 +26,21 @@ it("uses the selected fiscal year, not today's date, and excludes service outsid
   expect(status("7/1/2027", "1/1/2028", 2027)).toBe("excluded");
   expect(status("2020", "7/1/2027", 2027)).toBe("included");
 });
+it.each([2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027])("excludes open terms beginning after FY%s, including the July 1 boundary", year => {
+  expect(status(`7/1/${year}`, "", year)).toBe("excluded");
+  expect(status(`6/30/${year}`, "", year)).toBe("included");
+  expect(status(`7/${year}`, "", year)).toBe("excluded");
+  expect(status(String(year + 1), "", year)).toBe("excluded");
+  expect(status(`6/${year}`, "", year)).toBe("included");
+  expect(status(String(year), "", year)).toBe("review");
+});
+it("does not let a future open term hide past service or uncertain start dates", () => {
+  expect(status("not a date", "", 2017)).toBe("review");
+  expect(evaluateBoardService([term("7/1/2025", ""), term("2010", "2014")], 2017).status).toBe("excluded");
+  expect(evaluateBoardService([term("7/1/2025", ""), term("2010", "1/31/2017")], 2017).status).toBe("included");
+  expect(evaluateBoardService([term("7/1/2025", ""), term("2010", "12/2016")], 2017).status).toBe("review");
+  expect(evaluateBoardService([term("7/1/2025", ""), term("2010", "", "Trustee-Former")], 2017).status).toBe("excluded");
+});
 it("resolves fuzzy dates only when every possible date leads to the same decision", () => {
   expect(status("", "2008")).toBe("excluded");
   expect(status("", "5/2020")).toBe("excluded");
