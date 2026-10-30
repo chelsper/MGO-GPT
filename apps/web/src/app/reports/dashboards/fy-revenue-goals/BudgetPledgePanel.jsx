@@ -12,13 +12,18 @@ async function request(url = API, options = {}) {
   if (!response.ok) throw Object.assign(new Error(data.error || "Pledge installments could not be loaded."), { status: response.status });
   return data;
 }
-export default function BudgetPledgePanel({ onDataChange } = {}) {
+export default function BudgetPledgePanel({ onDataChange, refreshResult, onRefreshBlockedChange } = {}) {
   const [data, setData] = useState(null), [draft, setDraft] = useState(newSource), [fields, setFields] = useState(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [setup, setSetup] = useState(false), [automatic, setAutomatic] = useState(false);
   const [search, setSearch] = useState(""), [appliedSearch, setAppliedSearch] = useState("");
   const [adjustment, setAdjustment] = useState(null), [savedNotice, setSavedNotice] = useState("");
   const active = useRef(null), working = useRef(false);
   useEffect(() => { onDataChange?.(data); }, [data, onDataChange]);
+  useEffect(() => {
+    if (!refreshResult) return;
+    setData(refreshResult); setDraft(refreshResult.job?.source || refreshResult.source || newSource());
+    setError(""); setSavedNotice(""); setAutomatic(false); setSearch(""); setAppliedSearch("");
+  }, [refreshResult]);
   useEffect(() => {
     const controller = new AbortController(); active.current = controller;
     request(API, { signal: controller.signal }).then(result => { setData(result); setDraft(result.job?.source || result.source || newSource()); })
@@ -61,6 +66,8 @@ export default function BudgetPledgePanel({ onDataChange } = {}) {
   }, [automatic, busy, data]);
   const snapshot = data?.snapshot, job = data?.job, source = job?.source || data?.source;
   const unsaved = Boolean(source && settings(draft) !== settings(source));
+  const refreshBlocked = busy || automatic || setup || unsaved || Boolean(adjustment) || (!data && !error);
+  useEffect(() => { onRefreshBlockedChange?.(refreshBlocked); }, [refreshBlocked, onRefreshBlockedChange]);
   const period = getStandingsPeriods().fiscalYear;
   const staleYear = snapshot && (snapshot.period.startsOn !== period.startsOn || snapshot.period.endsOn !== period.endsOn);
   return <section className={styles.cashPanel} aria-labelledby="budget-pledge-heading">

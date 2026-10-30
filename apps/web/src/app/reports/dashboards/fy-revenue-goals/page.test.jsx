@@ -22,7 +22,7 @@ it("opens saved totals without querying NXT and labels the formula", async () =>
 it("uses a single explicit refresh with saved settings and preserves totals on failure", async () => {
   render(<Page />); await screen.findByText("$900.00");
   fetch.mockResolvedValueOnce(json({ error: "Query unavailable; previous totals are unchanged." }, false));
-  fireEvent.click(screen.getByRole("button", { name: "Refresh totals" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh re-investment totals" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("previous totals");
   expect(screen.getByText("$900.00")).toBeVisible();
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "refresh", revision: "one", input: source });
@@ -51,16 +51,21 @@ it("hides configuration and refresh from shared viewers", async () => {
 it("removes saved figures if access is revoked", async () => {
   render(<Page />); await screen.findByText("$900.00");
   fetch.mockResolvedValueOnce({ ...json({ error: "No longer shared." }, false), status: 403 });
-  fireEvent.click(screen.getByRole("button", { name: "Refresh totals" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh re-investment totals" }));
   await screen.findByRole("alert"); expect(screen.queryByText("$900.00")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Manage source" })).not.toBeInTheDocument();
 });
 it("retains a setup draft and recovers the latest revision after a conflict", async () => {
   render(<Page />); await screen.findByText("$900.00");
   fireEvent.click(screen.getByRole("button", { name: "Manage source" }));
+  fetch.mockResolvedValueOnce(json({ fields: ["System Record ID", "Gift Amount"], queryName: source.queryName, suggested: source.columns }));
+  fireEvent.click(screen.getByRole("button", { name: "Load query fields" }));
+  await waitFor(() => expect(screen.getByLabelText("Gift system record ID")).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Projected re-investment calculation"), { target: { value: "set_aside" } });
+  expect(screen.getByRole("button", { name: "Refresh re-investment totals" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox"));
   fetch.mockResolvedValueOnce(json({ error: "Another refresh finished first. Reload saved totals." }, false));
-  fireEvent.click(screen.getByRole("button", { name: "Refresh totals" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save source and refresh totals" }));
   await screen.findByRole("alert");
   fetch.mockResolvedValueOnce(json({ ...saved, revision: "newer" }));
   fireEvent.click(screen.getByRole("button", { name: "Reload saved totals" }));

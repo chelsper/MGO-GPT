@@ -42,7 +42,7 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
           {expected.aboveGoalCents > 0 && <p className={styles.goalSurplus}>{revenueMoney(expected.aboveGoalCents)} projected above goal</p>}</div>
       </dl>
       <p className={styles.help}>{expected.totalCents === null ? "The projection appears once cash totals and verified installments for this fiscal year are available. " : ""}
-        Expected is not received. The cash total and progress bar above are unchanged. Query 31076 · {refreshed(pledgeSnapshot)}. After payments arrive, refresh both cash and installments to keep the separately saved sources aligned.</p>
+        Expected is not received. The cash total and progress bar above are unchanged. Query 31076 · {refreshed(pledgeSnapshot)}. After payments arrive, use Refresh all dashboard sources to update cash and installments together.</p>
     </section>
     <div className={styles.goalBreakdown}>
       <h3>What counts toward the goal</h3>

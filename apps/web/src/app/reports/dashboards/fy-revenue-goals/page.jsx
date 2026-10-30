@@ -7,6 +7,7 @@ import BudgetCashPanel from "./BudgetCashPanel";
 import UnrestrictedGoalSummary from "./UnrestrictedGoalSummary";
 import BudgetPledgePanel from "./BudgetPledgePanel";
 import ManualCashPanel from "./ManualCashPanel";
+import { refreshRevenueSources } from "@/utils/refreshRevenueSources";
 
 const API = "/api/reports/fy-revenue-goals";
 const initial = { queryId: FY_REVENUE_QUERY_ID, queryName: FY_REVENUE_QUERY_NAME, columns: { giftId: "", amount: "" }, projection: DEFAULT_PROJECTION, confirmed: false };
@@ -23,16 +24,20 @@ export default function FYRevenueGoalsPage() {
   const [busy, setBusy] = useState(false), [setup, setSetup] = useState(null);
   const [cashData, setCashData] = useState(null);
   const [pledgeData, setPledgeData] = useState(null);
+  const [allBusy, setAllBusy] = useState(false), [allProgress, setAllProgress] = useState(""), [allResults, setAllResults] = useState(null);
+  const [cashRefreshResult, setCashRefreshResult] = useState(null), [pledgeRefreshResult, setPledgeRefreshResult] = useState(null);
+  const [cashBlocked, setCashBlocked] = useState(true), [pledgeBlocked, setPledgeBlocked] = useState(true), [manualBlocked, setManualBlocked] = useState(false);
+  const allActive = useRef(null), allWorking = useRef(false);
   const active = useRef(null);
   useEffect(() => {
     const controller = new AbortController(); active.current = controller;
     request({ signal: controller.signal }).then(result => {
       setData(result); setDraft(result.source || initial);
     }).catch(e => { if (e.name !== "AbortError") setError(e.message); });
-    return () => active.current?.abort();
+    return () => { active.current?.abort(); allActive.current?.abort(); };
   }, []);
   async function command(operation, source) {
-    if (busy) return;
+    if (busy || allWorking.current) return;
     setBusy(true); setError("");
     const controller = new AbortController(); active.current = controller;
     try {
@@ -60,17 +65,60 @@ export default function FYRevenueGoalsPage() {
   }
   const snapshot = data?.snapshot;
   const editing = setup ?? !data?.source;
+  const unsaved = Boolean(data?.source && JSON.stringify(draft) !== JSON.stringify(data.source));
+  const refreshBlocked = busy || editing || unsaved || cashBlocked || pledgeBlocked || manualBlocked;
+  async function refreshAll() {
+    if (allWorking.current || refreshBlocked || !data?.canManage) return;
+    allWorking.current = true; setAllBusy(true); setAllResults(null); setError("");
+    const controller = new AbortController(); allActive.current = controller;
+    try {
+      const results = await refreshRevenueSources({ signal: controller.signal,
+        onProgress: progress => setAllProgress(progress.message),
+        onData: (key, result) => {
+          if (key === "reinvestment") { setData(result); setDraft(result.source || initial); }
+          if (key === "cash") { setCashData(result); setCashRefreshResult(result); }
+          if (key === "pledges") { setPledgeData(result); setPledgeRefreshResult(result); }
+        },
+      });
+      setAllResults(results);
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        setError(e.message);
+        if ([401, 403].includes(e.status)) {
+          setData(null); setCashData(null); setPledgeData(null); setDraft(initial); setFields(null);
+          setCashRefreshResult(null); setPledgeRefreshResult(null);
+        }
+      }
+    } finally {
+      allWorking.current = false;
+      if (!controller.signal.aborted) { setAllBusy(false); setAllProgress(""); }
+    }
+  }
   const mode = data?.source?.projection || DEFAULT_PROJECTION;
   const formula = mode === "remaining" ? "Eligible gifts received minus 10% (90% remaining)" : "Eligible gifts received multiplied by 10% (amount set aside)";
   return <main className={styles.page}><div className={styles.content}>
     <SharedReportHeader compact activeReportKey={FY_REVENUE_KEY} reportSection="dashboards"
       title={data?.title || "FY Revenue Goals"} description="Cash received, expected pledge installments, and progress toward the unrestricted revenue goal."
-      dashboardSwitchDisabled={busy} action={data?.canManage && <button disabled={busy} aria-expanded={editing} aria-controls="revenue-source" onClick={() => setSetup(!editing)}>Manage source</button>} />
+      dashboardSwitchDisabled={busy || allBusy} action={data?.canManage && <button disabled={busy || allBusy} aria-expanded={editing} aria-controls="revenue-source" onClick={() => setSetup(!editing)}>Manage source</button>} />
     {error && <div role="alert" className={styles.error}>{error} <button disabled={busy} onClick={() => command("reload")}>Reload saved totals</button></div>}
     {!data ? <p role="status">{error ? "Dashboard unavailable." : "Loading saved totals..."}</p> : <>
+      {data.canManage && <section className={styles.refreshAll} aria-label="Refresh dashboard sources">
+        <div className={styles.cashHeader}><div><h2>Keep dashboard totals current</h2>
+          <p>Refresh re-investment, budget-relieving cash, and pledge installments together. Manual cash entries stay unchanged. Nothing is written to NXT.</p></div>
+          <button className={styles.primary} disabled={allBusy || refreshBlocked} onClick={refreshAll}>
+            {allBusy ? "Refreshing dashboard sources..." : "Refresh all dashboard sources"}</button></div>
+        {refreshBlocked && !allBusy && <p className={styles.help}>Finish current work and close source settings or edit forms before refreshing all sources.</p>}
+        {allBusy && <p role="status">{allProgress} Keep this page open until the checks finish. Saved totals stay visible.</p>}
+        {allResults && <div role="status"><strong>{allResults.every(result => result.status === "updated")
+          ? "All three dashboard sources updated." : `${allResults.filter(result => result.status === "updated").length} of 3 sources updated. Review the details below.`}</strong>
+          <ul>{allResults.map(result => <li key={result.key}><strong>{result.label}</strong> (query {result.queryId}): {result.message}</li>)}</ul>
+          {allResults.some(result => ["error", "attention"].includes(result.status)) && <p>Sources may have different refresh dates. Check those dates before using the combined goal projection.</p>}
+        </div>}
+      </section>}
+      <fieldset className={styles.refreshLock} disabled={allBusy}>
       <UnrestrictedGoalSummary config={data.goal} reinvestmentSnapshot={snapshot} cashSnapshot={cashData?.snapshot} pledgeSnapshot={pledgeData?.snapshot} />
-      <div className={styles.status}><p>{snapshot ? `Last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}` : "Ready to connect your first revenue source."}</p>
-        {data.canManage && data.source && <button disabled={busy} onClick={() => command("refresh", data.source)}>{busy ? "Working..." : "Refresh totals"}</button>}</div>
+      <div className={styles.status}><p>{snapshot ? `Re-investment last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}` : "Ready to connect your first revenue source."}</p>
+        {data.canManage && data.source && <button disabled={busy || unsaved} onClick={() => command("refresh", data.source)}>{busy ? "Working..." : "Refresh re-investment totals"}</button>}</div>
       <section id="reinvestment-totals" aria-label="Gift re-investment totals" className={styles.metrics} aria-busy={busy}>
         <article className={styles.metric}><p className={styles.eyebrow}>ELIGIBLE REVENUE</p><h2>{REVENUE_LABEL}</h2>
           <strong className={styles.amount}>{revenueMoney(snapshot?.receivedCents)}</strong>
@@ -104,9 +152,10 @@ export default function FYRevenueGoalsPage() {
         </form><p className={styles.help}>The previous successful totals stay visible while refreshing. Source settings and new totals are saved together only after all rows pass validation. Manage viewers in <a href="/report-configurations">Report configurations</a>.</p>
       </section>}
       {busy && <p role="status">Working with the shared reporting account. Previous totals stay visible; no NXT gifts are changed.</p>}
-      <BudgetCashPanel onDataChange={setCashData} />
-      <BudgetPledgePanel onDataChange={setPledgeData} />
-      <ManualCashPanel config={data.goal} canManage={data.canManage} onChange={goal => setData(previous => previous ? { ...previous, goal } : previous)} />
+      <BudgetCashPanel onDataChange={setCashData} refreshResult={cashRefreshResult} onRefreshBlockedChange={setCashBlocked} />
+      <BudgetPledgePanel onDataChange={setPledgeData} refreshResult={pledgeRefreshResult} onRefreshBlockedChange={setPledgeBlocked} />
+      <ManualCashPanel config={data.goal} canManage={data.canManage} onRefreshBlockedChange={setManualBlocked} onChange={goal => setData(previous => previous ? { ...previous, goal } : previous)} />
+      </fieldset>
     </>}
   </div></main>;
 }

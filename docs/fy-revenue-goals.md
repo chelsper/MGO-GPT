@@ -84,6 +84,16 @@ The user confirmed all three fixed contributions are separate from query 31075. 
 
 Validation: 117 focused tests passed, including actual page/panel refresh integration and isolated PostgreSQL source checks. Full suite: **7,093 passed / 192 existing environment-dependent skips**. Typecheck and production build passed. Fictional browser previews checked at desktop, 390px, and 320px widths; live cash totals were not fetched or changed.
 
+## Refresh All Sources (October 30, 2026)
+
+The new **Refresh all dashboard sources** control is for Admins and Advancement Services. It reads each source's latest saved settings and revision, then refreshes query 31074 (re-investment), 31075 (budget-relieving cash), and 31076 (pledge installments) sequentially through their existing endpoints. It does not change mappings, manual cash entries, installment adjustments, query criteria, or NXT records. The previous ambiguous **Refresh totals** label is now **Refresh re-investment totals**; individual panel refreshes remain available.
+
+The page shows progress and a per-source outcome. Existing running pledge jobs resume from their checkpoint; a new pledge refresh continues in small batches until completed. Paused or blocked jobs retain their previous complete totals and show an actionable notice rather than being reported as updated. Provider pauses are respected. Ordinary source errors do not prevent other sources from refreshing; authorization loss stops the run and clears the displayed data. Unconnected sources are explicitly skipped, not treated as zero. Each source still publishes separately, so partial completion displays a warning to check refresh dates before using the combined projection.
+
+Refresh all is disabled during current panel work, open source editors, unsaved mapping changes, installment adjustments, and manual cash edits. While it runs, dashboard forms are disabled to prevent competing actions. Keep the page open until completion; leaving aborts browser requests, but any already-saved totals or pledge checkpoint remain recoverable. There is no automatic refresh on page load and no new backend endpoint, database migration, or scheduled task.
+
+The offline workflow gate includes source-orchestration tests plus FY Revenue Goals page/panel integration tests for successful completion, partial errors, missing sources, permission loss, duplicate clicks, unsaved edits, pledge continuation/resumption, provider pauses, and cancellation.
+
 ## Fund-Name Editing Correction
 
 Deployed with the FY27 goal summary on October 19, 2026. Correct standard names are **JU Parents Fund** and **Future. Rising. Scholarship Fund**. Saved source names now control the main breakdown and included-fund group labels instead of hard-coded labels. Existing custom mappings are preserved. An explicit Use corrected standard names button offers replacement of the original defaults only; changes still require confirmation and Save cash source and refresh.
