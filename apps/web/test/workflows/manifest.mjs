@@ -77,6 +77,13 @@ export const workflowGroups = {
     "src/app/api/utils/societyLetterRecovery.test.js",
   ],
   "Dashboard visibility and ownership": [
+    "src/utils/refreshRevenueSources.test.js",
+    "src/app/reports/dashboards/fy-revenue-goals/page.test.jsx",
+    "src/app/reports/dashboards/fy-revenue-goals/goal.integration.test.jsx",
+    "src/app/reports/dashboards/fy-revenue-goals/BudgetCashPanel.test.jsx",
+    "src/app/reports/dashboards/fy-revenue-goals/BudgetPledgePanel.test.jsx",
+    "src/app/reports/dashboards/fy-revenue-goals/ManualCashPanel.test.jsx",
+    "src/app/reports/dashboards/fy-revenue-goals/UnrestrictedGoalSummary.test.jsx",
     "src/app/api/utils/boardTrustees.test.js",
     "src/app/api/utils/boardTrusteeEligibility.test.js",
     "src/utils/boardTrustees.test.js",

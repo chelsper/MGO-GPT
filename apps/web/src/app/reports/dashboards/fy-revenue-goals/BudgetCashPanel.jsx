@@ -11,12 +11,16 @@ async function request(options) {
   if (!response.ok) throw Object.assign(new Error(data.error || "Budget cash totals could not be loaded."), { status: response.status });
   return data;
 }
-export default function BudgetCashPanel({ onDataChange } = {}) {
+export default function BudgetCashPanel({ onDataChange, refreshResult, onRefreshBlockedChange } = {}) {
   const [data, setData] = useState(null), [draft, setDraft] = useState(newSource), [fields, setFields] = useState(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [setup, setSetup] = useState(false);
   const [notice, setNotice] = useState("");
   const active = useRef(null);
   useEffect(() => { onDataChange?.(data); }, [data, onDataChange]);
+  useEffect(() => {
+    if (!refreshResult) return;
+    setData(refreshResult); setDraft(refreshResult.source || newSource()); setError(""); setNotice("");
+  }, [refreshResult]);
   useEffect(() => {
     const controller = new AbortController(); active.current = controller;
     request({ signal: controller.signal }).then(result => { setData(result); setDraft(result.source || newSource()); })
@@ -55,6 +59,8 @@ export default function BudgetCashPanel({ onDataChange } = {}) {
   const groupLabel = key => data?.source?.fundNames?.[key] || BUDGET_CASH_GROUPS.find(group => group.key === key)?.label;
   const settings = source => JSON.stringify(source && { mode: source.mode, queryName: source.queryName, columns: source.columns, fundNames: source.fundNames });
   const unsaved = Boolean(data?.source && settings(draft) !== settings(data.source));
+  const refreshBlocked = busy || setup || unsaved || (!data && !error);
+  useEffect(() => { onRefreshBlockedChange?.(refreshBlocked); }, [refreshBlocked, onRefreshBlockedChange]);
   const correctedNames = correctedBudgetFundNames(draft.fundNames);
   const hasNameCorrections = JSON.stringify(correctedNames) !== JSON.stringify(draft.fundNames);
   const returnedNames = [...new Set((snapshot?.funds || []).map(fund => fund.name))].sort((a, b) => a.localeCompare(b));

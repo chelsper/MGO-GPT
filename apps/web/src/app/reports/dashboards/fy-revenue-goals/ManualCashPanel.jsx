@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { revenueMoney } from "@/utils/fyRevenueGoals";
 import { installmentDateLabel } from "@/utils/fyBudgetPledges";
 import styles from "./revenue.module.css";
 
 const API = "/api/reports/fy-revenue-goals/manual-cash";
 const blank = () => ({ key: null, label: "", amount: "", receivedDate: "", reason: "", confirmed: false });
-export default function ManualCashPanel({ config, canManage, onChange }) {
+export default function ManualCashPanel({ config, canManage, onChange, onRefreshBlockedChange }) {
   const [draft, setDraft] = useState(null), [operation, setOperation] = useState("save");
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const refreshBlocked = busy || Boolean(draft);
+  useEffect(() => { onRefreshBlockedChange?.(refreshBlocked); }, [refreshBlocked, onRefreshBlockedChange]);
   const manual = config?.manual;
   if (!manual) return null;
   const active = manual.entries.filter(item => !item.archived), archived = manual.entries.filter(item => item.archived);
