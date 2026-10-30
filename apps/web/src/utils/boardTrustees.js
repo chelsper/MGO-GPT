@@ -1,5 +1,5 @@
 export const BOARD_TRUSTEES_KEY = "board-of-trustees";
-export const BOARD_MEMBERSHIP_RULE = "trustee-service-six-months-v2";
+export const BOARD_MEMBERSHIP_RULE = "trustee-service-six-months-v3";
 export const BOARD_SERVICE_COLUMNS = Object.freeze({ code: "Constituency Code", start: "Constituency Date From", end: "Constituency Date To" });
 export const BOARD_DEFAULT_SOURCES = Object.freeze([
   [2027, "31092"],
@@ -29,15 +29,20 @@ export const boardMoney = cents => Number.isSafeInteger(cents)
   ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100) : "Not reported";
 export const boardPercent = rate => rate === null ? "Unavailable" :
   new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 }).format(rate);
-export const boardCashStatus = row => !Number.isSafeInteger(row.cashCents) ? "Cash not reported" :
-  row.cashCents > 0 ? "Participating" : "No positive cash";
+export function boardParticipationStatus(row) {
+  const amounts = [row.cashCents, row.commitmentCents];
+  // Either positive summary proves participation, even if the other is missing or negative.
+  if (amounts.some(amount => Number.isSafeInteger(amount) && amount > 0)) return "Participating";
+  return amounts.every(Number.isSafeInteger) ? "Not participating" : "Giving not reported";
+}
 export const boardSnapshotIsCurrent = snapshot => snapshot?.eligibility?.rule === BOARD_MEMBERSHIP_RULE;
 
 export function boardParticipation(snapshot) {
   if (!snapshot) return { total: null, participants: null, unknown: 0, rate: null };
   const total = snapshot.trustees.length;
-  const participants = snapshot.trustees.filter(row => Number.isSafeInteger(row.cashCents) && row.cashCents > 0).length;
-  const unknown = snapshot.trustees.filter(row => !Number.isSafeInteger(row.cashCents)).length;
+  const statuses = snapshot.trustees.map(boardParticipationStatus);
+  const participants = statuses.filter(status => status === "Participating").length;
+  const unknown = statuses.filter(status => status === "Giving not reported").length;
   return { total, participants, unknown,
     rate: boardSnapshotIsCurrent(snapshot) && !snapshot.eligibility.reviewCount && total > 0 && total === snapshot.trusteeCount && !unknown ? participants / total : null };
 }
@@ -45,7 +50,7 @@ export function boardParticipation(snapshot) {
 export function boardParticipationChange(entries, fiscalYear) {
   const rate = boardParticipation(entries.find(entry => entry.source.fiscalYear === fiscalYear)?.snapshot).rate;
   const previous = boardParticipation(entries.find(entry => entry.source.fiscalYear === fiscalYear - 1)?.snapshot).rate;
-  // Compare unrounded rates, and only adjacent fiscal years with complete cash data.
+  // Compare unrounded rates, and only adjacent years with known participation for every trustee.
   return rate === null || previous === null ? null : (rate - previous) * 100;
 }
 

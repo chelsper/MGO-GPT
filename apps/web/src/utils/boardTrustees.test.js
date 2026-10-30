@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_DEFAULT_SOURCES, BOARD_INITIAL_SOURCE, BOARD_MEMBERSHIP_RULE, BOARD_SERVICE_COLUMNS, boardCashStatus, boardParticipation, boardParticipationChange, boardPercent, boardPointChange, boardYearStage, validateBoardSource } from "./boardTrustees";
+import { BOARD_DEFAULT_SOURCES, BOARD_INITIAL_SOURCE, BOARD_MEMBERSHIP_RULE, BOARD_SERVICE_COLUMNS, boardParticipationStatus, boardParticipation, boardParticipationChange, boardPercent, boardPointChange, boardYearStage, validateBoardSource } from "./boardTrustees";
 
 const snapshot = (cash, commitments = []) => ({ trusteeCount: cash.length, eligibility: { rule: BOARD_MEMBERSHIP_RULE, reviewCount: 0 },
-  trustees: cash.map((cashCents, index) => ({ id: String(index + 1), cashCents, commitmentCents: commitments[index] ?? 0 })) });
-const entry = (year, cash) => ({ source: { fiscalYear: year }, snapshot: snapshot(cash) });
+  trustees: cash.map((cashCents, index) => ({ id: String(index + 1), cashCents, commitmentCents: index < commitments.length ? commitments[index] : 0 })) });
+const entry = (year, cash, commitments) => ({ source: { fiscalYear: year }, snapshot: snapshot(cash, commitments) });
 
-describe("Cash-only trustee participation", () => {
+describe("Trustee cash, pledge and planned-gift participation", () => {
   it("preconfigures every supplied FY17-FY27 query in newest-first order", () => {
     expect(BOARD_DEFAULT_SOURCES.map(validateBoardSource).map(item => [item.fiscalYear, item.queryId]))
       .toEqual([[2027, "31092"], [2026, "31093"], [2025, "31094"], [2024, "31095"],
@@ -22,20 +22,36 @@ describe("Cash-only trustee participation", () => {
       expect(Object.isFrozen(source.columns)).toBe(true);
     }
   });
-  it("counts positive annual cash only, including one cent but excluding pledges, zero and negative net cash", () => {
-    const result = boardParticipation(snapshot([1, 0, -100, 200], [0, 50000, 0, 0]));
-    expect(result).toEqual({ total: 4, participants: 2, unknown: 0, rate: .5 });
-    expect(boardPercent(result.rate)).toBe("50%");
-    expect(boardCashStatus({ cashCents: 0, commitmentCents: 50000 })).toBe("No positive cash");
+  it("counts cash-only, pledge/planned-gift-only and both once, excluding zero and negative summaries", () => {
+    const result = boardParticipation(snapshot([1, 0, -100, 200, 0], [0, 50000, 0, 10000, 0]));
+    expect(result).toEqual({ total: 5, participants: 3, unknown: 0, rate: .6 });
+    expect(boardPercent(result.rate)).toBe("60%");
+    expect(boardParticipationStatus({ cashCents: 0, commitmentCents: 50000 })).toBe("Participating");
+    expect(boardParticipationStatus({ cashCents: 0, commitmentCents: 0 })).toBe("Not participating");
+  });
+  it("never offsets positive participation against a negative summary in the other category", () => {
+    expect(boardParticipation(snapshot([1, -1000, -1], [-1000, 1, -1])))
+      .toEqual({ total: 3, participants: 2, unknown: 0, rate: 2 / 3 });
   });
   it("does not let missing commitments block known cash participation", () => {
     const data = snapshot([100, 0]); data.trustees[0].commitmentCents = null;
     expect(boardParticipation(data).rate).toBe(.5);
-    expect(boardCashStatus(data.trustees[0])).toBe("Participating");
+    expect(boardParticipationStatus(data.trustees[0])).toBe("Participating");
   });
-  it.each([null, undefined, NaN, "100"])("withholds the percentage for unreported cash (%s), rather than assuming zero", cash => {
+  it.each([null, undefined, NaN, "100", Infinity, Number.MAX_SAFE_INTEGER + 1])("withholds the percentage for unreported cash (%s) with no positive commitment", cash => {
     expect(boardParticipation(snapshot([100, cash]))).toEqual({ total: 2, participants: 1, unknown: 1, rate: null });
-    expect(boardCashStatus({ cashCents: cash })).toBe("Cash not reported");
+    expect(boardParticipationStatus({ cashCents: cash, commitmentCents: 0 })).toBe("Giving not reported");
+  });
+  it.each([null, undefined, NaN, "100", Infinity, Number.MAX_SAFE_INTEGER + 1])("withholds the percentage for unreported commitments (%s) with no positive cash", commitment => {
+    expect(boardParticipation(snapshot([0, -1, 100], [commitment, commitment, commitment])))
+      .toEqual({ total: 3, participants: 1, unknown: 2, rate: null });
+  });
+  it("counts known positive commitments despite missing cash, without changing saved amounts", () => {
+    const data = snapshot([null, 0, 1], [100, 1, null]);
+    const before = structuredClone(data);
+    expect(boardParticipation(data)).toEqual({ total: 3, participants: 3, unknown: 0, rate: 1 });
+    expect(data).toEqual(before);
+    expect(boardParticipation(snapshot([null], [null]))).toEqual({ total: 1, participants: 0, unknown: 1, rate: null });
   });
   it("distinguishes no data, empty rosters, 0% and 100%", () => {
     expect(boardParticipation(null).rate).toBeNull();
@@ -52,9 +68,11 @@ describe("Cash-only trustee participation", () => {
     expect(boardParticipation(data).rate).toBeNull();
     delete data.eligibility;
     expect(boardParticipation(data).rate).toBeNull();
-    data.eligibility = { rule: "trustee-service-six-months-v1", reviewCount: 0 };
-    expect(boardParticipation(data).rate).toBeNull();
-    expect(boardParticipationChange([{ source: { fiscalYear: 2027 }, snapshot: data }, entry(2026, [0])], 2027)).toBeNull();
+    for (const rule of ["trustee-service-six-months-v1", "trustee-service-six-months-v2"]) {
+      data.eligibility = { rule, reviewCount: 0 };
+      expect(boardParticipation(data).rate).toBeNull();
+      expect(boardParticipationChange([{ source: { fiscalYear: 2027 }, snapshot: data }, entry(2026, [0])], 2027)).toBeNull();
+    }
   });
   it("uses each year's own denominator, comparing unrounded rates in percentage points", () => {
     const entries = [entry(2027, [100, 0, 0]), entry(2026, [100, 0, 0, 0, 0, 0])];
@@ -68,6 +86,14 @@ describe("Cash-only trustee participation", () => {
     expect(boardParticipationChange([entry(2027, [100]), entry(2026, [null])], 2027)).toBeNull();
     expect(boardParticipationChange([entry(2027, []), entry(2026, [0])], 2027)).toBeNull();
     expect(boardParticipationChange([entry(2027, [100]), entry(2026, [0])], 2027)).toBe(100);
+  });
+  it("includes pledges and planned gifts in both sides of year-over-year comparisons", () => {
+    const entries = [entry(2027, [100, 0, 0], [100, 100, 0]), entry(2026, [0, 100], [100, 0])];
+    expect(boardParticipation(entries[0].snapshot).participants).toBe(2);
+    expect(boardParticipation(entries[1].snapshot).participants).toBe(2);
+    expect(boardPointChange(boardParticipationChange(entries, 2027))).toBe("-33.3 percentage points");
+    entries[1].snapshot.trustees[0].commitmentCents = null;
+    expect(boardParticipationChange(entries, 2027)).toBeNull();
   });
   it("labels saved coverage, not today's date, using the Eastern fiscal-year boundary", () => {
     expect(boardYearStage(2027, "2026-10-29T12:00:00Z")).toBe("Year to date");

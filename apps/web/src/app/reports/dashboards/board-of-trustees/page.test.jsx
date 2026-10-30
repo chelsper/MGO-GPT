@@ -23,7 +23,7 @@ it("opens saved credit totals and a searchable roster without executing NXT", as
   expect(screen.getByText("Review membership dates in the query.")).toBeVisible();
   const totals = within(screen.getByRole("region", { name: "FY27 giving totals" }));
   expect(totals.getByText("50%")).toBeVisible();
-  expect(totals.getByText("1 of 2 included trustees with positive cash giving")).toBeVisible();
+  expect(totals.getByText("1 of 2 eligible trustees gave cash, pledged or made a planned gift")).toBeVisible();
   fireEvent.change(screen.getByLabelText("Find a trustee"), { target: { value: "Zero" } });
   expect(screen.queryByText("Example Trustee")).not.toBeInTheDocument();
   expect(totals.getByText("$1,000.00")).toBeVisible();
@@ -88,13 +88,57 @@ it("preserves a saved source override rather than replacing it with a newly adde
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(JSON.parse(fetch.mock.calls[1][1].body).input).toEqual(custom);
 });
-it("shows pledge-only trustees by name without counting them as cash participants", async () => {
+it("counts pledge/planned-gift-only trustees from existing saved data without a refresh or inflating cash", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: { ...snapshot, cashCents: 0, trustees: snapshot.trustees.map(row => ({ ...row, cashCents: 0 })) } }] }));
   render(<Page />); await screen.findByText("Example Trustee");
-  expect(within(screen.getByRole("region", { name: "FY27 giving totals" })).getByText("0%")).toBeVisible();
+  const totals = within(screen.getByRole("region", { name: "FY27 giving totals" }));
+  expect(totals.getByText("50%")).toBeVisible();
+  expect(totals.getByText("$0.00")).toBeVisible();
+  expect(totals.getByText("$4,000.00")).toBeVisible();
   const row = screen.getByText("Example Trustee").closest("tr");
   expect(within(row).getByText("$4,000.00")).toBeVisible();
-  expect(within(row).getByText("No positive cash")).toBeVisible();
+  expect(within(row).getByText("Participating")).toBeVisible();
+  expect(within(screen.getByText("Zero Giving Trustee").closest("tr")).getByText("Not participating")).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][1].method).toBeUndefined();
+});
+it("uses the same inclusive participation rule in the yearly comparison and selected-year card", async () => {
+  const previous = { ...snapshot, trusteeCount: 3, trustees: [
+    { id: "3", name: "Cash Trustee", cashCents: 100, commitmentCents: 0 },
+    { id: "4", name: "Planned Gift Trustee", cashCents: 0, commitmentCents: 100 },
+    { id: "5", name: "Both Trustee", cashCents: 100, commitmentCents: 100 },
+  ] };
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [...saved.years, { source: previousSource, snapshot: previous }] }));
+  render(<Page />); await screen.findByText("Example Trustee");
+  expect(screen.getByText("-50 percentage points vs FY26")).toBeVisible();
+  const history = within(screen.getByRole("region", { name: "Fiscal-year comparison table" }));
+  const fy26 = within(history.getByRole("button", { name: "FY26", exact: true }).closest("tr"));
+  expect(fy26.getByText("3 / 3")).toBeVisible(); expect(fy26.getByText("100%")).toBeVisible();
+  fireEvent.click(history.getByRole("button", { name: "FY26", exact: true }));
+  expect(within(screen.getByRole("region", { name: "FY26 giving totals" })).getByText("100%")).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Trustee giving table" })).getAllByText("Participating")).toHaveLength(3);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("keeps participation known when positive commitments prove it despite an unreported cash total", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: { ...snapshot, cashCents: null, missingAmountCount: 1,
+    trustees: snapshot.trustees.map(row => row.id === "1" ? { ...row, cashCents: null } : row) } }] }));
+  render(<Page />); await screen.findByText("Example Trustee");
+  const totals = within(screen.getByRole("region", { name: "FY27 giving totals" }));
+  expect(totals.getByText("50%")).toBeVisible(); expect(totals.getByText("Not reported")).toBeVisible();
+  expect(screen.queryByText(/Participation unknown/)).not.toBeInTheDocument();
+  expect(within(screen.getByText("Example Trustee").closest("tr")).getByText("Participating")).toBeVisible();
+});
+it("withholds participation when commitments are unreported and cash does not establish participation", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: { ...snapshot, commitmentCents: null, missingAmountCount: 1,
+    trustees: snapshot.trustees.map(row => row.id === "2" ? { ...row, commitmentCents: null } : row) } }] }));
+  render(<Page />); await screen.findByText("Example Trustee");
+  const totals = within(screen.getByRole("region", { name: "FY27 giving totals" }));
+  expect(totals.getByText("Unavailable")).toBeVisible(); expect(totals.getByText("$1,000.00")).toBeVisible();
+  expect(totals.getByText("Participation unknown for 1 trustee; percentage withheld")).toBeVisible();
+  expect(within(screen.getByText("Zero Giving Trustee").closest("tr")).getByText("Giving not reported")).toBeVisible();
+  const history = within(screen.getByRole("region", { name: "Fiscal-year comparison table" }));
+  const fy27 = within(history.getByRole("button", { name: "FY27", exact: true }).closest("tr"));
+  expect(fy27.getByText("1 / 2 (1 unknown)")).toBeVisible();
+  expect(fy27.queryByText("50%")).not.toBeInTheDocument();
 });
 it("starts with FY27 query 31092, distinguishing unrefreshed from zero", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, revision: null, years: [] }));
@@ -157,10 +201,10 @@ it("paginates a long list without truncating totals and preserves unknown amount
   expect(screen.getByText("1-50 of 51 trustees")).toBeVisible();
   const totals = within(screen.getByRole("region", { name: "FY27 giving totals" }));
   expect(totals.getByText("Unavailable")).toBeVisible();
-  expect(totals.getByText(/1 cash amounts not reported/)).toBeVisible();
+  expect(totals.getByText("Participation unknown for 1 trustee; percentage withheld")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Trustee 50")).toBeVisible(); expect(screen.getAllByText("Not reported")).toHaveLength(2);
-  expect(screen.getByText("Cash not reported")).toBeVisible();
+  expect(screen.getByText("Giving not reported")).toBeVisible();
 });
 it("shows service decisions and the blank Trustee / Former exception without silently changing eligibility", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: { ...snapshot, cashCents: null, commitmentCents: null,
@@ -178,12 +222,37 @@ it("shows service decisions and the blank Trustee / Former exception without sil
   expect(screen.getByText("Example Trustee")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
 });
-it.each([undefined, "trustee-service-six-months-v1"])("requires a refresh before showing snapshots using outdated rule %s", async rule => {
+it.each([undefined, "trustee-service-six-months-v1", "trustee-service-six-months-v2"])("requires a refresh before showing snapshots using outdated rule %s", async rule => {
   const oldSnapshot = { ...snapshot, eligibility: rule ? { ...snapshot.eligibility, rule } : undefined };
   fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source, snapshot: oldSnapshot }] }));
   render(<Page />); await screen.findByText(/Previous-rule figures are not shown/);
-  expect(screen.getByText(/including the start-date check/)).toBeVisible();
+  expect(screen.getByText(/including trustees with blank end dates/)).toBeVisible();
   expect(screen.queryByText("Example Trustee")).not.toBeInTheDocument();
   expect(screen.queryByText("50%")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh FY27" })).toBeEnabled();
+});
+it("refreshes the old FY23 roster and shows a late joiner only in eligibility exclusions", async () => {
+  const historical = BOARD_DEFAULT_SOURCES.find(item => item.fiscalYear === 2023);
+  const barry = { id: "3", name: "Barry A. Gleichenhaus", cashCents: 900000, commitmentCents: 500000 };
+  const oldSnapshot = { ...snapshot, trusteeCount: 3, trustees: [...snapshot.trustees, barry],
+    eligibility: { ...snapshot.eligibility, rule: "trustee-service-six-months-v2" } };
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source: historical, snapshot: oldSnapshot }] }));
+  render(<Page />); await screen.findByLabelText("Fiscal year");
+  fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: "2023" } });
+  expect(screen.getByText(/Previous-rule figures are not shown/)).toBeVisible();
+  expect(screen.queryByText(barry.name)).not.toBeInTheDocument();
+  const corrected = { ...snapshot, eligibility: { ...snapshot.eligibility, candidateCount: 3, excludedCount: 1,
+    excluded: [{ id: barry.id, name: barry.name, status: "excluded", reason: "Less than six months of Trustee service in this fiscal year",
+      serviceRecords: [{ code: "Trustee", start: "5/1/2023", end: "" }] }] } };
+  fetch.mockResolvedValueOnce(json({ ...saved, years: [{ source: historical, snapshot: corrected }] }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh FY23" }));
+  await screen.findByText("Example Trustee");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "refresh", input: historical, revision: "one" });
+  const totals = within(screen.getByRole("region", { name: "FY23 giving totals" }));
+  expect(totals.getByText("50%")).toBeVisible(); expect(totals.getByText("$1,000.00")).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Trustee giving table" })).queryByText(barry.name)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("Eligibility details: 2 included, 1 excluded, 0 need review"));
+  const exclusions = within(screen.getByRole("region", { name: "Trustee eligibility decisions" }));
+  expect(exclusions.getByText(barry.name)).toBeVisible();
+  expect(exclusions.getByText("Less than six months of Trustee service in this fiscal year")).toBeVisible();
 });
