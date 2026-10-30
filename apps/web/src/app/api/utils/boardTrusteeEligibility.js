@@ -26,29 +26,26 @@ function sixMonthsAfter(time) {
 function exactTerm(start, end, fyStart, fyEnd) {
   if (start > end) return "review";
   if (end < fyStart || start > fyEnd) return "excluded";
-  if (end > fyEnd) return "included";
-  return end + DAY >= sixMonthsAfter(Math.max(start, fyStart)) ? "included" : "excluded";
+  return Math.min(end, fyEnd) + DAY >= sixMonthsAfter(Math.max(start, fyStart)) ? "included" : "excluded";
 }
 
 function termEligibility(term, fyStart, fyEnd) {
   const start = boardDateRange(term.start), end = boardDateRange(term.end);
-  if (!end) {
-    if (start?.invalid) return result("review", "Trustee start date is invalid");
-    if (start?.min > fyEnd) return result("excluded", "Trustee service began after this fiscal year");
-    if (start?.max > fyEnd) return result("review", "Complete Trustee start date is needed to confirm service began by this fiscal year's end");
-    return result("included", "Trustee end date is blank");
-  }
-  if (end.invalid) return result("review", "Trustee end date is invalid");
-  if (end.max < fyStart) return result("excluded", "Trustee service ended before this fiscal year");
+  if (end?.invalid) return result("review", "Trustee end date is invalid");
+  if (end?.max < fyStart) return result("excluded", "Trustee service ended before this fiscal year");
   if (start?.invalid) return result("review", "Trustee start date is invalid");
   if (start?.min > fyEnd) return result("excluded", "Trustee service began after this fiscal year");
-  if (!start && end.min > fyEnd) return result("included", "Trustee end date is after this fiscal year");
-  const starts = start ? [start.min, start.max] : [fyStart, Math.min(end.max, fyEnd)];
-  const statuses = new Set(starts.flatMap(from => [end.min, end.max].map(to => exactTerm(from, to, fyStart, fyEnd))));
+  // Preserve the configured undated continuing-trustee exception, but a known
+  // start must always meet six months within the selected fiscal year.
+  if (!start && (!end || end.min > fyEnd))
+    return result("included", "Trustee start date is not recorded; service remains open beyond this fiscal year");
+  const effectiveEnd = end || { min: fyEnd, max: fyEnd };
+  const starts = start ? [start.min, start.max] : [fyStart, Math.min(effectiveEnd.max, fyEnd)];
+  const statuses = new Set(starts.flatMap(from => [effectiveEnd.min, effectiveEnd.max].map(to => exactTerm(from, to, fyStart, fyEnd))));
   if (statuses.size !== 1 || statuses.has("review"))
     return result("review", "Complete Trustee service dates are needed to confirm six months in this fiscal year");
   const status = [...statuses][0];
-  return result(status, status === "included" ? (end.min > fyEnd ? "Trustee service continued beyond this fiscal year" : "At least six months of Trustee service in this fiscal year") : "Less than six months of Trustee service in this fiscal year");
+  return result(status, status === "included" ? "At least six months of Trustee service in this fiscal year" : "Less than six months of Trustee service in this fiscal year");
 }
 
 export function evaluateBoardService(records, fiscalYear) {
@@ -56,11 +53,11 @@ export function evaluateBoardService(records, fiscalYear) {
   if (!terms.length) return result("excluded", "No Trustee code returned; Trustee-Former does not establish service dates");
   const fyStart = Date.UTC(fiscalYear - 1, 6, 1), fyEnd = Date.UTC(fiscalYear, 5, 30);
   const decisions = terms.map(term => termEligibility(term, fyStart, fyEnd));
-  // An open term still qualifies alongside Trustee-Former, but never before it began.
+  // A qualifying open term remains eligible alongside Trustee-Former.
   const openTerm = decisions.find((decision, index) => !terms[index].end.trim() && decision.status === "included");
   if (openTerm) return openTerm;
   const relevant = terms.filter((term, i) => decisions[i].status !== "excluded" ||
-    (boardDateRange(term.end)?.max >= fyStart && boardDateRange(term.start)?.min <= fyEnd));
+    ((!term.end.trim() || boardDateRange(term.end)?.max >= fyStart) && boardDateRange(term.start)?.min <= fyEnd));
   const endsByStart = new Map();
   for (const term of relevant) {
     const key = JSON.stringify(boardDateRange(term.start));
@@ -75,7 +72,7 @@ export function evaluateBoardService(records, fiscalYear) {
   if (review) return review;
   // Merge overlapping or adjacent exact terms so duplicated/renewed terms do not
   // inflate time served. Nonconsecutive short terms near six months need review.
-  const intervals = relevant.map(term => ({ from: boardDateRange(term.start), to: boardDateRange(term.end) }))
+  const intervals = relevant.map(term => ({ from: boardDateRange(term.start), to: boardDateRange(term.end) || { min: fyEnd, max: fyEnd } }))
     .filter(term => term.from?.min === term.from?.max && term.to?.min === term.to?.max && term.from && term.to)
     .map(term => [Math.max(term.from.min, fyStart), Math.min(term.to.max, fyEnd)])
     .filter(([from, to]) => from <= to).sort((a, b) => a[0] - b[0]);

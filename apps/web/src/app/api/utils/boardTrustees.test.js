@@ -35,7 +35,8 @@ describe("Trustee summary identity and financial safety", () => {
     expect(inspectBoardQuery(query, preset, preset).suggested).toEqual(preset.columns);
     const result = aggregateBoardCsv(csv("Trustee A,100,0,1\nTrustee B,0,500,2")
       .replaceAll("FY27", `FY${String(preset.fiscalYear).slice(-2)}`), preset, 2);
-    expect(boardParticipation(result)).toMatchObject({ participants: 1, total: 2, rate: .5 });
+    expect(result).toMatchObject({ cashCents: 10000, commitmentCents: 50000 });
+    expect(boardParticipation(result)).toMatchObject({ participants: 2, total: 2, rate: 1 });
     query.summary_fields[0].filter_fields[0].filter_values = [`7/1/${preset.fiscalYear}`, `6/30/${preset.fiscalYear + 1}`];
     expect(() => inspectBoardQuery(query, preset, preset)).toThrow("Gift Date");
   });
@@ -43,6 +44,12 @@ describe("Trustee summary identity and financial safety", () => {
     const result = aggregate("Trustee A,,400,1\nTrustee B,100,0,2", 2);
     expect(result).toMatchObject({ cashCents: null, commitmentCents: 40000, missingAmountCount: 1 });
     expect(result.trustees[0].cashCents).toBeNull();
+    expect(boardParticipation(result)).toMatchObject({ participants: 2, unknown: 0, rate: 1 });
+  });
+  it("counts repeated pledge-only trustees once while preserving their separate credit total", () => {
+    const result = aggregate("Pledge Trustee,0,400,1\nPledge Trustee,0,400,1\nZero Trustee,0,0,2", 3);
+    expect(result).toMatchObject({ trusteeCount: 2, duplicateRows: 1, cashCents: 0, commitmentCents: 40000 });
+    expect(boardParticipation(result)).toEqual({ total: 2, participants: 1, unknown: 0, rate: .5 });
   });
   it.each(["Trustee A,1,0,1\nTrustee A,2,0,1", "Trustee A,1,0,1\nTrustee B,1,0,1", "Trustee A,,0,1\nTrustee A,0,0,1"])("rejects conflicts rather than combining constituent summaries", rows => {
     expect(() => aggregate(rows, 2)).toThrow("conflicting");
@@ -123,6 +130,26 @@ describe("Trustee summary identity and financial safety", () => {
       eligibility: { candidateCount: 3, excludedCount: 1, reviewCount: 0 } });
     expect(boardParticipation(result)).toMatchObject({ total: 2, participants: 1, rate: .5 });
     expect(result.eligibility.excluded[0]).toMatchObject({ id: "3", reason: "Trustee service began after this fiscal year" });
+  });
+  it.each([2022, 2023, 2024])("applies Barry's May 2023 start before FY%s giving totals and participation", fiscalYear => {
+    const historical = BOARD_DEFAULT_SOURCES.find(item => item.fiscalYear === fiscalYear);
+    const result = aggregateBoardCsv(csv("").replaceAll("FY27", `FY${String(fiscalYear).slice(-2)}`) + [
+      "Barry A. Gleichenhaus,9000,5000,1,Trustee,5/1/2023,",
+      "Cash Trustee,1000,0,2,Trustee,2010,",
+      "Pledge Trustee,0,200,3,Trustee,2010,",
+      "Zero Giving Trustee,0,0,4,Trustee,2010,",
+    ].join("\n"), historical, 4);
+    if (fiscalYear < 2024) {
+      expect(result).toMatchObject({ trusteeCount: 3, cashCents: 100000, commitmentCents: 20000,
+        eligibility: { excludedCount: 1, reviewCount: 0 } });
+      expect(result.trustees.some(row => row.id === "1")).toBe(false);
+      expect(result.eligibility.excluded[0]).toMatchObject({ id: "1", name: "Barry A. Gleichenhaus" });
+      expect(boardParticipation(result)).toMatchObject({ total: 3, participants: 2, rate: 2 / 3 });
+    } else {
+      expect(result).toMatchObject({ trusteeCount: 4, cashCents: 1000000, commitmentCents: 520000,
+        eligibility: { excludedCount: 0, reviewCount: 0 } });
+      expect(boardParticipation(result)).toMatchObject({ total: 4, participants: 3, rate: .75 });
+    }
   });
 });
 
