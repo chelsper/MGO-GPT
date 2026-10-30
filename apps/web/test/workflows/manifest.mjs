@@ -82,6 +82,7 @@ export const workflowGroups = {
     "src/utils/boardTrustees.test.js",
     "src/app/api/reports/board-of-trustees/route.test.js",
     "src/app/reports/dashboards/board-of-trustees/page.test.jsx",
+    "src/app/reports/dashboards/board-of-trustees/TrusteeParticipationChart.test.jsx",
     "src/components/PersonalDashboard.test.jsx",
     "src/components/ReportDashboardPanels.test.jsx",
     "src/app/api/utils/reportAccess.test.js",

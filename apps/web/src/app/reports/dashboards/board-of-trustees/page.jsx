@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
+import TrusteeParticipationChart from "./TrusteeParticipationChart";
 import { BOARD_DEFAULT_SOURCES, BOARD_INITIAL_SOURCE, BOARD_SERVICE_COLUMNS, BOARD_TRUSTEES_KEY, boardParticipationStatus, boardMoney, boardParticipation, boardParticipationChange, boardPercent, boardPeriodLabel, boardPointChange, boardSnapshotIsCurrent, boardYearLabel, boardYearStage } from "@/utils/boardTrustees";
 import styles from "./trustees.module.css";
 
@@ -76,6 +77,7 @@ export default function BoardTrusteesPage() {
     } finally { locked.current = false; if (!controller.signal.aborted) setBusy(false); }
   }
   function openSetup() { setDraft(source); setInspection(null); setEditing(true); }
+  function selectYear(value) { setYear(value); setSearch(""); setPage(0); }
   function changeTarget(key, value) {
     setDraft(previous => ({ ...previous, [key]: value, queryName: "", columns: { name: "", cash: "", commitments: "", code: "", start: "", end: "" } }));
     setInspection(null);
@@ -87,8 +89,9 @@ export default function BoardTrusteesPage() {
       dashboardSwitchDisabled={busy} action={data?.canManage && <button disabled={busy || editing} onClick={openSetup}>Manage fiscal years</button>} />
     {error && <div role="alert" className={styles.error}>{error} <button disabled={busy} onClick={() => command("reload")}>Reload saved results</button></div>}
     {!data ? <p role="status">{error ? "Dashboard unavailable." : "Loading saved trustee giving..."}</p> : <>
+      <TrusteeParticipationChart entries={data.years} years={years} selectedYear={year} onSelectYear={selectYear} disabled={busy || editing} />
       <section className={styles.toolbar} aria-label="Fiscal year controls">
-        <label>Fiscal year<select disabled={busy || editing} value={year} onChange={e => { setYear(Number(e.target.value)); setSearch(""); setPage(0); }}>
+        <label>Fiscal year<select disabled={busy || editing} value={year} onChange={e => selectYear(Number(e.target.value))}>
           {years.map(value => <option key={value} value={value}>{boardYearLabel(value)}</option>)}
         </select></label>
         <div><strong>{boardPeriodLabel(year)}</strong><p>{snapshot ? `${boardYearStage(year, snapshot.refreshedAt)} / Last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}` : "Not refreshed yet. No giving figures have been assumed."}</p></div>
@@ -157,7 +160,7 @@ export default function BoardTrusteesPage() {
           {years.map(value => {
             const entry = data.years.find(item => item.source.fiscalYear === value && boardSnapshotIsCurrent(item.snapshot));
             const stats = boardParticipation(entry?.snapshot);
-            return <tr key={value}><th scope="row"><button disabled={busy || editing} onClick={() => { setYear(value); setSearch(""); setPage(0); }}>{boardYearLabel(value)}</button><small>{entry ? boardYearStage(value, entry.snapshot.refreshedAt) : "Not refreshed yet"}</small>{entry && <small>Updated {new Date(entry.snapshot.refreshedAt).toLocaleDateString()}</small>}</th>
+            return <tr key={value}><th scope="row"><button disabled={busy || editing} onClick={() => selectYear(value)}>{boardYearLabel(value)}</button><small>{entry ? boardYearStage(value, entry.snapshot.refreshedAt) : "Not refreshed yet"}</small>{entry && <small>Updated {new Date(entry.snapshot.refreshedAt).toLocaleDateString()}</small>}</th>
               <td>{entry ? `${stats.participants} / ${stats.total}${stats.unknown ? ` (${stats.unknown} unknown)` : ""}` : "Not available"}</td><td>{entry ? boardPercent(stats.rate) : "Not available"}</td><td>{boardPointChange(boardParticipationChange(data.years, value))}</td></tr>;
           })}
         </tbody></table></div></section>

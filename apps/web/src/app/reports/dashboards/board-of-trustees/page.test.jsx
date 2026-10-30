@@ -45,13 +45,36 @@ it("switches rosters by fiscal year without applying the present roster to the p
   expect(screen.getByText("July 1, 2025 through June 30, 2026")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+it("selects a chart year and clears roster search without making additional requests", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, canManage: false, years: [...saved.years, { source: previousSource,
+    snapshot: { ...snapshot, cashCents: 200000, trustees: [{ id: "3", name: "Previous Trustee", cashCents: 200000, commitmentCents: 0 }] } }] }));
+  render(<Page />); await screen.findByText("Example Trustee");
+  const chart = within(screen.getByRole("region", { name: "Trustee participation by fiscal year" }));
+  fireEvent.change(screen.getByLabelText("Find a trustee"), { target: { value: "Zero" } });
+  expect(chart.getByRole("button", { name: /^FY27:/ })).toHaveAccessibleName(/50%, 1 of 2 eligible trustees/);
+  fireEvent.click(chart.getByRole("button", { name: /^FY26:/ }));
+  expect(screen.getByLabelText("Fiscal year")).toHaveValue("2026");
+  expect(screen.getByLabelText("Find a trustee")).toHaveValue("");
+  expect(screen.getByText("Previous Trustee")).toBeVisible();
+  expect(chart.getByRole("button", { name: /^FY27:/ })).toHaveAccessibleName(/50%, 1 of 2 eligible trustees/);
+  expect(screen.getByLabelText("Fiscal year")).toHaveValue("2026");
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("locks chart navigation during fiscal-year setup and restores it on cancel", async () => {
+  render(<Page />); await screen.findByText("Example Trustee");
+  fireEvent.click(screen.getByRole("button", { name: "Manage fiscal years" }));
+  expect(screen.getByRole("button", { name: /^FY26:/ })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("button", { name: /^FY26:/ })).toBeEnabled();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 it.each(BOARD_DEFAULT_SOURCES.slice(1))("preconfigures $fiscalYear query $queryId without refreshing FY27", async preset => {
   const year = String(preset.fiscalYear), label = `FY${year.slice(-2)}`;
   render(<Page />); await screen.findByText("Example Trustee");
   fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: year } });
   expect(screen.getByText(new RegExp(`${preset.queryName}, query ${preset.queryId}`))).toBeVisible();
   expect(screen.queryByText("Example Trustee")).not.toBeInTheDocument();
-  expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: `${label} giving totals` })).queryByText("0%")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Manage fiscal years" }));
   expect(screen.getByLabelText("NXT query system record ID")).toHaveValue(preset.queryId);
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -72,7 +95,7 @@ it("offers all eleven years before refresh without running queries or showing fa
   expect(screen.getByLabelText("Fiscal year")).toHaveValue("2017");
   expect(screen.getByText("July 1, 2016 through June 30, 2017")).toBeVisible();
   expect(screen.getByRole("button", { name: "Refresh FY17" })).toBeEnabled();
-  expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "FY17 giving totals" })).queryByText("0%")).not.toBeInTheDocument();
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 it("preserves a saved source override rather than replacing it with a newly added default", async () => {
@@ -228,7 +251,7 @@ it.each([undefined, "trustee-service-six-months-v1", "trustee-service-six-months
   render(<Page />); await screen.findByText(/Previous-rule figures are not shown/);
   expect(screen.getByText(/including trustees with blank end dates/)).toBeVisible();
   expect(screen.queryByText("Example Trustee")).not.toBeInTheDocument();
-  expect(screen.queryByText("50%")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "FY27 giving totals" })).queryByText("50%")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh FY27" })).toBeEnabled();
 });
 it("refreshes the old FY23 roster and shows a late joiner only in eligibility exclusions", async () => {
