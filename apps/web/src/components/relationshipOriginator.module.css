@@ -1,9 +1,13 @@
-.originator { margin-top: 16px; border: 1px solid #c9dfd9; border-radius: 12px; background: #fff; color: #173e35; }
-.toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; border: 0; padding: 14px 16px; background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; text-align: left; }
-.content { padding: 0 16px 16px; line-height: 1.5; }
+.originator { margin-top: 8px; min-width: 0; color: #173e35; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 44px; border: 0; border-radius: 6px; padding: 6px 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.4; cursor: pointer; text-align: left; }
+.toggle:hover { background: #edf5f1; }
+.chevron { flex-shrink: 0; }
+.toggle[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+.content { max-width: 640px; box-sizing: border-box; margin: 4px 0 12px; padding: 0 14px 14px; border: 1px solid #c9dfd9; border-radius: 10px; background: #fff; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.content[hidden] { display: none; }
 .content p { margin: 10px 0; }
 .content label { display: grid; gap: 6px; margin: 12px 0; font-weight: 700; }
-.content input, .content select { padding: 10px; min-height: 44px; width: 100%; box-sizing: border-box; background: #fff; color: #173e35; border: 1px solid #b3c9c3; border-radius: 8px; font: inherit; }
+.content input, .content select { padding: 10px; min-height: 44px; min-width: 0; width: 100%; box-sizing: border-box; background: #fff; color: #173e35; border: 1px solid #b3c9c3; border-radius: 8px; font: inherit; font-size: 16px; }
 .button, .primary { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; margin: 8px 8px 0 0; border: 1px solid #a4c1b8; border-radius: 10px; font: inherit; font-weight: 700; background: #fff; color: #075d49; cursor: pointer; }
 .primary { background: #007b5e; border-color: #007b5e; color: #fff; }
 .button:disabled, .primary:disabled { opacity: .55; cursor: default; }

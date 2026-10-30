@@ -14,6 +14,7 @@ export const workflowGroups = {
     "src/utils/useWorkflowReturn.test.jsx",
     "src/app/workflowReturns.test.jsx",
     "src/components/PortfolioWorklist.test.jsx",
+    "src/components/RelationshipOriginator.test.jsx",
     "src/app/my-top-prospects/PortfolioWorklistIntegration.test.jsx",
     "src/app/my-top-prospects/PortfolioCardActions.test.jsx",
     "src/app/my-top-prospects/PortfolioActionPanel.test.jsx",
