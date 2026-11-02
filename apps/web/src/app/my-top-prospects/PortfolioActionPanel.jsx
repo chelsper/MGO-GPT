@@ -10,7 +10,7 @@ const today = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-export default function PortfolioActionPanel({ person, viewerId, workspaceId, onClose, onSaved }) {
+export default function PortfolioActionPanel({ person, viewerId, workspaceId, onClose, onSaved, initialInteractionType = "Cultivation", returnLabel = "Back to portfolio" }) {
   const titleId = useId();
   const dialog = useRef(null);
   const feedback = useRef(null);
@@ -18,7 +18,7 @@ export default function PortfolioActionPanel({ person, viewerId, workspaceId, on
   const summaryInput = useRef(null);
   const inFlight = useRef(false);
   const leaving = useRef(false);
-  const initial = useRef({ actionDate: today(), actionCategory: "Meeting", interactionType: "Cultivation", summary: "", notes: "" });
+  const initial = useRef({ actionDate: today(), actionCategory: "Meeting", interactionType: INTERACTION_TYPES.includes(initialInteractionType) ? initialInteractionType : "Cultivation", summary: "", notes: "" });
   const [draft, setDraft] = useState(initial.current);
   const [profile, setProfile] = useState(null);
   const [contextError, setContextError] = useState("");
@@ -207,7 +207,7 @@ export default function PortfolioActionPanel({ person, viewerId, workspaceId, on
         {!attempt && !saved && !pendingExit && <p className="portfolio-action-panel__hint">Need dictation, additional fundraiser credit, an opportunity link, or a new reminder? <a href={buildPortfolioUpdateHref(person, "action")} onClick={fullForm}>Use the full action form instead</a>.</p>}
       </div>
       <footer className="portfolio-action-panel__footer">
-        <button type="button" onClick={close} disabled={busy}>{saved ? "Back to portfolio" : "Cancel"}</button>
+        <button type="button" onClick={close} disabled={busy}>{saved ? returnLabel : "Cancel"}</button>
         {!saved && <button type="submit" className="portfolio-action-panel__save" disabled={!enabled}>{busy ? "Saving..." : "Save action in NXT"}</button>}
       </footer>
     </form>

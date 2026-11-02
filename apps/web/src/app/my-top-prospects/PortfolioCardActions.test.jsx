@@ -11,6 +11,7 @@ beforeEach(() => {
     onOpenPortfolioNextStep: vi.fn(), onOpenPortfolioDiscussion: vi.fn(),
     onOpenPortfolioLogAction: vi.fn(),
     onOpenPortfolioOpportunity: vi.fn(),
+    onOpenPortfolioStewardship: vi.fn(),
     onAddToTopProspects: vi.fn(), onRemoveFromTopProspects: vi.fn(),
     onRemoveSolicitorAssignment: vi.fn(), allowSolicitorAssignmentRemoval: true,
   };
@@ -39,6 +40,7 @@ it("shows two quick actions and reveals secondary actions only on request withou
 });
 
 it.each([
+  ["Stewardship", "onOpenPortfolioStewardship", person],
   ["Add opportunity", "onOpenPortfolioOpportunity", person],
   ["Team discussion", "onOpenPortfolioDiscussion", person],
   ["Add to Top Prospects", "onAddToTopProspects", person],
