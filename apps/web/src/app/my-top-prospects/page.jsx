@@ -23,6 +23,7 @@ import PortfolioMaintenanceIndicator from "@/components/PortfolioMaintenanceIndi
 import PortfolioCategoryManagerModal from "./PortfolioCategoryManagerModal";
 import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
 import PortfolioActionPanel from "./PortfolioActionPanel";
+import PortfolioStewardshipPanel from "./PortfolioStewardshipPanel";
 import PortfolioOpportunityPanel from "./PortfolioOpportunityPanel";
 import { AnnualGivingSocietyBadge } from "./ProspectGiving";
 import { nxtProfileLinkStyle } from "./prospectPresentation";
@@ -5734,6 +5735,7 @@ export default function MyTopProspectsPage() {
     useState("");
   const [portfolioFollowUp, setPortfolioFollowUp] = useState(null);
   const [portfolioLogAction, setPortfolioLogAction] = useState(null);
+  const [portfolioStewardship, setPortfolioStewardship] = useState(null);
   const [portfolioOpportunity, setPortfolioOpportunity] = useState(null);
   const [showPortfolioCategoryManager, setShowPortfolioCategoryManager] =
     useState(false);
@@ -5792,6 +5794,7 @@ export default function MyTopProspectsPage() {
   );
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
+  useEffect(() => { setPortfolioStewardship(null); }, [activeWorkspaceUserId, profileStatus?.user?.id, isExecutiveReadOnly]);
   const { data: pledgeData } = useProspectPledgeStatus(
     profileStatus?.user?.id,
     activeWorkspaceUserId,
@@ -7673,6 +7676,10 @@ export default function MyTopProspectsPage() {
                     onOpenPortfolioOpportunity={(person) => setPortfolioOpportunity({
                       person, viewerId: profileStatus?.user?.id, workspaceId: activeWorkspaceUserId,
                     })}
+                    onOpenPortfolioStewardship={(person) => setPortfolioStewardship({
+                      person: { ...person, prospectId: topProspectByConstituentId.get(String(person.constituentId))?.id || null },
+                      viewerId: profileStatus?.user?.id, workspaceId: activeWorkspaceUserId,
+                    })}
                     isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                     removingSolicitorConstituentId={removingSolicitorConstituentId}
                     annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
@@ -8846,6 +8853,20 @@ export default function MyTopProspectsPage() {
           for (const queryKey of [["prospects", workspaceId], ["prospect", result.prospect_id],
             ["prospect-summary-base", workspaceId], ["opportunity-pipeline"]]) {
             queryClient.invalidateQueries({ queryKey, refetchType: "none" });
+          }
+        }}
+      /> : null}
+
+      {portfolioStewardship && !isExecutiveReadOnly
+        && String(portfolioStewardship.viewerId) === String(profileStatus?.user?.id)
+        && String(portfolioStewardship.workspaceId) === String(activeWorkspaceUserId) ? <PortfolioStewardshipPanel
+        key={`${portfolioStewardship.viewerId}:${portfolioStewardship.workspaceId}:${portfolioStewardship.person.constituentId}`}
+        {...portfolioStewardship}
+        onClose={() => setPortfolioStewardship(null)}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["prospects", portfolioStewardship.workspaceId], refetchType: "none" });
+          if (portfolioStewardship.person.prospectId) {
+            queryClient.invalidateQueries({ queryKey: ["prospect", portfolioStewardship.person.prospectId], refetchType: "none" });
           }
         }}
       /> : null}

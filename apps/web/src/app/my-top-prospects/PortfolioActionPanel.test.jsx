@@ -35,6 +35,18 @@ it("opens with constituent and authoritative credit, making no NXT reads or writ
   expect(screen.getByLabelText("Action notes")).not.toBeVisible();
 });
 
+it("uses Stewardship as an optional starting type without changing the existing writer", async () => {
+  await mount({ initialInteractionType: "Stewardship", returnLabel: "Back to stewardship" });
+  expect(screen.getByLabelText("Interaction type")).toHaveValue("Stewardship");
+  fill(); fetch.mockResolvedValue(reply({ blackbaudAction: { verifiedActionId: "812" } }));
+  fireEvent.click(saveButton());
+  await screen.findByText("Action saved in NXT.");
+  expect(fetch.mock.calls[1][0]).toBe("/api/prospects/7/actions");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ interactionType: "Stewardship", portfolioContext: { constituentId: "100", workspaceId: 44 } });
+  fireEvent.click(screen.getByRole("button", { name: "Back to stewardship" }));
+  expect(props.onClose).toHaveBeenCalledOnce();
+});
+
 it.each(["prospect", "portfolio"])("uses the shared %s writer once and preserves next steps", async mode => {
   await mount({ person: { ...person, prospectId: mode === "prospect" ? 7 : null } });
   fill();

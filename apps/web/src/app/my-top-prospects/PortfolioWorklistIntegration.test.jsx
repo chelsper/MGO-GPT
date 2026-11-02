@@ -100,6 +100,41 @@ afterEach(() => {
   window.history.replaceState({}, "", "/");
 });
 
+it.each(["compact", "focus", "detailed"])("opens stewardship lazily and preserves the %s worklist and focus", async density => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ viewerId: "2", workspaceId: "44", constituentId: "100",
+    requests: [], receivedItems: [], followUps: [], ownerName: "Selected MGO" }) });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: density } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search portfolio" }), { target: { value: "Zelda" } });
+  const stored = localStorage.getItem(portfolioViewKey(2, 44));
+  const trigger = screen.getByRole("button", { name: "More actions for Zelda Donor" });
+  trigger.focus(); fireEvent.click(trigger);
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Stewardship" }));
+  const panel = within(screen.getByRole("dialog", { name: "Stewardship" }));
+  await waitFor(() => expect(panel.getByRole("button", { name: "Log stewardship action" })).toBeEnabled());
+  expect(panel.getByText("Zelda Donor")).toBeVisible();
+  fireEvent.click(panel.getByRole("button", { name: "Back to portfolio" }));
+  expect(trigger).toHaveFocus();
+  expect(screen.getByLabelText("View")).toHaveValue(density);
+  expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toHaveValue("Zelda");
+  expect(localStorage.getItem(portfolioViewKey(2, 44))).toBe(stored);
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/portfolio-stewardship?viewerId=2&workspaceId=44&constituentId=100", expect.objectContaining({ cache: "no-store" }));
+});
+
+it("removes an open stewardship panel immediately when the selected workspace changes", async () => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ viewerId: "2", workspaceId: "44", constituentId: "100", requests: [], receivedItems: [], followUps: [] }) });
+  const view = render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "More actions for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stewardship" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Log stewardship action" })).toBeEnabled());
+  state.profile = { ...state.profile, workspaceUser: { ...state.profile.workspaceUser, id: 45 } };
+  view.rerender(<MyProspects />);
+  expect(screen.queryByRole("dialog", { name: "Stewardship" })).toBeNull();
+});
+
 it.each(["compact", "focus", "detailed"])("logs in a side panel and preserves the %s worklist and focus", async density => {
   fetch.mockImplementation(async (url, options) => url === "/api/users/profile"
     ? { ok: true, json: async () => state.profile }

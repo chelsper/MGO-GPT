@@ -1,0 +1,12 @@
+.portfolio-stewardship section { border-top: 1px solid #dce5e3; padding: 1.1rem 0; }
+.portfolio-stewardship section h3 { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+.portfolio-stewardship ul { list-style: none; padding: 0; margin: 0; }
+.portfolio-stewardship li { padding: .8rem 0; border-bottom: 1px solid #edf1ef; overflow-wrap: anywhere; }
+.portfolio-stewardship li:last-child { border-bottom: 0; }
+.portfolio-stewardship li p { color: #55736b; font-size: .85rem; margin: .3rem 0 .5rem; }
+.portfolio-stewardship__line, .portfolio-stewardship__links { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.portfolio-stewardship__line { justify-content: space-between; }
+.portfolio-stewardship__status { background: #edf5f1; color: #27634e; font-size: .75rem; border-radius: 1rem; padding: .25rem .6rem; }
+.portfolio-stewardship__empty { color: #55736b; font-size: .9rem; padding: .5rem 0; }
+.portfolio-stewardship li button, .portfolio-stewardship li a, .portfolio-stewardship section > a { font-size: .85rem; }
+.portfolio-stewardship .portfolio-action-panel__footer { flex-wrap: wrap; }

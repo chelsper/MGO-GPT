@@ -34,6 +34,7 @@ export default function PortfolioTier({
   onOpenPortfolioDiscussion,
   onOpenPortfolioLogAction,
   onOpenPortfolioOpportunity,
+  onOpenPortfolioStewardship,
   isRemovingSolicitorAssignment = false,
   removingSolicitorConstituentId = "",
   annualGivingSocietiesByConstituentId = {},
@@ -114,6 +115,7 @@ export default function PortfolioTier({
                 onOpenPortfolioDiscussion={onOpenPortfolioDiscussion}
                 onOpenPortfolioLogAction={onOpenPortfolioLogAction}
                 onOpenPortfolioOpportunity={onOpenPortfolioOpportunity}
+                onOpenPortfolioStewardship={onOpenPortfolioStewardship}
                 onAddToTopProspects={onAddToTopProspects}
                 isAdding={isAdding}
                 isTopProspect={topProspectConstituentIds.has(String(person.constituentId))}
