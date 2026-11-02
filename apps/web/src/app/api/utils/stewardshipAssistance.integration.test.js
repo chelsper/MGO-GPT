@@ -16,6 +16,7 @@ import { receiptFilters } from "@/utils/stewardshipReceipts";
 import { writeGiftInventory } from "./stewardshipInventory";
 import { advanceHistoryImport, readHistoryState } from "./stewardshipHistoryImport";
 import { HISTORY_COLUMNS } from "@/utils/stewardshipHistoryImport";
+import { readDirectAssistance, createDirectAssistance } from "./directStewardshipAssistance";
 
 const socket = process.env.GIFT_FOLLOWUP_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/gift-followup-pg\.[A-Za-z0-9]+$/.test(socket || "");
@@ -26,13 +27,17 @@ function execute(statement) {
       { encoding: "utf8" }, (error, output) => {
         if (error) { reject(error); return; }
         resolve(output.trim() ? Papa.parse(output.trim(), { header: true }).data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>
-          [key, value === "" ? null : ["request", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot", "source_snapshot", "config", "job"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
+          [key, value === "" ? null : ["request", "context", "stewardship_context", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot", "source_snapshot", "config", "job"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
       });
     child.stdin.end(`SET search_path=stewardship_assistance_fixture;\n${statement}`);
   });
 }
+let prepared = 0;
 const db = (parts, ...values) => {
-  const text = parts.reduce((query, part, index) => query + part + (index < values.length ? literal(values[index]) : ""), "");
+  const name = `fixture_query_${++prepared}`;
+  const text = typeof parts === "string"
+    ? `PREPARE ${name} AS ${parts}; EXECUTE ${name}(${values[0].map(literal).join(",")})`
+    : parts.reduce((query, part, index) => query + part + (index < values.length ? literal(values[index]) : ""), "");
   return { text, then: (resolve, reject) => execute(text).then(resolve, reject) };
 };
 db.transaction = async queries => {
@@ -48,9 +53,11 @@ const create = () => createTaskAssistance(context, 10, draft, db);
 describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", () => {
   beforeAll(async () => {
     await execute(`DROP SCHEMA IF EXISTS stewardship_assistance_fixture CASCADE; CREATE SCHEMA stewardship_assistance_fixture; SET search_path=stewardship_assistance_fixture;
-      CREATE TABLE users(id bigint PRIMARY KEY, name text, role text, active boolean DEFAULT TRUE);
+      CREATE TABLE users(id bigint PRIMARY KEY, name text, role text, active boolean DEFAULT TRUE, blackbaud_portfolio_cache jsonb);
       CREATE TABLE prospect_pool(id bigint PRIMARY KEY);
-      CREATE TABLE constituents(id bigint PRIMARY KEY);
+      CREATE TABLE constituents(id bigint PRIMARY KEY, user_id bigint, blackbaud_constituent_id text);
+      CREATE TABLE prospects(id bigint PRIMARY KEY, user_id bigint, prospect_name text, status text, blackbaud_constituent_id text, constituent_id bigint);
+      CREATE TABLE prospect_opportunities(id bigint PRIMARY KEY, prospect_id bigint, title text, opportunity_status text, constituent_id bigint);
       CREATE TABLE pending_actions(id bigint PRIMARY KEY, owner_user_id bigint, status text, updated_at timestamptz,
         source_gift_id text, source_gift_snapshot jsonb);`);
     const statements = [...readFileSync("src/app/api/utils/ensureAppSchema.js", "utf8").matchAll(/await sql`([\s\S]*?)`;/g)]
@@ -64,13 +71,81 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     await stockSchema(db); await stockSchema(db);
   });
   beforeEach(async () => {
-    await execute(`TRUNCATE users, pending_actions, data_change_requests, stewardship_request_events, stewardship_gift_items, stewardship_gift_item_events RESTART IDENTITY CASCADE;
-      INSERT INTO users VALUES (2,'Admin','admin',TRUE),(7,'Officer','mgo',TRUE),(8,'Other Officer','mgo',TRUE);
+    await execute(`TRUNCATE users, constituents, prospects, prospect_opportunities, pending_actions, data_change_requests, stewardship_request_events, stewardship_gift_items, stewardship_gift_item_events RESTART IDENTITY CASCADE;
+      INSERT INTO users(id,name,role,active) VALUES (2,'Admin','admin',TRUE),(7,'Officer','mgo',TRUE),(8,'Other Officer','mgo',TRUE);
+      UPDATE users SET blackbaud_portfolio_cache='{"leadSolicitor":[{"constituentId":"100","name":"Sample Donor"}],"supportingSolicitor":[]}' WHERE id=7;
+      INSERT INTO constituents VALUES (20,7,'100');
+      INSERT INTO prospects VALUES (30,7,'Sample Donor','Active','100',20);
+      INSERT INTO prospect_opportunities VALUES (40,30,'Future scholarship','Cultivation',20);
       UPDATE stewardship_gift_import_state SET version=1,config='{}',job=NULL,lease=NULL,lease_until=NULL;
       INSERT INTO pending_actions VALUES(10,7,'Open','2026-09-28T10:00:00Z','900',
         '{"giftId":"900","constituentId":"100","constituentName":"Sample Donor","amount":2500,"date":"2026-09-16"}');`);
   });
   afterAll(async () => { await execute("DROP SCHEMA stewardship_assistance_fixture CASCADE"); });
+
+  const source = { constituentId: "100", requestKey: "d1f12d11-5cd3-43e4-8137-d1abaf9e2ed5" };
+  async function directDraft(selected = source) {
+    const saved = await readDirectAssistance(context, selected, db);
+    return { type: "visit", instructions: "Please arrange a campus visit.", neededBy: null, contextVersion: saved.contextVersion };
+  }
+  it("creates direct donor and opportunity requests in the existing queue without a gift or reminder", async () => {
+    const before = await execute("SELECT * FROM pending_actions");
+    const first = await createDirectAssistance(context, source, await directDraft(), db);
+    expect(first.already_exists).toBe(false);
+    const saved = await readDirectAssistance(context, source, db);
+    expect(saved.request).toMatchObject({ id: first.id, source_pending_action_id: null, source_gift_snapshot: null, request_type: "Stewardship: Campus visit", status: "Open" });
+    const opportunity = { ...source, opportunityId: "40", requestKey: "d1f12d11-5cd3-43e4-8137-d1abaf9e2ed6" };
+    await createDirectAssistance(context, opportunity, await directDraft(opportunity), db);
+    expect((await readDirectAssistance(context, opportunity, db)).context).toMatchObject({ opportunityId: "40", opportunityTitle: "Future scholarship", prospectId: "30" });
+    expect(await execute("SELECT * FROM pending_actions")).toEqual(before);
+    expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(2);
+  });
+  it("serializes direct retries and preserves the original request across lost-response recovery", async () => {
+    const body = await directDraft();
+    const results = await Promise.all([1,2,3].map(() => createDirectAssistance(context, source, body, db)));
+    expect(new Set(results.map(row => row.id)).size).toBe(1);
+    expect(results.filter(row => !row.already_exists)).toHaveLength(1);
+    await execute("UPDATE users SET blackbaud_portfolio_cache='{}' WHERE id=7");
+    expect((await createDirectAssistance(context, source, { ...body, instructions: "Do not overwrite" }, db)).already_exists).toBe(true);
+    expect((await readDirectAssistance(context, source, db)).request.request_note).toBe(body.instructions);
+    expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(1);
+  });
+  it.each([
+    "UPDATE users SET blackbaud_portfolio_cache='{}' WHERE id=7",
+    "UPDATE users SET active=FALSE WHERE id=2", "UPDATE users SET role='executive' WHERE id=2",
+    "UPDATE users SET active=FALSE WHERE id=7", "UPDATE users SET role='executive' WHERE id=7",
+    `UPDATE users SET blackbaud_portfolio_cache='{"leadSolicitor":[{"constituentId":"100","name":"Changed donor"}]}' WHERE id=7`,
+  ])("rejects changed direct donor context: %s", async change => {
+    const body = await directDraft(); await execute(change);
+    expect(await createDirectAssistance(context, source, body, db)).toBeNull();
+    expect(await execute("SELECT * FROM data_change_requests")).toHaveLength(0);
+  });
+  it.each([
+    "UPDATE prospects SET user_id=8", "UPDATE prospects SET status='Archived'",
+    "UPDATE prospect_opportunities SET opportunity_status='Archived'", "UPDATE prospects SET blackbaud_constituent_id='999'",
+    "UPDATE constituents SET blackbaud_constituent_id='999'", "UPDATE prospect_opportunities SET title='Changed opportunity'",
+  ])("rechecks opportunity ownership, identity and saved context: %s", async change => {
+    const selected = { ...source, opportunityId: "40" }, body = await directDraft(selected);
+    await execute(change); expect(await createDirectAssistance(context, selected, body, db)).toBeNull();
+    expect(await execute("SELECT * FROM data_change_requests")).toHaveLength(0);
+  });
+  it("isolates requests by owner and prevents reusing a request key for a different source", async () => {
+    const body = await directDraft(); const first = await createDirectAssistance(context, source, body, db);
+    expect(await readDirectAssistance({ ...context, workspaceUser: { ...owner, id: 8 } }, { ...source, requestId: first.id }, db)).toBeNull();
+    expect(await createDirectAssistance(context, { ...source, constituentId: "999" }, body, db)).toBeNull();
+    expect(await createDirectAssistance(context, { ...source, opportunityId: "40" }, body, db)).toBeNull();
+    const self = { sessionUser: owner, workspaceUser: owner, isActing: false };
+    expect(await createDirectAssistance(self, source, body, db)).toMatchObject({ already_exists: false });
+  });
+  it("shares direct requests with staff versioned updates and allows intentional separate requests", async () => {
+    const first = await createDirectAssistance(context, source, await directDraft(), db);
+    expect(await updateAssistance(actor, first.id, { version: 1, status: "In Progress", note: "Visit being arranged" }, db)).toMatchObject({ request_version: "2" });
+    expect((await readDirectAssistance(context, { ...source, requestId: first.id }, db)).request.reviewer_notes).toBe("Visit being arranged");
+    const secondSource = { ...source, requestKey: "d1f12d11-5cd3-43e4-8137-d1abaf9e2ed7" };
+    const second = await createDirectAssistance(context, secondSource, await directDraft(secondSource), db);
+    expect(second.id).not.toBe(first.id);
+    expect(await execute("SELECT * FROM data_change_requests")).toHaveLength(2);
+  });
 
   it("saves one existing-queue request and audit entry without changing the reminder", async () => {
     const before = await execute("SELECT * FROM pending_actions");
@@ -292,6 +367,19 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
   const receiptDraft = (requestId, itemId, changes = {}) => ({ operation: "record", viewerKey: "2", requestId, version: 1,
     itemId, token: "74512c41-89cd-41be-946e-10a056cae491", receivedOn: "2000-10-01", note: "Handed to recipient", confirmed: true, ...changes });
   const prepareReceipt = async () => { const item = await addGift(); const request = await choose(item.id); return receiptDraft(request.id, item.id); };
+  it("uses the same receipt workflow for direct personal-gift requests without reserving or deducting on submission", async () => {
+    const item = await addGift();
+    const before = await execute("SELECT * FROM stewardship_gift_items");
+    const first = await createDirectAssistance(context, source, { ...await directDraft(), type: "gift", giftItemId: item.id }, db);
+    expect(await execute("SELECT * FROM stewardship_gift_items")).toEqual(before);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    const command = receiptDraft(first.id, item.id);
+    const received = await writeGiftReceipt(actor, command, db);
+    expect(received).toMatchObject({ request_id: first.id });
+    expect((await execute("SELECT constituent_id,owner_user_id FROM stewardship_gift_receipts"))[0]).toMatchObject({ constituent_id: "100", owner_user_id: "7" });
+    expect((await writeGiftReceipt(actor, command, db)).id).toBe(received.id);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+  });
   it("records confirmed receipt with authoritative snapshots and an audit, without completing the request/task or changing inventory", async () => {
     const command = await prepareReceipt();
     const before = await execute("SELECT * FROM stewardship_gift_items");

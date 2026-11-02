@@ -7,11 +7,12 @@ const data = { viewerId: "2", workspaceId: "7", giftChoices: [{ id: "12", name: 
 const saved = { ...data, task: { ...data.task, request: { id: "11", status: "Open", request_type: "Stewardship: Personal gift", request_note: "A retirement gift", needed_by: "2026-10-01" } } };
 const reply = (value, ok = true) => ({ ok, json: async () => value });
 let client, onClose;
-function mount() {
+function mount(props = {}) {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); onClose = vi.fn();
-  return render(<QueryClientProvider client={client}><StewardshipAssistanceDialog item={{ id: 50 }} viewerId={2} workspaceId={7} onClose={onClose} /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><StewardshipAssistanceDialog item={{ id: 50 }} viewerId={2} workspaceId={7} onClose={onClose} {...props} /></QueryClientProvider>);
 }
 beforeEach(() => {
+  sessionStorage.clear();
   HTMLDialogElement.prototype.showModal = vi.fn(function () { this.setAttribute("open", ""); });
   HTMLDialogElement.prototype.close = vi.fn(function () { this.removeAttribute("open"); });
   vi.stubGlobal("fetch", vi.fn(async () => reply(structuredClone(data))));
@@ -78,4 +79,45 @@ it("clears a gift when switching request types and still permits requests with n
   fetch.mockResolvedValueOnce(reply(saved)); fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
   await screen.findByText("Request submitted to Advancement Services.");
   expect(JSON.parse(fetch.mock.calls[1][1].body)).not.toHaveProperty("giftItemId");
+});
+
+const directData = { viewerId: "2", workspaceId: "7", context: { constituentId: "100", constituentName: "Sample Donor", opportunityId: "40", opportunityTitle: "Future scholarship" }, contextVersion: "a".repeat(32), giftChoices: [], request: null };
+const directProps = { item: undefined, source: { constituentId: "100", opportunityId: "40" } };
+it("prefills donor and opportunity context and submits without a gift or pending task", async () => {
+  fetch.mockResolvedValue(reply(directData)); mount(directProps); await fill();
+  expect(screen.getByText("Opportunity: Future scholarship")).toBeVisible();
+  expect(screen.getByText(/No donation is required/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("What would you like help with?"), { target: { value: "visit" } });
+  fireEvent.change(screen.getByLabelText("Needed by (optional)"), { target: { value: "2026-11-20" } });
+  fetch.mockResolvedValueOnce(reply({ ...directData, request: saved.task.request }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit request" })); await screen.findByText("Request submitted to Advancement Services.");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ type: "visit", instructions: "A retirement gift", neededBy: "2026-11-20", contextVersion: directData.contextVersion });
+  expect(fetch.mock.calls[1][0]).toBe(fetch.mock.calls[0][0]);
+  expect(fetch.mock.calls[0][0]).toContain("/api/stewardship/direct-request?viewerId=2&workspaceId=7&constituentId=100&opportunityId=40&requestKey=");
+});
+it("retains a direct recovery key on reopen and starts another request only explicitly", async () => {
+  fetch.mockResolvedValue(reply({ ...directData, request: saved.task.request })); const first = mount(directProps);
+  await screen.findByText("Your saved stewardship request."); const initialUrl = fetch.mock.calls[0][0]; first.unmount(); client.clear();
+  mount(directProps); await screen.findByText("Your saved stewardship request."); expect(fetch.mock.calls[1][0]).toBe(initialUrl);
+  fetch.mockResolvedValueOnce(reply(directData)); fireEvent.click(screen.getByRole("button", { name: "Start a separate request" }));
+  await screen.findByLabelText("What would you like help with?"); expect(fetch.mock.calls[2][0]).not.toBe(initialUrl);
+  expect(fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
+});
+it("recovers an uncertain direct save using only a GET", async () => {
+  fetch.mockResolvedValue(reply(directData)); mount(directProps); await fill();
+  fetch.mockRejectedValueOnce(new Error("Connection interrupted")); fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  await screen.findByRole("alert"); expect(screen.getByRole("button", { name: "Submit request" })).toBeDisabled();
+  fetch.mockResolvedValueOnce(reply({ ...directData, request: saved.task.request })); fireEvent.click(screen.getByRole("button", { name: "Reload saved status" }));
+  await screen.findByText("Your saved stewardship request."); expect(fetch.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
+});
+it.each([{ constituentId: "999" }, { opportunityId: "999" }])("rejects a mismatched direct response %o", async change => {
+  fetch.mockResolvedValue(reply({ ...directData, context: { ...directData.context, ...change } })); mount(directProps);
+  await screen.findByRole("alert"); expect(screen.queryByRole("button", { name: "Submit request" })).toBeNull();
+});
+it("shows a saved request by ID without offering another or submitting again", async () => {
+  fetch.mockResolvedValue(reply({ ...directData, request: saved.task.request }));
+  mount({ source: { constituentId: "100", requestId: "11" } }); await screen.findByText("Your saved stewardship request.");
+  expect(screen.queryByRole("button", { name: "Start a separate request" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Submit request" })).toBeNull();
+  expect(fetch.mock.calls[0][0]).toContain("requestId=11");
 });

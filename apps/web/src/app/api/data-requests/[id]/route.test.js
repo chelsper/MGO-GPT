@@ -20,6 +20,7 @@ describe("reviewer data request actions", () => {
     expect(response.status).toBe(200);
     expect(mocks.sql.mock.calls[0].slice(1)).toContain(7);
     expect(mocks.sql.mock.calls[0].slice(1)).not.toContain(44);
+    expect(mocks.sql.mock.calls[0][0].join(" ")).toContain("stewardship_request_key IS NULL");
   });
 
   it("does not broaden MGO mutation permissions", async () => {

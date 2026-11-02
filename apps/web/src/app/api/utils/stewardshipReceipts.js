@@ -68,7 +68,7 @@ export async function writeGiftReceipt(actor, input, db = sql) {
         JOIN users actor ON actor.id=${actor.id} AND actor.role=${actor.role} AND actor.active IS NOT FALSE
         LEFT JOIN users owner ON owner.id=r.owner_user_id
         LEFT JOIN stewardship_gift_items gift ON gift.id=r.stewardship_gift_item_id
-        WHERE r.id=${command.requestId} AND r.source_pending_action_id IS NOT NULL
+        WHERE r.id=${command.requestId} AND (r.source_pending_action_id IS NOT NULL OR r.stewardship_request_key IS NOT NULL)
           AND r.request_type='Stewardship: Personal gift'
       ), inserted AS (
         INSERT INTO stewardship_gift_receipts(request_id,item_id,item_snapshot,constituent_id,constituent_name,

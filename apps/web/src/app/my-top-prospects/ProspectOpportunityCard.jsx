@@ -1,3 +1,4 @@
+import DirectStewardshipRequestButton from "@/components/DirectStewardshipRequestButton";
 import {
   FUNDED_OPPORTUNITY_STATUS,
   DECLINED_OPPORTUNITY_STATUS,
@@ -70,6 +71,7 @@ export default function ProspectOpportunityCard({
   onLinkGift,
   renderRollover,
   renderStewardshipOpportunitySection,
+  stewardshipScope,
 }) {
   return (
     <div
@@ -268,6 +270,7 @@ export default function ProspectOpportunityCard({
           ) : null}
           {renderRollover(opportunity)}
           {renderStewardshipOpportunitySection(opportunity)}
+          {!readOnly && stewardshipScope && <DirectStewardshipRequestButton {...stewardshipScope} opportunityId={opportunity.id} />}
           {opportunity.ask_date || opportunity.expected_date ? (
             <div
               style={{

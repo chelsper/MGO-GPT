@@ -17,10 +17,13 @@ export default function PortfolioStewardshipPanel(props) {
     returnLabel="Back to stewardship" onClose={() => setView(null)} />;
   if (view?.taskId) return <StewardshipAssistanceDialog item={{ id: view.taskId }}
     viewerId={props.viewerId} workspaceId={props.workspaceId} onClose={() => setView(null)} />;
-  return <StewardshipSummary {...props} onLogAction={() => setView("action")} onRequest={taskId => setView({ taskId })} />;
+  if (view?.direct) return <StewardshipAssistanceDialog source={{ constituentId: props.person.constituentId, requestId: view.requestId }}
+    viewerId={props.viewerId} workspaceId={props.workspaceId} onClose={() => setView(null)} />;
+  return <StewardshipSummary {...props} onLogAction={() => setView("action")} onRequest={taskId => setView({ taskId })}
+    onDirectRequest={requestId => setView({ direct: true, requestId })} />;
 }
 
-function StewardshipSummary({ person, viewerId, workspaceId, onClose, onLogAction, onRequest }) {
+function StewardshipSummary({ person, viewerId, workspaceId, onClose, onLogAction, onRequest, onDirectRequest }) {
   const titleId = useId();
   const dialog = useRef(null);
   const [data, setData] = useState(null);
@@ -75,6 +78,7 @@ function StewardshipSummary({ person, viewerId, workspaceId, onClose, onLogActio
               {request.item_name && <p>{request.item_name}</p>}
               <p>{request.needed_by ? `Needed by ${formatReceivedDate(request.needed_by)}` : "No deadline set"}</p>
               {request.task_id && <button type="button" onClick={() => onRequest(request.task_id)}>View request #{request.id}</button>}
+              {request.direct_request && <button type="button" onClick={() => onDirectRequest(request.id)}>View request #{request.id}</button>}
             </li>)}</ul>
             {data.requestsTruncated && <p className="portfolio-action-panel__hint">Showing 10 open or recent requests. Older requests remain in your Work Queue.</p>}
           </section>
@@ -91,15 +95,16 @@ function StewardshipSummary({ person, viewerId, workspaceId, onClose, onLogActio
             <ul>{data.followUps.map(task => <li key={task.id}><strong>{task.title}</strong>
               <p>{task.due_date ? `Due ${formatReceivedDate(task.due_date)}` : "No due date"}</p>
               <div className="portfolio-stewardship__links"><a href={followUpHref(task.id)}>Open follow-up</a>
-                {task.can_request && <button type="button" onClick={() => onRequest(task.id)}>{task.request_id ? "View linked request" : "Request assistance"}</button>}</div>
+                {task.can_request && <button type="button" onClick={() => onRequest(task.id)}>{task.request_id ? "View linked request" : "Request help for this follow-up"}</button>}</div>
             </li>)}</ul>
             {data.followUpsTruncated && <p className="portfolio-action-panel__hint">Showing the first 10 open follow-ups by due date.</p>}
-            {!data.followUps.some(task => task.can_request) && <p className="portfolio-action-panel__hint">Assistance requests currently start from a saved gift follow-up. You can still log a completed stewardship action below.</p>}
+            <p className="portfolio-action-panel__hint">You can request assistance before a donation arrives. Existing gift follow-ups keep their own linked requests.</p>
           </section>
         </>}
       </div>
       <footer className="portfolio-action-panel__footer">
         <button type="button" onClick={onClose}>Back to portfolio</button>
+        <button type="button" disabled={!data} onClick={() => onDirectRequest(null)}>Request assistance</button>
         <button type="button" className="portfolio-action-panel__save" disabled={!data} onClick={onLogAction}>Log stewardship action</button>
       </footer>
     </div>

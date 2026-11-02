@@ -8,15 +8,17 @@ Closing it preserves the worklist's filters, view, pagination, and position.
 
 - Open and recent requests: existing assistance requests owned by the selected
   MGO, with status, preferred item, and needed-by date. Opening a request uses
-  its existing source follow-up, not a second queue.
+  its existing source follow-up or direct request ID, not a second queue.
 - Stewardship Items Received (items given to donors, not donations to JU): the latest five non-voided receipt records visible
   to the signed-in account, including imported NXT history when permitted.
   Missing received dates stay explicitly unknown. The full received-item history
   is linked with the constituent ID preselected.
 - Next stewardship touches: open stewardship next steps and saved gift follow-ups
   for the selected MGO and exact constituent. Matching names never establish identity.
-- Request assistance: available on eligible saved gift follow-ups. Existing
-  requests open for review instead of presenting a second submission form.
+- Request assistance: the general button works before a donation arrives. The
+  separate **Request help for this follow-up** button preserves gift-specific
+  context. Both use the same Stewardship staff queue and MGO status tracking.
+  Existing requests open for review instead of presenting a second submission form.
 - Log stewardship action: reuses the existing action side panel, starting with
   interaction type Stewardship. Saving is an explicit NXT action; opening or
   canceling the form is not. Cancel and the post-save return lead back to Stewardship.
@@ -42,10 +44,10 @@ Requests prioritize open/in-progress items, then recent completed/declined items
 Follow-ups prioritize earliest due date. Receipt records are ordered by recording
 ID, not an inferred delivery date. Completed assistance requests do not prove delivery.
 
-This is not a comprehensive NXT action timeline. Proactive assistance requests
-without a saved gift follow-up, broader imported-history access, and a consolidated
-action timeline remain separate future work. No schema migration or new write
-endpoint is required for this panel.
+This is not a comprehensive NXT action timeline. Broader imported-history access
+and a consolidated action timeline remain separate future work. Proactive requests
+now use the scoped `/api/stewardship/direct-request` writer; see
+`docs/stewardship-assistance.md` for schema, retry, and authorization details.
 
 ## Verification
 

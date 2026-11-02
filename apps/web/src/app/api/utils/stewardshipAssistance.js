@@ -104,7 +104,7 @@ export async function updateAssistance(actor, id, draft, db = sql) {
             WHEN ${draft.giftItemId ?? null}::bigint IS NULL THEN NULL
             ELSE (SELECT snapshot FROM choice) END
         FROM users actor WHERE r.id = ${id} AND r.request_version = ${draft.version}
-          AND r.source_pending_action_id IS NOT NULL
+          AND (r.source_pending_action_id IS NOT NULL OR r.stewardship_request_key IS NOT NULL)
           AND actor.id = ${actor.id} AND actor.role = ${actor.role} AND actor.active IS NOT FALSE
           AND (NOT ${changesGift} OR r.stewardship_gift_item_id IS NOT DISTINCT FROM ${draft.giftItemId ?? null}::bigint
             OR NOT EXISTS(SELECT 1 FROM stewardship_gift_receipts d WHERE d.request_id=r.id AND d.voided_at IS NULL))

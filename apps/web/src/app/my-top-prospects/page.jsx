@@ -1110,7 +1110,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName, draftScope, returnLabel = "Back to Top Prospects" }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName, draftScope, stewardshipScope, returnLabel = "Back to Top Prospects" }) {
   const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
@@ -2696,6 +2696,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
       opportunity={opportunity}
       readOnly={readOnly}
       canLinkGift={Boolean(getProspectBlackbaudConstituentId())}
+      stewardshipScope={stewardshipScope ? { ...stewardshipScope, constituentId: getProspectBlackbaudConstituentId() } : null}
       unlinkingGiftLinkId={unlinkingGiftLinkId}
       onEdit={startEditingOpportunity}
       onUnlinkGift={unlinkOpportunityGift}
@@ -8826,6 +8827,7 @@ export default function MyTopProspectsPage() {
       {selectedProspectId && (
         <ProspectDetailModal
           draftScope={`${profileStatus?.user?.id}:${activeWorkspaceUserId}`}
+          stewardshipScope={{ viewerId: profileStatus?.user?.id, workspaceId: activeWorkspaceUserId }}
           pledgeData={pledgeData}
           ownerName={profileStatus?.workspaceUser?.name}
           prospectId={selectedProspectId}

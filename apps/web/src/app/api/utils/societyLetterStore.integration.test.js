@@ -134,7 +134,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
     );
     await ensureSocietyLetterSchema();
     await execute(
-      "CREATE TABLE IF NOT EXISTS organization_settings(id INTEGER PRIMARY KEY, time_zone TEXT); INSERT INTO organization_settings VALUES (1, 'America/New_York') ON CONFLICT DO NOTHING; CREATE TABLE IF NOT EXISTS data_change_requests(id BIGINT PRIMARY KEY, source_pending_action_id BIGINT, status TEXT, needed_by DATE);",
+      "CREATE TABLE IF NOT EXISTS organization_settings(id INTEGER PRIMARY KEY, time_zone TEXT); INSERT INTO organization_settings VALUES (1, 'America/New_York') ON CONFLICT DO NOTHING; CREATE TABLE IF NOT EXISTS data_change_requests(id BIGINT PRIMARY KEY, source_pending_action_id BIGINT, stewardship_request_key UUID, status TEXT, needed_by DATE);",
     );
   }, 30000);
   afterAll(async () => {

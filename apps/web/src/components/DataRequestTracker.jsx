@@ -5,6 +5,8 @@ import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { isMgoRole, isReviewerRole } from "@/utils/workspaceRoles";
+import { isStewardshipRequest } from "@/utils/stewardshipAssistance";
+import StewardshipRequestContext from "./StewardshipRequestContext";
 
 const STATUS_OPTIONS = ["Open", "In Progress", "Completed", "Declined"];
 
@@ -704,13 +706,14 @@ export default function DataRequestTracker() {
                       <strong>Advancement Services note:</strong> {item.reviewer_notes}
                     </div>
                   ) : null}
-                  {item.source_pending_action_id && <p className="mt-3 text-sm text-emerald-800">This request is linked to your stewardship follow-up. Its completion does not confirm delivery.
+                  <StewardshipRequestContext context={item.stewardship_context} />
+                  {isStewardshipRequest(item) && <p className="mt-3 text-sm text-emerald-800">This request is shared with the Stewardship team. Its completion does not confirm delivery.
                     {isReviewer && <a className="ml-2 font-semibold underline" href={`/stewardship/requests?requestId=${encodeURIComponent(item.id)}`}>Manage in Stewardship</a>}
-                    {!isReviewer && <a className="ml-2 font-semibold underline" href={`/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(item.source_pending_action_id)}&status=${item.source_pending_action_status === "Done" ? "Done" : "Open"}`}>View linked follow-up</a>}
+                    {!isReviewer && item.source_pending_action_id && <a className="ml-2 font-semibold underline" href={`/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(item.source_pending_action_id)}&status=${item.source_pending_action_status === "Done" ? "Done" : "Open"}`}>View linked follow-up</a>}
                   </p>}
                 </div>
 
-                {isReviewer && !item.source_pending_action_id ? (
+                {isReviewer && !isStewardshipRequest(item) ? (
                   <div style={{ backgroundColor: "#F8FAFC", borderRadius: "14px", padding: "14px" }}>
                     <label style={{ display: "grid", gap: "6px", fontSize: "13px", color: "#111827", fontWeight: 700 }}>
                       Status

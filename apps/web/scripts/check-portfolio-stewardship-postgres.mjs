@@ -51,7 +51,7 @@ try {
       (10,44,2,null,'Conflicting gift source',null,'Open','Stewardship','803','{"constituentId":"100","constituentName":"Fictional Donor"}');
     CREATE TABLE data_change_requests(id bigint PRIMARY KEY, owner_user_id bigint, blackbaud_constituent_id text,
       source_pending_action_id bigint, request_type text, status text, needed_by date, updated_at timestamptz DEFAULT NOW(),
-      stewardship_gift_item_snapshot jsonb, request_version integer DEFAULT 1);
+      stewardship_gift_item_snapshot jsonb, stewardship_request_key uuid, request_version integer DEFAULT 1);
     INSERT INTO data_change_requests(id,owner_user_id,blackbaud_constituent_id,source_pending_action_id,request_type,status) VALUES
       (1,44,'100',1,'Stewardship: Personal gift','In Progress'),
       (2,45,'100',6,'Stewardship: Personal gift','Open'),

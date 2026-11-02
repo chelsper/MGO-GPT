@@ -25,7 +25,7 @@ export async function readPortfolioStewardship(context, constituentId, db = sql)
   const ownerId = context.workspaceUser.id;
   const requests = await db`
     SELECT r.id::text, r.request_type, r.status, r.needed_by::text, r.updated_at,
-      r.stewardship_gift_item_snapshot->>'name' AS item_name,
+      r.stewardship_gift_item_snapshot->>'name' AS item_name, r.stewardship_request_key IS NOT NULL AS direct_request,
       CASE WHEN pa.owner_user_id = ${ownerId}
         AND pa.source_gift_id IS NOT NULL
         AND NULLIF(TRIM(pa.source_gift_snapshot->>'constituentName'),'') IS NOT NULL
@@ -34,7 +34,7 @@ export async function readPortfolioStewardship(context, constituentId, db = sql)
     FROM data_change_requests r
     LEFT JOIN pending_actions pa ON pa.id = r.source_pending_action_id
     WHERE r.owner_user_id = ${ownerId} AND r.blackbaud_constituent_id = ${constituentId}
-      AND r.source_pending_action_id IS NOT NULL
+      AND (r.source_pending_action_id IS NOT NULL OR r.stewardship_request_key IS NOT NULL)
     ORDER BY CASE WHEN r.status IN ('Open','In Progress') THEN 0 ELSE 1 END,
       r.updated_at DESC, r.id DESC LIMIT 11
   `;

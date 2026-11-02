@@ -49,7 +49,7 @@ export async function PATCH(request, { params }) {
           ELSE reviewed_at
         END,
         updated_at = NOW()
-      WHERE id = ${requestId} AND source_pending_action_id IS NULL
+      WHERE id = ${requestId} AND source_pending_action_id IS NULL AND stewardship_request_key IS NULL
       RETURNING *
     `;
 
