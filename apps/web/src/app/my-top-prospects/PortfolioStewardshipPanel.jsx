@@ -78,12 +78,12 @@ function StewardshipSummary({ person, viewerId, workspaceId, onClose, onLogActio
             </li>)}</ul>
             {data.requestsTruncated && <p className="portfolio-action-panel__hint">Showing 10 open or recent requests. Older requests remain in your Work Queue.</p>}
           </section>
-          <section aria-label="Recorded gifts received">
-            <h3>Recorded gifts received</h3>
-            <p className="portfolio-action-panel__hint">Only received-item records available to your account are shown. NXT history appears after import; this is not a complete NXT action history.</p>
-            {!data.receivedItems.length && <p className="portfolio-stewardship__empty">No received items are available here. This does not confirm that the donor has never received a gift.</p>}
+          <section aria-label="Stewardship Items Received">
+            <h3>Stewardship Items Received</h3>
+            <p className="portfolio-action-panel__hint">Items given to this donor, not donations to JU. Only records available to your account are shown. NXT history appears after import; this is not a complete NXT action history.</p>
+            {!data.receivedItems.length && <p className="portfolio-stewardship__empty">No stewardship items are recorded here. This does not confirm that the donor has never received a stewardship item.</p>}
             <ul>{data.receivedItems.map(item => <li key={item.id}><strong>{item.name}</strong><p>{formatReceivedDate(item.receivedOn)} &middot; {item.source}</p></li>)}</ul>
-            <a href={historyHref}>{data.receivedItemsTruncated ? "View more received items" : "View received-item history"}</a>
+            <a href={historyHref}>{data.receivedItemsTruncated ? "View more stewardship items" : "View stewardship item history"}</a>
           </section>
           <section aria-label="Next stewardship touches">
             <h3>Next stewardship touches</h3>

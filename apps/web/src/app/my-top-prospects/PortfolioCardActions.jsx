@@ -108,13 +108,13 @@ export default function PortfolioCardActions({
           <div id={panelId} ref={panelRef}
             className={`portfolio-actions__panel${placement.above ? " portfolio-actions__panel--above" : ""}`}
             style={{ maxHeight: placement.maxHeight }}>
-            <button type="button" disabled={!onOpenPortfolioStewardship}
-              onClick={() => choose(() => onOpenPortfolioStewardship?.(person))}>
-              Stewardship
-            </button>
             <button type="button" disabled={!onOpenPortfolioOpportunity}
               onClick={() => choose(() => onOpenPortfolioOpportunity?.(person))}>
               Add opportunity
+            </button>
+            <button type="button" disabled={!onOpenPortfolioStewardship}
+              onClick={() => choose(() => onOpenPortfolioStewardship?.(person))}>
+              Stewardship
             </button>
             <button type="button" disabled={!onOpenPortfolioDiscussion}
               onClick={() => choose(() => onOpenPortfolioDiscussion?.(person))}>

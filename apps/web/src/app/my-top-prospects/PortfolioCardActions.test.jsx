@@ -32,6 +32,9 @@ it("shows two quick actions and reveals secondary actions only on request withou
   open();
   expect(trigger()).toHaveAttribute("aria-expanded", "true");
   expect(document.getElementById(trigger().getAttribute("aria-controls"))).toBeVisible();
+  const menu = within(document.getElementById(trigger().getAttribute("aria-controls")));
+  expect(menu.getAllByRole("button").slice(0, 2).map(button => button.textContent.trim()))
+    .toEqual(["Add opportunity", "Stewardship"]);
   expect(screen.getByRole("button", { name: "Add opportunity" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Team discussion" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Remove me as Gift Officer" }).parentElement).toHaveClass("portfolio-actions__assignment");
