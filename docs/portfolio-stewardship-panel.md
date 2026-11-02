@@ -9,7 +9,7 @@ Closing it preserves the worklist's filters, view, pagination, and position.
 - Open and recent requests: existing assistance requests owned by the selected
   MGO, with status, preferred item, and needed-by date. Opening a request uses
   its existing source follow-up, not a second queue.
-- Recorded gifts received: the latest five non-voided receipt records visible
+- Stewardship Items Received (items given to donors, not donations to JU): the latest five non-voided receipt records visible
   to the signed-in account, including imported NXT history when permitted.
   Missing received dates stay explicitly unknown. The full received-item history
   is linked with the constituent ID preselected.

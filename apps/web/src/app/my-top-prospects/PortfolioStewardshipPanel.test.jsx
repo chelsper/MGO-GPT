@@ -27,10 +27,13 @@ const loaded = () => screen.findByText("Fictional scarf");
 it("loads one saved-data endpoint and distinguishes pending requests, receipts and planned touches", async () => {
   mount(); await loaded();
   expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/portfolio-stewardship?viewerId=2&workspaceId=44&constituentId=100", expect.objectContaining({ cache: "no-store" }));
-  expect(screen.getByRole("region", { name: "Recorded gifts received" })).toHaveTextContent("Date not recorded");
+  const items = screen.getByRole("region", { name: "Stewardship Items Received" });
+  expect(screen.getByRole("heading", { name: "Stewardship Items Received" })).toBeVisible();
+  expect(items).toHaveTextContent("Date not recorded");
+  expect(items).toHaveTextContent("Items given to this donor, not donations to JU.");
   expect(screen.getByText(/Completed does not mean delivered/)).toBeVisible();
   expect(screen.getByText(/not a complete NXT action history/)).toBeVisible();
-  expect(screen.getByRole("link", { name: "View received-item history" }).href).toContain("constituentId=100");
+  expect(screen.getByRole("link", { name: "View stewardship item history" }).href).toContain("constituentId=100");
   expect(screen.getAllByRole("link", { name: "Open follow-up" })[0]).toHaveAttribute("href", "/follow-ups?tab=next-steps&nextStepId=9");
   expect(screen.getAllByRole("button", { name: "Request assistance" })).toHaveLength(1);
 });
@@ -65,10 +68,10 @@ it.each(["viewerId", "workspaceId", "constituentId"])("rejects a mismatched %s w
 });
 it("treats errors as unavailable data, allows retry, and explains genuinely empty history", async () => {
   fetch.mockResolvedValue(reply({ error: "Saved details unavailable" }, false)); mount();
-  await screen.findByRole("alert"); expect(screen.queryByText(/No received items/)).toBeNull();
+  await screen.findByRole("alert"); expect(screen.queryByText(/No stewardship items/)).toBeNull();
   fetch.mockResolvedValue(reply({ ...saved, requests: [], followUps: [], receivedItems: [] }));
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await screen.findByText(/does not confirm that the donor has never received/);
+  await screen.findByText(/does not confirm that the donor has never received a stewardship item/);
   expect(screen.queryByRole("button", { name: "Request assistance" })).toBeNull();
   expect(screen.getByText(/requests currently start from a saved gift follow-up/)).toBeVisible();
 });
