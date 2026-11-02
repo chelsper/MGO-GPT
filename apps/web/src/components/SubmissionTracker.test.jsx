@@ -21,6 +21,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("detailed activity tracker", () => {
+  it("shows direct requests and staff progress in the MGO Stewardship tab without a broken follow-up link", async () => {
+    view.isReviewerView = false;
+    requests = [{ id: 23, stewardship_request_key: "direct-key", constituent_name: "Sample Foundation", request_type: "Stewardship: Campus visit", status: "In Progress",
+      request_note: "A campus visit", reviewer_notes: "Visit planned for next week.", stewardship_context: { constituentId: "100", constituentName: "Sample Foundation", opportunityId: "40", opportunityTitle: "Future scholarship" } }];
+    render(<SubmissionTracker detailedReview />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stewardship (1)" }));
+    expect(screen.getByText("Opportunity: Future scholarship")).toBeInTheDocument();
+    expect(screen.getByText(/Visit planned for next week/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View linked follow-up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark complete", hidden: true })).toBeNull();
+  });
   it("does not show approval controls for a routine Pending log", async () => {
     render(<SubmissionTracker detailedReview />);
     await screen.findByText("Historical Activity");

@@ -12,6 +12,7 @@ import GiftFollowUpSource from "./GiftFollowUpSource";
 import { isPersonalGiftRequest } from "@/utils/stewardshipAssistance";
 import { StaffGiftChoice, SavedGiftPreference } from "./StewardshipGiftChoice";
 import StewardshipReceiptForm from "./StewardshipReceiptForm";
+import StewardshipRequestContext from "./StewardshipRequestContext";
 
 const SOURCES = [
   ["data", "Data updates and research", "/api/data-requests?view=reviewer"],
@@ -41,11 +42,12 @@ function RequestDetails({ item }) {
   const r = item.record;
   if (item.category === "stewardship") return <div className="grid gap-4">
     <GiftFollowUpSource snapshot={r.source_gift_snapshot} />
+    <StewardshipRequestContext context={r.stewardship_context} />
     <SavedGiftPreference request={r} />
     <dl className={styles.details}><Detail label="Request" value={r.request_note} /><Detail label="Portfolio" value={r.owner_user_name} />
       <Detail label="Needed by" value={r.needed_by ? formatQueueDate(r.needed_by) : null} /><Detail label="NXT constituent ID" value={r.blackbaud_constituent_id} /></dl>
-    <p className={styles.notice}>This is the request linked to the fundraiser's follow-up. Progress notes are shared with them. Completing this request does not complete the reminder, send anything, or confirm delivery.</p>
-    {isPersonalGiftRequest(r) ? <a href={`/stewardship/inventory/recipients?${new URLSearchParams({ constituentId: r.blackbaud_constituent_id, returnTo: `/stewardship/requests?requestId=${r.id}` })}`}>View this recipient's received items</a> : <a href="/stewardship/society-letters">Open Society Letter Creation</a>}
+    <p className={styles.notice}>{r.source_pending_action_id ? "This request is linked to the fundraiser's follow-up." : "This request was made directly from a donor or opportunity; no donation is required."} Progress notes are shared with the fundraiser. Completing this request does not complete a reminder, send anything, or confirm delivery.</p>
+    {isPersonalGiftRequest(r) ? <a href={`/stewardship/inventory/recipients?${new URLSearchParams({ constituentId: r.blackbaud_constituent_id, returnTo: `/stewardship/requests?requestId=${r.id}` })}`}>View this recipient's received items</a> : r.request_type === "Stewardship: Letter or note" ? <a href="/stewardship/society-letters">Open Society Letter Creation</a> : null}
   </div>;
   if (item.source === "lists") return <dl className={styles.details}>
     <Detail label="Purpose" value={r.purpose_other || r.purpose} />
@@ -182,7 +184,7 @@ export default function AdvancementWorkQueue({ initialCategory = "all", returnTo
     <a className={styles.back} href={returnToStewardship || stewardshipOnly ? "/stewardship" : "/"}><ArrowLeft size={16} />{returnToStewardship || stewardshipOnly ? "Back to Stewardship" : "Back to dashboard"}</a>
     <header className={styles.header}>
       <div><p className={styles.eyebrow}>{stewardshipOnly ? "Stewardship" : "Advancement Services"}</p><h1>{stewardshipOnly ? "Assistance Requests" : "Work Queue"}</h1>
-        <p>{stewardshipOnly ? "Help fundraisers with letters, personal gifts, and recognition. Each request stays linked to the original follow-up. Progress updates here appear there too." : "Requests that need a person, all in one place. Routine activity stays in History without an approval step. NXT sync issues stay in Open work."}</p></div>
+        <p>{stewardshipOnly ? "Help fundraisers with letters, personal gifts, visits, and recognition. Requests keep their donor, opportunity, or gift follow-up context. Progress updates also appear in the fundraiser's Work Queue." : "Requests that need a person, all in one place. Routine activity stays in History without an approval step. NXT sync issues stay in Open work."}</p></div>
       <button className={styles.secondary} disabled={busy || Boolean(saving)} onClick={() => setRefreshKey((n) => n + 1)}><RefreshCw size={16} />{busy ? "Refreshing..." : "Refresh queues"}</button>
     </header>
 
@@ -211,7 +213,7 @@ export default function AdvancementWorkQueue({ initialCategory = "all", returnTo
       <div className={styles.resultHeading}><h2>{QUEUE_CATEGORIES.find(([key]) => key === category)?.[1] || "Requests"}</h2><span>{visible.length} shown{incomplete ? " so far" : ""}</span></div>
       {!visible.length && <div className={styles.empty}>
         <h3>{busy ? "Loading this view..." : incomplete ? "This view may be incomplete" : view === "active" ? "No open work in this view" : "No requests in this view"}</h3>
-        <p>{view === "active" && viewCounts.history > 0 ? "Completed requests are in History, not mixed in with today's work." : stewardshipOnly ? "Requests will appear here when a fundraiser asks for assistance from a gift follow-up." : "Try another request type or clear your search."}</p>
+        <p>{view === "active" && viewCounts.history > 0 ? "Completed requests are in History, not mixed in with today's work." : stewardshipOnly ? "Requests appear here when a fundraiser asks for assistance from a donor, opportunity, or gift follow-up." : "Try another request type or clear your search."}</p>
         {((!stewardshipOnly && category !== "all") || search) && <button className={styles.secondary} onClick={() => { setCategory(stewardshipOnly ? "stewardship" : "all"); setSearch(""); }}>{stewardshipOnly ? "Clear search" : "Show all request types"}</button>}
       </div>}
       <div className={styles.rows}>

@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { isStewardshipRequest } from "@/utils/stewardshipAssistance";
 import {
   normalizeDataRequestType,
   upsertOpenDataRequest,
@@ -103,7 +104,7 @@ export async function GET(request) {
           LEFT JOIN users reviewer ON reviewer.id = dcr.reviewed_by
           LEFT JOIN pending_actions pa ON pa.id = dcr.source_pending_action_id AND pa.owner_user_id = dcr.owner_user_id
           WHERE (${status || null}::TEXT IS NULL OR dcr.status = ${status || null})
-            AND (NOT ${stewardshipOnly} OR dcr.source_pending_action_id IS NOT NULL)
+            AND (NOT ${stewardshipOnly} OR dcr.source_pending_action_id IS NOT NULL OR dcr.stewardship_request_key IS NOT NULL)
           ORDER BY
             CASE dcr.status
               WHEN 'Open' THEN 0
@@ -131,11 +132,11 @@ export async function GET(request) {
           LEFT JOIN pending_actions pa ON pa.id = dcr.source_pending_action_id AND pa.owner_user_id = dcr.owner_user_id
           WHERE (dcr.requester_user_id = ${user.id} OR dcr.owner_user_id = ${user.id})
             AND (${status || null}::TEXT IS NULL OR dcr.status = ${status || null})
-            AND (NOT ${stewardshipOnly} OR dcr.source_pending_action_id IS NOT NULL)
+            AND (NOT ${stewardshipOnly} OR dcr.source_pending_action_id IS NOT NULL OR dcr.stewardship_request_key IS NOT NULL)
           ORDER BY dcr.updated_at DESC
         `;
 
-    return Response.json(rows.map(row => row.source_pending_action_id
+    return Response.json(rows.map(row => isStewardshipRequest(row)
       ? { ...row, request_viewer_id: String(sessionUser.id) } : row), { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Error fetching data requests:", error);
@@ -161,9 +162,9 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    if (body?.source_pending_action_id != null || body?.sourcePendingActionId != null ||
+    if (body?.source_pending_action_id != null || body?.sourcePendingActionId != null || body?.stewardship_request_key != null ||
         /^stewardship/i.test(String(body?.requestType || "")) || body?.sourceContext === "stewardship") {
-      return Response.json({ error: "Request stewardship assistance from the gift follow-up so its donor and request stay linked." }, { status: 400 });
+      return Response.json({ error: "Request stewardship assistance from the donor, opportunity, or gift follow-up so its context stays linked." }, { status: 400 });
     }
     const prospect = await resolveProspectContext({
       userId: user.id,

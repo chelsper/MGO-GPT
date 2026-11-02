@@ -46,8 +46,25 @@ it("returns to the same stewardship panel after canceling the existing action fo
   await loaded(); expect(onClose).not.toHaveBeenCalled();
   expect(fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
 });
-it.each(["View request #81", "View linked request", "Request assistance"])("opens %s using the existing task request workflow", async label => {
-  const taskId = label === "Request assistance" ? "10" : "9";
+it("opens a direct donor request without a gift and returns to the same panel on cancel", async () => {
+  fetch.mockImplementation(async url => reply(String(url).startsWith("/api/stewardship/direct-request?") ? {
+    viewerId: "2", workspaceId: "44", context: { constituentId: "100", constituentName: "Fictional Donor" }, contextVersion: "a".repeat(32), request: null, giftChoices: [],
+  } : { ...saved, followUps: [] }));
+  mount(); await loaded(); fireEvent.click(screen.getByRole("button", { name: "Request assistance" }));
+  await screen.findByLabelText("What would you like help with?");
+  expect(fetch.mock.calls[1][0]).toContain("/api/stewardship/direct-request?viewerId=2&workspaceId=44&constituentId=100");
+  fireEvent.click(screen.getByRole("button", { name: "Close" })); await loaded();
+  expect(onClose).not.toHaveBeenCalled(); expect(fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
+});
+it("opens a direct saved request by its ID", async () => {
+  fetch.mockImplementation(async url => reply(String(url).startsWith("/api/stewardship/direct-request?") ? {
+    viewerId: "2", workspaceId: "44", context: { constituentId: "100", constituentName: "Fictional Donor" }, request: { id: "82", status: "In Progress", request_note: "Arranging visit" },
+  } : { ...saved, requests: [{ id: "82", direct_request: true, request_type: "Stewardship: Campus visit", status: "In Progress" }] }));
+  mount(); await loaded(); fireEvent.click(screen.getByRole("button", { name: "View request #82" }));
+  await screen.findByText("Arranging visit"); expect(fetch.mock.calls[1][0]).toContain("requestId=82");
+});
+it.each(["View request #81", "View linked request", "Request help for this follow-up"])("opens %s using the existing task request workflow", async label => {
+  const taskId = label === "Request help for this follow-up" ? "10" : "9";
   fetch.mockImplementation(async url => reply(String(url).startsWith("/api/pending-actions/") ? {
     viewerId: "2", workspaceId: "44", task: { id: taskId, status: "Open", source_gift_snapshot: {}, request: taskId === "9"
       ? { id: "81", request_type: "Stewardship: Personal gift", status: "In Progress", request_note: "Please help with recognition" } : null }, giftChoices: [],
@@ -72,8 +89,8 @@ it("treats errors as unavailable data, allows retry, and explains genuinely empt
   fetch.mockResolvedValue(reply({ ...saved, requests: [], followUps: [], receivedItems: [] }));
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await screen.findByText(/does not confirm that the donor has never received a stewardship item/);
-  expect(screen.queryByRole("button", { name: "Request assistance" })).toBeNull();
-  expect(screen.getByText(/requests currently start from a saved gift follow-up/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Request assistance" })).toBeEnabled();
+  expect(screen.getByText(/request assistance before a donation arrives/)).toBeVisible();
 });
 it("closes with Escape, restores focus and scrolling, and aborts outstanding reads", async () => {
   const opener = document.createElement("button"); document.body.append(opener); opener.focus();

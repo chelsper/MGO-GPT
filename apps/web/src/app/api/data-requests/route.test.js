@@ -166,7 +166,7 @@ describe("data requests route", () => {
     expect(values).toContain(true);
   });
 
-  it.each([{ source_pending_action_id: 17 }, { sourcePendingActionId: 17 }, { requestType: "Stewardship: Personal gift" }, { sourceContext: "stewardship" }])("rejects a second unlinked stewardship submission path: %j", async fields => {
+  it.each([{ source_pending_action_id: 17 }, { sourcePendingActionId: 17 }, { stewardship_request_key: "direct-key" }, { requestType: "Stewardship: Personal gift" }, { sourceContext: "stewardship" }])("rejects a second unlinked stewardship submission path: %j", async fields => {
     const { POST } = await import("./route.js");
     const response = await POST(new Request("https://example.com/api/data-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }));
     expect(response.status).toBe(400);

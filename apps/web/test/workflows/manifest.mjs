@@ -60,6 +60,11 @@ export const workflowGroups = {
   ],
   "Stewardship assistance": [
     "src/components/StewardshipAssistanceDialog.test.jsx",
+    "src/app/api/stewardship/direct-request/route.test.js",
+    "src/app/my-top-prospects/ProspectOpportunityCard.test.jsx",
+    "src/components/SubmissionTracker.test.jsx",
+    "src/app/api/data-requests/route.test.js",
+    "src/app/api/data-requests/[id]/route.test.js",
     "src/components/AdvancementWorkQueue.test.jsx",
     "src/app/api/pending-actions/[id]/stewardship-request/route.test.js",
     "src/app/api/stewardship/assistance/route.test.js",

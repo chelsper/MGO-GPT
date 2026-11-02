@@ -178,6 +178,19 @@ describe("one linked stewardship workflow", () => {
   const request = (status = "Open") => ({ id: 22, constituent_name: "Sample Foundation", request_type: "Stewardship: Personal gift",
     source_pending_action_id: 17, owner_user_name: "Portfolio Officer", requester_name: "Portfolio Officer", request_note: "A small thank-you gift, please.",
     status, request_version: 1, request_viewer_id: "2", needed_by: "2026-10-10", source_gift_snapshot: { constituentId: "100", constituentName: "Sample Foundation", amount: 5000, date: "2026-09-16" } });
+  it("routes direct opportunity requests through the same staff workflow without a fake gift or follow-up", async () => {
+    data.push({ ...request(), source_pending_action_id: null, source_gift_snapshot: null, stewardship_request_key: "direct-key",
+      request_type: "Stewardship: Campus visit", stewardship_context: { constituentId: "100", constituentName: "Sample Foundation", opportunityId: "40", opportunityTitle: "Future scholarship" } });
+    render(<AdvancementWorkQueue initialCategory="stewardship" stewardshipOnly />); await ready();
+    fireEvent.click(rowButton("Sample Foundation"));
+    expect(screen.getByText("Opportunity: Future scholarship")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Open Society Letter Creation" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: /Reviewer notes/ }), { target: { value: "Arranging campus visit." } });
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
+    await screen.findByText(/Sample Foundation: In Progress/);
+    expect(fetch.mock.calls.find(([, options]) => options.method)[0]).toBe("/api/stewardship/assistance");
+    expect(fetch.mock.calls.some(([url]) => url.includes("pending-actions") || url.includes("blackbaud"))).toBe(false);
+  });
   it("links from the general queue to Stewardship without offering a second management form", async () => {
     data.push(request()); render(<AdvancementWorkQueue />); await ready();
     fireEvent.click(rowButton("Sample Foundation"));

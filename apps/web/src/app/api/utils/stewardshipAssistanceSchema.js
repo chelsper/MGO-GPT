@@ -6,10 +6,15 @@ export default async function stewardshipAssistanceSchema(db) {
       ALTER TABLE data_change_requests
         ADD COLUMN IF NOT EXISTS source_pending_action_id BIGINT,
         ADD COLUMN IF NOT EXISTS source_gift_snapshot JSONB,
+        ADD COLUMN IF NOT EXISTS stewardship_request_key UUID,
+        ADD COLUMN IF NOT EXISTS stewardship_context JSONB,
         ADD COLUMN IF NOT EXISTS needed_by DATE,
         ADD COLUMN IF NOT EXISTS request_version INTEGER NOT NULL DEFAULT 1;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_data_requests_stewardship_origin
         ON data_change_requests(source_pending_action_id) WHERE source_pending_action_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_data_requests_stewardship_direct_key
+        ON data_change_requests(requester_user_id, owner_user_id, stewardship_request_key)
+        WHERE stewardship_request_key IS NOT NULL;
       CREATE TABLE IF NOT EXISTS stewardship_request_events (
         id BIGSERIAL PRIMARY KEY,
         request_id BIGINT NOT NULL REFERENCES data_change_requests(id),

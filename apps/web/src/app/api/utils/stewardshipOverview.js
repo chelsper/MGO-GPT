@@ -78,7 +78,7 @@ export async function readStewardshipOverview(db) {
       COUNT(*) FILTER (WHERE status = 'In Progress')::int AS request_in_progress,
       COUNT(*) FILTER (WHERE status IN ('Open', 'In Progress') AND needed_by <
         (NOW() AT TIME ZONE COALESCE((SELECT zone FROM organization), 'America/New_York'))::date)::int AS request_overdue
-    FROM data_change_requests WHERE source_pending_action_id IS NOT NULL
+    FROM data_change_requests WHERE (source_pending_action_id IS NOT NULL OR stewardship_request_key IS NOT NULL)
   `;
   if (!saved) throw new Error("Overview unavailable");
   return stewardshipOverview(saved);
