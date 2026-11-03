@@ -25,6 +25,7 @@ export async function readPortfolioStewardship(context, constituentId, db = sql)
   const ownerId = context.workspaceUser.id;
   const requests = await db`
     SELECT r.id::text, r.request_type, r.status, r.needed_by::text, r.updated_at,
+      r.stewardship_fulfillment,
       r.stewardship_gift_item_snapshot->>'name' AS item_name, r.stewardship_request_key IS NOT NULL AS direct_request,
       CASE WHEN pa.owner_user_id = ${ownerId}
         AND pa.source_gift_id IS NOT NULL
@@ -46,11 +47,13 @@ export async function readPortfolioStewardship(context, constituentId, db = sql)
       (SELECT r.id::text FROM data_change_requests r
         WHERE r.source_pending_action_id = pa.id AND r.owner_user_id = ${ownerId}) AS request_id
     FROM pending_actions pa
+    LEFT JOIN data_change_requests sr ON sr.id=pa.source_stewardship_request_id AND sr.owner_user_id=pa.owner_user_id
     LEFT JOIN constituents c ON c.id = pa.constituent_id AND c.user_id = ${ownerId}
     LEFT JOIN prospects p ON p.id = pa.prospect_id AND p.user_id = ${ownerId}
     LEFT JOIN constituents pc ON pc.id = p.constituent_id AND pc.user_id = ${ownerId}
     CROSS JOIN LATERAL (SELECT array_remove(ARRAY[
       NULLIF(TRIM(pa.source_gift_snapshot->>'constituentId'),''),
+      NULLIF(TRIM(sr.blackbaud_constituent_id),''),
       NULLIF(TRIM(c.blackbaud_constituent_id),''),
       NULLIF(TRIM(p.blackbaud_constituent_id),''),
       NULLIF(TRIM(pc.blackbaud_constituent_id),'')], NULL) AS ids) identity

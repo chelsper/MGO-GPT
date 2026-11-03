@@ -212,6 +212,14 @@ cropping. See [the photo release note](ju-photo-release-2026-10-01.md).
 
 ### Physical Stock
 
+The November 3 guided **Complete request** flow also uses this receipt and stock
+ledger. Confirming **Received by the donor** can record receipt, optionally deduct
+stock, complete the request, and notify the MGO together. **Prepared** and **Sent**
+do not create receipts or deduct inventory. Corrections still begin by voiding the
+incorrect receipt in Received Items; replacement receipts preserve history and do
+not restore or deduct stock automatically. See
+[Stewardship fulfillment](stewardship-fulfillment.md) for scope and safeguards.
+
 Admin and Advancement Services can use **Manage stock** on each active item.
 An uncounted item requires an explicitly confirmed opening count; zero is valid
 and distinct from unknown. Subsequent changes support restock, physical return,

@@ -5,6 +5,7 @@ import stewardshipGiftRequestsSchema from "./stewardshipGiftRequestsSchema";
 import stewardshipReceiptsSchema from "./stewardshipReceiptsSchema";
 import stewardshipHistorySchema from "./stewardshipHistorySchema";
 import stewardshipStockSchema from "./stewardshipStockSchema";
+import stewardshipFulfillmentSchema from "./stewardshipFulfillmentSchema";
 import prospectLifecycleSchema from "./prospectLifecycleSchema";
 import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
 import campaignPrioritiesSchema from "./campaignPrioritiesSchema";
@@ -1239,6 +1240,7 @@ export default async function ensureAppSchema() {
     await stewardshipReceiptsSchema(sql);
     await stewardshipHistorySchema(sql);
     await stewardshipStockSchema(sql);
+    await stewardshipFulfillmentSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (

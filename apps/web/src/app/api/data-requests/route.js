@@ -90,6 +90,8 @@ export async function GET(request) {
       ? await sql`
           SELECT
             dcr.*,
+            (SELECT p.status FROM pending_actions p WHERE p.source_stewardship_request_id=dcr.id AND p.owner_user_id=dcr.owner_user_id) AS stewardship_follow_up_status,
+            EXISTS(SELECT 1 FROM stewardship_fulfillment_notices n WHERE n.request_id=dcr.id AND n.user_id=${sessionUser.id} AND n.version>n.seen_version) AS fulfillment_unread,
             (SELECT jsonb_build_object('id',d.id::text,'received_on',d.received_on::text,'item_snapshot',d.item_snapshot,'recorded_by_name',d.recorded_by_name)
               FROM stewardship_gift_receipts d WHERE d.request_id=dcr.id AND d.voided_at IS NULL) AS stewardship_received_item,
             requester.name AS requester_name,
@@ -117,6 +119,8 @@ export async function GET(request) {
       : await sql`
           SELECT
             dcr.*,
+            (SELECT p.status FROM pending_actions p WHERE p.source_stewardship_request_id=dcr.id AND p.owner_user_id=dcr.owner_user_id) AS stewardship_follow_up_status,
+            EXISTS(SELECT 1 FROM stewardship_fulfillment_notices n WHERE n.request_id=dcr.id AND n.user_id=${sessionUser.id} AND n.version>n.seen_version) AS fulfillment_unread,
             (SELECT jsonb_build_object('id',d.id::text,'received_on',d.received_on::text,'item_snapshot',d.item_snapshot,'recorded_by_name',d.recorded_by_name)
               FROM stewardship_gift_receipts d WHERE d.request_id=dcr.id AND d.voided_at IS NULL) AS stewardship_received_item,
             requester.name AS requester_name,

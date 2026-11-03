@@ -6,6 +6,18 @@ local data; production records, NXT connections, and email systems were not used
 
 ## User workflow
 
+### Guided Fulfillment (November 3, 2026)
+
+Step 3 now has a local guided completion flow, described in
+[Stewardship fulfillment](stewardship-fulfillment.md). It replaces the separate
+completion and receipt controls in Assistance Requests. Prepared, sent, and
+received remain distinct; actual receipt can be recorded with an explicit stock
+deduction, an in-app MGO update, and one optional follow-up in a single transaction.
+An existing completed NXT action can be verified and linked read-only. Automatic
+NXT action and item-custom-field creation is not implemented in this increment;
+those writes still need a verified mapping and controlled pilot. Deployment is
+separate. The older workflow descriptions below document the earlier increments.
+
 ### Proactive Requests (November 2, 2026)
 
 Implemented locally; deployment is separate from the November 2 menu/label release.

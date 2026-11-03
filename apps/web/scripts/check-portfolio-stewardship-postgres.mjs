@@ -49,7 +49,8 @@ try {
       (8,44,1,null,'Cultivation only',null,'Open','Cultivation',null,null),
       (9,44,1,null,'No gift source ID',null,'Open','Stewardship','802','{"constituentName":"Fictional Donor"}'),
       (10,44,2,null,'Conflicting gift source',null,'Open','Stewardship','803','{"constituentId":"100","constituentName":"Fictional Donor"}');
-    CREATE TABLE data_change_requests(id bigint PRIMARY KEY, owner_user_id bigint, blackbaud_constituent_id text,
+    ALTER TABLE pending_actions ADD COLUMN source_stewardship_request_id bigint;
+    CREATE TABLE data_change_requests(id bigint PRIMARY KEY, owner_user_id bigint, blackbaud_constituent_id text, stewardship_fulfillment jsonb,
       source_pending_action_id bigint, request_type text, status text, needed_by date, updated_at timestamptz DEFAULT NOW(),
       stewardship_gift_item_snapshot jsonb, stewardship_request_key uuid, request_version integer DEFAULT 1);
     INSERT INTO data_change_requests(id,owner_user_id,blackbaud_constituent_id,source_pending_action_id,request_type,status) VALUES

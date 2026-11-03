@@ -8,6 +8,7 @@ import { canReviewSubmission, getSubmissionActivityNotice, getSubmissionDisplayS
 import { isStewardshipRequest } from "@/utils/stewardshipAssistance";
 import { SavedGiftPreference } from "./StewardshipGiftChoice";
 import StewardshipRequestContext from "./StewardshipRequestContext";
+import StewardshipFulfillmentSummary from "./StewardshipFulfillmentSummary";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -281,6 +282,13 @@ export default function SubmissionTracker({ detailedReview = false }) {
   const [respondingListRequestId, setRespondingListRequestId] = useState(null);
   const { effectiveRole, isReviewerView } = useWorkspaceView(profile?.role);
   const isReviewer = isReviewerView;
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === STEWARDSHIP_TAB) {
+      setActiveTab(STEWARDSHIP_TAB);
+      setDataRequestFilter("All");
+    }
+  }, []);
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
@@ -2177,7 +2185,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                         ) : null}
                       </div>
 
-                      {isStewardshipRequest(request) ? <div><StewardshipRequestContext context={request.stewardship_context} /><SavedGiftPreference request={request} /><p>{request.source_pending_action_id ? "This request is linked to the original stewardship follow-up." : "This request is shared with the Stewardship team."} Completing a request does not confirm delivery.</p>
+                      {isStewardshipRequest(request) ? <div><StewardshipRequestContext context={request.stewardship_context} /><SavedGiftPreference request={request} /><StewardshipFulfillmentSummary key={`${request.id}:${request.stewardship_fulfillment?.version}`} request={request} showNotice /><p>{request.source_pending_action_id ? "This request is linked to the original stewardship follow-up." : "This request is shared with the Stewardship team."} Completing a request does not confirm delivery.</p>
                         {(isReviewer || request.source_pending_action_id) && <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-emerald-800 underline" href={isReviewer ? `/stewardship/requests?requestId=${encodeURIComponent(request.id)}` : `/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(request.source_pending_action_id)}&status=${request.source_pending_action_status === "Done" ? "Done" : "Open"}`}>{isReviewer ? "Manage in Stewardship" : "View linked follow-up"}</a>}
                       </div> : <div>
                         <label

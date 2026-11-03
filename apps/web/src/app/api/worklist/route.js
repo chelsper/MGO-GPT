@@ -122,6 +122,7 @@ export async function GET(request) {
       discussionItems,
       clarificationRequests,
       askSummary,
+      stewardshipUpdates,
     ] =
       await Promise.all([
         sql`
@@ -248,6 +249,11 @@ export async function GET(request) {
           WHERE p.user_id = ${user.id}
             AND p.status = 'Active'
         `,
+        sql`SELECT COUNT(*)::int AS total FROM stewardship_fulfillment_notices n
+          JOIN data_change_requests r ON r.id=n.request_id
+          JOIN users actor ON actor.id=${sessionUser.id} AND actor.active IS NOT FALSE
+          WHERE n.user_id=actor.id AND n.user_id=${user.id} AND n.version>n.seen_version
+            AND (r.owner_user_id=actor.id OR r.requester_user_id=actor.id)`,
       ]);
 
     const topPriorities = [
@@ -280,6 +286,7 @@ export async function GET(request) {
         clarificationRequests: clarificationRequests.length,
         openDiscussionItems: discussionItems.length,
         totalAskAmount: Number(askSummary[0]?.total_ask_amount || 0),
+        stewardshipUpdates: Number(stewardshipUpdates[0]?.total || 0),
       },
       overdueNextSteps,
       upcomingNextSteps,
@@ -287,7 +294,7 @@ export async function GET(request) {
       discussionItems,
       clarificationRequests,
       topPriorities,
-    });
+    }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
     console.error("Error fetching worklist:", error);
     return Response.json(

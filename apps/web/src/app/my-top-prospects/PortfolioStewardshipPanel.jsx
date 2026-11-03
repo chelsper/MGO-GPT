@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import StewardshipAssistanceDialog from "@/components/StewardshipAssistanceDialog";
+import { FULFILLMENT_STAGES } from "@/utils/stewardshipFulfillment";
 import { formatReceivedDate } from "@/utils/stewardshipReceipts";
 import PortfolioActionPanel from "./PortfolioActionPanel";
 import "./portfolioActionPanel.css";
@@ -75,6 +76,7 @@ function StewardshipSummary({ person, viewerId, workspaceId, onClose, onLogActio
             {!data.requests.length && <p className="portfolio-stewardship__empty">No saved requests for this portfolio.</p>}
             <ul>{data.requests.map(request => <li key={request.id}>
               <div className="portfolio-stewardship__line"><strong>{request.request_type.replace(/^Stewardship:\s*/, "")}</strong><span className="portfolio-stewardship__status">{request.status}</span></div>
+              {request.stewardship_fulfillment && <p>{FULFILLMENT_STAGES[request.stewardship_fulfillment.stage]} · {formatReceivedDate(request.stewardship_fulfillment.date)}</p>}
               {request.item_name && <p>{request.item_name}</p>}
               <p>{request.needed_by ? `Needed by ${formatReceivedDate(request.needed_by)}` : "No deadline set"}</p>
               {request.task_id && <button type="button" onClick={() => onRequest(request.task_id)}>View request #{request.id}</button>}

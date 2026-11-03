@@ -68,6 +68,9 @@ export const workflowGroups = {
     "src/components/AdvancementWorkQueue.test.jsx",
     "src/app/api/pending-actions/[id]/stewardship-request/route.test.js",
     "src/app/api/stewardship/assistance/route.test.js",
+    "src/app/api/stewardship/fulfillment/route.test.js",
+    "src/components/StewardshipFulfillmentForm.test.jsx",
+    "src/utils/stewardshipFulfillment.test.js",
   ],
   "Society letter CSV and PDF workflows": [
     "src/app/stewardship/society-letters/page.test.jsx",

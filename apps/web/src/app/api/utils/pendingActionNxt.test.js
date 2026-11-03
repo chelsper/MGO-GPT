@@ -1,6 +1,16 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn() }));
-import { verifiedNextStepAction, publicActionReceipt } from "./pendingActionNxt";
+import { verifiedNextStepAction, publicActionReceipt, readNextStepAction } from "./pendingActionNxt";
+import sql from "./sql";
+
+it("resolves a fulfillment follow-up without a local prospect and rejects conflicts or changed ownership",async()=>{
+  sql.mockResolvedValueOnce([{id:40,stewardship_nxt_id:"100",invalid_links:false}]);
+  expect(await readNextStepAction(40,7)).toMatchObject({constituentId:"100"});
+  sql.mockResolvedValueOnce([{id:40,stewardship_nxt_id:"100",direct_nxt_id:"101",invalid_links:false}]);
+  expect(await readNextStepAction(40,7)).toMatchObject({constituentId:null});
+  sql.mockResolvedValueOnce([{id:40,stewardship_nxt_id:"100",invalid_links:true}]);
+  expect(await readNextStepAction(40,7)).toMatchObject({constituentId:null});
+});
 
 const expected = { actionId: "247955", constituentId: "161554",
   createPayload: { summary: "Call donor", description: "Notes: Call donor\n\nDiscuss event", category: "Phone Call", date: "2026-09-16T00:00:00.000Z" },

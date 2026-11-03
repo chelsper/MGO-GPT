@@ -46,6 +46,7 @@ const REVIEWER_NOTIFICATIONS = [
 ];
 
 const MGO_NOTIFICATIONS = [
+  { key: "stewardshipUpdates", label: "Stewardship updates are ready", href: "/submissions?tab=stewardship" },
   { key: "overdueNextSteps", label: "Next steps are overdue", href: "/follow-ups" },
   { key: "clarificationRequests", label: "Requests need clarification", href: "/submissions" },
   { key: "openDiscussionItems", label: "Team discussions need attention", href: "/team-discussion" },
@@ -176,6 +177,12 @@ export default function AppShell({ children }) {
       .filter((item) => item.count > 0);
   }, [isReviewerView, worklist]);
   const notificationCount = notifications.reduce((sum, item) => sum + item.count, 0);
+
+  useEffect(() => {
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ["app-shell-worklist"] });
+    window.addEventListener("stewardship-update-seen", refresh);
+    return () => window.removeEventListener("stewardship-update-seen", refresh);
+  }, [queryClient]);
 
   const { data: actingWorkspaceStatus } = useQuery({
     queryKey: ["acting-workspace-status", profile?.id, effectiveRole],
