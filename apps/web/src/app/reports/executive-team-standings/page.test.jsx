@@ -93,3 +93,21 @@ it("does not present missing data as last-place zero", async () => {
   expect(within(screen.getByRole("table")).getByLabelText("Unranked")).toBeInTheDocument();
   expect(screen.getByText("Waiting for a complete team snapshot.")).toBeInTheDocument();
 });
+it("shows full prior-year totals for every solicitor without changing current YTD ranks", async () => {
+  const comparison = getStandingsPeriods(new Date("2026-11-03T15:00:00Z"));
+  const fetchMock = mount({ ...report, fiscalYear: comparison.fiscalYear, comparison, standings: report.standings.map((entry, index) => ({
+    ...entry, priorYearToDate: { raised: 500, highValueActions: 1 },
+    priorFullYear: { raised: index ? 150000 : 900000, highValueActions: index ? 10 : 200 },
+  })) });
+  await screen.findByRole("table");
+  expect(tableNames()).toEqual(["Blake MGO", "Alex MGO"]);
+  for (const [name, amount] of [["Alex MGO", "$900,000"], ["Blake MGO", "$150,000"]]) {
+    const card = within(screen.getByRole("article", { name: `${name} scorecard` }));
+    expect(card.getAllByText("FY26 full year")).toHaveLength(2);
+    expect(card.getByText(amount)).toBeInTheDocument();
+  }
+  fireEvent.click(screen.getByRole("button", { name: "High-value actions" }));
+  expect(tableNames()).toEqual(["Alex MGO", "Blake MGO"]);
+  expect(fetchMock.mock.calls.filter(([url]) => url === "/api/reports/executive-team-standings")).toHaveLength(1);
+  expect(fetchMock.mock.calls.some(([url]) => url.includes("refresh=1"))).toBe(false);
+});

@@ -27,7 +27,7 @@ const comparisonOptions = {
   fiscalYearStart: comparison.prior.startsOn,
   fiscalYearEnd: comparison.current.endsOn,
   fiscalYears: comparison.actionFiscalYears,
-  periods: { current: comparison.current, prior: comparison.prior, week: comparison.week },
+  periods: { current: comparison.current, prior: comparison.prior, priorFullYear: comparison.priorFullYear, week: comparison.week },
 };
 
 beforeEach(() => {
@@ -162,7 +162,22 @@ describe("high-value NXT action scoring", () => {
     ]);
     const result = await getNxtActionSummaryByWorkspaceUser(comparisonOptions);
     expect(result.get(1)).toMatchObject({ actionsThisFY: 2, highValueActionsThisFY: 2, periods: { prior: { highValueActions: 1 }, week: { highValueActions: 1 } } });
+    expect(result.get(1).periods.priorFullYear).toEqual({ actions: 2, highValueActions: 2 });
     expect(result.get(1).actions).toHaveLength(2);
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
+  });
+  it("counts full prior FY boundaries once without altering YTD, weekly or current drilldown", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      action("start", { category: "Meeting", action_date: "2025-07-01" }),
+      action("end", { type: "Solicitation", action_date: "2026-06-30" }),
+      action("end", { type: "Solicitation", action_date: "2026-06-30" }),
+      action("old", { category: "Meeting", action_date: "2025-06-30" }),
+      action("uncredited", { category: "Meeting", action_date: "2026-06-30", fundraisers: [{ system_record_id: "999" }] }),
+    ]);
+    const result = await getNxtActionSummaryByWorkspaceUser(comparisonOptions);
+    expect(result.get(1)).toMatchObject({ actionsThisFY: 0, highValueActionsThisFY: 0, actions: [], periods: {
+      prior: { actions: 1, highValueActions: 1 }, priorFullYear: { actions: 2, highValueActions: 2 }, week: { actions: 0, highValueActions: 0 },
+    } });
     expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
   });
 });

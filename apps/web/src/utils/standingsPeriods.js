@@ -32,6 +32,7 @@ export function getStandingsPeriods(now = new Date()) {
     actionFiscalYears: [currentFY, priorFY],
     current: { ...currentFY, endsOn: dayString(asOf) },
     prior: { ...priorFY, endsOn: dayString(new Date(Date.UTC(year - 1, month - 1, priorDay))) },
+    priorFullYear: priorFY,
     week: { label: "Last completed week", startsOn: dayString(weekStart), endsOn: dayString(weekEnd) },
   };
 }

@@ -69,7 +69,7 @@ describe("Team Standings report route", () => {
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
     getReportRefreshUserMock.mockResolvedValue({ id: 99, role: "admin" });
     isAuthorizedReportRefreshRequestMock.mockReturnValue(false);
-    getPeriodGivingByWorkspaceUserMock.mockResolvedValue(new Map([[8, { current: 25000, prior: 20000, week: 1000 }]]));
+    getPeriodGivingByWorkspaceUserMock.mockResolvedValue(new Map([[8, { current: 25000, prior: 20000, priorFullYear: 150000, week: 1000 }]]));
     getLifetimeGivingTotalsForWorkspaceUsersMock.mockResolvedValue(new Map([[8, 380000]]));
     getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(
       new Map([
@@ -78,7 +78,7 @@ describe("Team Standings report route", () => {
           {
             actionsThisFY: 11,
             highValueActionsThisFY: 4,
-            periods: { prior: { highValueActions: 2 }, week: { highValueActions: 1 } },
+            periods: { prior: { highValueActions: 2 }, priorFullYear: { highValueActions: 25 }, week: { highValueActions: 1 } },
             actions: [
               {
                 actionId: "bb-action-1",
@@ -173,6 +173,10 @@ describe("Team Standings report route", () => {
     }));
     expect(payload.comparison.current.endsOn.slice(5)).toBe(payload.comparison.prior.endsOn.slice(5));
     expect(payload.standings[0].priorYearToDate).toEqual({ raised: 20000, highValueActions: 2 });
+    expect(payload.standings[0].priorFullYear).toEqual({ raised: 150000, highValueActions: 25 });
+    const expectedPeriods = { current: payload.comparison.current, prior: payload.comparison.prior, priorFullYear: payload.comparison.priorFullYear, week: payload.comparison.week };
+    expect(getPeriodGivingByWorkspaceUserMock).toHaveBeenCalledWith(expect.objectContaining({ periods: expectedPeriods }));
+    expect(getNxtActionSummaryByWorkspaceUserMock).toHaveBeenCalledWith(expect.objectContaining({ periods: expectedPeriods }));
     expect(payload.standings).toEqual([
       expect.objectContaining({
         userId: 8,
@@ -283,6 +287,7 @@ describe("Team Standings report route", () => {
     expect(payload.standings).toEqual([{ userId: 99, name: "Cached User" }]);
     expect(sqlMock).not.toHaveBeenCalled();
     expect(getLifetimeGivingTotalsForWorkspaceUsersMock).not.toHaveBeenCalled();
+    expect(getPeriodGivingByWorkspaceUserMock).not.toHaveBeenCalled();
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 
@@ -361,5 +366,30 @@ describe("Team Standings report route", () => {
     expect(payload.comparison.asOf).toBe("2026-09-03");
     expect(payload.standings[0].fundedThisFiscalYear).toBe(24000);
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+  it.each(["giving", "actions"])("preserves a saved snapshot when full prior-year %s is unavailable", async (source) => {
+    if (source === "giving") getPeriodGivingByWorkspaceUserMock.mockResolvedValue(new Map([[8, { current: 25000, prior: 20000, priorFullYear: null, week: 1000 }]]));
+    else getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(new Map([[8, {
+      actionsThisFY: 11, highValueActionsThisFY: 4,
+      periods: { prior: { highValueActions: 2 }, priorFullYear: { highValueActions: null }, week: { highValueActions: 1 } },
+    }]]));
+    const snapshot = { standings: [{ userId: 8, priorFullYear: { raised: 140000, highValueActions: 20 } }] };
+    getCachedReportSnapshotMock.mockResolvedValue(snapshot);
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
+    const payload = await response.json();
+    expect(payload.snapshotStatus).toBe("stale");
+    expect(payload.standings).toEqual(snapshot.standings);
+    expect(payload.refreshUnavailableSources).toEqual([source === "giving" ? "giving_comparison" : "actions"]);
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+  it("keeps missing full prior-year totals null in a first partial refresh", async () => {
+    getPeriodGivingByWorkspaceUserMock.mockResolvedValue(new Map([[8, { current: 25000, prior: 20000, week: 1000 }]]));
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
+    const payload = await response.json();
+    expect(payload.snapshotStatus).toBe("partial");
+    expect(payload.standings[0].priorFullYear).toEqual({ raised: null, highValueActions: 25 });
+    expect(payload.standings[0].fundedThisFiscalYear).toBe(25000);
   });
 });

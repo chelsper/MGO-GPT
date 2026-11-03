@@ -5,7 +5,7 @@ vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn() }));
 vi.mock("@/app/api/utils/plannedGiftRevenue", () => ({ getRealizedPlannedGiftIds: realized }));
 import { calculatePeriodGivingByWorkspaceUser, getPeriodGivingByWorkspaceUser, getGivingQueryWindows } from "./closedFyGiftTotals";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
-const { current, prior, week } = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
+const { current, prior, priorFullYear, week } = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
 const periods = { current, prior, week };
 const workspaceUsers = [{ id: 1, blackbaud_constituent_id: "101", blackbaud_fundraiser_alias_ids: ["alias"] }, { id: 2, blackbaud_constituent_id: "102" }, { id: 3 }];
 const gift = (id, date, amount, extra = {}) => ({ id, date, amount: { value: amount }, type: "Donation", fundraisers: [{ constituent_id: "101" }], ...extra });
@@ -73,4 +73,38 @@ it.each([{ gifts: [], hasMore: true }, { invalid: true }])("rejects incomplete g
 it("does not turn a network failure into zero", async () => {
   list.mockRejectedValue(new Error("429"));
   await expect(getPeriodGivingByWorkspaceUser({ workspaceUsers, periods, authUserId: 7, origin: "https://example.org" })).rejects.toThrow("429");
+});
+it("counts the complete prior FY using the same attribution and gift rules without changing YTD", () => {
+  const expandedPeriods = { ...periods, priorFullYear };
+  const gifts = [gift("start", "2025-07-01", 10), gift("end", "2026-06-30", 20), gift("end", "2026-06-30", 20),
+    gift("old", "2025-06-30", 900), gift("current", "2026-07-01", 30),
+    gift("shared", "2026-01-01", 40, { fundraisers: [{ constituent_id: "alias" }, { constituent_id: "102" }] }),
+    gift("pledge", "2026-04-01", 50, { type: "Pledge" }),
+    gift("planned", "2026-04-01", 60, { type: "PlannedGift" }),
+    gift("uncredited", "2026-04-01", 900, { fundraisers: [{ constituent_id: "999" }] }),
+    gift("wrong-type", "2026-04-01", 900, { type: "Unknown" })];
+  const result = calculatePeriodGivingByWorkspaceUser({ workspaceUsers, gifts, periods: expandedPeriods, realizedPlannedGiftIds: new Set(["planned"]) });
+  expect(result.get(1)).toEqual({ current: 30, prior: 10, priorFullYear: 120, week: 0 });
+  expect(result.get(2)).toEqual({ current: 0, prior: 0, priorFullYear: 40, week: 0 });
+  expect(result.get(3)).toEqual({ current: null, prior: null, priorFullYear: null, week: null });
+});
+it("reuses prior full-year results for prior YTD instead of issuing another feed per solicitor", async () => {
+  list.mockResolvedValue({ gifts: [gift("spring", "2026-04-01", 125)], hasMore: false });
+  const totals = await getPeriodGivingByWorkspaceUser({ workspaceUsers, periods: { ...periods, priorFullYear }, authUserId: 7, origin: "https://example.org" });
+  expect(list).toHaveBeenCalledTimes(18);
+  expect(list).toHaveBeenCalledWith(expect.objectContaining({ searchParams: expect.objectContaining({ start_gift_date: "2025-07-01", end_gift_date: "2026-06-30" }), maxPages: 20, strictResponse: true }));
+  expect(totals.get(1)).toEqual({ current: 0, prior: 0, priorFullYear: 125, week: 0 });
+  expect(realized).toHaveBeenCalledWith(expect.objectContaining({ gifts: [gift("spring", "2026-04-01", 125)], strict: true }));
+});
+it("covers a July weekly period from the prior full-year feed with no overlapping requests", () => {
+  const july = getStandingsPeriods(new Date("2026-07-02T15:00:00Z"));
+  expect(getGivingQueryWindows({ current: july.current, prior: july.prior, priorFullYear: july.priorFullYear, week: july.week })).toEqual([
+    { startsOn: "2025-07-01", endsOn: "2026-06-30" },
+    { startsOn: "2026-07-01", endsOn: "2026-07-02" },
+  ]);
+});
+it("refuses a truncated full-year feed instead of displaying a partial annual total", async () => {
+  list.mockImplementation(async ({ searchParams }) => ({ gifts: [], hasMore: searchParams.end_gift_date === "2026-06-30" }));
+  await expect(getPeriodGivingByWorkspaceUser({ workspaceUsers, periods: { ...periods, priorFullYear }, authUserId: 7, origin: "https://example.org" })).rejects.toThrow("incomplete");
+  expect(realized).not.toHaveBeenCalled();
 });
