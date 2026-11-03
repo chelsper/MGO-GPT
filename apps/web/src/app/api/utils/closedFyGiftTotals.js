@@ -370,22 +370,57 @@ export function getGivingQueryWindows(periods) {
   return windows;
 }
 
+const COMPARISON_PAGE_BUDGET = 120;
+const COMPARISON_TIME_BUDGET_MS = 150_000;
+
+async function readCompleteComparisonWindow({ window, giftType, workspaceUserId, authUserId, origin, budget }) {
+  const pending = [window], gifts = [];
+  while (pending.length) {
+    if (budget.pages <= 0 || Date.now() >= budget.deadlineAt) {
+      throw Object.assign(new Error("The giving comparison refresh limit was reached; saved totals are unchanged."), { code: "NXT_REFRESH_LIMIT" });
+    }
+    const { startsOn, endsOn } = pending.shift();
+    const maxPages = Math.min(20, budget.pages);
+    const page = await listBlackbaudGifts({
+      userId: workspaceUserId, authUserId, origin,
+      searchParams: { limit: 500, gift_type: giftType, start_gift_date: startsOn, end_gift_date: endsOn },
+      pageLimit: 500, maxPages, includePageMetadata: true, strictResponse: true,
+      maxRetries: 0, timeoutMs: 12_000, deadlineAt: budget.deadlineAt,
+    });
+    if (!Array.isArray(page?.gifts) || typeof page.hasMore !== "boolean" ||
+        !Number.isInteger(page.pageCount) || page.pageCount < 1 || page.pageCount > maxPages) {
+      throw Object.assign(new Error("NXT comparison gift results are incomplete"), { code: "NXT_INCOMPLETE_RESULTS" });
+    }
+    budget.pages -= page.pageCount;
+    if (!page.hasMore) {
+      gifts.push(...page.gifts);
+      continue;
+    }
+    if (startsOn === endsOn) {
+      throw Object.assign(new Error("NXT comparison gift results are incomplete for a single day"), { code: "NXT_INCOMPLETE_RESULTS" });
+    }
+    // Discard the truncated parent, then read both inclusive halves completely.
+    // No partial total or overlapping boundary is reused in the published score.
+    const start = Date.parse(`${startsOn}T00:00:00Z`), end = Date.parse(`${endsOn}T00:00:00Z`);
+    const midpoint = start + Math.floor((end - start) / 86_400_000 / 2) * 86_400_000;
+    pending.unshift(
+      { startsOn, endsOn: new Date(midpoint).toISOString().slice(0, 10) },
+      { startsOn: new Date(midpoint + 86_400_000).toISOString().slice(0, 10), endsOn },
+    );
+  }
+  return gifts;
+}
+
 export async function getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserId, origin, periods }) {
   if (!workspaceUsers.length) return new Map();
   const windows = getGivingQueryWindows(periods);
   const gifts = [];
+  const budget = { pages: COMPARISON_PAGE_BUDGET, deadlineAt: Date.now() + COMPARISON_TIME_BUDGET_MS };
   // Share feeds across the team and fetch only displayed date windows.
   // Prior YTD and the weekly comparison reuse overlapping full-year results.
   for (const { startsOn, endsOn } of windows) for (const giftType of CLOSED_FY_GIFT_TYPE_QUERIES) {
-    const page = await listBlackbaudGifts({
-      userId: workspaceUsers[0].id, authUserId, origin,
-      searchParams: { limit: 500, gift_type: giftType, start_gift_date: startsOn, end_gift_date: endsOn },
-      pageLimit: 500, maxPages: 20, includePageMetadata: true, strictResponse: true,
-    });
-    if (!Array.isArray(page?.gifts) || page.hasMore !== false) {
-      throw Object.assign(new Error("NXT comparison gift results are incomplete"), { code: "NXT_INCOMPLETE_RESULTS" });
-    }
-    gifts.push(...page.gifts);
+    gifts.push(...await readCompleteComparisonWindow({ window: { startsOn, endsOn }, giftType,
+      workspaceUserId: workspaceUsers[0].id, authUserId, origin, budget }));
   }
   const identities = new Set(workspaceUsers.flatMap((user) => [...getWorkspaceFundraiserIdSet(user)]));
   const creditedGifts = dedupeGiftsById(gifts).filter((gift) =>

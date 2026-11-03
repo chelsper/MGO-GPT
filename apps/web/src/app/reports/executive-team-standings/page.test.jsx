@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Page from "./page";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
@@ -110,4 +110,34 @@ it("shows full prior-year totals for every solicitor without changing current YT
   expect(tableNames()).toEqual(["Alex MGO", "Blake MGO"]);
   expect(fetchMock.mock.calls.filter(([url]) => url === "/api/reports/executive-team-standings")).toHaveLength(1);
   expect(fetchMock.mock.calls.some(([url]) => url.includes("refresh=1"))).toBe(false);
+});
+it.each([false, true])("keeps saved cards during refresh and handles stale=%s without a second refresh", async (stale) => {
+  const comparison = getStandingsPeriods(new Date("2026-11-03T15:00:00Z"));
+  const snapshot = { ...report, fiscalYear: comparison.fiscalYear, comparison };
+  let finishRefresh;
+  const refresh = new Promise((resolve) => { finishRefresh = resolve; });
+  const fetchMock = vi.fn(async (url) => url.includes("refresh=1") ? refresh
+    : Response.json(url.includes("relationship-originators") ? { rows: [] } : snapshot));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<Page />);
+  await screen.findByRole("table");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh standings" }));
+  const button = await screen.findByRole("button", { name: "Refreshing standings..." });
+  expect(button).toBeDisabled();
+  expect(screen.getByText(/Saved standings remain visible while this runs/)).toHaveAttribute("role", "status");
+  expect(tableNames()).toEqual(["Blake MGO", "Alex MGO"]);
+  fireEvent.click(button);
+  const warning = "The gift refresh reached its safety limit. The previous Team Standings snapshot is still displayed.";
+  finishRefresh(Response.json(stale ? { ...snapshot, snapshotStatus: "stale", refreshWarning: warning }
+    : { ...snapshot, standings: report.standings.map((entry) => ({ ...entry, priorFullYear: { raised: 900000, highValueActions: 200 } })) }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Refresh standings" })).toBeEnabled());
+  expect(screen.queryByText(/Saved standings remain visible while this runs/)).not.toBeInTheDocument();
+  if (stale) {
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(screen.queryByText("$900,000")).not.toBeInTheDocument();
+  } else {
+    expect(screen.getAllByText("$900,000")).toHaveLength(2);
+  }
+  expect(tableNames()).toEqual(["Blake MGO", "Alex MGO"]);
+  expect(fetchMock.mock.calls.filter(([url]) => url.includes("refresh=1"))).toHaveLength(1);
 });

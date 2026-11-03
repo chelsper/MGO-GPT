@@ -63,7 +63,8 @@ async function loadRefreshMetric(source, loader, failures) {
     const httpStatus = Number(error?.httpStatus);
     const failure = {
       source,
-      reason: error?.code === "NXT_INCOMPLETE_RESULTS" ? "incomplete_results" : "unavailable",
+      reason: error?.code === "NXT_INCOMPLETE_RESULTS" ? "incomplete_results"
+        : error?.code === "NXT_REFRESH_LIMIT" ? "refresh_limit" : "unavailable",
       httpStatus: Number.isInteger(httpStatus) && httpStatus >= 400 && httpStatus <= 599 ? httpStatus : null,
     };
     // Never log provider bodies, donor data, credentials, or signed URLs here.
@@ -81,7 +82,12 @@ function refreshWarning(payload, previousSnapshot) {
   };
   const sources = (payload.refreshUnavailableSources || []).map((source) => labels[source]).filter(Boolean);
   const description = sources.length ? sources.join(" and ") : "Some NXT metrics";
-  return `${description} could not be refreshed for every active MGO. ${previousSnapshot
+  const givingFailure = (payload.refreshFailures || []).find(({ source }) => source === "giving_comparison");
+  const detail = givingFailure?.reason === "incomplete_results"
+    ? "NXT did not return a complete gift history for the requested dates. No partial giving totals were published. "
+    : givingFailure?.reason === "refresh_limit"
+      ? "The gift refresh reached its safety limit before all results could be checked. No partial giving totals were published. " : "";
+  return `${description} could not be refreshed for every active MGO. ${detail}${previousSnapshot
     ? "The previous Team Standings snapshot is still displayed."
     : "Missing values are unavailable, not zero, and are excluded from ranking. Other saved metrics are current."}`;
 }
