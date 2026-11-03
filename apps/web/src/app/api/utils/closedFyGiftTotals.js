@@ -374,8 +374,8 @@ export async function getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserI
   if (!workspaceUsers.length) return new Map();
   const windows = getGivingQueryWindows(periods);
   const gifts = [];
-  // Share each feed across the team, but never fetch the gap between YTD windows.
-  // Merge overlapping periods so the weekly comparison needs no duplicate calls.
+  // Share feeds across the team and fetch only displayed date windows.
+  // Prior YTD and the weekly comparison reuse overlapping full-year results.
   for (const { startsOn, endsOn } of windows) for (const giftType of CLOSED_FY_GIFT_TYPE_QUERIES) {
     const page = await listBlackbaudGifts({
       userId: workspaceUsers[0].id, authUserId, origin,

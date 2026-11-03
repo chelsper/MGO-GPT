@@ -86,6 +86,12 @@ export const workflowGroups = {
     "src/app/api/utils/societyLetterRecovery.test.js",
   ],
   "Dashboard visibility and ownership": [
+    "src/utils/standingsPeriods.test.js",
+    "src/app/api/utils/periodGiving.test.js",
+    "src/app/api/utils/nxtActionTotals.test.js",
+    "src/app/api/reports/executive-team-standings/route.test.js",
+    "src/app/reports/executive-team-standings/page.test.jsx",
+    "src/app/reports/executive-team-standings/PeriodComparisons.test.jsx",
     "src/utils/refreshRevenueSources.test.js",
     "src/app/reports/dashboards/fy-revenue-goals/page.test.jsx",
     "src/app/reports/dashboards/fy-revenue-goals/goal.integration.test.jsx",

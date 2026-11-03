@@ -76,7 +76,7 @@ async function loadRefreshMetric(source, loader, failures) {
 function refreshWarning(payload, previousSnapshot) {
   const labels = {
     lifetime_credit: "Lifetime solicitor credit",
-    giving_comparison: "FY-to-date giving totals",
+    giving_comparison: "FY-to-date giving totals and full prior fiscal-year giving",
     actions: "Action totals",
   };
   const sources = (payload.refreshUnavailableSources || []).map((source) => labels[source]).filter(Boolean);
@@ -99,7 +99,7 @@ async function getCurrentUser(request) {
 export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
   const comparison = getStandingsPeriods();
   const fiscalYear = comparison.fiscalYear;
-  const periods = { current: comparison.current, prior: comparison.prior, week: comparison.week };
+  const periods = { current: comparison.current, prior: comparison.prior, priorFullYear: comparison.priorFullYear, week: comparison.week };
   const rows = await sql`
     WITH active_mgos AS (
       SELECT
@@ -368,6 +368,10 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
       raised: asOptionalNumber(givingTotalsByUser.get(Number(row.user_id))?.prior),
       highValueActions: asOptionalNumber(nxtActionSummaryByUser.get(Number(row.user_id))?.periods?.prior?.highValueActions),
     },
+    priorFullYear: {
+      raised: asOptionalNumber(givingTotalsByUser.get(Number(row.user_id))?.priorFullYear),
+      highValueActions: asOptionalNumber(nxtActionSummaryByUser.get(Number(row.user_id))?.periods?.priorFullYear?.highValueActions),
+    },
     lastCompletedWeek: {
       raised: asOptionalNumber(givingTotalsByUser.get(Number(row.user_id))?.week),
       highValueActions: asOptionalNumber(nxtActionSummaryByUser.get(Number(row.user_id))?.periods?.week?.highValueActions),
@@ -401,10 +405,10 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
 
   const refreshUnavailableSources = new Set(refreshFailures.map(({ source }) => source));
   if (lifetimeCreditUnavailableUserIds.length) refreshUnavailableSources.add("lifetime_credit");
-  if (standings.some((entry) => entry.fundedThisFiscalYear === null || entry.priorYearToDate.raised === null || entry.lastCompletedWeek.raised === null)) {
+  if (standings.some((entry) => entry.fundedThisFiscalYear === null || entry.priorYearToDate.raised === null || entry.priorFullYear.raised === null || entry.lastCompletedWeek.raised === null)) {
     refreshUnavailableSources.add("giving_comparison");
   }
-  if (standings.some((entry) => entry.highValueActionsThisFiscalYear === null || entry.priorYearToDate.highValueActions === null || entry.lastCompletedWeek.highValueActions === null)) {
+  if (standings.some((entry) => entry.highValueActionsThisFiscalYear === null || entry.priorYearToDate.highValueActions === null || entry.priorFullYear.highValueActions === null || entry.lastCompletedWeek.highValueActions === null)) {
     refreshUnavailableSources.add("actions");
   }
   return {
@@ -422,6 +426,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     scoringUnavailableUserIds: standings
       .filter((entry) => entry.fundedThisFiscalYear === null || entry.highValueActionsThisFiscalYear === null
         || Object.values(entry.priorYearToDate).some((value) => value === null)
+        || Object.values(entry.priorFullYear).some((value) => value === null)
         || Object.values(entry.lastCompletedWeek).some((value) => value === null))
       .map((entry) => entry.userId),
     standings,

@@ -2,8 +2,12 @@ import { comparisonChange, numericScore, periodText, RANKING_MODES, scoreText } 
 
 export function ScorecardComparison({ entry, comparison }) {
   if (!comparison) return null;
-  return <section className="standings-comparison-card" aria-label="Year-to-date comparison">
-    <h4>Same point last year</h4>
+  const fullYear = comparison.priorFullYear;
+  const needsRefresh = !fullYear || !entry.priorFullYear;
+  return <section className="standings-comparison-card" aria-label="Fiscal-year comparison">
+    <h4>Fiscal-year comparison</h4>
+    {fullYear ? <p className="standings-comparison-note">Full {fullYear.label}: {periodText(fullYear)}. Changes below compare YTD only.</p> : null}
+    {needsRefresh ? <p className="standings-comparison-note">Full prior-year totals will appear after the next standings refresh.</p> : null}
     {Object.entries(RANKING_MODES).map(([mode, metric]) => {
       const current = entry[metric.field];
       const prior = entry.priorYearToDate?.[mode === "raised" ? "raised" : "highValueActions"];
@@ -13,7 +17,11 @@ export function ScorecardComparison({ entry, comparison }) {
           <div><span>{comparison.current.label} YTD</span><b>{scoreText(current, mode)}</b></div>
           <div><span>{comparison.prior.label} YTD</span><b>{scoreText(prior, mode)}</b></div>
         </div>
-        <p>{comparisonChange(current, prior, mode)}</p>
+        <p>YTD change: {comparisonChange(current, prior, mode)}</p>
+        <div className="standings-full-year">
+          <span>{fullYear?.label || comparison.prior.label} full year</span>
+          <b>{needsRefresh ? "Refresh required" : scoreText(entry.priorFullYear[mode === "raised" ? "raised" : "highValueActions"], mode)}</b>
+        </div>
       </div>;
     })}
   </section>;

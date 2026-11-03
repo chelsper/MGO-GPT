@@ -54,6 +54,9 @@
 .standings-year-pair b { font-size: clamp(15px, 1.4vw, 22px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .standings-year-pair div:last-child { background: #f4f5f7; }
 .standings-comparison-metric p { margin: 8px 0 0; font-weight: 700; }
+.standings-comparison-note { font-size: 12px; line-height: 1.6; margin: 8px 0; color: #536579; }
+.standings-full-year { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; padding: 10px 12px; border: 1px solid #dce6e1; border-radius: 8px; background: #fafbf9; }
+.standings-full-year b { font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .standings-goals { font-size: 13px; }
 .standings-goal-progress { display: grid; gap: 6px; margin: 14px 0; }
 .standings-goal-progress progress { width: 100%; height: 10px; accent-color: #006b53; }
