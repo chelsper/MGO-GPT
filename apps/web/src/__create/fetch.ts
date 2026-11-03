@@ -1,3 +1,5 @@
+import { trackAppWrite } from '@/utils/appWriteActivity';
+
 const originalFetch = fetch;
 const isBackend = () => typeof window === 'undefined';
 
@@ -80,7 +82,7 @@ export const fetchWithHeaders = async (
   // we should not add headers to requests that don't go to our own server
   // or if it's an API request
   if (isExternalFetch || url.startsWith('/api')) {
-    return originalFetch(input, init);
+    return trackAppWrite(input, init, () => originalFetch(input, init));
   }
 
   // Normalize Request into init

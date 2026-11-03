@@ -32,6 +32,7 @@ import {
 } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import OrganizationLogo from "@/components/OrganizationLogo";
+import AppReleaseNotice from "@/components/AppReleaseNotice";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 import styles from "./AppShell.module.css";
 
@@ -524,7 +525,10 @@ export default function AppShell({ children }) {
       ) : null}
 
       <Breadcrumbs pathname={pathname} canManageWorkspace={canManageWorkspace} />
-      <div className={styles.pageContent}>{children}</div>
+      <div className={styles.pageContent}>
+        <AppReleaseNotice key={location.key} path={pathname + location.search + location.hash} />
+        {children}
+      </div>
     </div>
     </WorkspaceTerminologyProvider>
   );
