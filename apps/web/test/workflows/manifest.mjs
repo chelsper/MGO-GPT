@@ -99,6 +99,7 @@ export const workflowGroups = {
   "Dashboard visibility and ownership": [
     "src/utils/standingsPeriods.test.js",
     "src/app/api/utils/periodGiving.test.js",
+    "src/app/api/utils/blackbaudPagination.test.js",
     "src/app/api/utils/nxtActionTotals.test.js",
     "src/app/api/reports/executive-team-standings/route.test.js",
     "src/app/reports/executive-team-standings/page.test.jsx",

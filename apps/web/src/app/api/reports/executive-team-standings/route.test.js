@@ -330,15 +330,20 @@ describe("Team Standings report route", () => {
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 
-  it("identifies an incomplete gift comparison without exposing provider messages or overwriting the snapshot", async () => {
-    getPeriodGivingByWorkspaceUserMock.mockRejectedValue(Object.assign(new Error("private donor information https://example.org/?token=secret"), { code: "NXT_INCOMPLETE_RESULTS", httpStatus: 200 }));
+  it.each([
+    ["NXT_INCOMPLETE_RESULTS", "incomplete_results", "NXT did not return a complete gift history"],
+    ["NXT_REFRESH_LIMIT", "refresh_limit", "The gift refresh reached its safety limit"],
+  ])("identifies %s without exposing provider messages or overwriting the snapshot", async (code, reason, detail) => {
+    getPeriodGivingByWorkspaceUserMock.mockRejectedValue(Object.assign(new Error("private donor information https://example.org/?token=secret"), { code, httpStatus: 200 }));
     const snapshot = { standings: [{ userId: 8, fundedThisFiscalYear: 24000 }], generatedAt: "2026-09-03T22:00:00Z" };
     getCachedReportSnapshotMock.mockResolvedValue(snapshot);
     const { GET } = await import("./route.js");
     const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
     const payload = await response.json();
-    expect(payload.refreshFailures).toEqual([{ source: "giving_comparison", reason: "incomplete_results", httpStatus: null }]);
+    expect(payload.refreshFailures).toEqual([{ source: "giving_comparison", reason, httpStatus: null }]);
     expect(payload.refreshWarning).toContain("FY-to-date giving totals");
+    expect(payload.refreshWarning).toContain(detail);
+    expect(payload.refreshWarning).toContain("No partial giving totals were published.");
     expect(JSON.stringify(payload)).not.toMatch(/private donor|token=secret/);
     expect(payload.standings).toEqual(snapshot.standings);
     expect(payload.generatedAt).toBe(snapshot.generatedAt);

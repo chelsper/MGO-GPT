@@ -195,10 +195,14 @@ export default function TeamStandingsPage() {
               }}
             >
               <RefreshCw size={17} />
-              Refresh standings
+              {loading && refreshVersion > 0 ? "Refreshing standings..." : "Refresh standings"}
             </button>
           }
         />
+
+        {loading && refreshVersion > 0 ? <p role="status" style={{ color: "#475569", marginTop: "16px" }}>
+          Checking current-year and full prior-year giving and actions. Larger gift histories are read in smaller date ranges. Saved standings remain visible while this runs; no NXT records are changed.
+        </p> : null}
 
         {report?.generatedAt && !refreshRequired ? (
           <p style={{ color: "#64748B", fontSize: "13px", margin: "16px 0 0" }}>

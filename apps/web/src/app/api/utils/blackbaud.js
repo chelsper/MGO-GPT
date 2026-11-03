@@ -1882,6 +1882,9 @@ export async function listBlackbaudGifts({
   maxPages = 20,
   includePageMetadata = false,
   strictResponse = false,
+  maxRetries,
+  timeoutMs,
+  deadlineAt,
 } = {}) {
   const results = [];
   let nextPath = BLACKBAUD_GIFTS_URL;
@@ -1892,11 +1895,19 @@ export async function listBlackbaudGifts({
   let pageCount = 0;
 
   while (nextPath && pageCount < maxPages) {
+    const remainingMs = deadlineAt === undefined ? null : Number(deadlineAt) - Date.now();
+    if (remainingMs !== null && (!Number.isFinite(remainingMs) || remainingMs < 1000)) {
+      throw Object.assign(new Error("The gift refresh time limit was reached; saved totals are unchanged."), { code: "NXT_REFRESH_LIMIT" });
+    }
     const payload = await blackbaudApiFetch(nextPath, {
       userId,
       authUserId,
       origin,
       searchParams: nextPath === BLACKBAUD_GIFTS_URL ? nextSearchParams : undefined,
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(timeoutMs === undefined && remainingMs === null ? {} : {
+        timeoutMs: Math.min(timeoutMs ?? BLACKBAUD_REQUEST_TIMEOUT_MS, remainingMs ?? Infinity),
+      }),
     });
 
     if (strictResponse && !Array.isArray(payload) && !Array.isArray(payload?.value)) {

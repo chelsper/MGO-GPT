@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: vi.fn() }));
 vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn(async (strings) => strings.join("").includes("FROM blackbaud_connections") ? [{ access_token: "test-token" }] : []) }));
-import { executeBlackbaudListQuery, listBlackbaudActions } from "./blackbaud";
+import { executeBlackbaudListQuery, listBlackbaudActions, listBlackbaudGifts } from "./blackbaud";
 import { buildStandingsActionQuery } from "./standingsActionQuery";
 const options = { authUserId: 1, origin: "https://example.org", requireComplete: true, maxPages: 1 };
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); vi.stubEnv("BLACKBAUD_SUBSCRIPTION_KEY", "test-subscription"); });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 it("rejects a legacy action list with an unconsumed next page", async () => {
   fetch.mockResolvedValue(Response.json({ value: [{ id: "1" }], next_link: "https://api.sky.blackbaud.com/constituent/v1/actions?offset=1" }));
   await expect(listBlackbaudActions(options)).rejects.toMatchObject({ code: "NXT_INCOMPLETE_RESULTS" });
@@ -35,4 +35,31 @@ it("rejects malformed successful payloads rather than treating them as no activi
   fetch.mockImplementation(async () => Response.json({ unexpected: true }));
   await expect(listBlackbaudActions(options)).rejects.toMatchObject({ code: "NXT_INCOMPLETE_RESULTS" });
   await expect(executeBlackbaudListQuery({ ...options, dataModelName: "renxt-action" })).rejects.toMatchObject({ code: "NXT_INCOMPLETE_RESULTS" });
+});
+it("returns gift pagination metadata without changing the default reader", async () => {
+  fetch.mockResolvedValueOnce(Response.json({ value: [{ id: "1" }], next_link: "https://api.sky.blackbaud.com/gift/v1/gifts?offset=1" }))
+    .mockResolvedValueOnce(Response.json({ value: [{ id: "2" }] }));
+  expect(await listBlackbaudGifts({ ...options, maxPages: 2, includePageMetadata: true, strictResponse: true }))
+    .toEqual({ gifts: [{ id: "1" }, { id: "2" }], pageCount: 2, hasMore: false });
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+it("does not begin an expired gift refresh", async () => {
+  await expect(listBlackbaudGifts({ ...options, deadlineAt: Date.now() - 1 })).rejects.toMatchObject({ code: "NXT_REFRESH_LIMIT" });
+  expect(fetch).not.toHaveBeenCalled();
+});
+it("checks the overall deadline between gift pages", async () => {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  fetch.mockImplementation(async () => {
+    clock.mockReturnValue(now + 150000);
+    return Response.json({ value: [{ id: "1" }], next_link: "https://api.sky.blackbaud.com/gift/v1/gifts?offset=1" });
+  });
+  await expect(listBlackbaudGifts({ ...options, maxPages: 2, deadlineAt: now + 150000, maxRetries: 0, timeoutMs: 12000 }))
+    .rejects.toMatchObject({ code: "NXT_REFRESH_LIMIT" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("honors the no-retry option instead of repeatedly calling a failed gift feed", async () => {
+  fetch.mockRejectedValue(new Error("Network unavailable"));
+  await expect(listBlackbaudGifts({ ...options, maxRetries: 0, timeoutMs: 12000 })).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
