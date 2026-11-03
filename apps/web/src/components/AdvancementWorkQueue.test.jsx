@@ -250,10 +250,10 @@ describe("one linked stewardship workflow", () => {
     const select = await screen.findByLabelText("Gift preference (optional)");
     expect(screen.getByRole("link", { name: /View this recipient's received items/ }).getAttribute("href")).toContain("constituentId=100");
     fireEvent.change(select, { target: { value: "" } });
-    expect(screen.getByRole("button", { name: "Record received item" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Complete request" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Refresh queues" })); await ready();
     // Existing request drafts stay intentionally unsaved across reloads.
-    expect(screen.getByRole("button", { name: "Record received item" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Complete request" })).toBeDisabled();
   });
   it("displays a saved receipt and no gift picker when a request is already fulfilled", async () => {
     data.push({ ...request(), stewardship_gift_item_id: "12", stewardship_received_item: { id: "1", item_snapshot: { name: "JU Blanket" }, received_on: "2020-10-01", recorded_by_name: "Staff" } });

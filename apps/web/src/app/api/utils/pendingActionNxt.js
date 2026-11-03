@@ -5,7 +5,8 @@ import sql from "@/app/api/utils/sql";
 export const nextStepActionSourceSql = `
   SELECT pa.id, pa.title, pa.details, pa.category, pa.status, pa.due_date::text AS due_date,
     pa.updated_at::text AS updated_at, p.id AS prospect_id,
-    COALESCE(c.name, p.prospect_name, pc.name) AS constituent_name,
+    COALESCE(c.name, p.prospect_name, pc.name, sr.constituent_name) AS constituent_name,
+    sr.blackbaud_constituent_id AS stewardship_nxt_id,
     c.blackbaud_constituent_id AS direct_nxt_id,
     p.blackbaud_constituent_id AS prospect_nxt_id,
     pc.blackbaud_constituent_id AS prospect_constituent_nxt_id,
@@ -13,12 +14,14 @@ export const nextStepActionSourceSql = `
     (pa.prospect_id IS NOT NULL AND p.id IS NULL
       OR pa.constituent_id IS NOT NULL AND c.id IS NULL
       OR p.constituent_id IS NOT NULL AND pc.id IS NULL
-      OR pa.prospect_opportunity_id IS NOT NULL AND po.id IS NULL) AS invalid_links,
+      OR pa.prospect_opportunity_id IS NOT NULL AND po.id IS NULL
+      OR pa.source_stewardship_request_id IS NOT NULL AND sr.id IS NULL) AS invalid_links,
     json_build_array(pa.updated_at::text, pa.prospect_id, pa.constituent_id,
       p.constituent_id, p.blackbaud_constituent_id, c.blackbaud_constituent_id,
       pc.blackbaud_constituent_id, pa.prospect_opportunity_id,
-      po.blackbaud_opportunity_id, po.prospect_id)::text AS source_token
+      po.blackbaud_opportunity_id, po.prospect_id,pa.source_stewardship_request_id,sr.blackbaud_constituent_id)::text AS source_token
   FROM pending_actions pa
+  LEFT JOIN data_change_requests sr ON sr.id=pa.source_stewardship_request_id AND sr.owner_user_id=pa.owner_user_id
   LEFT JOIN prospects p ON p.id = pa.prospect_id AND p.user_id = pa.owner_user_id
   LEFT JOIN constituents c ON c.id = pa.constituent_id AND c.user_id = pa.owner_user_id
   LEFT JOIN constituents pc ON pc.id = p.constituent_id AND pc.user_id = pa.owner_user_id
@@ -29,7 +32,7 @@ export const nextStepActionSourceSql = `
 export async function readNextStepAction(id, ownerUserId) {
   const [item] = await sql(nextStepActionSourceSql, [id, ownerUserId]);
   if (!item) return null;
-  const ids = [...new Set([item.direct_nxt_id, item.prospect_nxt_id, item.prospect_constituent_nxt_id]
+  const ids = [...new Set([item.direct_nxt_id, item.prospect_nxt_id, item.prospect_constituent_nxt_id, item.stewardship_nxt_id]
     .map(value => String(value || "").trim()).filter(Boolean))];
   return { ...item, constituentId: !item.invalid_links && ids.length === 1 ? ids[0] : null };
 }
@@ -51,8 +54,8 @@ export async function claimNextStepAction({ id, ownerUserId, enteredByUserId, so
       WHERE pa.owner_user_id = $2 AND pa.status = 'Open'
         AND pa.updated_at::text = s.updated_at AND s.source_token = $3
         AND NOT s.invalid_links
-        AND $5 IN (s.direct_nxt_id, s.prospect_nxt_id, s.prospect_constituent_nxt_id)
-        AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY[s.direct_nxt_id, s.prospect_nxt_id, s.prospect_constituent_nxt_id]) link(id)
+        AND $5 IN (s.direct_nxt_id, s.prospect_nxt_id, s.prospect_constituent_nxt_id, s.stewardship_nxt_id)
+        AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY[s.direct_nxt_id, s.prospect_nxt_id, s.prospect_constituent_nxt_id, s.stewardship_nxt_id]) link(id)
           WHERE NULLIF(btrim(link.id), '') IS NOT NULL AND btrim(link.id) <> $5)
       FOR UPDATE OF pa
     )

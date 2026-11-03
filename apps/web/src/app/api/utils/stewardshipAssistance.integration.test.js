@@ -17,6 +17,9 @@ import { writeGiftInventory } from "./stewardshipInventory";
 import { advanceHistoryImport, readHistoryState } from "./stewardshipHistoryImport";
 import { HISTORY_COLUMNS } from "@/utils/stewardshipHistoryImport";
 import { readDirectAssistance, createDirectAssistance } from "./directStewardshipAssistance";
+import fulfillmentSchema from "./stewardshipFulfillmentSchema";
+import { saveFulfillment, readFulfillmentRequest, acknowledgeFulfillment } from "./stewardshipFulfillment";
+import { nextStepActionSourceSql } from "./pendingActionNxt";
 
 const socket = process.env.GIFT_FOLLOWUP_TEST_PG_SOCKET;
 const enabled = /^\/(?:private\/)?tmp\/gift-followup-pg\.[A-Za-z0-9]+$/.test(socket || "");
@@ -27,7 +30,7 @@ function execute(statement) {
       { encoding: "utf8" }, (error, output) => {
         if (error) { reject(error); return; }
         resolve(output.trim() ? Papa.parse(output.trim(), { header: true }).data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>
-          [key, value === "" ? null : ["request", "context", "stewardship_context", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot", "source_snapshot", "config", "job"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
+          [key, value === "" ? null : ["request", "context", "stewardship_context", "stewardship_fulfillment", "stewardship_received_item", "source_gift_snapshot", "stewardship_gift_item_snapshot", "gift_item_snapshot", "item_snapshot", "source_snapshot", "config", "job"].includes(key) ? JSON.parse(value) : key === "already_exists" ? value === "t" : value]))) : []);
       });
     child.stdin.end(`SET search_path=stewardship_assistance_fixture;\n${statement}`);
   });
@@ -58,8 +61,8 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
       CREATE TABLE constituents(id bigint PRIMARY KEY, user_id bigint, blackbaud_constituent_id text);
       CREATE TABLE prospects(id bigint PRIMARY KEY, user_id bigint, prospect_name text, status text, blackbaud_constituent_id text, constituent_id bigint);
       CREATE TABLE prospect_opportunities(id bigint PRIMARY KEY, prospect_id bigint, title text, opportunity_status text, constituent_id bigint);
-      CREATE TABLE pending_actions(id bigint PRIMARY KEY, owner_user_id bigint, status text, updated_at timestamptz,
-        source_gift_id text, source_gift_snapshot jsonb);`);
+      CREATE TABLE pending_actions(id bigserial PRIMARY KEY, owner_user_id bigint, status text, updated_at timestamptz,
+        source_gift_id text, source_gift_snapshot jsonb,title text,details text,due_date date,category text,is_primary boolean,entered_by_user_id bigint);`);
     const statements = [...readFileSync("src/app/api/utils/ensureAppSchema.js", "utf8").matchAll(/await sql`([\s\S]*?)`;/g)]
       .map(match => match[1]).filter(statement => /CREATE TABLE IF NOT EXISTS data_change_requests \(/.test(statement));
     expect(statements).toHaveLength(1);
@@ -69,6 +72,7 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     await receiptsSchema(db); await receiptsSchema(db);
     await historySchema(db); await historySchema(db);
     await stockSchema(db); await stockSchema(db);
+    await fulfillmentSchema(db); await fulfillmentSchema(db);
   });
   beforeEach(async () => {
     await execute(`TRUNCATE users, constituents, prospects, prospect_opportunities, pending_actions, data_change_requests, stewardship_request_events, stewardship_gift_items, stewardship_gift_item_events RESTART IDENTITY CASCADE;
@@ -78,7 +82,7 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
       INSERT INTO prospects VALUES (30,7,'Sample Donor','Active','100',20);
       INSERT INTO prospect_opportunities VALUES (40,30,'Future scholarship','Cultivation',20);
       UPDATE stewardship_gift_import_state SET version=1,config='{}',job=NULL,lease=NULL,lease_until=NULL;
-      INSERT INTO pending_actions VALUES(10,7,'Open','2026-09-28T10:00:00Z','900',
+      INSERT INTO pending_actions(id,owner_user_id,status,updated_at,source_gift_id,source_gift_snapshot) VALUES(10,7,'Open','2026-09-28T10:00:00Z','900',
         '{"giftId":"900","constituentId":"100","constituentName":"Sample Donor","amount":2500,"date":"2026-09-16"}');`);
   });
   afterAll(async () => { await execute("DROP SCHEMA stewardship_assistance_fixture CASCADE"); });
@@ -530,7 +534,7 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
   it("serializes competing fulfillments so stock never oversells", async () => {
     const first = { ...await prepareReceipt(), stockQuantity: 3 };
     await writeGiftStock(actor, stockDraft(first.itemId), db);
-    await execute("INSERT INTO pending_actions SELECT 11,owner_user_id,status,updated_at,source_gift_id,source_gift_snapshot FROM pending_actions WHERE id=10");
+    await execute("INSERT INTO pending_actions(id,owner_user_id,status,updated_at,source_gift_id,source_gift_snapshot) SELECT 11,owner_user_id,status,updated_at,source_gift_id,source_gift_snapshot FROM pending_actions WHERE id=10");
     const request = await createTaskAssistance(context, 11, { ...draft, giftItemId: first.itemId }, db);
     const second = receiptDraft(request.id, first.itemId, { stockQuantity: 3, token: "74512c41-89cd-41be-946e-10a056cae492" });
     const results = await Promise.all([writeGiftReceipt(actor, first, db), writeGiftReceipt(actor, second, db)]);
@@ -580,5 +584,162 @@ describe.skipIf(!enabled)("shared stewardship request PostgreSQL persistence", (
     expect(preview.job.preview.rows[0].status).toBe("possible_app_match");
     expect((await step("commit", { confirmed: true })).job.inserted).toBe(0);
     expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+  });
+
+  const completion = receipt => ({ requestId: receipt.requestId, viewerKey: "2", version: 1, token: "91512c41-89cd-41be-946e-10a056cae491",
+    stage: "received", date: "2000-10-01", note: "Handed to the donor", itemId: receipt.itemId, actionId: null,
+    stockQuantity: 0, followUp: null, confirmed: true });
+  it("completes fulfillment, stock, receipt, notices and one non-primary follow-up atomically across concurrent retries", async () => {
+    const receipt = await prepareReceipt(); await writeGiftStock(actor, stockDraft(receipt.itemId), db);
+    const body = { ...completion(receipt), stockQuantity: 2, followUp: { title: "Ask how the visit went", date: "2199-01-01" } };
+    const result = await Promise.all([saveFulfillment(actor, body, null, db),saveFulfillment(actor, body, null, db)]);
+    expect(result[0]).toEqual(result[1]); expect(result[0]).not.toBeNull();
+    const request = await readFulfillmentRequest(actor, receipt.requestId, db);
+    expect(request.status).toBe("Completed");
+    expect(request.stewardship_fulfillment).toMatchObject({ stage: "received", version: 2 });
+    expect(request.stewardship_received_item.received_on).toBe("2000-10-01");
+    expect(await execute("SELECT * FROM stewardship_fulfillment_events")).toHaveLength(1);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+    expect(await execute("SELECT * FROM stewardship_request_events")).toHaveLength(2);
+    expect(await stockBalance()).toMatchObject({ on_hand: "3", stock_version: "2" });
+    expect(await execute("SELECT * FROM stewardship_fulfillment_notices")).toHaveLength(2);
+    const [follow] = await execute("SELECT * FROM pending_actions WHERE source_stewardship_request_id IS NOT NULL");
+    expect(follow).toMatchObject({ owner_user_id: "7", status: "Open", is_primary: "f", title: "Ask how the visit went" });
+    expect((await execute("SELECT status FROM pending_actions WHERE id=10"))[0].status).toBe("Open");
+    expect(await saveFulfillment(actor, { ...body, note: "Changed replay" }, null, db)).toBeNull();
+  });
+  it("keeps prepared and sent distinct from received and never deducts or invents a receipt before receipt confirmation", async () => {
+    const receipt = await prepareReceipt(); const base = completion(receipt);
+    await saveFulfillment(actor,{ ...base,stage: "prepared" },null,db);
+    expect((await readFulfillmentRequest(actor,receipt.requestId,db)).status).toBe("In Progress");
+    await saveFulfillment(actor,{ ...base,version: 2,stage: "sent",token: "91512c41-89cd-41be-946e-10a056cae492" },null,db);
+    expect((await readFulfillmentRequest(actor,receipt.requestId,db)).status).toBe("Completed");
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect(await saveFulfillment(actor,{ ...base,version: 3,stage: "prepared",token: "91512c41-89cd-41be-946e-10a056cae493" },null,db)).toBeNull();
+    expect(await saveFulfillment(actor,{ ...base,version: 3,token: "91512c41-89cd-41be-946e-10a056cae493" },null,db)).not.toBeNull();
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+  });
+  it("reuses an existing received item and rejects mismatched dates or a second stock deduction", async () => {
+    const receipt = await prepareReceipt(); await writeGiftReceipt(actor,receipt,db);
+    const body = { ...completion(receipt), version: 2 };
+    expect(await saveFulfillment(actor,{ ...body,date: "2000-10-02" },null,db)).toBeNull();
+    expect(await saveFulfillment(actor,{ ...body,stockQuantity: 1 },null,db)).toBeNull();
+    expect(await saveFulfillment(actor,body,null,db)).not.toBeNull();
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+  });
+  it("permits direct non-gift completion without receipt, stock or an NXT write", async () => {
+    const r = await createDirectAssistance(context,source,await directDraft(),db);
+    const body = { ...completion({ requestId:r.id,itemId:null }),stage:"completed" };
+    expect(await saveFulfillment(actor,body,null,db)).not.toBeNull();
+    expect((await readFulfillmentRequest(owner,r.id,db)).status).toBe("Completed");
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect(await readFulfillmentRequest({ ...owner,id:8 },r.id,db)).toBeNull();
+  });
+  it.each(["UPDATE users SET role='mgo' WHERE id=2", "UPDATE users SET active=FALSE WHERE id=2", "UPDATE data_change_requests SET request_version=2",
+    "UPDATE data_change_requests SET status='Declined'", "UPDATE data_change_requests SET stewardship_gift_item_id=NULL"])("rechecks completion authority and saved state: %s",async change=>{
+    const body=completion(await prepareReceipt()); await execute(change);
+    expect(await saveFulfillment(actor,body,null,db)).toBeNull();
+    expect(await execute("SELECT * FROM stewardship_fulfillment_events")).toHaveLength(0);
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+  });
+  it("fails without partial completion for insufficient stock and rolls back on audit failure",async()=>{
+    const receipt=await prepareReceipt(); const body={ ...completion(receipt),stockQuantity:2 };
+    expect(await saveFulfillment(actor,body,null,db)).toBeNull();
+    await writeGiftStock(actor,stockDraft(receipt.itemId),db);
+    await execute("ALTER TABLE stewardship_request_events ADD CONSTRAINT fail_fulfillment CHECK(version<2)");
+    try { await expect(saveFulfillment(actor,body,null,db)).rejects.toThrow(); }
+    finally { await execute("ALTER TABLE stewardship_request_events DROP CONSTRAINT fail_fulfillment"); }
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect(await execute("SELECT * FROM stewardship_fulfillment_notices")).toHaveLength(0);
+    expect(await stockBalance()).toMatchObject({ on_hand:"5" });
+  });
+  it("links a verified existing NXT action after completion without repeating receipt or stock writes",async()=>{
+    const receipt=await prepareReceipt(); const body=completion(receipt);
+    await saveFulfillment(actor,body,null,db);
+    const link={ ...body,version:2,token:"91512c41-89cd-41be-946e-10a056cae492",actionId:"501" };
+    expect(await saveFulfillment(actor,link,null,db)).toBeNull();
+    expect(await saveFulfillment(actor,link,{actionId:"501",constituentId:"999",date:body.date},db)).toBeNull();
+    expect(await saveFulfillment(actor,link,{actionId:"501",constituentId:"100",date:body.date},db)).not.toBeNull();
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+    expect((await readFulfillmentRequest(actor,receipt.requestId,db)).stewardship_fulfillment.actionId).toBe("501");
+  });
+  it("acknowledges only the current user's exact update version and resurfaces a later update",async()=>{
+    const receipt=await prepareReceipt();const body={ ...completion(receipt),stage:"prepared" };
+    await saveFulfillment(actor,body,null,db);
+    expect(await acknowledgeFulfillment({ ...owner,id:8 },receipt.requestId,2,db)).toBeNull();
+    expect(await acknowledgeFulfillment(owner,receipt.requestId,1,db)).toBeNull();
+    expect(await acknowledgeFulfillment(owner,receipt.requestId,2,db)).not.toBeNull();
+    expect((await readFulfillmentRequest(owner,receipt.requestId,db)).fulfillment_unread).toBe("f");
+    await saveFulfillment(actor,{ ...body,version:2,stage:"received",token:"91512c41-89cd-41be-946e-10a056cae492" },null,db);
+    expect((await readFulfillmentRequest(owner,receipt.requestId,db)).fulfillment_unread).toBe("t");
+  });
+  it("allows a corrected receipt after explicit voiding, preserving stock, action history, and MGO notices",async()=>{
+    const receipt=await prepareReceipt();await writeGiftStock(actor,stockDraft(receipt.itemId),db);
+    const body={...completion(receipt),actionId:"501",stockQuantity:2};
+    await saveFulfillment(actor,body,{actionId:"501",constituentId:"100",date:body.date},db);
+    let current=await readFulfillmentRequest(actor,receipt.requestId,db);
+    const replacement={...body,version:3,token:"91512c41-89cd-41be-946e-10a056cae492",date:"2000-09-30",note:"Corrected receipt date",stockQuantity:0,actionId:null};
+    expect(await saveFulfillment(actor,{...replacement,version:2},null,db)).toBeNull();
+    await writeGiftReceipt(actor,{operation:"void",viewerKey:"2",requestId:receipt.requestId,version:2,id:current.stewardship_received_item.id,reason:"Wrong date"},db);
+    expect(await saveFulfillment(actor,replacement,null,db)).not.toBeNull();
+    current=await readFulfillmentRequest(actor,receipt.requestId,db);
+    expect(current.stewardship_received_item.received_on).toBe("2000-09-30");
+    expect(current.stewardship_fulfillment).toMatchObject({actionId:"501",actionNeedsReview:true,version:4});
+    expect(await stockBalance()).toMatchObject({on_hand:"3",stock_version:"2"});
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(2);
+    expect(await execute("SELECT * FROM stewardship_fulfillment_events")).toHaveLength(2);
+  });
+  it("permits item changes while prepared and requires reopening completed dispatch before correcting its choice",async()=>{
+    const body=completion(await prepareReceipt());await saveFulfillment(actor,{...body,stage:"prepared"},null,db);
+    expect(await updateAssistance(actor,body.requestId,{version:2,status:"In Progress",note:"Choose another item",giftItemId:null},db)).not.toBeNull();
+    await saveFulfillment(actor,{...body,version:3,itemId:null,stage:"sent",token:"91512c41-89cd-41be-946e-10a056cae492"},null,db);
+    expect(await updateAssistance(actor,body.requestId,{version:4,status:"In Progress",note:"Cannot change dispatched item",giftItemId:body.itemId},db)).toBeNull();
+    expect(await updateAssistance(actor,body.requestId,{version:4,status:"Open",note:"Record the item actually dispatched"},db)).not.toBeNull();
+    expect(await updateAssistance(actor,body.requestId,{version:5,status:"In Progress",note:"Confirmed the item with staff",giftItemId:body.itemId},db)).not.toBeNull();
+    expect(await saveFulfillment(actor,{...body,version:6,token:"91512c41-89cd-41be-946e-10a056cae493"},null,db)).not.toBeNull();
+  });
+  it("serializes guided completion against the existing receipt writer without deducting twice",async()=>{
+    const receipt=await prepareReceipt();await writeGiftStock(actor,stockDraft(receipt.itemId),db);
+    const results=await Promise.all([saveFulfillment(actor,{...completion(receipt),stockQuantity:3},null,db),writeGiftReceipt(actor,{...receipt,stockQuantity:3},db)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await stockBalance()).toMatchObject({on_hand:"2",stock_version:"2"});
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(1);
+  });
+  it("rejects a new MGO follow-up when the assigned owner is inactive without partially completing",async()=>{
+    const body=completion(await prepareReceipt());await execute("UPDATE users SET active=FALSE WHERE id=7");
+    expect(await saveFulfillment(actor,{...body,followUp:{title:"Follow up",date:"2199-01-01"}},null,db)).toBeNull();
+    expect(await execute("SELECT * FROM stewardship_gift_receipts")).toHaveLength(0);
+    expect(await execute("SELECT * FROM stewardship_fulfillment_events")).toHaveLength(0);
+    expect(await saveFulfillment(actor,body,null,db)).not.toBeNull();
+  });
+  it("executes fulfillment with real prepared SQL parameters, including nullable action and follow-up values",async()=>{
+    const body=completion(await prepareReceipt());
+    const bound=(parts,...values)=>values.length ? db(parts.reduce((query,part,index)=>query+part+(index<values.length?`$${index+1}`:""),""),values) : db(parts);
+    bound.transaction=db.transaction;
+    // PostgreSQL PREPARE resolves parameter types just as the production driver does.
+    expect(await saveFulfillment(actor,body,null,bound)).not.toBeNull();
+  });
+  it("resolves a new fulfillment follow-up for the NXT action form without requiring a local prospect",async()=>{
+    await execute(`ALTER TABLE pending_actions ADD COLUMN prospect_id bigint, ADD COLUMN constituent_id bigint, ADD COLUMN prospect_opportunity_id bigint;
+      ALTER TABLE constituents ADD COLUMN name text; ALTER TABLE prospect_opportunities ADD COLUMN blackbaud_opportunity_id text;`);
+    const body={...completion(await prepareReceipt()),followUp:{title:"Thank the donor",date:"2199-01-01"}};
+    await saveFulfillment(actor,body,null,db);
+    const saved=await readFulfillmentRequest(owner,body.requestId,db);
+    expect(saved.stewardship_follow_up_status).toBe("Open");
+    const [source]=await db(nextStepActionSourceSql,[saved.stewardship_fulfillment.followUpId,7]);
+    expect(source).toMatchObject({constituent_name:"Sample Donor",stewardship_nxt_id:"100",invalid_links:"f",prospect_id:null});
+    await execute("UPDATE data_change_requests SET owner_user_id=8");
+    const [changed]=await db(nextStepActionSourceSql,[saved.stewardship_fulfillment.followUpId,7]);
+    expect(changed).toMatchObject({stewardship_nxt_id:null,invalid_links:"t"});
+  });
+  it("completes deliberately reopened non-gift work without losing earlier fulfillment or linked-action history",async()=>{
+    const r=await createDirectAssistance(context,source,await directDraft(),db);
+    const body={...completion({requestId:r.id,itemId:null}),stage:"completed",actionId:"501"};
+    await saveFulfillment(actor,body,{actionId:"501",constituentId:"100",date:body.date},db);
+    expect(await updateAssistance(actor,r.id,{version:2,status:"Open",note:"Another part of the visit needs attention"},db)).not.toBeNull();
+    expect(await saveFulfillment(actor,{...body,version:3,date:"2000-10-02",note:"Remaining visit arrangements completed",actionId:null,token:"91512c41-89cd-41be-946e-10a056cae492"},null,db)).not.toBeNull();
+    const current=await readFulfillmentRequest(actor,r.id,db);
+    expect(current).toMatchObject({status:"Completed",stewardship_fulfillment:{actionId:"501",actionNeedsReview:true,date:"2000-10-02",version:4}});
+    expect(await execute("SELECT * FROM stewardship_fulfillment_events")).toHaveLength(2);
   });
 });

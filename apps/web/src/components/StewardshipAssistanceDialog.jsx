@@ -5,6 +5,7 @@ import { ASSISTANCE_TYPES } from "@/utils/stewardshipAssistance";
 import { formatNextStepDate } from "@/utils/nextStepWorklist";
 import { GiftChoice, SavedGiftPreference } from "./StewardshipGiftChoice";
 import StewardshipRequestContext from "./StewardshipRequestContext";
+import StewardshipFulfillmentSummary from "./StewardshipFulfillmentSummary";
 import { validAssistanceKey } from "@/utils/stewardshipAssistance";
 
 const button = "min-h-11 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50";
@@ -124,6 +125,7 @@ function AssistanceForm({ item, source, viewerId, workspaceId, onClose }) {
         <p>Status: <strong>{request.status}</strong>{request.needed_by ? ` · Needed by ${formatNextStepDate(request.needed_by)}` : ""}</p>
         <p className="whitespace-pre-wrap break-words text-sm">{request.request_note}</p>
         <SavedGiftPreference request={request} />
+          <StewardshipFulfillmentSummary request={request} workspaceId={workspaceId} />
         {request.reviewer_notes && <div className="border-t border-emerald-200 pt-3 text-sm"><p className="font-semibold">Staff update</p><p className="mt-1 whitespace-pre-wrap break-words">{request.reviewer_notes}</p></div>}
         <p className="text-sm text-gray-600">The Stewardship team manages this same request in Assistance Requests. {direct ? "You can track it in your Work Queue's Stewardship tab. Completion does not confirm delivery." : "Completing it does not mark your reminder complete or confirm delivery."}</p>
         <button type="button" className={button} disabled={query.isFetching} onClick={reload}>Reload request status</button>

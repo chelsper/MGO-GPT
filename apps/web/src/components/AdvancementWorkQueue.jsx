@@ -11,7 +11,8 @@ import { getSubmissionActivityNotice, isSubmissionHistoryOnly } from "@/utils/su
 import GiftFollowUpSource from "./GiftFollowUpSource";
 import { isPersonalGiftRequest } from "@/utils/stewardshipAssistance";
 import { StaffGiftChoice, SavedGiftPreference } from "./StewardshipGiftChoice";
-import StewardshipReceiptForm from "./StewardshipReceiptForm";
+import StewardshipFulfillmentForm from "./StewardshipFulfillmentForm";
+import StewardshipFulfillmentSummary from "./StewardshipFulfillmentSummary";
 import StewardshipRequestContext from "./StewardshipRequestContext";
 
 const SOURCES = [
@@ -44,6 +45,7 @@ function RequestDetails({ item }) {
     <GiftFollowUpSource snapshot={r.source_gift_snapshot} />
     <StewardshipRequestContext context={r.stewardship_context} />
     <SavedGiftPreference request={r} />
+    <StewardshipFulfillmentSummary request={r} />
     <dl className={styles.details}><Detail label="Request" value={r.request_note} /><Detail label="Portfolio" value={r.owner_user_name} />
       <Detail label="Needed by" value={r.needed_by ? formatQueueDate(r.needed_by) : null} /><Detail label="NXT constituent ID" value={r.blackbaud_constituent_id} /></dl>
     <p className={styles.notice}>{r.source_pending_action_id ? "This request is linked to the fundraiser's follow-up." : "This request was made directly from a donor or opportunity; no donation is required."} Progress notes are shared with the fundraiser. Completing this request does not complete a reminder, send anything, or confirm delivery.</p>
@@ -241,17 +243,19 @@ export default function AdvancementWorkQueue({ initialCategory = "all", returnTo
                 {rowErrors[item.key] && <p className={styles.warning} role="alert">{rowErrors[item.key]}</p>}
                 <div className={styles.actions}>
                   <button className={styles.secondary} disabled={disabled} onClick={() => save(item)}>{saving === item.key ? "Saving..." : item.category === "stewardship" && isPersonalGiftRequest(item.record) ? "Save request updates" : item.source === "lists" ? "Save notes & priority" : "Save notes"}</button>
-                  {getQueueActions(item).map(([status, label]) => <button className={status === "Declined" ? styles.danger : styles.primary} disabled={disabled} key={status} onClick={() => save(item, status)}>{label}</button>)}
+                  {getQueueActions(item).filter(([status]) => item.category !== "stewardship" || status !== "Completed").map(([status, label]) => <button className={status === "Declined" ? styles.danger : styles.primary} disabled={disabled} key={status} onClick={() => save(item, status)}>{label}</button>)}
                   {drafts[item.key] && <span className={styles.unsaved}>Unsaved changes</span>}
                 </div>
               </div>}
-              {stewardshipOnly && isPersonalGiftRequest(item.record) && <StewardshipReceiptForm
+              {stewardshipOnly && <StewardshipFulfillmentForm
                 key={`${item.key}:${item.record.request_version}:${refreshKey}`} request={item.record}
-                disabled={disabled || !!drafts[item.key] || !!sourceErrors.data}
-                onSaved={receipt => {
+                draftNote={draft.reviewerNotes}
+                disabled={disabled || Object.hasOwn(draft,"giftItemId") || !!sourceErrors.data}
+                onSaved={updated => {
                   setSources(current => ({ ...current, data: current.data.map(row => String(row.id) === String(item.record.id)
-                    ? { ...row, request_version: receipt.request_version, stewardship_received_item: receipt } : row) }));
-                  setMessage(`${item.title}: received item recorded. Request status is unchanged.`);
+                    ? { ...row, ...updated } : row) }));
+                  setDrafts(current => { const next = { ...current }; delete next[item.key]; return next; });
+                  setMessage(`${item.title}: saved status loaded. ${updated.status === "Completed" ? "Completion is in History; the fundraiser can see the update." : "The request remains in progress."} No NXT record was changed.`);
                 }} />}
             </div>}
           </article>;

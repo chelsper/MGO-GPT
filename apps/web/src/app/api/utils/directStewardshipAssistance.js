@@ -42,7 +42,9 @@ const sourceValues = (context, source) => [context.sessionUser.id, context.sessi
 export async function readDirectAssistance(context, source, db = sql) {
   if (!canRequestDirectAssistance(context)) return null;
   const [request] = await db`
-    SELECT r.*, (SELECT jsonb_build_object('id',d.id::text,'received_on',d.received_on::text,
+    SELECT r.*,
+      (SELECT p.status FROM pending_actions p WHERE p.source_stewardship_request_id=r.id AND p.owner_user_id=r.owner_user_id) AS stewardship_follow_up_status,
+      (SELECT jsonb_build_object('id',d.id::text,'received_on',d.received_on::text,
       'item_snapshot',d.item_snapshot,'recorded_by_name',d.recorded_by_name)
       FROM stewardship_gift_receipts d WHERE d.request_id=r.id AND d.voided_at IS NULL) AS stewardship_received_item
     FROM data_change_requests r

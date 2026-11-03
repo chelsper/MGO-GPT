@@ -18,9 +18,19 @@ beforeEach(() => {
     return { ok: true, json: async () => [] };
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({},"","/"); });
 
 describe("detailed activity tracker", () => {
+  it("opens completed stewardship updates from the notification link without filtering them away",async()=>{
+    view.isReviewerView=false;window.history.replaceState({},"","/submissions?tab=stewardship");
+    requests=[{id:23,owner_user_id:1,request_viewer_id:"1",stewardship_request_key:"direct-key",constituent_name:"Sample Foundation",
+      request_type:"Stewardship: Campus visit",status:"Completed",fulfillment_unread:true,stewardship_follow_up_status:"Open",
+      stewardship_fulfillment:{stage:"completed",date:"2000-10-01",note:"Tour completed",followUpId:"55",version:2}}];
+    render(<SubmissionTracker detailedReview />);
+    expect(await screen.findByText("Tour completed")).toBeVisible();
+    expect(screen.getByRole("button",{name:"Mark update seen"})).toBeVisible();
+    expect(screen.getByRole("link",{name:"Open MGO follow-up"})).toHaveAttribute("href","/follow-ups?tab=next-steps&nextStepId=55&status=Open");
+  });
   it("shows direct requests and staff progress in the MGO Stewardship tab without a broken follow-up link", async () => {
     view.isReviewerView = false;
     requests = [{ id: 23, stewardship_request_key: "direct-key", constituent_name: "Sample Foundation", request_type: "Stewardship: Campus visit", status: "In Progress",

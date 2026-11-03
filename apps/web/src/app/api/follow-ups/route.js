@@ -30,11 +30,12 @@ export async function GET(request) {
         pa.source_gift_id, pa.source_gift_snapshot,
         sr.id AS stewardship_request_id, sr.status AS stewardship_request_status,
         p.id AS prospect_id, p.prospect_name,
-        c.id AS constituent_id, c.name AS constituent_name,
-        c.blackbaud_constituent_id,
+        c.id AS constituent_id, COALESCE(c.name,fr.constituent_name) AS constituent_name,
+        COALESCE(c.blackbaud_constituent_id,fr.blackbaud_constituent_id) AS blackbaud_constituent_id,
         po.title AS opportunity_title, nr.state AS nxt_action_state,
         di.id AS discussion_item_id, di.status AS discussion_status
       FROM pending_actions pa
+      LEFT JOIN data_change_requests fr ON fr.id=pa.source_stewardship_request_id AND fr.owner_user_id=pa.owner_user_id
       LEFT JOIN data_change_requests sr ON sr.source_pending_action_id = pa.id AND sr.owner_user_id = pa.owner_user_id
       LEFT JOIN prospects p ON p.id = pa.prospect_id AND p.user_id = pa.owner_user_id
       LEFT JOIN constituents c ON c.id = pa.constituent_id AND c.user_id = pa.owner_user_id
