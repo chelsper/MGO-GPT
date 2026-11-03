@@ -1,6 +1,14 @@
 // Deliberately explicit: a renamed/missing/empty/skipped required suite fails the gate.
 // Live-provider and disposable-PostgreSQL suites have separate prerequisites.
 export const workflowGroups = {
+  "App release recovery": [
+    "src/utils/appRelease.test.js",
+    "src/utils/appWriteActivity.test.js",
+    "src/__create/fetch.test.js",
+    "src/components/AppReleaseNotice.test.jsx",
+    "src/app/api/app-release/reload/route.test.js",
+    "__create/app-release-check.test.js",
+  ],
   "Login and role boundaries": [
     "src/auth.test.js",
     "src/app/api/auth/authSecurity.test.js",

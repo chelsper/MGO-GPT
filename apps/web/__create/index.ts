@@ -6,6 +6,7 @@ import { contextStorage } from 'hono/context-storage';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { retiredIntegrationProxy } from './retired-integration-proxy';
+import { appReleaseCheck } from './app-release-check';
 import { requestId } from 'hono/request-id';
 import { createRequestHandler } from 'react-router';
 import { serializeError } from 'serialize-error';
@@ -84,6 +85,8 @@ const requestHandler = createRequestHandler(
 );
 
 app.all('*', (c) => {
+  const releaseCheck = appReleaseCheck(c.req.raw);
+  if (releaseCheck) return releaseCheck;
   return requestHandler(c.req.raw);
 });
 
