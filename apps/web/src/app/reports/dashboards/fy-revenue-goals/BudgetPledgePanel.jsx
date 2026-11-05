@@ -12,7 +12,7 @@ async function request(url = API, options = {}) {
   if (!response.ok) throw Object.assign(new Error(data.error || "Pledge installments could not be loaded."), { status: response.status });
   return data;
 }
-export default function BudgetPledgePanel({ onDataChange, refreshResult, onRefreshBlockedChange } = {}) {
+export default function BudgetPledgePanel({ goalConfig, onDataChange, refreshResult, onRefreshBlockedChange } = {}) {
   const [data, setData] = useState(null), [draft, setDraft] = useState(newSource), [fields, setFields] = useState(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [setup, setSetup] = useState(false), [automatic, setAutomatic] = useState(false);
   const [search, setSearch] = useState(""), [appliedSearch, setAppliedSearch] = useState("");
@@ -92,7 +92,8 @@ export default function BudgetPledgePanel({ onDataChange, refreshResult, onRefre
       <div className={styles.cashTotal}><strong className={styles.amount}>{revenueMoney(snapshot?.outstandingCents)}</strong>
         <p>{snapshot ? `${snapshot.installmentCount.toLocaleString()} unpaid installments across ${snapshot.pledgeCount.toLocaleString()} pledges · ${snapshot.period.label} · Last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}`
           : "Connect the query to include verified unpaid installments in Received + expected this FY."}</p></div>
-      {snapshot && <p><strong>{revenueMoney(snapshot.countableCents ?? snapshot.outstandingCents)} counted toward goal</strong> · {snapshot.adjustedCount || 0} adjusted installments. The original unpaid balance stays visible above.</p>}
+      {snapshot && <p><strong>{revenueMoney(snapshot.countableCents ?? snapshot.outstandingCents)} {goalConfig?.salaryGoal ? "eligible across both goals before salary allocation" : "counted toward goal"}</strong> · {snapshot.adjustedCount || 0} adjusted installments. The original unpaid balance stays visible above.</p>}
+      {goalConfig?.salaryGoal && <p className={styles.help}>Count toward goal sets the eligible installment amount before allocation. Future. Made. Impact Fund installments fill the remaining salary goal first. Only the excess and other funds enter the unrestricted projection; these expected amounts are not received cash.</p>}
       {snapshot?.adjustmentsNeedingReview > 0 && <p className={styles.goalNotice} role="status">{snapshot.adjustmentsNeedingReview} adjusted installments changed fund, due date, or scheduled amount. They count as $0 until you review their adjustments below.</p>}
       {staleYear && <p role="status" className={styles.goalNotice}>These saved installments belong to {snapshot.period.label}, not {period.label}. They are not included in the current-year projection. Update the query for this fiscal year and refresh.</p>}
       <p className={styles.help}>The total uses each installment's remaining NXT balance. Paid or written-off balances are not added again. Only due dates from {installmentDateLabel(snapshot?.period.startsOn || period.startsOn)} through {installmentDateLabel(snapshot?.period.endsOn || period.endsOn)} are included.</p>

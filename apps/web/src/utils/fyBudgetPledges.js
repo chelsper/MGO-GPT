@@ -1,4 +1,5 @@
 import { revenueError } from "./fyRevenueGoals";
+import { normalizeBudgetFundName } from "./fyBudgetCash";
 
 export const BUDGET_PLEDGE_QUERY_ID = "31076";
 export const BUDGET_PLEDGE_QUERY_NAME = "FY27 Budget Relieving Payments Due - JUMGOGPT";
@@ -47,7 +48,21 @@ export const installmentDateLabel = day => new Date(`${day}T12:00:00Z`).toLocale
 export function unrestrictedExpectedGoal(config, cashGoal, snapshot) {
   const samePeriod = snapshot?.period?.startsOn === config.startsOn && snapshot?.period?.endsOn === config.endsOn;
   const countable = snapshot && Object.hasOwn(snapshot, "countableCents") ? snapshot.countableCents : snapshot?.outstandingCents;
-  const expected = samePeriod && Number.isSafeInteger(countable) && countable >= 0 && countable <= snapshot.outstandingCents ? countable : null;
+  const countableCents = samePeriod && Number.isSafeInteger(countable) && countable >= 0 && countable <= snapshot.outstandingCents ? countable : null;
+  let expected = countableCents, salaryExpectedCents = null;
+  if (config.salaryGoal) {
+    const salary = cashGoal.salary;
+    const funds = snapshot?.fundTotals;
+    const validFunds = Array.isArray(funds) && funds.every(fund => typeof fund.fundName === "string" && fund.fundName.trim() &&
+      Number.isSafeInteger(fund.countableCents) && fund.countableCents >= 0);
+    const reconciled = validFunds && countableCents !== null && funds.reduce((sum, fund) => sum + BigInt(fund.countableCents), 0n) === BigInt(countableCents);
+    if (countableCents !== null && Number.isSafeInteger(salary?.remainingCents) && (reconciled || countableCents === 0)) {
+      const impact = countableCents === 0 ? 0 : Number(funds.reduce((sum, fund) => sum +
+        (normalizeBudgetFundName(fund.fundName) === normalizeBudgetFundName(salary.fundName) ? BigInt(fund.countableCents) : 0n), 0n));
+      salaryExpectedCents = Math.min(salary.remainingCents, Math.max(0, impact + Math.min(0, salary.receivedCents)));
+      expected = countableCents - salaryExpectedCents;
+    } else expected = null;
+  }
   let totalCents = null, remainingCents = null, aboveGoalCents = null;
   if (cashGoal.activeFiscalYear && cashGoal.totalCents !== null && expected !== null) {
     const total = BigInt(cashGoal.totalCents) + BigInt(expected), remaining = BigInt(config.cents) - total;
@@ -55,5 +70,5 @@ export function unrestrictedExpectedGoal(config, cashGoal, snapshot) {
       totalCents = Number(total); remainingCents = Number(remaining > 0n ? remaining : 0n); aboveGoalCents = Number(remaining < 0n ? -remaining : 0n);
     }
   }
-  return { expectedCents: expected, totalCents, remainingCents, aboveGoalCents, samePeriod };
+  return { expectedCents: expected, countableCents, salaryExpectedCents, totalCents, remainingCents, aboveGoalCents, samePeriod };
 }

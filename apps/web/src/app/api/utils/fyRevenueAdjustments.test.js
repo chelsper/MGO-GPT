@@ -28,7 +28,7 @@ it("preserves the three original cash entries and adds a new receipt exactly onc
   expect(goal.fixedContributions).toHaveLength(4); expect(goal.manual.historyCount).toBe(1);
   expect(goal.manual.history[0]).toMatchObject({ userId: 7, by: user.name, reason: cashInput.reason, before: null });
   expect(manualGoalConfig(f.state())).toEqual(goal);
-  const rollup = unrestrictedRevenueGoal(goal, { receivedCents: 10000 }, { receivedCents: 20000 }, now);
+  const rollup = unrestrictedRevenueGoal(goal, { receivedCents: 10000 }, { receivedCents: 20000, groups: [{ key: "impact", receivedCents: 0 }] }, now);
   expect(rollup.totalCents).toBe(303033501);
   await expect(saveManualGoalEntry({ ...f, operation: "save", input: cashInput })).rejects.toMatchObject({ status: 409 });
 });
@@ -69,6 +69,19 @@ it("requires review when the installment's underlying fund, schedule or date cha
   const adjustment = { approvedCents: 60000, excludedCents: 40000, dueDate: row.dueDate, fundName: row.fundName, scheduledCents: row.scheduledCents };
   for (const changes of [{ fundName: "Another fund" }, { dueDate: "2026-12-02" }, { scheduledCents: 110000 }])
     expect(countableInstallment({ ...row, ...changes }, adjustment)).toMatchObject({ countableCents: 0, adjustment: { needsReview: true } });
+});
+it("returns adjusted fund totals from all installments regardless of search or pagination", () => {
+  const rows = Array.from({ length: 60 }, (_, index) => ({ ...row, key: `1:${index + 1}`, installmentId: String(index + 1),
+    fundName: index < 55 ? "Future. Made. Impact Fund" : "Other Scholarship", outstandingCents: 100000 }));
+  const adjustment = { approvedCents: 60000, excludedCents: 40000, dueDate: row.dueDate,
+    fundName: rows[0].fundName, scheduledCents: row.scheduledCents };
+  const state = { snapshot: { period, rows, outstandingCents: 6000000 }, adjustments: { [`${period.startsOn}:${rows[0].key}`]: adjustment } };
+  for (const options of [{page:2},{search:"Other Scholarship"},{search:"not found"}]) {
+    const view = publicBudgetPledgeState(state, options);
+    expect(view.snapshot.countableCents).toBe(5960000);
+    expect(view.snapshot.fundTotals).toEqual([{fundName:"Future. Made. Impact Fund",countableCents:5460000},
+      {fundName:"Other Scholarship",countableCents:500000}]);
+  }
 });
 it.each([{ amount: "1000.01" }, { amount: "-1" }, { reason: "" }, { key: "missing" }, { userId: 1 }])("rejects invalid adjustment %j", async changes => {
   const f = fixture({ revision: "initial", snapshot: { period, rows: [row], outstandingCents: 100000 } });

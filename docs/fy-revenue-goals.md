@@ -84,6 +84,41 @@ The user confirmed all three fixed contributions are separate from query 31075. 
 
 Validation: 117 focused tests passed, including actual page/panel refresh integration and isolated PostgreSQL source checks. Full suite: **7,093 passed / 192 existing environment-dependent skips**. Typecheck and production build passed. Fictional browser previews checked at desktop, 390px, and 320px widths; live cash totals were not fetched or changed.
 
+## Impact Fund Salary Goal (November 5, 2026)
+
+FY27 has a separate $850,000 salary-funding goal alongside the existing
+$6,500,000 unrestricted goal. Production status is recorded in the release notes.
+
+- The first $850,000 of net received Future. Made. Impact Fund cash in query
+  31075 is allocated to salaries. Only the excess enters the unrestricted cash
+  goal. Other funds, manual cash entries, and the existing 10% re-investment
+  calculation are unchanged. Source gift amounts and fund totals are retained.
+- Cash allocation is `min(max(Impact cash, 0), salary target)`. Budget cash for
+  the unrestricted roll-up is the source cash total minus that salary allocation.
+  Negative adjustments are retained; a decrease can reopen the salary need.
+  This is cash earmarked for salaries, not evidence that payroll was paid.
+- The salary panel shows its cash allocation, remaining need, Impact cash,
+  excess cash, and separately labeled expected installment funding. The cash
+  source panel reconciles its gross total to salaries and unrestricted cash.
+- Query 31076's adjusted countable installments follow the same ordering in
+  projections: Impact Fund installments first fill the salary need remaining
+  after cash (including any negative cash offset). Other funds and only excess
+  Impact installments count toward the unrestricted projection. Expected money
+  never increases either cash progress bar. Refresh all sources after payments.
+- The API derives `snapshot.fundTotals` from every saved adjusted installment,
+  before search or pagination. Old saved rows can therefore support this rule
+  on GET without rerunning NXT. The projection matches the saved cash source's
+  Impact Fund mapping with existing punctuation/case normalization, not partial
+  name matches. Query totals without a usable fund breakdown remain pending;
+  missing allocations are not assumed to be zero.
+- The additional target is server-configured for FY27 and returned only through
+  existing authorized responses. No database migration, new NXT request, NXT
+  mutation, inventory change, or automatic production refresh is introduced.
+- Tests cover below/exactly/above-target cash, cent boundaries, refunds, unknown
+  or conflicting allocations, adjusted installments, full-list aggregation,
+  payment movement between expected and cash, fiscal-year boundaries, manual
+  totals, and existing refresh/recovery/access behavior.
+
 ## Refresh All Sources (October 30, 2026)
 
 The new **Refresh all dashboard sources** control is for Admins and Advancement Services. It reads each source's latest saved settings and revision, then refreshes query 31074 (re-investment), 31075 (budget-relieving cash), and 31076 (pledge installments) sequentially through their existing endpoints. It does not change mappings, manual cash entries, installment adjustments, query criteria, or NXT records. The previous ambiguous **Refresh totals** label is now **Refresh re-investment totals**; individual panel refreshes remain available.
