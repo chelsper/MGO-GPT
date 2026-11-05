@@ -5,8 +5,9 @@ import Page from "./page";
 import { BUDGET_CASH_GROUPS, defaultBudgetFundNames } from "@/utils/fyBudgetCash";
 import { UNRESTRICTED_GOAL_CONFIG } from "@/app/api/utils/fyUnrestrictedGoal";
 const API = "/api/reports/fy-revenue-goals", CASH_API = `${API}/budget-cash`, PLEDGE_API = `${API}/budget-pledges`;
+const pledgeFunds = countableCents => [{ fundName: "Other Scholarship", countableCents }];
 const initialPledges = { revision: "pledge-one", source: { queryName: "Pledges", columns: {} }, canManage: true, job: null, rows: [], page: 1, pages: 1, matchedCount: 0,
-  snapshot: { outstandingCents: 10000000, installmentCount: 10, pledgeCount: 5, checkedPledges: 5, settledCount: 0, duplicateRows: 0, outsidePeriodRows: 0,
+  snapshot: { outstandingCents: 10000000, fundTotals: pledgeFunds(10000000), installmentCount: 10, pledgeCount: 5, checkedPledges: 5, settledCount: 0, duplicateRows: 0, outsidePeriodRows: 0,
     refreshedAt: "2026-10-19T12:00:00Z", period: { label: "FY27", startsOn: "2026-07-01", endsOn: "2027-06-30" } } };
 const initialRevenue = { revision: "revenue-one", canManage: true, goal: UNRESTRICTED_GOAL_CONFIG, source: { projection: "remaining", queryName: "Eligible gifts" },
   snapshot: { receivedCents: 100000000, projectedCents: 90000000, giftCount: 100, rawRows: 100, duplicateRows: 0, refreshedAt: "2026-10-19T12:00:00Z" } };
@@ -58,17 +59,39 @@ it("shows no full total if cash has not been initialized", async () => {
   expect(goal().queryByRole("progressbar")).not.toBeInTheDocument();
   expect(goal().getByRole("status")).toHaveTextContent("budget-relieving cash");
 });
+it("shows separate salary progress and routes Impact Fund cash and installments without counting either twice", async () => {
+  const impactCash = { ...initialCash, snapshot: { ...initialCash.snapshot, receivedCents: 110000000,
+    groups: initialCash.snapshot.groups.map(group => group.key === "impact" ? {...group,receivedCents:60000000,fundCount:1} : group) } };
+  const impactPledges = { ...initialPledges, snapshot: { ...initialPledges.snapshot, outstandingCents:40000000, countableCents:40000000,
+    fundTotals:[{fundName:"Future. Made. Impact Fund",countableCents:30000000},...pledgeFunds(10000000)] } };
+  fetch.mockImplementation(async url=>json(url===CASH_API?impactCash:url===PLEDGE_API?impactPledges:initialRevenue));
+  render(<Page/>);
+  const salary = within(await screen.findByRole("region", {name:"Salaries funded from Future. Made. Impact Fund"}));
+  await waitFor(()=>expect(salary.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "70.6% of salary goal; $600,000.00 allocated toward $850,000.00"));
+  expect(goal().getByText("$3,630,000.00")).toBeVisible();
+  expect(goal().getByText("$3,780,000.00")).toBeVisible();
+  expect(goal().getByText("$150,000.00")).toBeVisible();
+  expect(salary.getAllByText("$250,000.00")).toHaveLength(2);
+  expect(screen.getByText(/Cash toward the unrestricted goal: \$500,000.00/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(3);
+  fetch.mockResolvedValueOnce(json({...impactCash,snapshot:{...impactCash.snapshot,receivedCents:140000000,
+    groups:impactCash.snapshot.groups.map(group=>group.key==="impact"?{...group,receivedCents:90000000}:group)}}));
+  fireEvent.click(screen.getByRole("button",{name:"Refresh cash totals"}));
+  await waitFor(()=>expect(salary.getByRole("progressbar")).toHaveAttribute("aria-valuenow","100"));
+  expect(goal().getByText("$3,680,000.00")).toBeVisible();
+  expect(salary.getByText("$50,000.00")).toBeVisible();
+});
 it("refreshes expected installments without modifying cash received or its progress bar", async () => {
   render(<Page />); await waitFor(() => expect(goal().getByText("$3,730,000.00")).toBeVisible());
   const cashProgress = goal().getByRole("progressbar").getAttribute("aria-valuetext");
-  fetch.mockResolvedValueOnce(json({ ...initialPledges, snapshot: { ...initialPledges.snapshot, outstandingCents: 20000000 } }));
+  fetch.mockResolvedValueOnce(json({ ...initialPledges, snapshot: { ...initialPledges.snapshot, outstandingCents: 20000000, fundTotals: pledgeFunds(20000000) } }));
   fireEvent.click(screen.getByRole("button", { name: "Refresh pledge installments" }));
   await waitFor(() => expect(goal().getByText("$3,830,000.00")).toBeVisible());
   expect(goal().getByText("$3,630,000.00")).toBeVisible(); expect(goal().getByRole("progressbar")).toHaveAttribute("aria-valuetext", cashProgress);
   expect(fetch.mock.calls[3][0]).toBe(PLEDGE_API);
 });
 it("uses the adjusted installment total instead of the NXT balance without changing cash", async () => {
-  fetch.mockImplementation(async url => json(url === PLEDGE_API ? { ...initialPledges, snapshot: { ...initialPledges.snapshot, countableCents: 7500000 } } : url === CASH_API ? initialCash : initialRevenue));
+  fetch.mockImplementation(async url => json(url === PLEDGE_API ? { ...initialPledges, snapshot: { ...initialPledges.snapshot, countableCents: 7500000, fundTotals: pledgeFunds(7500000) } } : url === CASH_API ? initialCash : initialRevenue));
   render(<Page />); await waitFor(() => expect(goal().getByText("$3,705,000.00")).toBeVisible());
   expect(goal().getByText("$3,630,000.00")).toBeVisible(); expect(goal().getByText("$75,000.00")).toBeVisible();
 });
@@ -98,7 +121,7 @@ it("refreshes all three sources and updates the panels and roll-up without chang
     if (!options.method) return json(state);
     posts.push({ url, body: JSON.parse(options.body) });
     const snapshot = url === CASH_API ? { ...state.snapshot, receivedCents: 60000000 }
-      : url === PLEDGE_API ? { ...state.snapshot, outstandingCents: 20000000 }
+      : url === PLEDGE_API ? { ...state.snapshot, outstandingCents: 20000000, fundTotals: pledgeFunds(20000000) }
         : { ...state.snapshot, receivedCents: 200000000, projectedCents: 180000000 };
     return json({ ...state, revision: "updated", snapshot });
   });

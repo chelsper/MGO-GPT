@@ -1,23 +1,24 @@
 import { revenueMoney } from "@/utils/fyRevenueGoals";
 import { unrestrictedRevenueGoal } from "@/utils/unrestrictedRevenueGoal";
 import { unrestrictedExpectedGoal } from "@/utils/fyBudgetPledges";
+import SalaryGoalSummary from "./SalaryGoalSummary";
 import styles from "./revenue.module.css";
 
 const refreshed = snapshot => snapshot?.refreshedAt && Number.isFinite(Date.parse(snapshot.refreshedAt))
   ? `Saved ${new Date(snapshot.refreshedAt).toLocaleString()}` : "No saved query total";
 
 const dateLabel = day => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "long", day: "numeric", year: "numeric" });
-export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, cashSnapshot, pledgeSnapshot, now }) {
+export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, cashSnapshot, cashFundNames, pledgeSnapshot, now }) {
   if (!config) return null;
-  const goal = unrestrictedRevenueGoal(config, reinvestmentSnapshot, cashSnapshot, now);
+  const goal = unrestrictedRevenueGoal(config, reinvestmentSnapshot, cashSnapshot, now, cashFundNames);
   const expected = unrestrictedExpectedGoal(config, goal, pledgeSnapshot);
   const complete = goal.totalCents !== null;
   const progress = complete ? Math.min(100, Math.max(0, goal.percent)) : 0;
   const percentLabel = complete ? `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(goal.percent)}%` : "";
   const pending = !goal.activeFiscalYear ? `${config.label} configuration needs updating` : goal.overflow ? "Total needs review" : "Awaiting source totals";
-  return <section className={styles.goalSummary} aria-labelledby="unrestricted-goal-heading">
+  return <><SalaryGoalSummary config={config} goal={goal} expected={expected} /><section className={styles.goalSummary} aria-labelledby="unrestricted-goal-heading">
     <header className={styles.goalHeader}><div><p className={styles.eyebrow}>{config.label} · {dateLabel(config.startsOn)} - {dateLabel(config.endsOn)}</p>
-      <h2 id="unrestricted-goal-heading">Unrestricted revenue goal</h2><p>Cash received to date toward this fiscal year's goal.</p></div>
+      <h2 id="unrestricted-goal-heading">Unrestricted revenue goal</h2><p>Cash received to date toward this fiscal year's goal{goal.salary ? ", after the salary allocation" : ""}.</p></div>
       <span className={styles.goalBadge}>CASH BASIS</span></header>
     <dl className={styles.goalMetrics}>
       <div><dt>Cash received to date</dt><dd className={styles.goalTotal}>{complete ? revenueMoney(goal.totalCents) : <span className={styles.goalPending}>{pending}</span>}</dd></div>
@@ -34,10 +35,11 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
       : goal.overflow ? "A source amount exceeds the supported reporting range. The combined total has not been calculated."
       : `Waiting for saved ${goal.missing.join(" and ")} totals. The full cash total and remaining amount will appear once both sources are available.`}</p>}
     <section className={styles.expectedSummary} aria-labelledby="expected-revenue-heading"><h3 id="expected-revenue-heading">Received + expected this FY</h3>
-      <p>Cash received plus the amount counted toward the goal from budget-relieving pledge installments due this fiscal year.</p>
+      <p>Cash received plus the amount counted toward this goal from budget-relieving pledge installments due this fiscal year.{goal.salary && " Impact Fund installments fill the remaining salary need first; only the excess is included here."}</p>
       <dl className={styles.goalMetrics}>
         <div><dt>Received + expected</dt><dd>{revenueMoney(expected.totalCents)}</dd></div>
-        <div><dt><a href="#budget-pledge-heading">Pledge installments counted toward goal</a></dt><dd>{revenueMoney(expected.expectedCents)}</dd></div>
+        <div><dt><a href="#budget-pledge-heading">Pledge installments counted toward goal</a></dt><dd>{revenueMoney(expected.expectedCents)}</dd>
+          {expected.salaryExpectedCents > 0 && <p className={styles.help}>{revenueMoney(expected.salaryExpectedCents)} allocated separately to salaries.</p>}</div>
         <div><dt>Remaining after expected receipts</dt><dd>{revenueMoney(expected.remainingCents)}</dd>
           {expected.aboveGoalCents > 0 && <p className={styles.goalSurplus}>{revenueMoney(expected.aboveGoalCents)} projected above goal</p>}</div>
       </dl>
@@ -47,11 +49,12 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
     <div className={styles.goalBreakdown}>
       <h3>What counts toward the goal</h3>
       <dl>
-        <div><dt><a href="#budget-cash-heading">Budget-relieving cash received</a><small>Query 31075 · {refreshed(cashSnapshot)}</small></dt><dd>{revenueMoney(goal.budgetCashCents)}</dd></div>
+        <div><dt><a href="#budget-cash-heading">Budget-relieving cash received</a><small>Query 31075 · {refreshed(cashSnapshot)}</small>
+          {goal.salary && <small>After {revenueMoney(goal.salary.allocatedCents)} allocated to the separate salary goal.</small>}</dt><dd>{revenueMoney(goal.budgetCashCents)}</dd></div>
         <div><dt><a href="#reinvestment-totals">Gift re-investment (10%)</a><small>10% of query 31074's received total · {refreshed(reinvestmentSnapshot)}</small></dt><dd>{revenueMoney(goal.reinvestmentCents)}</dd></div>
         {config.fixedContributions.map(item => <div key={item.key}><dt>{item.label}<small><a href="#manual-cash-heading">Manual cash received entry</a></small></dt><dd>{revenueMoney(item.cents)}</dd></div>)}
       </dl>
-      <p className={styles.help}>Manual contributions total {revenueMoney(goal.fixedTotalCents)}. The roll-up adds these to budget-relieving cash plus the 10% re-investment amount, not the full eligible-gifts total. Manual entries must be separate from these sources. No NXT records are changed.</p>
+      <p className={styles.help}>Manual contributions total {revenueMoney(goal.fixedTotalCents)}. The roll-up adds these to budget-relieving cash{goal.salary ? " after the salary allocation" : ""} plus the 10% re-investment amount, not the full eligible-gifts total. Manual entries must be separate from these sources. No NXT records are changed.</p>
     </div>
-  </section>;
+  </section></>;
 }

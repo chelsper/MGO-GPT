@@ -172,6 +172,14 @@ export function publicBudgetPledgeState(state, { page = 1, search = "" } = {}) {
   const rows = savedRows.map(row => countableInstallment(row, state.adjustments?.[adjustmentKey(snapshot.period, row)]));
   if (state.snapshot) {
     snapshot.countableCents = safeCents(rows.reduce((sum, row) => sum + BigInt(row.countableCents), 0n));
+    // Aggregate before search/pagination so goal allocation always uses every installment.
+    const funds = new Map();
+    for (const row of rows) {
+      const key = normalizeBudgetFundName(row.fundName);
+      const fund = funds.get(key) || { fundName: row.fundName, cents: 0n };
+      fund.cents += BigInt(row.countableCents); funds.set(key, fund);
+    }
+    snapshot.fundTotals = [...funds.values()].map(({ fundName, cents }) => ({ fundName, countableCents: safeCents(cents) }));
     snapshot.adjustedCount = rows.filter(row => row.adjustment).length;
     snapshot.adjustmentsNeedingReview = rows.filter(row => row.adjustment?.needsReview).length;
   }

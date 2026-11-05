@@ -3,7 +3,8 @@ import { unrestrictedRevenueGoal } from "./unrestrictedRevenueGoal";
 import { UNRESTRICTED_GOAL_CONFIG as config } from "@/app/api/utils/fyUnrestrictedGoal";
 
 const now = new Date("2026-10-19T15:00:00Z");
-const summary = (eligible, cash, date = now) => unrestrictedRevenueGoal(config, { receivedCents: eligible, projectedCents: 99999999 }, { receivedCents: cash }, date);
+const cashSnapshot = receivedCents => ({ receivedCents, groups: [{ key: "impact", receivedCents: 0 }] });
+const summary = (eligible, cash, date = now) => unrestrictedRevenueGoal(config, { receivedCents: eligible, projectedCents: 99999999 }, cashSnapshot(cash), date);
 describe("FY27 unrestricted cash goal", () => {
   it("uses the requested target and three separate cash entries", () => {
     expect(config.cents).toBe(650000000);
@@ -18,7 +19,7 @@ describe("FY27 unrestricted cash goal", () => {
     expect(goal.percent).toBeCloseTo(58.153846);
   });
   it("never uses the optional 90% display figure or adds the entire eligible amount", () => {
-    const goal = unrestrictedRevenueGoal(config, { receivedCents: 100000000, projectedCents: 90000000 }, { receivedCents: 50000000 }, now);
+    const goal = unrestrictedRevenueGoal(config, { receivedCents: 100000000, projectedCents: 90000000 }, cashSnapshot(50000000), now);
     expect(goal.totalCents).toBe(363000000);
     expect(goal.reinvestmentCents).toBe(10000000);
   });

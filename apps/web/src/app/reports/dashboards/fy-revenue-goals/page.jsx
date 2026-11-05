@@ -98,7 +98,7 @@ export default function FYRevenueGoalsPage() {
   const formula = mode === "remaining" ? "Eligible gifts received minus 10% (90% remaining)" : "Eligible gifts received multiplied by 10% (amount set aside)";
   return <main className={styles.page}><div className={styles.content}>
     <SharedReportHeader compact activeReportKey={FY_REVENUE_KEY} reportSection="dashboards"
-      title={data?.title || "FY Revenue Goals"} description="Cash received, expected pledge installments, and progress toward the unrestricted revenue goal."
+      title={data?.title || "FY Revenue Goals"} description="Cash received, expected pledge installments, and progress toward the salary and unrestricted revenue goals."
       dashboardSwitchDisabled={busy || allBusy} action={data?.canManage && <button disabled={busy || allBusy} aria-expanded={editing} aria-controls="revenue-source" onClick={() => setSetup(!editing)}>Manage source</button>} />
     {error && <div role="alert" className={styles.error}>{error} <button disabled={busy} onClick={() => command("reload")}>Reload saved totals</button></div>}
     {!data ? <p role="status">{error ? "Dashboard unavailable." : "Loading saved totals..."}</p> : <>
@@ -116,7 +116,7 @@ export default function FYRevenueGoalsPage() {
         </div>}
       </section>}
       <fieldset className={styles.refreshLock} disabled={allBusy}>
-      <UnrestrictedGoalSummary config={data.goal} reinvestmentSnapshot={snapshot} cashSnapshot={cashData?.snapshot} pledgeSnapshot={pledgeData?.snapshot} />
+      <UnrestrictedGoalSummary config={data.goal} reinvestmentSnapshot={snapshot} cashSnapshot={cashData?.snapshot} cashFundNames={cashData?.source?.fundNames} pledgeSnapshot={pledgeData?.snapshot} />
       <div className={styles.status}><p>{snapshot ? `Re-investment last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}` : "Ready to connect your first revenue source."}</p>
         {data.canManage && data.source && <button disabled={busy || unsaved} onClick={() => command("refresh", data.source)}>{busy ? "Working..." : "Refresh re-investment totals"}</button>}</div>
       <section id="reinvestment-totals" aria-label="Gift re-investment totals" className={styles.metrics} aria-busy={busy}>
@@ -152,8 +152,8 @@ export default function FYRevenueGoalsPage() {
         </form><p className={styles.help}>The previous successful totals stay visible while refreshing. Source settings and new totals are saved together only after all rows pass validation. Manage viewers in <a href="/report-configurations">Report configurations</a>.</p>
       </section>}
       {busy && <p role="status">Working with the shared reporting account. Previous totals stay visible; no NXT gifts are changed.</p>}
-      <BudgetCashPanel onDataChange={setCashData} refreshResult={cashRefreshResult} onRefreshBlockedChange={setCashBlocked} />
-      <BudgetPledgePanel onDataChange={setPledgeData} refreshResult={pledgeRefreshResult} onRefreshBlockedChange={setPledgeBlocked} />
+      <BudgetCashPanel goalConfig={data.goal} onDataChange={setCashData} refreshResult={cashRefreshResult} onRefreshBlockedChange={setCashBlocked} />
+      <BudgetPledgePanel goalConfig={data.goal} onDataChange={setPledgeData} refreshResult={pledgeRefreshResult} onRefreshBlockedChange={setPledgeBlocked} />
       <ManualCashPanel config={data.goal} canManage={data.canManage} onRefreshBlockedChange={setManualBlocked} onChange={goal => setData(previous => previous ? { ...previous, goal } : previous)} />
       </fieldset>
     </>}
