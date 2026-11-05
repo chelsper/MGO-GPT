@@ -50,11 +50,12 @@ export default function UnrestrictedGoalSummary({ config, reinvestmentSnapshot, 
       <h3>What counts toward the goal</h3>
       <dl>
         <div><dt><a href="#budget-cash-heading">Budget-relieving cash received</a><small>Query 31075 · {refreshed(cashSnapshot)}</small>
-          {goal.salary && <small>After {revenueMoney(goal.salary.allocatedCents)} allocated to the separate salary goal.</small>}</dt><dd>{revenueMoney(goal.budgetCashCents)}</dd></div>
-        <div><dt><a href="#reinvestment-totals">Gift re-investment (10%)</a><small>10% of query 31074's received total · {refreshed(reinvestmentSnapshot)}</small></dt><dd>{revenueMoney(goal.reinvestmentCents)}</dd></div>
+          {goal.salary && <small>After {revenueMoney(goal.salary.impactAllocatedCents)} of Impact Fund cash allocated to the separate salary goal.</small>}</dt><dd>{revenueMoney(goal.budgetCashCents)}</dd></div>
+        <div><dt><a href="#reinvestment-totals">Gift re-investment (10%)</a><small>10% of query 31074's received total · {refreshed(reinvestmentSnapshot)}</small>
+          {config.salaryGoal?.includeReinvestment && <small>{revenueMoney(goal.reinvestmentCents)} allocated to salaries instead.</small>}</dt><dd>{revenueMoney(goal.unrestrictedReinvestmentCents)}</dd></div>
         {config.fixedContributions.map(item => <div key={item.key}><dt>{item.label}<small><a href="#manual-cash-heading">Manual cash received entry</a></small></dt><dd>{revenueMoney(item.cents)}</dd></div>)}
       </dl>
-      <p className={styles.help}>Manual contributions total {revenueMoney(goal.fixedTotalCents)}. The roll-up adds these to budget-relieving cash{goal.salary ? " after the salary allocation" : ""} plus the 10% re-investment amount, not the full eligible-gifts total. Manual entries must be separate from these sources. No NXT records are changed.</p>
+      <p className={styles.help}>Manual contributions total {revenueMoney(goal.fixedTotalCents)}. The roll-up adds these to budget-relieving cash{goal.salary ? " after the salary allocation" : ""}{config.salaryGoal?.includeReinvestment ? ". The 10% re-investment is allocated separately to salaries" : " plus the 10% re-investment amount, not the full eligible-gifts total"}. Manual entries must be separate from these sources. No NXT records are changed.</p>
     </div>
   </section></>;
 }
