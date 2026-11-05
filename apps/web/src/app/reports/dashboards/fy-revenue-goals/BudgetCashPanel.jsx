@@ -13,7 +13,7 @@ async function request(options) {
   if (!response.ok) throw Object.assign(new Error(data.error || "Budget cash totals could not be loaded."), { status: response.status });
   return data;
 }
-export default function BudgetCashPanel({ goalConfig, onDataChange, refreshResult, onRefreshBlockedChange } = {}) {
+export default function BudgetCashPanel({ goalConfig, reinvestmentSnapshot, onDataChange, refreshResult, onRefreshBlockedChange } = {}) {
   const [data, setData] = useState(null), [draft, setDraft] = useState(newSource), [fields, setFields] = useState(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [setup, setSetup] = useState(false);
   const [notice, setNotice] = useState("");
@@ -60,7 +60,7 @@ export default function BudgetCashPanel({ goalConfig, onDataChange, refreshResul
   const snapshot = data?.snapshot;
   const period = getStandingsPeriods().fiscalYear;
   const salary = goalConfig?.startsOn === period.startsOn && goalConfig?.endsOn === period.endsOn
-    ? salaryCashAllocation(goalConfig, snapshot, data?.source?.fundNames) : null;
+    ? salaryCashAllocation(goalConfig, snapshot, data?.source?.fundNames, reinvestmentSnapshot) : null;
   const groupLabel = key => data?.source?.fundNames?.[key] || BUDGET_CASH_GROUPS.find(group => group.key === key)?.label;
   const settings = source => JSON.stringify(source && { mode: source.mode, queryName: source.queryName, columns: source.columns, fundNames: source.fundNames });
   const unsaved = Boolean(data?.source && settings(draft) !== settings(data.source));
@@ -87,20 +87,20 @@ export default function BudgetCashPanel({ goalConfig, onDataChange, refreshResul
     {!data ? <p role="status">{error ? "Budget cash panel unavailable. Other dashboard totals are unchanged." : "Loading saved cash totals..."}</p> : <>
       <div className={styles.cashTotal}><strong className={styles.amount}>{revenueMoney(snapshot?.receivedCents)}</strong>
         <p>{snapshot ? `${snapshot.giftCount.toLocaleString()} distinct gifts · Last refreshed ${new Date(snapshot.refreshedAt).toLocaleString()}` : "Connect and refresh the cash query to load the total and fund breakdown."}</p></div>
-      {salary && <p className={styles.goalNotice}>Source total before allocation: {revenueMoney(snapshot?.receivedCents)}. Allocated to salaries: {revenueMoney(salary.allocatedCents)}.
+      {salary && <p className={styles.goalNotice}>Source total before allocation: {revenueMoney(snapshot?.receivedCents)}. Impact Fund cash allocated to salaries: {revenueMoney(salary.impactAllocatedCents)}.
         {" "}<strong>Cash toward the unrestricted goal: {revenueMoney(salary.budgetCashCents)}.</strong> <a href="#salary-goal-heading">View salary goal</a>.</p>}
       <table className={styles.cashTable}><caption>Budget-relieving cash received by fund</caption><thead><tr><th scope="col">Fund</th><th scope="col">Cash received</th></tr></thead>
         <tbody>{BUDGET_CASH_GROUPS.map(group => {
           const saved = snapshot?.groups.find(item => item.key === group.key);
           return <tr key={group.key}><th scope="row"><span>{groupLabel(group.key)}</span>
-            {salary && group.key === goalConfig.salaryGoal.fundGroup && <small>First {revenueMoney(salary.targetCents)} supports salaries; only excess counts toward the unrestricted goal.</small>}
+            {salary && group.key === goalConfig.salaryGoal.fundGroup && <small>Fills the remaining {revenueMoney(salary.targetCents)} salary goal{goalConfig.salaryGoal.includeReinvestment ? " after the 10% re-investment" : ""}; only excess counts toward the unrestricted goal.</small>}
             {saved && group.key !== "other" && !saved.fundCount && <small>No matching fund returned in the last refresh</small>}
             {canChart && <span className={styles.cashBarTrack} aria-hidden="true"><span style={{ width: `${100 * saved.receivedCents / snapshot.receivedCents}%` }} /></span>}
           </th><td>{revenueMoney(saved?.receivedCents)}</td></tr>;
         })}</tbody><tfoot><tr><th scope="row">Total budget-relieving cash received</th><td>{revenueMoney(snapshot?.receivedCents)}</td></tr></tfoot>
       </table>
       {unmatched.length > 0 && <p className={styles.goalNotice}>The last query refresh did not return a matching fund for: {unmatched.map(group => groupLabel(group.key)).join("; ")}. Check the names and query 31075's criteria if you expected gifts here. Changing a name cannot add gifts that are absent from the query results.</p>}
-      <p className={styles.help}>All remaining funds returned by this query are included in Other Scholarships. These six amounts add up to the source cash total. The unrestricted goal combines {salary ? "cash after the salary allocation" : "this cash total"} with only the 10% re-investment amount, not the full eligible-gifts total.</p>
+      <p className={styles.help}>All remaining funds returned by this query are included in Other Scholarships. These six amounts add up to the source cash total. {goalConfig?.salaryGoal?.includeReinvestment ? "The unrestricted goal uses cash after the salary allocation; the 10% gift re-investment is allocated separately to salaries." : `The unrestricted goal combines ${salary ? "cash after the salary allocation" : "this cash total"} with only the 10% re-investment amount, not the full eligible-gifts total.`}</p>
       {snapshot && <details className={styles.details}><summary>View included funds and calculation details</summary>
         <p>{snapshot.rawRows.toLocaleString()} rows checked; {snapshot.duplicateRows.toLocaleString()} repeated rows counted only once. {data.source.mode === "split" ? "Each gift split is counted once at its fund amount. A gift spanning funds is still one gift in the overall gift count." : "Each gift is counted once under its returned fund. Gifts returned under multiple funds require split outputs instead."}</p>
         <div className={styles.cashTableScroll} role="region" aria-label="Included fund details" tabIndex={0}><table className={styles.cashTable}>

@@ -126,7 +126,8 @@ export default function FYRevenueGoalsPage() {
         <article className={`${styles.metric} ${styles.projection}`}><p className={styles.eyebrow}>PROJECTED RE-INVESTMENT</p><h2>{PROJECTION_LABEL}</h2>
           <strong className={styles.amount}>{revenueMoney(snapshot?.projectedCents)}</strong><p>{formula}.</p></article>
       </section>
-      <p className={styles.basis}>Gift eligibility and the fiscal period follow query 31074. This is a reporting calculation only; no gift amounts or other NXT records are changed.</p>
+      <p className={styles.basis}>Gift eligibility and the fiscal period follow query 31074. This is a reporting calculation only; no gift amounts or other NXT records are changed.
+        {data.goal?.salaryGoal?.includeReinvestment && " The 10% set-aside counts toward the salary goal, not the unrestricted goal. Choosing the 90% display below does not change that allocation."}</p>
       {snapshot && <details className={styles.details}><summary>How these totals are calculated</summary>
         <p>Source: {data.source.queryName} (31074). Each gift system record ID is counted once, using its mapped whole-gift amount.</p>
         <p>{snapshot.rawRows.toLocaleString()} query rows checked; {snapshot.duplicateRows.toLocaleString()} repeated gift rows counted only once. Conflicting gift amounts stop the refresh rather than publishing an unreliable total.</p>
@@ -152,7 +153,7 @@ export default function FYRevenueGoalsPage() {
         </form><p className={styles.help}>The previous successful totals stay visible while refreshing. Source settings and new totals are saved together only after all rows pass validation. Manage viewers in <a href="/report-configurations">Report configurations</a>.</p>
       </section>}
       {busy && <p role="status">Working with the shared reporting account. Previous totals stay visible; no NXT gifts are changed.</p>}
-      <BudgetCashPanel goalConfig={data.goal} onDataChange={setCashData} refreshResult={cashRefreshResult} onRefreshBlockedChange={setCashBlocked} />
+      <BudgetCashPanel goalConfig={data.goal} reinvestmentSnapshot={snapshot} onDataChange={setCashData} refreshResult={cashRefreshResult} onRefreshBlockedChange={setCashBlocked} />
       <BudgetPledgePanel goalConfig={data.goal} onDataChange={setPledgeData} refreshResult={pledgeRefreshResult} onRefreshBlockedChange={setPledgeBlocked} />
       <ManualCashPanel config={data.goal} canManage={data.canManage} onRefreshBlockedChange={setManualBlocked} onChange={goal => setData(previous => previous ? { ...previous, goal } : previous)} />
       </fieldset>

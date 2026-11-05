@@ -89,16 +89,22 @@ Validation: 117 focused tests passed, including actual page/panel refresh integr
 FY27 has a separate $850,000 salary-funding goal alongside the existing
 $6,500,000 unrestricted goal. Production status is recorded in the release notes.
 
-- The first $850,000 of net received Future. Made. Impact Fund cash in query
-  31075 is allocated to salaries. Only the excess enters the unrestricted cash
-  goal. Other funds, manual cash entries, and the existing 10% re-investment
-  calculation are unchanged. Source gift amounts and fund totals are retained.
-- Cash allocation is `min(max(Impact cash, 0), salary target)`. Budget cash for
-  the unrestricted roll-up is the source cash total minus that salary allocation.
+- The full 10% gift re-investment from query 31074 is allocated to salaries,
+  not the unrestricted goal. This always uses the 10% set-aside even when the
+  optional detail display shows the 90% remainder. Net received Future. Made.
+  Impact Fund cash in query 31075 fills the remaining salary need; only the
+  excess enters the unrestricted cash goal. Other funds and manual cash entries
+  are unchanged. Source gift amounts and fund totals are retained.
+- Impact cash allocation is
+  `min(max(Impact cash, 0), max(salary target - reinvestment, 0))`. Salary cash
+  is that allocation plus the full re-investment. Budget cash for the
+  unrestricted roll-up is the source cash total minus the Impact allocation,
+  without adding re-investment again. If re-investment alone exceeds the salary
+  goal, it stays allocated to salaries and all Impact cash goes to unrestricted.
   Negative adjustments are retained; a decrease can reopen the salary need.
   This is cash earmarked for salaries, not evidence that payroll was paid.
 - The salary panel shows its cash allocation, remaining need, Impact cash,
-  excess cash, and separately labeled expected installment funding. The cash
+  re-investment, excess Impact cash, and separately labeled expected installment funding. The cash
   source panel reconciles its gross total to salaries and unrestricted cash.
 - Query 31076's adjusted countable installments follow the same ordering in
   projections: Impact Fund installments first fill the salary need remaining
@@ -118,6 +124,25 @@ $6,500,000 unrestricted goal. Production status is recorded in the release notes
   or conflicting allocations, adjusted installments, full-list aggregation,
   payment movement between expected and cash, fiscal-year boundaries, manual
   totals, and existing refresh/recovery/access behavior.
+
+The November 5 follow-up keeps all other Impact Fund pledges and uses existing
+audited installment adjustments for the two requested partial exclusions.
+Only their uncounted remainders are excluded from FY Revenue Goals; no donor
+IDs or amounts are hardcoded into the allocation code. The three selected
+installments are still unpaid in the saved source, so they contribute to
+expected funding, not cash received. The separate Future. Made. Campaign
+dashboard and all NXT records remain unchanged. These adjustments persist
+across refreshes using the existing amount cap, excluded-dollar rule, and
+changed-installment review protections.
+
+Follow-up validation: 8,068 full-suite tests passed; 338 existing
+environment-dependent checks skipped. All 2,178 mandatory workflow tests ran
+without skips. Six disposable-PostgreSQL checks, typecheck, production build,
+and a fictional browser preview passed. The two approved live installment
+adjustments were saved through the existing UI and verified after reload;
+other Impact pledges were retained. No source refresh or NXT write was run.
+The re-investment transfer is prepared on `codex/fy-salary-allocations` and
+is not yet deployed. Keep it separate from the unfinished stewardship work.
 
 ## Refresh All Sources (October 30, 2026)
 

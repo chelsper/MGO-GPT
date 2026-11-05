@@ -22,32 +22,33 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 it("combines cached snapshots, keeping expected receipts separate without running NXT queries", async () => {
   render(<Page />);
-  await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
-  expect(goal().getByText("$2,870,000.00")).toBeVisible();
-  expect(goal().getByText("$3,730,000.00")).toBeVisible();
+  await waitFor(() => expect(goal().getByText("$3,530,000.00")).toBeVisible());
+  expect(goal().getByText("$2,970,000.00")).toBeVisible();
+  expect(goal().getByText("$3,630,000.00")).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(3);
   expect(fetch.mock.calls.map(([url]) => url)).toEqual([API, CASH_API, PLEDGE_API]);
   expect(fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
 });
 it("automatically updates the roll-up after either source refresh, without reloading the other query", async () => {
-  render(<Page />); await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,530,000.00")).toBeVisible());
   fetch.mockResolvedValueOnce(json({ ...initialCash, revision: "cash-two", snapshot: { ...initialCash.snapshot, receivedCents: 60000000 } }));
   fireEvent.click(screen.getByRole("button", { name: "Refresh cash totals" }));
-  await waitFor(() => expect(goal().getByText("$3,730,000.00")).toBeVisible());
+  await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
   expect(fetch.mock.calls[3][0]).toBe(CASH_API);
   fetch.mockResolvedValueOnce(json({ ...initialRevenue, revision: "revenue-two", snapshot: { ...initialRevenue.snapshot, receivedCents: 200000000, projectedCents: 180000000 } }));
   fireEvent.click(screen.getByRole("button", { name: "Refresh re-investment totals", exact: true }));
-  await waitFor(() => expect(goal().getByText("$3,830,000.00")).toBeVisible());
+  await waitFor(() => expect(within(screen.getByRole("region", { name: "Salary funding goal" })).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "23.5% of salary goal; $200,000.00 allocated toward $850,000.00"));
+  expect(goal().getByText("$3,630,000.00")).toBeVisible();
   expect(fetch.mock.calls[4][0]).toBe(API); expect(fetch).toHaveBeenCalledTimes(5);
 });
 it("preserves the last roll-up on a failed refresh but removes it on lost access", async () => {
-  render(<Page />); await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,530,000.00")).toBeVisible());
   fetch.mockResolvedValueOnce(json({ error: "Previous totals unchanged." }, 503));
   fireEvent.click(screen.getByRole("button", { name: "Refresh cash totals" }));
-  await screen.findByRole("alert"); expect(goal().getByText("$3,630,000.00")).toBeVisible();
+  await screen.findByRole("alert"); expect(goal().getByText("$3,530,000.00")).toBeVisible();
   fetch.mockResolvedValueOnce(json({ error: "Please sign in." }, 401));
   fireEvent.click(screen.getByRole("button", { name: "Refresh cash totals" }));
-  await waitFor(() => expect(goal().queryByText("$3,630,000.00")).not.toBeInTheDocument());
+  await waitFor(() => expect(goal().queryByText("$3,530,000.00")).not.toBeInTheDocument());
   expect(goal().getByRole("status")).toHaveTextContent("Waiting for saved budget-relieving cash");
   fetch.mockResolvedValueOnce(json({ error: "Please sign in." }, 401));
   fireEvent.click(screen.getByRole("button", { name: "Refresh re-investment totals", exact: true }));
@@ -66,12 +67,12 @@ it("shows separate salary progress and routes Impact Fund cash and installments 
     fundTotals:[{fundName:"Future. Made. Impact Fund",countableCents:30000000},...pledgeFunds(10000000)] } };
   fetch.mockImplementation(async url=>json(url===CASH_API?impactCash:url===PLEDGE_API?impactPledges:initialRevenue));
   render(<Page/>);
-  const salary = within(await screen.findByRole("region", {name:"Salaries funded from Future. Made. Impact Fund"}));
-  await waitFor(()=>expect(salary.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "70.6% of salary goal; $600,000.00 allocated toward $850,000.00"));
-  expect(goal().getByText("$3,630,000.00")).toBeVisible();
+  const salary = within(await screen.findByRole("region", {name:"Salary funding goal"}));
+  await waitFor(()=>expect(salary.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "82.4% of salary goal; $700,000.00 allocated toward $850,000.00"));
+  expect(goal().getByText("$3,530,000.00")).toBeVisible();
   expect(goal().getByText("$3,780,000.00")).toBeVisible();
-  expect(goal().getByText("$150,000.00")).toBeVisible();
-  expect(salary.getAllByText("$250,000.00")).toHaveLength(2);
+  expect(goal().getByText("$250,000.00")).toBeVisible();
+  expect(salary.getAllByText("$150,000.00")).toHaveLength(2);
   expect(screen.getByText(/Cash toward the unrestricted goal: \$500,000.00/)).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(3);
   fetch.mockResolvedValueOnce(json({...impactCash,snapshot:{...impactCash.snapshot,receivedCents:140000000,
@@ -79,26 +80,26 @@ it("shows separate salary progress and routes Impact Fund cash and installments 
   fireEvent.click(screen.getByRole("button",{name:"Refresh cash totals"}));
   await waitFor(()=>expect(salary.getByRole("progressbar")).toHaveAttribute("aria-valuenow","100"));
   expect(goal().getByText("$3,680,000.00")).toBeVisible();
-  expect(salary.getByText("$50,000.00")).toBeVisible();
+  expect(salary.getByText("$150,000.00")).toBeVisible();
 });
 it("refreshes expected installments without modifying cash received or its progress bar", async () => {
-  render(<Page />); await waitFor(() => expect(goal().getByText("$3,730,000.00")).toBeVisible());
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
   const cashProgress = goal().getByRole("progressbar").getAttribute("aria-valuetext");
   fetch.mockResolvedValueOnce(json({ ...initialPledges, snapshot: { ...initialPledges.snapshot, outstandingCents: 20000000, fundTotals: pledgeFunds(20000000) } }));
   fireEvent.click(screen.getByRole("button", { name: "Refresh pledge installments" }));
-  await waitFor(() => expect(goal().getByText("$3,830,000.00")).toBeVisible());
-  expect(goal().getByText("$3,630,000.00")).toBeVisible(); expect(goal().getByRole("progressbar")).toHaveAttribute("aria-valuetext", cashProgress);
+  await waitFor(() => expect(goal().getByText("$3,730,000.00")).toBeVisible());
+  expect(goal().getByText("$3,530,000.00")).toBeVisible(); expect(goal().getByRole("progressbar")).toHaveAttribute("aria-valuetext", cashProgress);
   expect(fetch.mock.calls[3][0]).toBe(PLEDGE_API);
 });
 it("uses the adjusted installment total instead of the NXT balance without changing cash", async () => {
   fetch.mockImplementation(async url => json(url === PLEDGE_API ? { ...initialPledges, snapshot: { ...initialPledges.snapshot, countableCents: 7500000, fundTotals: pledgeFunds(7500000) } } : url === CASH_API ? initialCash : initialRevenue));
-  render(<Page />); await waitFor(() => expect(goal().getByText("$3,705,000.00")).toBeVisible());
-  expect(goal().getByText("$3,630,000.00")).toBeVisible(); expect(goal().getByText("$75,000.00")).toBeVisible();
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,605,000.00")).toBeVisible());
+  expect(goal().getByText("$3,530,000.00")).toBeVisible(); expect(goal().getByText("$75,000.00")).toBeVisible();
 });
 it("rolls a manual receipt immediately into both projections without refreshing either NXT query", async () => {
   const config = { ...UNRESTRICTED_GOAL_CONFIG, manual: { revision: null, entries: UNRESTRICTED_GOAL_CONFIG.fixedContributions.map(item => ({ ...item, archived: false, origin: "initial", receivedDate: null, reason: "Existing" })), history: [], historyCount: 0 } };
   fetch.mockImplementation(async url => json(url === PLEDGE_API ? initialPledges : url === CASH_API ? initialCash : { ...initialRevenue, goal: config }));
-  render(<Page />); await waitFor(() => expect(goal().getByText("$3,630,000.00")).toBeVisible());
+  render(<Page />); await waitFor(() => expect(goal().getByText("$3,530,000.00")).toBeVisible());
   fireEvent.click(screen.getByRole("button", { name: "Add cash received" }));
   expect(screen.getByRole("button", { name: "Refresh all dashboard sources" })).toBeDisabled();
   fireEvent.change(screen.getByLabelText("Description or receipt reference"), { target: { value: "Additional receipt" } });
@@ -108,8 +109,8 @@ it("rolls a manual receipt immediately into both projections without refreshing 
   fireEvent.click(screen.getByRole("checkbox"));
   fetch.mockResolvedValueOnce(json({ goal: { ...config, fixedContributions: [...config.fixedContributions, { key: "extra", label: "Additional receipt", cents: 100000 }] } }));
   fireEvent.click(screen.getByRole("button", { name: "Save cash entry" }));
-  await waitFor(() => expect(goal().getByText("$3,631,000.00")).toBeVisible());
-  expect(goal().getByText("$3,731,000.00")).toBeVisible(); expect(fetch).toHaveBeenCalledTimes(4);
+  await waitFor(() => expect(goal().getByText("$3,531,000.00")).toBeVisible());
+  expect(goal().getByText("$3,631,000.00")).toBeVisible(); expect(fetch).toHaveBeenCalledTimes(4);
   expect(fetch.mock.calls[3][0]).toBe(`${API}/manual-cash`);
 });
 
@@ -130,8 +131,8 @@ it("refreshes all three sources and updates the panels and roll-up without chang
   await screen.findByText("All three dashboard sources updated.");
   expect(posts.map(post => post.url)).toEqual([API, CASH_API, PLEDGE_API]);
   expect(posts.map(post => post.body.revision)).toEqual(["revenue-one", "cash-one", "pledge-one"]);
+  expect(goal().getByText("$3,630,000.00")).toBeVisible();
   expect(goal().getByText("$3,830,000.00")).toBeVisible();
-  expect(goal().getByText("$4,030,000.00")).toBeVisible();
   expect(within(screen.getByRole("region", { name: "Budget-relieving cash received" })).getAllByText("$600,000.00")).not.toHaveLength(0);
   expect(within(screen.getByRole("region", { name: "Budget-relieving pledge installments" })).getByText("$200,000.00")).toBeVisible();
   expect(allButton()).toBeEnabled();
@@ -177,7 +178,7 @@ it("shows partial failure and keeps the previous cash result while other sources
   await screen.findByText("2 of 3 sources updated. Review the details below.");
   expect(screen.getByText(/Cash query unavailable/)).toBeVisible();
   expect(screen.getByText(/Sources may have different refresh dates/)).toBeVisible();
-  expect(goal().getByText("$3,630,000.00")).toBeVisible();
+  expect(goal().getByText("$3,530,000.00")).toBeVisible();
 });
 
 it("waits for pledge continuations and does not run the panel's automatic loop at the same time", async () => {

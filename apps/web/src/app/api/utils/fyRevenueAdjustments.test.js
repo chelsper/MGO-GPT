@@ -29,7 +29,7 @@ it("preserves the three original cash entries and adds a new receipt exactly onc
   expect(goal.manual.history[0]).toMatchObject({ userId: 7, by: user.name, reason: cashInput.reason, before: null });
   expect(manualGoalConfig(f.state())).toEqual(goal);
   const rollup = unrestrictedRevenueGoal(goal, { receivedCents: 10000 }, { receivedCents: 20000, groups: [{ key: "impact", receivedCents: 0 }] }, now);
-  expect(rollup.totalCents).toBe(303033501);
+  expect(rollup.totalCents).toBe(303032501);
   await expect(saveManualGoalEntry({ ...f, operation: "save", input: cashInput })).rejects.toMatchObject({ status: 409 });
 });
 it("edits, archives, and restores the same original entry with retained history", async () => {
