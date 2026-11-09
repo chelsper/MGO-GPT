@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import opportunityLinkTransaction from "./opportunityLinkTransaction";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   normalizeConstituentName,
@@ -417,8 +418,8 @@ export async function saveProspectOpportunity({
         day: "numeric",
       })}`;
 
-    const insertedRows = await sql`
-      INSERT INTO prospect_opportunities (
+    const insertQuery = sql`
+      WITH inserted AS (INSERT INTO prospect_opportunities (
         prospect_id,
         constituent_id,
         blackbaud_opportunity_id,
@@ -433,7 +434,7 @@ export async function saveProspectOpportunity({
         joint_mgo_user_ids,
         shared_opportunity_key,
         last_submission_id
-      ) VALUES (
+      ) SELECT
         ${prospect.id},
         ${constituentId || prospect.constituent_id || null},
         ${blackbaudOpportunityId},
@@ -448,10 +449,22 @@ export async function saveProspectOpportunity({
         ${JSON.stringify(jointMgoUserIds)},
         ${sharedOpportunityKey || null},
         ${submissionId || null}
+      WHERE ${blackbaudOpportunityId}::text IS NULL OR NOT EXISTS (
+        SELECT 1 FROM prospect_opportunities existing JOIN prospects owner ON owner.id = existing.prospect_id
+        WHERE existing.blackbaud_opportunity_id = ${blackbaudOpportunityId} AND owner.user_id = ${userId}
       )
-      RETURNING *
+      RETURNING *)
+      SELECT inserted.*, true AS newly_inserted FROM inserted
+      UNION ALL
+      SELECT existing.*, false AS newly_inserted FROM prospect_opportunities existing
+      WHERE existing.prospect_id = ${prospect.id} AND existing.blackbaud_opportunity_id = ${blackbaudOpportunityId}
+        AND NOT EXISTS (SELECT 1 FROM inserted)
     `;
-    if (nextCloseDate || nextClosedAmount != null) {
+    const insertedRows = blackbaudOpportunityId
+      ? (await opportunityLinkTransaction(blackbaudOpportunityId, [insertQuery]))[1]
+      : await insertQuery;
+    if (insertedRows.length !== 1) throw new Error("This NXT opportunity already has a conflicting app link. Review the existing opportunity instead of submitting again.");
+    if (insertedRows[0].newly_inserted && (nextCloseDate || nextClosedAmount != null)) {
       const closedRows = await sql`
         UPDATE prospect_opportunities
         SET

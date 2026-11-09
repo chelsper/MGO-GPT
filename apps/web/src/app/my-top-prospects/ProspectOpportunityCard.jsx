@@ -289,6 +289,9 @@ export default function ProspectOpportunityCard({
                 : null}
             </div>
           ) : null}
+          {opportunity.opportunity_status === "Active" && !opportunity.expected_date && (
+            <p className="mb-2 text-xs text-amber-900">Expected date needed. This opportunity is not included in fiscal-year totals until an expected date is saved.</p>
+          )}
           <div
             style={{
               display: "flex",

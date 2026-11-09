@@ -14,6 +14,10 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals(); });
 const mount = overrides => render(<QueryClientProvider client={client}><ProspectOpportunityCard {...props} {...overrides} /></QueryClientProvider>);
+it("labels an undated open opportunity without requiring a guessed fiscal year", () => {
+  mount({ opportunity: { ...props.opportunity, opportunity_status: "Active" } });
+  expect(screen.getByText(/Expected date needed/)).toBeVisible();
+});
 it("requests assistance before funding and restores focus to the originating opportunity on cancel", async () => {
   mount(); const trigger = screen.getByRole("button", { name: "Request stewardship assistance" }); fireEvent.click(trigger);
   await screen.findByLabelText("What would you like help with?");

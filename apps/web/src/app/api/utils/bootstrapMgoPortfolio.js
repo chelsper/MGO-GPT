@@ -11,6 +11,7 @@ import { resolveConstituent } from "@/app/api/utils/constituents";
 import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import { canUseMgoWorkspaceRole } from "@/utils/workspaceRoles";
 import { hasLegacyOpportunityPurpose, isOpportunityEligibleForImport, opportunityCreatedOn } from "./opportunityImportEligibility";
+import opportunityLinkTransaction from "./opportunityLinkTransaction";
 
 const STATUS_PRIORITY = {
   "Solicitation - Verbal": 0,
@@ -332,7 +333,7 @@ async function fetchConstituentBasics({ userId, authUserId, origin, blackbaudCon
   };
 }
 
-async function upsertProspectOpportunity({
+export async function upsertProspectOpportunity({
   prospectId,
   constituentId,
   opportunity,
@@ -376,7 +377,7 @@ async function upsertProspectOpportunity({
     return;
   }
 
-  await sql`
+  await opportunityLinkTransaction(String(opportunity.id), [sql`
     INSERT INTO prospect_opportunities (
       prospect_id,
       constituent_id,
@@ -391,7 +392,7 @@ async function upsertProspectOpportunity({
       close_date,
       created_at,
       updated_at
-    ) VALUES (
+    ) SELECT
       ${prospectId},
       ${constituentId || null},
       ${String(opportunity.id)},
@@ -405,8 +406,12 @@ async function upsertProspectOpportunity({
       ${payload.closeDate},
       NOW(),
       NOW()
+    WHERE NOT EXISTS (
+      SELECT 1 FROM prospect_opportunities existing JOIN prospects owner ON owner.id = existing.prospect_id
+      WHERE existing.blackbaud_opportunity_id = ${String(opportunity.id)}
+        AND owner.user_id = (SELECT user_id FROM prospects WHERE id = ${prospectId})
     )
-  `;
+  `]);
 }
 
 async function rankExistingProspects(userId, prospectIdsInOrder) {
