@@ -68,6 +68,7 @@ import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/p
 import ProspectRaisedCard from "./ProspectRaisedCard";
 import OpportunityRollover from "./OpportunityRollover";
 import OpportunityRefresh from "./OpportunityRefresh";
+import ExistingOpportunityLink from "./ExistingOpportunityLink";
 import { SavedProspectActivityHighlights, useProspectRecentActivity } from "./ProspectActivityHighlights";
 import { formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
 
@@ -5467,9 +5468,14 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             editingOpportunityId={editingOpportunityId}
             opportunityEditFeedback={opportunityEditFeedback}
             renderOpportunityCard={renderOpportunityCard}
-            refreshControl={<OpportunityRefresh key={prospectId} prospectId={prospectId}
+            refreshControl={<>
+              {!readOnly && prospect.status === "Active" && linkedBlackbaudConstituentId && draftScope && <ExistingOpportunityLink
+                key={`${draftScope}:${prospectId}`} prospectId={prospectId} scope={draftScope}
+                disabled={Boolean(editingOpportunityId) || showOpportunityForm} />}
+              <OpportunityRefresh key={prospectId} prospectId={prospectId}
               hasLinkedOpportunities={opportunities.some((opportunity) => Boolean(opportunity.blackbaud_opportunity_id))}
-              editing={Boolean(editingOpportunityId)} />}
+              editing={Boolean(editingOpportunityId)} />
+            </>}
           />
           </div>
 

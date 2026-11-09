@@ -48,6 +48,10 @@ export const workflowGroups = {
     "src/app/api/pending-actions/[id]/quick-action/route.test.js",
   ],
   "Opportunity pipeline": [
+    "src/app/api/utils/existingOpportunityLink.test.js",
+    "src/app/api/prospects/[id]/opportunities/link-existing/route.test.js",
+    "src/app/my-top-prospects/ExistingOpportunityLink.test.jsx",
+    "src/app/api/utils/bootstrapMgoPortfolio.test.js",
     "test/workflows/pipelineJourney.test.js",
     "src/app/reports/opportunity-pipeline/page.test.jsx",
     "src/app/reports/opportunity-pipeline/OpportunityEditor.test.jsx",

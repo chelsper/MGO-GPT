@@ -41,6 +41,7 @@ function renderDetail({
   readOnly = false,
   terminology,
   initialPanel,
+  draftScope,
 } = {}) {
   const now = new Date().toISOString();
   client = new QueryClient({
@@ -105,12 +106,27 @@ function renderDetail({
         prospectId={1}
         initialPanel={initialPanel}
         readOnly={readOnly}
+        draftScope={draftScope}
         onClose={vi.fn()}
       />
       </WorkspaceTerminologyProvider>
     </QueryClientProvider>,
   );
 }
+
+it("offers explicit linking on the real prospect detail without an automatic NXT lookup", () => {
+  renderDetail({ draftScope: "1:44" });
+  expect(screen.getByRole("button", { name: "Link existing NXT opportunity" })).toBeEnabled();
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Edit Opportunity" }));
+  expect(screen.getByRole("button", { name: "Link existing NXT opportunity" })).toBeDisabled();
+});
+
+it("does not show manual linking in a read-only prospect view", () => {
+  renderDetail({ draftScope: "1:44", readOnly: true });
+  expect(screen.queryByRole("button", { name: "Link existing NXT opportunity" })).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 it("uses configured action labels without replacing names or refetching when labels change", () => {
   const view = renderDetail({ terminology: { mgo: "Fundraiser" }, initialPanel: "action" });

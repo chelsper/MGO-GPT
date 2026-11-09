@@ -32,6 +32,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
   vi.clearAllMocks();
+  sql.transaction = vi.fn(statements => Promise.all(statements));
   savedOpportunities = new Map();
   prospectStatus = "Active";
   lookup.mockResolvedValue(null);
@@ -46,11 +47,14 @@ beforeEach(() => {
     if (query.includes("SELECT *") && query.includes("FROM users")) return [user];
     if (query.includes("SELECT id, status, priority_order")) return [{ id: 7, status: prospectStatus, priority_order: 1 }];
     if (query.includes("MAX(priority_order)")) return [{ max_order: 1 }];
+    if (query.includes("INSERT INTO prospect_opportunities")) {
+      savedOpportunities.set(values[2], 100 + savedOpportunities.size);
+      return [];
+    }
     if (query.includes("FROM prospect_opportunities")) {
       const saved = savedOpportunities.get(values[1]);
       return saved ? [{ id: saved }] : [];
     }
-    if (query.includes("INSERT INTO prospect_opportunities")) savedOpportunities.set(values[2], 100 + savedOpportunities.size);
     if (query.includes("FROM prospects")) return [{ id: 7 }];
     return [];
   });
