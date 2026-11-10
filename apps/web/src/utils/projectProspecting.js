@@ -30,7 +30,7 @@ export function projectIdentity(snapshot, source) {
   const index = column && column.toLowerCase() !== "qrecid" && headers.filter(h => h === column).length === 1
     ? headers.indexOf(column) : -1;
   if (index < 0) return { index: -1, ids: [], invalidRows: 0,
-    error: "Map the constituent system record ID in project settings to enable tags. Do not use Lookup ID or qrecid." };
+    error: "You can create tags now. To apply them to people, map the constituent system record ID in project settings. Do not use Lookup ID or qrecid." };
   const rowIds = (snapshot?.tableRows || []).map(row => projectConstituentId(row[index]));
   return { index, rowIds, ids: [...new Set(rowIds.filter(Boolean))],
     invalidRows: rowIds.filter(id => !id).length, error: null };

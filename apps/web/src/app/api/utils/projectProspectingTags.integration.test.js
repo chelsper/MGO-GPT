@@ -23,6 +23,10 @@ function run(statement) {
   });
 }
 const execute = async text => parse(await run(text));
+// Keep bind parameters unknown until PostgreSQL infers their types, as Neon does.
+// Inlining JavaScript numbers into SQL hides production-only UNION type errors.
+const prepare = (statement, index = 0) => `PREPARE tag_query_${index} AS ${statement.text};\n`;
+const invoke = (statement, index = 0) => `EXECUTE tag_query_${index}${statement.values.length ? `(${statement.values.map(literal).join(",")})` : ""};\nDEALLOCATE tag_query_${index};`;
 const report = { key: "list-project-center", revision: "2026-11-09 12:00:00+00", dataConfiguration: { ...projectSource(), systemIdColumn: "System ID" } };
 const context = { user: { id: 7 }, report, origin: "https://app.test" };
 const snapshot = { generatedAt: "s1", headers: ["System ID", "Name"], tableRows: [["123", "Fictional Avery"], ["456", "Fictional Blake"]] };
@@ -34,11 +38,12 @@ const change = (tagId, action = "apply", ids = ["123"], ctx = context, current =
 describe.skipIf(!enabled)("project tags local PostgreSQL", () => {
   beforeAll(async () => {
     fixture.query = (parts, ...values) => {
-      const text = parts.reduce((query, part, i) => query + part + (i < values.length ? literal(values[i]) : ""), "");
-      return { text, then: (resolve, reject) => execute(text).then(resolve, reject) };
+      const text = parts.reduce((query, part, i) => query + part + (i < values.length ? `$${i + 1}` : ""), "");
+      const statement = { text, values };
+      return { ...statement, then: (resolve, reject) => execute(values.length ? prepare(statement) + invoke(statement) : text).then(resolve, reject) };
     };
     fixture.transaction = async statements => {
-      const output = await run(`BEGIN ISOLATION LEVEL READ COMMITTED;\n${statements.map((s, i) => `\\echo __QUERY_${i}__\n${s.text};`).join("\n")}\nCOMMIT;`);
+      const output = await run(`BEGIN ISOLATION LEVEL READ COMMITTED;\n${statements.map((s, i) => `${prepare(s, i)}\\echo __QUERY_${i}__\n${invoke(s, i)}`).join("\n")}\nCOMMIT;`);
       return output.split(/__QUERY_\d+__\n/).slice(1).map(parse);
     };
     await execute(`DROP SCHEMA IF EXISTS project_prospecting_fixture CASCADE; CREATE SCHEMA project_prospecting_fixture; SET search_path = project_prospecting_fixture;
@@ -69,6 +74,15 @@ describe.skipIf(!enabled)("project tags local PostgreSQL", () => {
     expect(results[0].tag.id).toBe(results[1].tag.id);
     await Promise.all([change(results[0].tag.id), change(results[0].tag.id)]);
     expect((await execute("SELECT count(*) AS count FROM project_prospect_tag_assignments"))[0].count).toBe("1");
+  });
+  it("records numeric audit actors when user IDs arrive as string parameters", async () => {
+    const ctx = { ...context, user: { id: "7" } };
+    const { tag } = await create("String user ID", ctx);
+    await change(tag.id, "apply", ["123"], ctx);
+    await change(tag.id, "remove", ["123"], ctx);
+    expect(await execute("SELECT action, actor_id FROM project_prospect_tag_events ORDER BY id")).toEqual([
+      { action: "create", actor_id: "7" }, { action: "apply", actor_id: "7" }, { action: "remove", actor_id: "7" },
+    ]);
   });
   it("retains tags when someone leaves and returns to the query", async () => {
     const { tag } = await create(); await change(tag.id);

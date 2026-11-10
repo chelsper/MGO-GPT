@@ -3,6 +3,7 @@
 export const workflowGroups = {
   "Project Prospecting": [
     "src/utils/projectProspecting.test.js",
+    "src/utils/projectTagRequest.test.js",
     "src/app/api/utils/projectProspectingTags.test.js",
     "src/app/api/reports/lists/[listKey]/tags/route.test.js",
     "src/components/ProjectProspectResults.test.jsx",

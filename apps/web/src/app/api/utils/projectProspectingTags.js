@@ -101,9 +101,9 @@ export async function mutateProjectTags(context, state, body) {
         AND a.constituent_id = ANY(${ids}::text[]) RETURNING a.tag_id, a.constituent_id
     ), events AS (
       INSERT INTO project_prospect_tag_events (project_key, tag_id, constituent_id, action, actor_id)
-      SELECT ${project}, id, NULL, 'create', ${userId} FROM new_tag
-      UNION ALL SELECT ${project}, tag_id, constituent_id, 'apply', ${userId} FROM added
-      UNION ALL SELECT ${project}, tag_id, constituent_id, 'remove', ${userId} FROM removed
+      SELECT ${project}, id, NULL, 'create', ${userId}::bigint FROM new_tag
+      UNION ALL SELECT ${project}, tag_id, constituent_id, 'apply', ${userId}::bigint FROM added
+      UNION ALL SELECT ${project}, tag_id, constituent_id, 'remove', ${userId}::bigint FROM removed
     )
     SELECT t.id, t.name, ((SELECT COUNT(*) FROM added) + (SELECT COUNT(*) FROM removed))::integer AS changed
     FROM target_tag t

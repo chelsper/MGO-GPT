@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectProspectResults from "./ProjectProspectResults";
 import { projectSource } from "@/utils/projectProspecting";
+import { PROJECT_TAG_REQUEST_TIMEOUT_MS } from "@/utils/projectTagRequest";
 const tag = { id: "55f50c08-3151-4d2d-81ef-881f7629b4a6", name: "Leadership interest" };
 const report = { key: "list-project-center", title: "The Center Prospects", revision: "r1", canConfigure: true,
   dataConfiguration: { ...projectSource(), systemIdColumn: "System ID" } };
@@ -20,7 +21,7 @@ beforeEach(() => {
     return response({ revision: "r1", snapshotAt: "s1", tags, assignments });
   }));
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const open = async (props = {}) => {
   render(<ProjectProspectResults report={report} snapshot={snapshot} onReload={vi.fn()} {...props} />);
   await waitFor(() => expect(screen.getByRole("button", { name: "Export filtered CSV" })).not.toBeDisabled());
@@ -102,5 +103,36 @@ describe("project prospect tags UI", () => {
     const button = screen.getByRole("button", { name: "Apply tag" }); fireEvent.click(button); fireEvent.click(button);
     expect(fetch.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
     await act(async () => resolve(response({ tag, changed: 2 })));
+  });
+  it("shows a stalled create, preserves the name, and reconciles by read without replaying", async () => {
+    await open(); vi.useFakeTimers();
+    fireEvent.click(screen.getByText("Create a tag"));
+    fireEvent.change(screen.getByLabelText("New tag name"), { target: { value: "Board connections" } });
+    let finish;
+    fetch.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Create tag" }));
+    expect(screen.getByRole("button", { name: "Creating tag..." })).toBeDisabled();
+    await act(async () => vi.advanceTimersByTimeAsync(PROJECT_TAG_REQUEST_TIMEOUT_MS));
+    expect(screen.getByRole("alert")).toHaveTextContent(/may have finished.*Reload/);
+    expect(screen.getByRole("button", { name: "Reload project" })).not.toBeDisabled();
+    expect(screen.getByLabelText("New tag name")).toHaveValue("Board connections");
+    tags.push({ ...tag, id: "late-tag", name: "Board connections" });
+    await act(async () => finish(response({ tag: tags.at(-1), changed: 0 })));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Reload project" })));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("combobox", { name: "Tag to apply or remove" })).getByRole("option", { name: "Board connections" })).toBeInTheDocument();
+    expect(fetch.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
+  });
+  it("distinguishes a confirmed save from a stalled follow-up read", async () => {
+    await open(); vi.useFakeTimers(); selectAll(); chooseTag();
+    fetch.mockResolvedValueOnce(response({ tag, changed: 2 })).mockImplementationOnce(() => new Promise(() => {}));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Apply tag" })));
+    expect(screen.getByText("Tag changes saved. Updating the list...")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(PROJECT_TAG_REQUEST_TIMEOUT_MS));
+    expect(screen.getByRole("alert")).toHaveTextContent("Your changes were saved, but tags could not be reloaded.");
+    expect(screen.queryByText("Tag changes saved. Updating the list...")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload project" })).not.toBeDisabled();
+    expect(fetch.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
   });
 });
