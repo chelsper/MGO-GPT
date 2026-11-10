@@ -95,6 +95,7 @@ const ROUTE_LABELS = {
 
 const REPORT_ROUTE_LABELS = {
   "/reports/lists": "Lists",
+  "/reports/project-prospecting": "Project Prospecting",
   "/reports/dashboards": "My Dashboards",
   "/reports/future-made-phase-ii": "Future. Made. Phase II",
   "/reports/alumni-family-engagement": "Alumni & Family Engagement",
@@ -204,6 +205,7 @@ export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
       { label: "Home", href: "/" },
       { label: "Reports", href: "/reports" },
       ...(pathname.startsWith("/reports/lists/") || pathname === "/reports/future-made-phase-ii" ? [{ label: "Lists", href: "/reports/lists" }] : []),
+      ...(pathname.startsWith("/reports/project-prospecting/") ? [{ label: "Project Prospecting", href: "/reports/project-prospecting" }] : []),
       ...(pathname.startsWith("/reports/dashboards/") || pathname === "/reports/alumni-family-engagement" ? [{ label: "My Dashboards", href: "/reports/dashboards" }] : []),
       { label: REPORT_ROUTE_LABELS[pathname] || fallback || "Report" },
     ];

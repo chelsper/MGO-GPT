@@ -10,6 +10,7 @@ import prospectLifecycleSchema from "./prospectLifecycleSchema";
 import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
 import campaignPrioritiesSchema from "./campaignPrioritiesSchema";
 import pipelineChangeGuardSchema from "./pipelineChangeGuardSchema";
+import projectProspectingSchema from "./projectProspectingSchema";
 
 let schemaReadyPromise;
 
@@ -2688,6 +2689,7 @@ export default async function ensureAppSchema() {
       CREATE INDEX IF NOT EXISTS idx_report_configurations_visibility
       ON report_configurations (visibility)
     `;
+    await projectProspectingSchema(sql);
     await sql`
       DO $metric_library_schema$
       BEGIN

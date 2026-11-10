@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Save, Trash2 } from "lucide-react";
 import { getReportHref, getReportTypeDefinitions, getDashboardReportMetadata } from "@/app/api/utils/reportRegistry";
 import { validateAlumniFamilyEngagementDashboard } from "@/app/api/utils/alumniDonorConfiguration";
@@ -15,6 +15,7 @@ import ListSourceEditor from "./ListSourceEditor";
 import { LIST_SCHEMA, listMetadata, validateListSource } from "@/utils/constituentLists";
 import { defaultLegacyListSource, isQueryList } from "@/utils/listQueryConfiguration";
 import { newFundraisingTracker } from "@/utils/fundraisingTracker";
+import { isProjectProspecting, projectSource } from "@/utils/projectProspecting";
 
 const NEW_REPORT_KEY = "__new-report-draft__";
 const TABS = ["Configure", "Access", "Preview"];
@@ -104,6 +105,7 @@ function AccessEditor({ configuration, draft, users, onChange }) {
     onChange({ specificUserIds: draft.specificUserIds.includes(id) ? draft.specificUserIds.filter((value) => value !== id) : [...draft.specificUserIds, id] });
   }
   return <section className={styles.stack} aria-label="Report access">
+    {isProjectProspecting({ dataConfiguration: draft.dataConfiguration }) && <p className={styles.notice}>Everyone selected for this project can see its returned data and create, apply, or remove project tags. Tags are shared within this project only and never sync to NXT.</p>}
     {generic && <label className={styles.choice}><input type="checkbox" checked={draft.active} onChange={(event) => onChange({ active: event.target.checked })} /><span><strong>Enable this report</strong><small>Only selected active users can open an enabled report. Managers can preview disabled drafts here; administrator status does not grant published-report access.</small></span></label>}
     {generic && draft.dataConfiguration?.panels?.some((panel) => panel.layout === "query_results") && <p className={styles.notice}>This report contains constituent-level query results. Every selected viewer can see all returned columns in the shared snapshot, including names and giving amounts. Select viewers accordingly; the snapshot is not filtered by each viewer's NXT permissions.</p>}
     {!generic && <div className={styles.stack}>
@@ -165,8 +167,14 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const [pageFeedback, setPageFeedback] = useState(null);
   const [newReport, setNewReport] = useState(null);
   const [importFocus, setImportFocus] = useState(0);
+  const openedProjectDraft = useRef(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("newProject") === "1" && !openedProjectDraft.current) {
+      openedProjectDraft.current = true;
+      addProject();
+      return;
+    }
     if (initialConfigurations.some(report => report.key === params.get("report"))) {
       setSelectedKey(params.get("report"));
       if (TABS.includes(params.get("tab"))) setTab(params.get("tab"));
@@ -227,6 +235,15 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       setNewReport(report);
       setDrafts((current) => ({ ...current, [NEW_REPORT_KEY]: createReportDraft(report) }));
     }
+    setSelectedKey(NEW_REPORT_KEY); setSearch(""); setTab("Configure");
+  }
+
+  function addProject() {
+    if (newReport && !window.confirm("Replace the unsaved new-report draft with a project? Saved reports will not change.")) return;
+    const report = { ...listMetadata(NEW_REPORT_KEY), title: "", description: "", reportTypeLabel: "Project Prospecting",
+      active: false, visibility: "specific_users", specificUserIds: [], dataConfiguration: { ...projectSource(), queryId: "" } };
+    setNewReport(report);
+    setDrafts(current => ({ ...current, [NEW_REPORT_KEY]: createReportDraft(report) }));
     setSelectedKey(NEW_REPORT_KEY); setSearch(""); setTab("Configure");
   }
 
@@ -336,6 +353,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport && !isList(newReport) ? "Continue new report" : "Add report"}</button>
       <button className={styles.button} disabled={saving} onClick={addCampaign}>Set up A-Train Campaign</button>
       <button className={styles.button} disabled={saving} onClick={addList}><Plus size={17} />{newReport && isList(newReport) ? "Continue new list" : "Add list"}</button>
+      <button className={styles.button} disabled={saving} onClick={addProject}><Plus size={17} />Add project</button>
     </section>
     <ReportLayoutTransfer draft={generic ? draft : null} disabled={saving} onImport={importLayout} />
     {pageFeedback && <div className={styles.successNotice} role="status">{pageFeedback.message}</div>}

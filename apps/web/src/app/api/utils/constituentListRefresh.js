@@ -6,7 +6,7 @@ import { isValidDashboardTableData } from "./dashboardConfiguration";
 import { listQueryRecovery } from "./listQueryRecovery";
 
 export function listSnapshotKeys(report, origin) {
-  const { columns, ...dataSource } = report.dataConfiguration;
+  const { columns, section, systemIdColumn, ...dataSource } = report.dataConfiguration;
   const hash = createHash("sha256")
     .update(JSON.stringify([origin, dataSource]))
     .digest("hex");

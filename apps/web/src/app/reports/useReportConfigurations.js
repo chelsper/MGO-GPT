@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { PROJECT_SECTION, PROJECT_HREF } from "@/utils/projectProspecting";
 
 export const REPORT_CONFIGURATIONS_QUERY_KEY = Object.freeze(["report-configurations"]);
 
@@ -45,7 +46,9 @@ export function useReportConfigurations({ enabled = true } = {}) {
   return {
     ...query,
     configurations,
-    visibleReports: getVisibleReportConfigurations(configurations),
+    visibleReports: [...getVisibleReportConfigurations(configurations), ...(query.data?.canManage ? [{
+      key: PROJECT_SECTION, title: "Project Prospecting", href: PROJECT_HREF, canView: true, active: true,
+    }] : [])],
     canManage: Boolean(query.data?.canManage),
   };
 }

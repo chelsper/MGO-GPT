@@ -1,6 +1,12 @@
 // Deliberately explicit: a renamed/missing/empty/skipped required suite fails the gate.
 // Live-provider and disposable-PostgreSQL suites have separate prerequisites.
 export const workflowGroups = {
+  "Project Prospecting": [
+    "src/utils/projectProspecting.test.js",
+    "src/app/api/utils/projectProspectingTags.test.js",
+    "src/app/api/reports/lists/[listKey]/tags/route.test.js",
+    "src/components/ProjectProspectResults.test.jsx",
+  ],
   "App release recovery": [
     "src/utils/appRelease.test.js",
     "src/utils/appWriteActivity.test.js",

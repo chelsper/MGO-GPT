@@ -1,5 +1,6 @@
 import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
 import { LIST_SCHEMA } from "@/utils/constituentLists";
+import { isProjectProspecting, PROJECT_SECTION, PROJECT_HREF } from "@/utils/projectProspecting";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
 import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
 import { CAMPAIGN_REPORT_KEY } from "@/utils/campaignPriorities";
@@ -309,6 +310,8 @@ export function getCustomFieldReportMetadata(slug) {
 }
 
 export function getReportHref(report) {
+  if (report?.key === PROJECT_SECTION) return PROJECT_HREF;
+  if (isProjectProspecting(report) && /^list-[a-z0-9-]{1,70}$/.test(report?.key || "")) return `${PROJECT_HREF}/${encodeURIComponent(report.key)}`;
   if (report?.key === "lists") return "/reports/lists";
   if (report?.key === DASHBOARDS_KEY && !isReportDashboard(report)) return DASHBOARDS_HREF;
   if (report?.key === FUTURE_MADE_PHASE_TWO_REPORT_KEY && report.dataConfiguration?.version === 1) return `/reports/lists/${FUTURE_MADE_PHASE_TWO_REPORT_KEY}`;

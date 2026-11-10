@@ -1,0 +1,15 @@
+.panel { background: #fff; border: 1px solid #dce7e3; border-radius: 18px; padding: 24px; min-width: 0; }
+.heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.heading h2 { margin: 0 0 6px; color: #153f36; font-size: 24px; }
+.heading p, .help { color: #536860; font-size: 14px; line-height: 1.5; }
+.heading p { margin: 0; }
+.tools { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.tools label { flex: 1 1 190px; max-width: 350px; }
+.tools input, .tools select { min-width: 0; width: 100%; }
+.tagBar { background: #f2f8f5; border: 1px solid #cce0d7; border-radius: 12px; padding: 16px; margin: 20px 0; }
+.tagBar summary { cursor: pointer; padding: 14px 0 4px; font-weight: 650; color: #215c48; }
+.tagBar form { margin-top: 12px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 130px; max-width: 300px; }
+.tag { background: #e7f2ec; color: #215c48; border: 1px solid #cce0d7; border-radius: 20px; padding: 4px 9px; font-size: 13px; overflow-wrap: anywhere; }
+.panel input[type="checkbox"] { width: 18px; height: 18px; accent-color: #147453; }
+@media (max-width: 600px) { .panel { padding: 14px; } .tools { align-items: stretch; } .tools label { max-width: none; flex-basis: 100%; } .tools button { flex: 1 1 140px; } }

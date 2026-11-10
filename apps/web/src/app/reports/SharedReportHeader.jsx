@@ -7,6 +7,7 @@ import { isConstituentList, reportNavigation } from "@/utils/constituentLists";
 import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
 import DashboardSwitcher from "@/components/DashboardSwitcher";
 import styles from "./SharedReportHeader.module.css";
+import { isProjectProspecting, PROJECT_SECTION } from "@/utils/projectProspecting";
 
 function ReportDestinations({ compact, children }) {
   return compact ? <details className={styles.destinations}>
@@ -32,6 +33,7 @@ function SharedReportHeaderContent({
     isReportDashboard(accessibleReports.find((report) => report.key === activeReportKey) || { key: activeReportKey })
   );
   const returnHref = backHref || (dashboardDetail ? DASHBOARDS_HREF : "/reports");
+  const projectDetail = reportSection === PROJECT_SECTION || isProjectProspecting(accessibleReports.find(report => report.key === activeReportKey));
   const returnLabel = backLabel || (dashboardDetail ? "Back to My Dashboards" : "Back to reports");
   return (
     <>
@@ -111,7 +113,8 @@ function SharedReportHeaderContent({
           {reportNavigation(accessibleReports).map((report) => {
             const selected = report.key === activeReportKey ||
               (report.key === DASHBOARDS_KEY && dashboardDetail) ||
-              (report.key === "lists" && (activeReportKey?.startsWith("list-") || isConstituentList({ key: activeReportKey })));
+              (report.key === PROJECT_SECTION && projectDetail) ||
+              (report.key === "lists" && !projectDetail && (activeReportKey?.startsWith("list-") || isConstituentList({ key: activeReportKey })));
             return (
               <a
                 key={report.key}

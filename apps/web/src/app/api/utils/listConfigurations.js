@@ -11,6 +11,7 @@ import {
   isExecutiveRole,
 } from "@/utils/workspaceRoles";
 import { canUserViewReport, parseReportSpecificUserIds } from "@/app/api/utils/reportAccess";
+import { isProjectProspecting, PROJECT_HREF } from "@/utils/projectProspecting";
 
 export const listError = (message, status = 400) =>
   Object.assign(new Error(message), { status });
@@ -26,6 +27,11 @@ export function serializeList(record, user) {
     specificUserIds.includes(Number(user.id));
   return {
     ...listMetadata(record.report_key),
+    ...(isProjectProspecting({ dataConfiguration: record.data_configuration }) ? {
+      href: `${PROJECT_HREF}/${encodeURIComponent(record.report_key)}`,
+      reportTypeLabel: "Project Prospecting",
+      canManageTags: canView,
+    } : {}),
     title: record.title,
     description: record.description || "",
     active: record.active === true,
