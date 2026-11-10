@@ -3,6 +3,7 @@ import QueryResultsTable from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
 import { orderedListColumns } from "@/utils/listQueryConfiguration";
 import { normalizeProjectTag, projectIdentity, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
+import { requestProjectTags } from "@/utils/projectTagRequest";
 import styles from "./projectProspecting.module.css";
 import shared from "./reportConfigurationEditor.module.css";
 
@@ -24,9 +25,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const identity = projectIdentity(snapshot, report.dataConfiguration);
 
   async function loadTags(signal) {
-    const response = await fetch(endpoint, { cache: "no-store", signal });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Project tags could not be loaded.");
+    const data = await requestProjectTags(endpoint, { signal });
     if (data.revision !== report.revision || data.snapshotAt !== snapshot.generatedAt ||
       !Array.isArray(data.tags) || !Array.isArray(data.assignments))
       throw new Error("The project changed. Reload the project to see its current list and tags.");
@@ -67,24 +66,27 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
     if (writing.current || busy || !saved || error || (action !== "create" && (!ready || !selected.length || !chosenTag))) return;
     const tag = normalizeProjectTag(name);
     if (action === "create" && !tag) { setNotice("Enter a tag name between 1 and 50 characters."); return; }
-    writing.current = true; setSaving(true); setNotice("");
+    writing.current = true; setSaving(action);
+    setNotice(action === "create" ? "Creating tag..." : action === "apply" ? "Applying tag..." : "Removing tag...");
     let confirmed = false;
     const signal = controller.current.signal;
     try {
-      const response = await fetch(endpoint, { method: "POST", signal, headers: { "Content-Type": "application/json" },
+      const data = await requestProjectTags(endpoint, { method: "POST", signal, headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, revision: report.revision, snapshotAt: snapshot.generatedAt,
           ...(action === "create" ? { name: tag.name } : { tagId: chosenTag, constituentIds: selected }) }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Tag changes could not be confirmed. Reload the project before trying again.");
       confirmed = true;
       if (signal.aborted) return;
       if (action === "create") { setChosenTag(data.tag.id); setName(""); }
       else setSelected([]);
+      setNotice("Tag changes saved. Updating the list...");
       await loadTags(signal);
       if (!signal.aborted) setNotice(action === "create" ? `Tag "${data.tag.name}" is ready to use.`
         : `${data.changed} constituent${data.changed === 1 ? "" : "s"} updated. Nothing changed in NXT.`);
     } catch (error) {
-      if (!signal.aborted) setError(confirmed ? "Your changes were saved, but tags could not be reloaded. Reload the project before continuing." : error.message);
+      if (!signal.aborted) {
+        setNotice("");
+        setError(confirmed ? "Your changes were saved, but tags could not be reloaded. Reload the project before continuing." : error.message);
+      }
     } finally { writing.current = false; if (!signal.aborted) setSaving(false); }
   }
 
@@ -115,7 +117,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
     link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  return <section className={styles.panel} aria-label="Project prospects and tags">
+  return <section className={styles.panel} aria-label="Project prospects and tags" aria-busy={Boolean(loading || saving)}>
     <div className={styles.heading}><div><h2>{identity.error ? `${snapshot.total} query rows` : `${identity.ids.length} people`}</h2>
       <p>Tags are shared with this project's viewers and saved in the app only.</p></div>
       <div className={styles.tools}><ListColumnEditor headers={snapshot.headers} value={settings} onChange={setSettings} compact />
@@ -146,7 +148,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
       </div>
       <details><summary>Create a tag</summary><form className={styles.tools} onSubmit={event => changeTags("create", event)}>
         <label className={shared.field}>New tag name<input value={name} maxLength={50} disabled={busy} placeholder="e.g. Leadership interest" onChange={event => setName(event.target.value)} /></label>
-        <button className={shared.button} disabled={busy || !saved || Boolean(error) || !normalizeProjectTag(name)}>Create tag</button>
+        <button className={shared.button} disabled={busy || !saved || Boolean(error) || !normalizeProjectTag(name)}>{saving === "create" ? "Creating tag..." : "Create tag"}</button>
       </form></details>
       {notice && <p role="status">{notice}</p>}
     </div>

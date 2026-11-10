@@ -33,9 +33,13 @@ Export filtered CSV includes the visible columns and project tag names, with spr
 - Create/apply/remove and their audit events are atomic. Repeated creates or assignments do not duplicate tags or audit entries.
 - Tables: `project_prospect_tags`, `project_prospect_tag_assignments`, `project_prospect_tag_events`. Schema creation has its own transaction advisory lock. The first-project seed never overwrites existing settings or access.
 - Error recovery retains the visible saved list and offers **Reload project**, not a forced NXT query. A failed refresh never publishes partial output.
+- Tag requests have a 30-second client deadline covering the response and body. A timed-out save may still have committed; users reload saved status before trying again. Writes are never replayed automatically. A confirmed save followed by a failed read is identified separately.
+- Unexpected tag failures log only the operation and validated PostgreSQL error code, not tag names, constituents, SQL text or credentials.
 
 ## Verification
 
 The required offline workflow gate includes tag validation, access boundaries, endpoint error handling, UI tagging/filtering/recovery and CSV safety. The disposable PostgreSQL suite additionally exercises concurrent edits, access revocation, snapshot changes, project isolation, tag persistence, audit rollback, tag limits and schema reruns.
+
+The database fixture uses prepared bind parameters rather than inlining values, matching production's PostgreSQL type inference. This catches the audit-actor UNION regression that initially prevented tag saves; each audit actor is now explicitly typed as bigint. Tests cover both numeric and string user IDs and stalled-save recovery without duplicate submission.
 
 To run the database suite, use a disposable PostgreSQL instance with fictional data only, no TCP listener, port 55449, and a Unix socket directory matching `/private/tmp/project-prospecting-pg.<suffix>`. Set `PROJECT_PROSPECTING_TEST_PG_SOCKET` and run `npm test -- projectProspectingTags.integration`. The suite never reads `DATABASE_URL`. Do not point it at a shared database; it creates and drops the isolated `project_prospecting_fixture` schema.
