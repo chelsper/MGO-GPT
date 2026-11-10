@@ -8,8 +8,10 @@ import {
   parseListQuery,
 } from "@/utils/listQueryConfiguration";
 import futureMadeQuery from "@/utils/futureMadeQueryTemplate.json";
+import { isProjectProspecting } from "@/utils/projectProspecting";
 
 export default function ListSourceEditor({ value, onChange, reportKey }) {
+  const project = isProjectProspecting({ dataConfiguration: value });
   const [catalog, setCatalog] = useState({ categories: [], values: [] });
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
@@ -145,7 +147,7 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
             });
           }}
         >
-          <option value="custom_field">NXT custom field</option>
+          {!project && <option value="custom_field">NXT custom field</option>}
           <option value="query_json">Paste NXT query JSON</option>
           <option value="saved_query">Saved NXT query ID</option>
         </select>
@@ -205,7 +207,7 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
           authorized viewers can access all returned data.
         </p>
       )}
-      <div className={styles.notice}>
+      {!project && <div className={styles.notice}>
         {query
           ? "Optional Add constituent settings: this code is separate from the query and must match its membership filter. Leave the category blank for a read-only list. Other query filters can still exclude an added constituent. "
           : ""}
@@ -213,7 +215,7 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         alone includes all values in that category. Adding a description narrows
         the list to that exact value. Saving configuration does not read or
         change any constituent.
-      </div>
+      </div>}
       <label className={styles.choice}>
         <input
           type="checkbox"
@@ -315,13 +317,22 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
           </button>
         </div>
       )}
+      {project && <label className={styles.field}>
+        Constituent system record ID for project tags
+        <select value={value.systemIdColumn || ""} onChange={event => onChange({ ...value, systemIdColumn: event.target.value })}>
+          <option value="">Choose a returned constituent system ID column</option>
+          {value.systemIdColumn && !headers.includes(value.systemIdColumn) && <option value={value.systemIdColumn}>{value.systemIdColumn} (load fields to verify)</option>}
+          {headers.filter(header => header.toLowerCase() !== "qrecid").map(header => <option key={header} value={header}>{header}</option>)}
+        </select>
+        <small>Save the project, select its viewers, refresh its query, then load returned output fields above. Choose the constituent system record ID, not Lookup ID, gift ID or qrecid. Saving this mapping reuses the saved results. Tags stay in this project and never change NXT.</small>
+      </label>}
       <ListColumnEditor
         headers={[...headers, ...(lead.enabled ? [LEAD_COLUMN] : [])]}
         value={value.columns || []}
         onChange={(columns) => onChange({ ...value, columns })}
         allowAdd
       />
-      <div className={styles.grid}>
+      {!project && <><div className={styles.grid}>
         <label className={styles.field}>
           NXT custom field category
           <input
@@ -381,7 +392,7 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         >
           {loading ? "Loading choices..." : "Load NXT choices"}
         </button>
-      </div>
+      </div></>}
       {notice && (
         <p role="status" className={styles.notice}>
           {notice}

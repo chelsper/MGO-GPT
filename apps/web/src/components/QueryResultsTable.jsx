@@ -49,6 +49,8 @@ export default function QueryResultsTable({
   title = "Query results",
   disabled = false,
   compact = false,
+  leadingColumn,
+  trailingColumn,
 }) {
   const hintId = useId();
   const [sort, setSort] = useState(null);
@@ -138,6 +140,7 @@ export default function QueryResultsTable({
         >
           <thead>
             <tr>
+              {leadingColumn && <th scope="col">{leadingColumn.title}</th>}
               {columns.map((column) => (
                 <th
                   key={column.header}
@@ -168,11 +171,13 @@ export default function QueryResultsTable({
                   </button>
                 </th>
               ))}
+              {trailingColumn && <th scope="col">{trailingColumn.title}</th>}
             </tr>
           </thead>
           <tbody>
             {visible.map(({ row, index }) => (
               <tr key={index}>
+                {leadingColumn && <td>{leadingColumn.render(row, index)}</td>}
                 {columns.map((column) => (
                   <td
                     key={column.header}
@@ -185,6 +190,7 @@ export default function QueryResultsTable({
                     {displayCell(row[column.sourceIndex], column.format)}
                   </td>
                 ))}
+                {trailingColumn && <td>{trailingColumn.render(row, index)}</td>}
               </tr>
             ))}
           </tbody>

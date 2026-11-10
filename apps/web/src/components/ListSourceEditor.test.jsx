@@ -2,6 +2,7 @@ import { useState } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import ListSourceEditor from "./ListSourceEditor";
+import { projectSource } from "@/utils/projectProspecting";
 
 afterEach(() => vi.unstubAllGlobals());
 const source = {
@@ -35,6 +36,21 @@ const load = () =>
   fireEvent.click(
     screen.getByRole("button", { name: "Load returned output fields" }),
   );
+
+it("project setup offers explicit system-ID mapping and no NXT membership edits", async () => {
+  const value = projectSource();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ report: { dataConfiguration: value } })));
+  const onChange = vi.fn();
+  render(<ListSourceEditor value={value} onChange={onChange} reportKey="list-project-center" />);
+  expect(screen.queryByLabelText("NXT custom field category")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Load NXT choices" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "NXT custom field" })).not.toBeInTheDocument();
+  load(); await screen.findByText(/Returned output fields loaded/);
+  const select = screen.getByRole("combobox", { name: /Constituent system record ID for project tags/ });
+  expect(within(select).queryByRole("option", { name: "QRECID" })).not.toBeInTheDocument();
+  fireEvent.change(select, { target: { value: "Constituent system record ID" } });
+  expect(onChange).toHaveBeenCalledWith({ ...value, systemIdColumn: "Constituent system record ID" });
+});
 
 it("loads exact preview headers only on request and requires explicit selection without saving or querying NXT", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response()));

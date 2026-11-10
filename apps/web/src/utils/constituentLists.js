@@ -8,6 +8,7 @@ import {
   DASHBOARDS_HREF,
   isReportDashboard,
 } from "./reportDashboards";
+import { isProjectProspecting, PROJECT_SECTION, PROJECT_HREF } from "./projectProspecting";
 export const LIST_SCHEMA = "constituent-list-v1";
 export const LEGACY_LIST_KEY = "future-made-phase-ii";
 export const isConstituentList = (report) =>
@@ -30,11 +31,20 @@ export function validateListSource(value) {
           "queryId",
           "columns",
           "leadFundraiser",
+          "section",
+          "systemIdColumn",
         ].includes(key),
     )
   ) {
     return "Choose a custom-field or query list source.";
   }
+  if (Object.hasOwn(value, "section") && value.section !== PROJECT_SECTION)
+    return "Choose a supported list section.";
+  if (value.section === PROJECT_SECTION && (!isQueryList(value) || value.fieldCategory?.trim()))
+    return "Projects use read-only constituent queries, without NXT membership edits.";
+  if (Object.hasOwn(value, "systemIdColumn") && (value.section !== PROJECT_SECTION ||
+    typeof value.systemIdColumn !== "string" || value.systemIdColumn.length > 200 || value.systemIdColumn.toLowerCase() === "qrecid"))
+    return "Select a constituent system record ID output column for this project.";
   if (
     (value.source !== "saved_query" && Object.hasOwn(value, "queryId")) ||
     (value.source !== "query_json" && Object.hasOwn(value, "queryJson"))
@@ -80,6 +90,7 @@ export function normalizeListSource(value) {
       : {}),
     ...(value.columns ? { columns: value.columns } : {}),
     ...(value.leadFundraiser ? { leadFundraiser: value.leadFundraiser } : {}),
+    ...(value.section === PROJECT_SECTION ? { section: PROJECT_SECTION, systemIdColumn: value.systemIdColumn || "" } : {}),
   };
 }
 
@@ -110,7 +121,10 @@ export function reportNavigation(reports) {
   const entries = [];
   for (const report of reports) {
     if (report.canView === false || report.active === false) continue;
-    if (isConstituentList(report)) {
+    if (isProjectProspecting(report) || report.key === PROJECT_SECTION) {
+      if (!entries.some((entry) => entry.key === PROJECT_SECTION))
+        entries.push({ key: PROJECT_SECTION, title: "Project Prospecting", href: PROJECT_HREF });
+    } else if (isConstituentList(report)) {
       if (!entries.some((entry) => entry.key === "lists"))
         entries.push({ key: "lists", title: "Lists", href: "/reports/lists" });
     } else if (isReportDashboard(report)) {
@@ -127,6 +141,7 @@ export function reportNavigation(reports) {
     "executive-team-standings",
     "opportunity-pipeline",
     DASHBOARDS_KEY,
+    PROJECT_SECTION,
     "lists",
   ];
   const rank = (entry) => {

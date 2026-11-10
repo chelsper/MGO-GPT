@@ -4,11 +4,12 @@ import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { isConstituentList, LEGACY_LIST_KEY } from "@/utils/constituentLists";
 import styles from "@/components/reportConfigurationEditor.module.css";
+import { isProjectProspecting } from "@/utils/projectProspecting";
 
 export default function ListsPage() {
   const { visibleReports, canManage, isPending, error, refetch } =
     useReportConfigurations();
-  const lists = visibleReports.filter(isConstituentList);
+  const lists = visibleReports.filter(report => isConstituentList(report) && !isProjectProspecting(report));
   return (
     <main className={styles.page}>
       <div className={styles.container}>

@@ -16,14 +16,17 @@ import {
 } from "@/utils/listQueryConfiguration";
 import ListColumnEditor from "@/components/ListColumnEditor";
 import { displayCell } from "@/components/QueryResultsTable";
+import ProjectProspectResults from "@/components/ProjectProspectResults";
+import { isProjectProspecting, PROJECT_HREF, PROJECT_SECTION } from "@/utils/projectProspecting";
 
-export default function ConstituentListPage({ params }) {
+export default function ConstituentListPage({ params, projectRoute = false }) {
   const { data, error, loading, refreshing, reload, refresh } =
     useConstituentList(params.listKey);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [localColumns, setLocalColumns] = useState(null);
   const report = data?.report;
+  const project = isProjectProspecting(report) || projectRoute;
   const snapshot = data?.snapshot;
   const job = data?.refresh;
   const needsConfiguration = job?.status === "needs_configuration";
@@ -77,8 +80,9 @@ export default function ConstituentListPage({ params }) {
           activeReportKey={params.listKey}
           title={report?.title || "Constituent list"}
           description={report?.description}
-          backHref="/reports/lists"
-          backLabel="Back to Lists"
+          backHref={project ? PROJECT_HREF : "/reports/lists"}
+          backLabel={project ? "Back to Project Prospecting" : "Back to Lists"}
+          reportSection={project ? PROJECT_SECTION : undefined}
           action={
             report &&
             (needsConfiguration ? (
@@ -139,7 +143,7 @@ export default function ConstituentListPage({ params }) {
             )}
             {!snapshot && preview}
             {snapshot?.tableRows && (
-              <ListQueryResults
+              isProjectProspecting(report) ? <ProjectProspectResults key={`${report.revision}:${snapshot.generatedAt}`} report={report} snapshot={snapshot} refreshing={busy} onReload={reload} /> : <ListQueryResults
                 key={`${report.revision}:${snapshot.generatedAt}`}
                 snapshot={snapshot}
                 defaults={report.dataConfiguration.columns || []}

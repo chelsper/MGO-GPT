@@ -51,6 +51,16 @@ describe("report configuration save contracts", () => {
 });
 
 describe("single-report editor", () => {
+  it("opens a new project from the collection without granting access or running its query", () => {
+    window.history.replaceState({}, "", "/report-configurations?newProject=1");
+    try {
+      render(<ReportConfigurationEditor initialConfigurations={[]} users={users} />);
+      expect(screen.getByLabelText("List title")).toHaveValue("");
+      expect(screen.getByLabelText("Saved query system record ID")).toHaveValue("");
+      expect(screen.getByRole("combobox", { name: /Constituent system record ID for project tags/ })).toHaveValue("");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { window.history.replaceState({}, "", "/"); }
+  });
   it("opens the campaign access editor from its Manage viewers link without saving", () => {
     window.history.replaceState({}, "", "/report-configurations?report=future-made-campaign&tab=Access");
     try {

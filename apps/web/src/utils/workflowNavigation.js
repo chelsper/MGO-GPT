@@ -3,6 +3,7 @@ const RETURN_PAGES = {
   "/reports": "Reports",
   "/reports/dashboards": "My Dashboards",
   "/reports/lists": "Lists",
+  "/reports/project-prospecting": "Project Prospecting",
   "/reports/opportunity-pipeline": "Opportunity Pipeline",
   "/reports/opportunity-pipeline/lifecycle": "Prospect Lifecycle",
   "/my-top-prospects": "Top Prospects",
