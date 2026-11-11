@@ -20,11 +20,20 @@ export function connectionHealth(row, now = Date.now()) {
   return status("notice", "Saved connection; renewal unavailable", "A token is saved, but automatic renewal is unavailable. Have the owner check their connection before relying on scheduled work.");
 }
 
+export function portfolioJobFailureCounts(row) {
+  // Item checkpoints and the job counter can briefly disagree. Missing recovery
+  // evidence must not hide a failure; the stored job history is never rewritten.
+  const failedItems = count(row.failed_item_count);
+  const failed = Math.max(count(row.failed_count), failedItems);
+  const recoveredFailed = Math.min(count(row.recovered_failed_count), failedItems);
+  return { failed, recoveredFailed, unresolvedFailed: failed - recoveredFailed };
+}
+
 export function portfolioHealth(row, now = Date.now()) {
   if (!row.has_mapping) return status("review", "Fundraiser mapping needed", "Check this MGO's system-ID mapping in Security & Access. Reconnecting will not fix a missing fundraiser mapping.");
   if (!row.has_portfolio) return status("notice", "No assignment snapshot", "Select this MGO in My Prospects and check the saved portfolio before choosing Sync NXT portfolio.");
   if (date(row.paused_until) && Date.parse(row.paused_until) > now) return status("wait", "Waiting for cooldown", "Wait until the saved pause ends. Do not reconnect or repeatedly restart portfolios for a rate limit.");
-  if (count(row.summary_failed) || count(row.failed_count)) return status("review", "Refresh needs investigation", "Open maintenance details below. Keep saved values; retry reads only after checking the cause.");
+  if (count(row.summary_failed) || portfolioJobFailureCounts(row).unresolvedFailed) return status("review", "Refresh needs investigation", "Open maintenance details below. Keep saved values; retry reads only after checking the cause.");
   if (["queued", "processing", "paused"].includes(row.job_status)) {
     if (!date(row.job_updated_at) || now - Date.parse(row.job_updated_at) > 15 * 60_000) {
       return status("notice", "Progress needs checking", "No progress has been saved in 15 minutes. This does not prove a failure. Check the portfolio's job and next scheduled window before resuming a read.");
@@ -61,6 +70,9 @@ async function connections(viewerId) {
 }
 
 async function portfolios() {
+  // Only optional enrichment and narrative generation prove a summary-only
+  // failure. Other nightly stages can fail during giving, so require both saved
+  // checks after the failed attempt. Freshness/backlog is evaluated separately.
   const rows = await sql`
     WITH workspaces AS (
       SELECT id, name, blackbaud_constituent_id, blackbaud_portfolio_cache, blackbaud_portfolio_cached_at,
@@ -75,7 +87,8 @@ async function portfolios() {
         AND jsonb_typeof(w.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array') AS has_portfolio,
       w.blackbaud_portfolio_cached_at, totals.*,
       j.status AS job_status, j.processed_count, j.total_count AS job_total,
-      j.success_count, j.failed_count, j.paused_until, j.updated_at AS job_updated_at
+      j.success_count, j.failed_count, j.paused_until, j.updated_at AS job_updated_at,
+      failures.failed_item_count, failures.recovered_failed_count
     FROM workspaces w
     CROSS JOIN LATERAL (
       SELECT COUNT(*)::int AS total,
@@ -96,9 +109,24 @@ async function portfolios() {
       LEFT JOIN portfolio_giving_snapshots g ON g.workspace_user_id = w.id AND g.constituent_id = ids.id
     ) totals
     LEFT JOIN LATERAL (
-      SELECT status, processed_count, total_count, success_count, failed_count, paused_until, updated_at
+      SELECT id, mode, status, processed_count, total_count, success_count, failed_count, paused_until, updated_at
       FROM portfolio_refresh_jobs WHERE workspace_user_id = w.id ORDER BY created_at DESC, id DESC LIMIT 1
-    ) j ON TRUE ORDER BY LOWER(w.name), w.id
+    ) j ON TRUE
+    CROSS JOIN LATERAL (
+      SELECT COUNT(*)::int AS failed_item_count,
+        COUNT(*) FILTER (WHERE s.data_complete AND jsonb_typeof(s.summary_payload) = 'object'
+          AND s.last_error_stage IS NULL AND s.last_refreshed_at > i.completed_at
+          AND (
+            j.mode IN ('stale', 'full') OR i.stage IN ('optional_enrichment', 'summary_generation')
+            OR (j.mode = 'nightly' AND g.refreshed_at > i.completed_at
+              AND jsonb_typeof(g.payload #> '{mapped,lifetimeGiving}') = 'object'
+              AND jsonb_typeof(g.payload -> 'currentFyGiving') = 'object')
+          ))::int AS recovered_failed_count
+      FROM portfolio_refresh_items i
+      LEFT JOIN portfolio_constituent_snapshots s ON s.workspace_user_id = w.id AND s.constituent_id = i.constituent_id
+      LEFT JOIN portfolio_giving_snapshots g ON g.workspace_user_id = w.id AND g.constituent_id = i.constituent_id
+      WHERE i.job_id = j.id AND i.status = 'failed'
+    ) failures ORDER BY LOWER(w.name), w.id
   `;
   return { total: count(rows[0]?.total_rows), items: rows.map(row => ({
     id: String(row.id), name: name(row.name), ...portfolioHealth(row),
@@ -109,7 +137,7 @@ async function portfolios() {
     assignmentsCheckedAt: date(row.blackbaud_portfolio_cached_at),
     lastSummaryCheck: date(row.last_summary_check), lastGivingCheck: date(row.last_giving_check),
     job: row.job_status ? { processed: count(row.processed_count), total: count(row.job_total),
-      completed: count(row.success_count), failed: count(row.failed_count),
+      completed: count(row.success_count), ...portfolioJobFailureCounts(row),
       updatedAt: date(row.job_updated_at), pausedUntil: date(row.paused_until) } : null,
   })) };
 }
