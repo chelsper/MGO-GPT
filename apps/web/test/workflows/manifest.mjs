@@ -2,6 +2,7 @@
 // Live-provider and disposable-PostgreSQL suites have separate prerequisites.
 export const workflowGroups = {
   "Project Prospecting": [
+    "test/workflows/reportLayouts.test.js",
     "src/utils/projectProspecting.test.js",
     "src/utils/projectTagRequest.test.js",
     "src/app/api/utils/projectProspectingTags.test.js",
@@ -107,6 +108,7 @@ export const workflowGroups = {
     "src/utils/stewardshipFulfillment.test.js",
   ],
   "Society letter CSV and PDF workflows": [
+    "src/utils/societyLetterHistory.test.js",
     "src/app/stewardship/society-letters/page.test.jsx",
     "src/app/stewardship/society-letters/LetterCsvExport.test.jsx",
     "src/app/stewardship/society-letters/CsvRunManager.test.jsx",

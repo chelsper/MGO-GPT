@@ -58,6 +58,8 @@ import LetterReleaseNotice from "./LetterReleaseNotice";
 import LetterCsvExport from "./LetterCsvExport";
 import CsvRunManager from "./CsvRunManager";
 import {
+  letterBatchStatus,
+  letterBatchStatusLabel,
   matchesLetterHistory,
   searchLetterHistory,
 } from "@/utils/societyLetterHistory";
@@ -1033,12 +1035,11 @@ export default function SocietyLettersPage() {
         );
   const activeWork = Boolean(data?.postalDraft || workspaceBatch);
   const guidedPostal = queryPostal && (channel === "post" || activeWork);
-  const batchComplete = Boolean(
-    workspaceBatch?.items.filter((item) => item.status !== "cancelled").length >
-      0 &&
-    workspaceBatch.items
-      .filter((item) => item.status !== "cancelled")
-      .every((item) => item.letterAppeals?.status === "complete"),
+  const workspaceBatchStatus = workspaceBatch
+    ? letterBatchStatus(workspaceBatch)
+    : null;
+  const batchComplete = ["ready_to_mail", "completed"].includes(
+    workspaceBatchStatus,
   );
   const recipientChoicesSaved = selected.length
     ? selectedRows.length === selected.length && selectedRows.every(canPrepare)
@@ -1046,9 +1047,11 @@ export default function SocietyLettersPage() {
   const workflowStage = data?.postalDraft
     ? "approve"
     : workspaceBatch
-      ? batchComplete
-        ? "download"
-        : "create"
+      ? workspaceBatchStatus === "in_progress"
+        ? "create"
+        : batchComplete
+          ? "download"
+          : null
       : recipientChoicesSaved
         ? "approve"
         : "review";
@@ -1456,9 +1459,15 @@ export default function SocietyLettersPage() {
                     </p>
                   ) : workspaceBatch ? (
                     <p>
-                      {batchComplete
-                        ? "Your letters and NXT appeal updates are complete. Download the files, then mark the batch mailed after dispatch."
-                        : "Your approval is saved. NXT checks and appeal updates run here; you do not need to review these letters again."}
+                      {workspaceBatchStatus === "cancelled"
+                        ? "This batch is cancelled and kept for history. It has no letters to finish."
+                        : workspaceBatchStatus === "completed"
+                          ? "These letters are already marked mailed or emailed. See their saved status and available downloads below. Opening this batch does not send anything."
+                          : workspaceBatchStatus === "ready_to_mail"
+                            ? "Your letters are ready to download. Mark them mailed only after dispatch."
+                            : workspaceBatchStatus === "in_progress"
+                              ? "Your approval is saved. NXT checks and appeal updates run here; you do not need to review these letters again."
+                              : "Saved batch history is shown below. Check each letter's status before continuing."}
                     </p>
                   ) : (
                     <p>
@@ -1492,12 +1501,7 @@ export default function SocietyLettersPage() {
                               <option key={batch.id} value={batch.id}>
                                 {batch.items.length} letters ·{" "}
                                 {new Date(batch.date).toLocaleString()} ·{" "}
-                                {batch.items.every(
-                                  (item) =>
-                                    item.letterAppeals?.status === "complete",
-                                )
-                                  ? "Created"
-                                  : "In progress"}
+                                {letterBatchStatusLabel(batch)}
                               </option>
                             ))}
                         </select>

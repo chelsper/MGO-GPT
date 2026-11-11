@@ -41,6 +41,29 @@ export function matchesLetterHistory(batch, filter) {
   return true;
 }
 
+// A mixed batch stays in progress until all of its unfinished letters are resolved.
+// Like the history filters, this status is display-only, never permission to act.
+export function letterBatchStatus(batch) {
+  for (const status of ["in_progress", "ready_to_mail", "completed"])
+    if (matchesLetterHistory(batch, status)) return status;
+  if (
+    batch.items.length &&
+    batch.items.every((item) => item.status === "cancelled")
+  )
+    return "cancelled";
+  return "unknown";
+}
+
+export function letterBatchStatusLabel(batch) {
+  return {
+    in_progress: "In progress",
+    ready_to_mail: "Ready to mail",
+    completed: "Mailed / emailed",
+    cancelled: "Cancelled",
+    unknown: "Saved history",
+  }[letterBatchStatus(batch)];
+}
+
 export function searchLetterHistory(batch, search) {
   const query = search.trim().toLocaleLowerCase();
   return (

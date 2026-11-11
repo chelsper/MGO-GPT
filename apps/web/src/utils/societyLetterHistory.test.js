@@ -2,12 +2,80 @@ import { expect, it } from "vitest";
 import {
   isLetterReadyToMail,
   isLetterInProgress,
+  letterBatchStatus,
+  letterBatchStatusLabel,
   letterHistoryFilter,
   matchesLetterHistory,
   searchLetterHistory,
 } from "./societyLetterHistory";
 
 const prepared = { status: "prepared", channel: "post" };
+const verified = {
+  ...prepared,
+  letterAppeals: { status: "complete", members: [{ status: "verified" }] },
+};
+const pending = { ...prepared, letterAppeals: { status: "pending" } };
+const cancelled = { ...pending, status: "cancelled" };
+const mailed = { ...verified, status: "mailed" };
+it.each([
+  [[cancelled], "cancelled", "Cancelled"],
+  [[{ ...verified, status: "cancelled" }], "cancelled", "Cancelled"],
+  [
+    [{ ...cancelled, returnToReview: { reason: "Recipient corrected" } }],
+    "cancelled",
+    "Cancelled",
+  ],
+  [[verified, cancelled], "ready_to_mail", "Ready to mail"],
+  [[prepared], "ready_to_mail", "Ready to mail"],
+  [[mailed, cancelled], "completed", "Mailed / emailed"],
+  [[{ ...pending, status: "mailed" }], "completed", "Mailed / emailed"],
+  [
+    [{ status: "emailed" }, { status: "delivered" }],
+    "completed",
+    "Mailed / emailed",
+  ],
+  [[verified, mailed], "ready_to_mail", "Ready to mail"],
+  [[verified, pending, mailed, cancelled], "in_progress", "In progress"],
+  [
+    [
+      {
+        ...prepared,
+        letterAppeals: {
+          status: "complete",
+          members: [{ status: "uncertain" }],
+        },
+      },
+    ],
+    "in_progress",
+    "In progress",
+  ],
+  [
+    [{ ...prepared, letterAppeals: { status: "complete", members: [] } }],
+    "in_progress",
+    "In progress",
+  ],
+  [
+    [{ status: "needs_review", channel: "email" }],
+    "in_progress",
+    "In progress",
+  ],
+  [[], "unknown", "Saved history"],
+  [[{ status: "unrecognized" }], "unknown", "Saved history"],
+])(
+  "labels saved batch %# using the same status rules as history",
+  (items, status, label) => {
+    const batch = { items };
+    const original = structuredClone(batch);
+    expect(letterBatchStatus(batch)).toBe(status);
+    expect(letterBatchStatusLabel(batch)).toBe(label);
+    expect(matchesLetterHistory(batch, "in_progress")).toBe(
+      status === "in_progress",
+    );
+    if (["ready_to_mail", "completed"].includes(status))
+      expect(matchesLetterHistory(batch, status)).toBe(true);
+    expect(batch).toEqual(original);
+  },
+);
 it("requires every appeal member to be verified before showing ready mail", () => {
   expect(isLetterReadyToMail(prepared)).toBe(true);
   for (const receipts of [

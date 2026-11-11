@@ -44,7 +44,7 @@ function getLookupResultKey(result, index) {
   );
 }
 
-import ConstituentListPage from "../lists/[listKey]/page";
+import ConstituentListView from "../lists/ConstituentListView";
 import { useReportConfigurations } from "../useReportConfigurations";
 
 export default function FutureMadePhaseTwoReportPage() {
@@ -52,7 +52,7 @@ export default function FutureMadePhaseTwoReportPage() {
   if (isPending) return <main className="p-8" role="status">Loading saved list...</main>;
   if (error) return <main className="p-8" role="alert">Could not load list configuration. Reload to try again.</main>;
   if (configurations.find((item) => item.key === "future-made-phase-ii")?.dataConfiguration?.version === 1)
-    return <ConstituentListPage params={{ listKey: "future-made-phase-ii" }} />;
+    return <ConstituentListView params={{ listKey: "future-made-phase-ii" }} />;
   return <LegacyFutureMadePhaseTwoReportPage />;
 }
 
