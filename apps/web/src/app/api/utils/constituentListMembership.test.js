@@ -75,8 +75,13 @@ it("does not send existing membership or a verification-only request", async () 
   mocks.read.mockResolvedValueOnce([field]);
   expect((await addListMember(context)).status).toBe("already_present");
   expect((await addListMember({ ...context, verifyOnly: true })).status).toBe(
-    "needs_verification",
+    "not_submitted",
   );
+  expect(mocks.write).not.toHaveBeenCalled();
+});
+it("does not offer another add when a submission is recorded but the field is not yet visible", async () => {
+  mocks.sql.mockResolvedValueOnce([{ payload: { state: "sending", value: "Golf" } }]);
+  expect((await addListMember({ ...context, verifyOnly: true })).status).toBe("needs_verification");
   expect(mocks.write).not.toHaveBeenCalled();
 });
 it("never sends without a persisted unique pre-write receipt and access recheck", async () => {

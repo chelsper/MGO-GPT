@@ -6,6 +6,7 @@ import {
 } from "@/app/api/utils/constituentListContext";
 import { addListMember } from "@/app/api/utils/constituentListMembership";
 import { listError } from "@/app/api/utils/listConfigurations";
+import { isProjectProspecting } from "@/utils/projectProspecting";
 export const maxDuration = 300;
 
 export async function POST(request, { params }) {
@@ -14,7 +15,7 @@ export async function POST(request, { params }) {
     const context = await listContext(request, params.listKey);
     if (!context.report.canManageMembers)
       throw listError(
-        "Only authorized Admin, Advancement Services, and Executive users may add list members.",
+        "Adding people is not enabled for you on this list. Project access and an NXT membership field must be configured; regular lists require a management role.",
         403,
       );
     const body = await request.json().catch(() => null);
@@ -35,6 +36,9 @@ export async function POST(request, { params }) {
         "The list settings changed. Reload before adding anyone.",
         409,
       );
+    if (isProjectProspecting(context.report) && body.value !== undefined &&
+        body.value !== context.report.dataConfiguration.fieldDescription)
+      throw listError("Use this project's configured NXT description/value. Reload if the project settings changed.");
     const result = await addListMember({
       ...context,
       source: context.report.dataConfiguration,

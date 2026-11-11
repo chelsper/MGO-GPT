@@ -39,6 +39,12 @@ export async function addListMember({
       message:
         "Confirmed in NXT. The saved list may take about 30 minutes to reflect this membership; refresh later.",
     };
+  if (verifyOnly && !receipt)
+    return {
+      status: "not_submitted",
+      message:
+        "No matching NXT field or recorded submission was found. You can choose Add again; the app will recheck before submitting.",
+    };
   const priorConfirmed =
     receipt?.payload?.value &&
     fields.some((field) =>

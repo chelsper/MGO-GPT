@@ -37,19 +37,25 @@ const load = () =>
     screen.getByRole("button", { name: "Load returned output fields" }),
   );
 
-it("project setup offers explicit system-ID mapping and no NXT membership edits", async () => {
+it("project setup offers fixed NXT membership settings separately from system-ID mapping and app-only tags", async () => {
   const value = projectSource();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ report: { dataConfiguration: value } })));
   const onChange = vi.fn();
   render(<ListSourceEditor value={value} onChange={onChange} reportKey="list-project-center" />);
-  expect(screen.queryByLabelText("NXT custom field category")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Load NXT choices" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("NXT custom field category")).toHaveValue("");
+  expect(screen.getByLabelText("NXT description / value for project additions")).toHaveValue("");
+  expect(screen.getByRole("button", { name: "Load NXT choices" })).toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
   expect(screen.queryByRole("option", { name: "NXT custom field" })).not.toBeInTheDocument();
   load(); await screen.findByText(/Returned output fields loaded/);
   const select = screen.getByRole("combobox", { name: /Constituent system record ID for project tags/ });
   expect(within(select).queryByRole("option", { name: "QRECID" })).not.toBeInTheDocument();
   fireEvent.change(select, { target: { value: "Constituent system record ID" } });
   expect(onChange).toHaveBeenCalledWith({ ...value, systemIdColumn: "Constituent system record ID" });
+  fireEvent.change(screen.getByLabelText("NXT custom field category"), { target: { value: "Prospect Research" } });
+  expect(onChange).toHaveBeenCalledWith({ ...value, fieldCategory: "Prospect Research", fieldDescription: "" });
+  fireEvent.change(screen.getByLabelText("NXT description / value for project additions"), { target: { value: "The Center" } });
+  expect(onChange).toHaveBeenCalledWith({ ...value, fieldDescription: "The Center" });
 });
 
 it("loads exact preview headers only on request and requires explicit selection without saving or querying NXT", async () => {

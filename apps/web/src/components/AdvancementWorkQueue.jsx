@@ -14,6 +14,7 @@ import { StaffGiftChoice, SavedGiftPreference } from "./StewardshipGiftChoice";
 import StewardshipFulfillmentForm from "./StewardshipFulfillmentForm";
 import StewardshipFulfillmentSummary from "./StewardshipFulfillmentSummary";
 import StewardshipRequestContext from "./StewardshipRequestContext";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 
 const SOURCES = [
   ["data", "Data updates and research", "/api/data-requests?view=reviewer"],
@@ -71,10 +72,14 @@ function RequestDetails({ item }) {
       <Detail label="Provided information" value={r.provided_data} />
       <Detail label="Source" value={r.source_context} />
       <Detail label="NXT constituent ID" value={r.blackbaud_constituent_id} />
-      <Detail label="Portfolio" value={r.owner_user_name} />
+      <Detail label={r.source_context === "constituent_lookup_assignment" ? "Requested fundraiser" : "Portfolio"} value={r.owner_user_name} />
       <Detail label="Interaction" value={r.interaction_type} />
       <Detail label="Next step" value={r.next_step} />
     </dl>
+    {r.source_context === "constituent_lookup_assignment" && <div className={styles.notice}>
+      <p>Review the current NXT solicitors before approving this request. If approved, update the assignment in NXT, then mark this request Completed. Changing the queue status alone does not change NXT or assign the constituent.</p>
+      {buildBlackbaudConstituentProfileUrl(r.blackbaud_constituent_id) && <a href={buildBlackbaudConstituentProfileUrl(r.blackbaud_constituent_id)} target="_blank" rel="noreferrer">Review constituent in NXT</a>}
+    </div>}
     {item.source === "submissions" && <>
       {getSubmissionActivityNotice(r) && <p className={item.category === "exceptions" ? styles.warning : styles.notice}>{getSubmissionActivityNotice(r)}</p>}
       {isSubmissionHistoryOnly(r) && r.reviewer_notes && <dl className={styles.details}><Detail label="Previous reviewer notes" value={r.reviewer_notes} /></dl>}

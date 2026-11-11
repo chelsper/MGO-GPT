@@ -207,7 +207,14 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
           authorized viewers can access all returned data.
         </p>
       )}
-      {!project && <div className={styles.notice}>
+      {project ? <div className={styles.notice}>
+        Optional project additions: configure the exact NXT custom field and
+        description/value used by this query's membership filter. Everyone
+        explicitly granted access to the project can then add an existing NXT
+        constituent. Leave both blank to disable additions. Other query filters
+        can still exclude someone. Project tags remain app-only; saving settings
+        does not change any NXT records.
+      </div> : <div className={styles.notice}>
         {query
           ? "Optional Add constituent settings: this code is separate from the query and must match its membership filter. Leave the category blank for a read-only list. Other query filters can still exclude an added constituent. "
           : ""}
@@ -332,11 +339,12 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         onChange={(columns) => onChange({ ...value, columns })}
         allowAdd
       />
-      {!project && <><div className={styles.grid}>
+      <div className={styles.grid}>
         <label className={styles.field}>
           NXT custom field category
           <input
             list="list-category-options"
+            aria-label="NXT custom field category"
             maxLength={200}
             value={value.fieldCategory}
             onChange={(event) =>
@@ -357,9 +365,10 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
           </small>
         </label>
         <label className={styles.field}>
-          Description / value (optional)
+          {project ? "NXT description / value for project additions" : "Description / value (optional)"}
           <input
             list="list-value-options"
+            aria-label={project ? "NXT description / value for project additions" : "Description / value (optional)"}
             maxLength={200}
             value={value.fieldDescription}
             onChange={(event) =>
@@ -378,8 +387,9 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
               ))}
           </datalist>
           <small>
-            Leave blank to include every value. Text and Code Table categories
-            support adding members here; other types remain view-only.
+            {project
+              ? "Required when enabling project additions. All project users add this same value; they cannot choose another field or description."
+              : "Leave blank to include every value. Text and Code Table categories support adding members here; other types remain view-only."}
           </small>
         </label>
       </div>
@@ -392,7 +402,7 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         >
           {loading ? "Loading choices..." : "Load NXT choices"}
         </button>
-      </div></>}
+      </div>
       {notice && (
         <p role="status" className={styles.notice}>
           {notice}

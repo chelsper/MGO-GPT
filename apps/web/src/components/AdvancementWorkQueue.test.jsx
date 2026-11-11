@@ -31,6 +31,16 @@ const ready = async () => waitFor(() => expect(screen.getByRole("button", { name
 const rowButton = (name) => screen.getByRole("button", { name: new RegExp(name) });
 
 describe("compact reviewer queue", () => {
+  it("routes portfolio assignment requests to Data Updates with review-only instructions", async () => {
+    data = [{ id: 1, constituent_name: "Assignment Example", blackbaud_constituent_id: "123", request_type: "Portfolio assignment request", source_context: "constituent_lookup_assignment", requester_name: "Demo MGO", owner_user_name: "Demo MGO", status: "Open", request_note: "Please review assigning this constituent to Demo MGO." }];
+    render(<AdvancementWorkQueue initialCategory="data" />);
+    await ready();
+    fireEvent.click(rowButton("Assignment Example"));
+    expect(screen.getByText("Requested fundraiser")).toBeVisible();
+    expect(screen.getByText(/Changing the queue status alone does not change NXT/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Review constituent in NXT" })).toHaveAttribute("target", "_blank");
+    expect(fetch.mock.calls.every(([url]) => !url.includes("blackbaud"))).toBe(true);
+  });
   it("places routine Pending logs in History with no approval controls or NXT calls", async () => {
     submissions.push({ id: 78, donor_name: "Historical Activity", submission_type: "donor_update", interaction_type: "Cultivation", status: "Pending", blackbaud_sync_status: "not_requested", reviewer_notes: "Preserved note" });
     render(<AdvancementWorkQueue />);

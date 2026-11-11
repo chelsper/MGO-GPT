@@ -10,7 +10,7 @@ export default function ProjectProspectingPage() {
   const projects = configurations.filter(isProjectProspecting);
   return <main className={styles.page}><div className={styles.container}>
     <SharedReportHeader activeReportKey={PROJECT_SECTION} title="Project Prospecting"
-      description="Shared prospect lists for your projects. Organize people with project-specific tags without changing their NXT records."
+      description="Shared prospect lists for your projects. Tags stay in the app; adding a person applies the project's configured membership field in NXT."
       accessibleReports={visibleReports} action={canManage && <a className={styles.button} href="/report-configurations?newProject=1">Add project</a>} />
     {isPending && <p role="status">Loading your projects...</p>}
     {error && <div role="alert" className={styles.notice}>Projects could not be loaded. <button className={styles.button} onClick={() => refetch()}>Try again</button></div>}

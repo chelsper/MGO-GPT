@@ -19,6 +19,7 @@ vi.mock("@/components/ListMembershipSearch", () => ({
   default: () => <div>Add-member controls</div>,
 }));
 import Page from "./page";
+import { projectSource } from "@/utils/projectProspecting";
 const data = {
   report: {
     key: "list-demo",
@@ -56,6 +57,20 @@ it("searches and paginates saved members without refreshing NXT and hides manage
   expect(screen.getAllByRole("link", { name: "Open NXT" })).toHaveLength(1);
   expect(screen.getByText("Person 12")).toBeInTheDocument();
   expect(mocks.refresh).not.toHaveBeenCalled();
+  expect(screen.queryByText("Add-member controls")).not.toBeInTheDocument();
+});
+it("shows authorized project additions once, even before the first query refresh", () => {
+  const project = { ...data.report, dataConfiguration: { ...projectSource(), fieldCategory: "Prospect Research", fieldDescription: "The Center" }, canManageMembers: true };
+  mocks.useList.mockReturnValue({ data: { report: project, snapshot: null } });
+  render(<Page params={{ listKey: project.key }} projectRoute />);
+  expect(screen.getAllByText("Add-member controls")).toHaveLength(1);
+  expect(screen.queryByText(/Adding people is not set up/)).not.toBeInTheDocument();
+});
+it("explains missing project membership settings without exposing an add action", () => {
+  const project = { ...data.report, dataConfiguration: projectSource(), canConfigure: false };
+  mocks.useList.mockReturnValue({ data: { report: project, snapshot: null } });
+  render(<Page params={{ listKey: project.key }} projectRoute />);
+  expect(screen.getByText(/Adding people is not set up/)).toBeInTheDocument();
   expect(screen.queryByText("Add-member controls")).not.toBeInTheDocument();
 });
 it("distinguishes a missing snapshot from a verified empty list", () => {

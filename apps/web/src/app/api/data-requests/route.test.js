@@ -101,6 +101,13 @@ describe("data requests route", () => {
     expect(sendAdvancementServicesNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "New data request" }),
     );
+    expect(sqlMockImpl.mock.calls[0][0].join(" ")).toContain("source_context IS DISTINCT FROM 'constituent_lookup_assignment'");
+  });
+  it.each([{ sourceContext: "constituent_lookup_assignment" }, { requestType: "Portfolio assignment request" }])("does not bypass the dedicated assignment request route: %j", async fields => {
+    const { POST } = await import("./route.js");
+    const response = await POST(new Request("https://example.com/api/data-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }));
+    expect(response.status).toBe(400);
+    expect(sqlMockImpl).not.toHaveBeenCalled();
   });
 
   it("creates a research request from a constituent record", async () => {

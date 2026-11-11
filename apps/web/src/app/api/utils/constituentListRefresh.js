@@ -4,9 +4,15 @@ import { isQueryList } from "@/utils/listQueryConfiguration";
 import { advanceQueryList, enrichListLeads } from "./constituentQueryList";
 import { isValidDashboardTableData } from "./dashboardConfiguration";
 import { listQueryRecovery } from "./listQueryRecovery";
+import { isProjectProspecting } from "@/utils/projectProspecting";
 
 export function listSnapshotKeys(report, origin) {
   const { columns, section, systemIdColumn, ...dataSource } = report.dataConfiguration;
+  // Membership writes do not change query output. Preserve the original project cache key.
+  if (isProjectProspecting(report)) {
+    dataSource.fieldCategory = "";
+    dataSource.fieldDescription = "";
+  }
   const hash = createHash("sha256")
     .update(JSON.stringify([origin, dataSource]))
     .digest("hex");
