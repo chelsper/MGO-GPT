@@ -1629,6 +1629,67 @@ describe("society letter workspace", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+  it.each([
+    ["cancelled", "Cancelled", null, /This batch is cancelled/],
+    ["mailed", "Mailed / emailed", "Download letters", /already marked mailed or emailed/],
+    ["prepared", "Ready to mail", "Download letters", /Your letters are ready to download/],
+  ])("keeps the saved %s batch label consistent with history without restarting work", async (status, label, stage, message) => {
+    const item = {
+      ...unsubmittedLetter(),
+      status,
+      ...(status === "prepared" ? {
+        letterAppeals: {
+          ...unsubmittedLetter().letterAppeals,
+          status: "complete",
+          members: [{ id: "10", status: "verified" }, { id: "11", status: "verified" }],
+        },
+      } : {}),
+    };
+    const payload = { ...base, settings: societyQuerySettings(), history: [item] };
+    fetchMock.mockImplementation(async () => Response.json(payload));
+    render(<Page />);
+    const selector = await screen.findByLabelText("Open a saved batch");
+    expect(within(selector).getByRole("option", { name: new RegExp(label) })).toHaveValue(item.batchId);
+    expect(within(selector).queryByRole("option", { name: /In progress/ })).not.toBeInTheDocument();
+    fireEvent.change(selector, { target: { value: item.batchId } });
+    expect(screen.getByText(message)).toBeVisible();
+    expect(screen.getByRole("region", { name: "Current letter batch" })).toBeVisible();
+    if (stage)
+      expect(screen.getByText(stage).closest("li")).toHaveAttribute("aria-current", "step");
+    else {
+      expect(screen.queryByRole("list", { name: "Letter stages" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Create approved letters and apply appeals" })).not.toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Letter history", exact: true }));
+    expect(screen.getByRole("button", { name: "In progress (0)" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "In progress (0)" }));
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(payload.history[0]).toEqual(item);
+  });
+  it("does not mark a mixed batch created until all remaining member receipts are verified", async () => {
+    const cancelled = { ...unsubmittedLetter(), status: "cancelled" };
+    const pending = {
+      ...unsubmittedLetter(),
+      id: "pending-letter",
+      letterAppeals: {
+        ...unsubmittedLetter().letterAppeals,
+        status: "complete",
+        members: [{ id: "10", status: "verified" }, { id: "11", status: "uncertain" }],
+      },
+    };
+    fetchMock.mockImplementation(async () => Response.json({
+      ...base, settings: societyQuerySettings(), history: [cancelled, pending],
+    }));
+    render(<Page />);
+    const selector = await screen.findByLabelText("Open a saved batch");
+    expect(within(selector).getByRole("option", { name: /In progress/ })).toHaveValue(pending.batchId);
+    fireEvent.change(selector, { target: { value: pending.batchId } });
+    expect(screen.getByText("Create & update NXT").closest("li")).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "Letter history", exact: true }));
+    expect(screen.getByRole("button", { name: "In progress (1)" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("hands one batch approval directly to processing, without reopening documents or a second confirmation", async () => {
     const row = reviewRow("10", true);
     const workspace = {

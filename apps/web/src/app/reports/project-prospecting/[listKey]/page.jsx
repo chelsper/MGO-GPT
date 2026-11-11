@@ -1,5 +1,5 @@
 "use client";
-import ConstituentListPage from "@/app/reports/lists/[listKey]/page";
+import ConstituentListView from "@/app/reports/lists/ConstituentListView";
 export default function ProjectProspectingDetail({ params }) {
-  return <ConstituentListPage params={params} projectRoute />;
+  return <ConstituentListView params={params} projectRoute />;
 }

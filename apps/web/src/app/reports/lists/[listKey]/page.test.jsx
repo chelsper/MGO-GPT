@@ -5,12 +5,17 @@ const mocks = vi.hoisted(() => ({
   useList: vi.fn(),
   refresh: vi.fn(),
   reload: vi.fn(),
+  configurations: vi.fn(),
 }));
 vi.mock("../useConstituentList", () => ({ default: mocks.useList }));
+vi.mock("@/app/reports/useReportConfigurations", () => ({
+  useReportConfigurations: mocks.configurations,
+}));
 vi.mock("@/app/reports/SharedReportHeader", () => ({
-  default: ({ title, action }) => (
+  default: ({ title, action, backHref, backLabel }) => (
     <header>
       <h1>{title}</h1>
+      <a href={backHref}>{backLabel}</a>
       {action}
     </header>
   ),
@@ -19,6 +24,8 @@ vi.mock("@/components/ListMembershipSearch", () => ({
   default: () => <div>Add-member controls</div>,
 }));
 import Page from "./page";
+import ProjectPage from "@/app/reports/project-prospecting/[listKey]/page";
+import PhaseTwoPage from "@/app/reports/future-made-phase-ii/page";
 import { projectSource } from "@/utils/projectProspecting";
 const data = {
   report: {
@@ -40,11 +47,27 @@ const data = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.configurations.mockReturnValue({ configurations: [{
+    key: "future-made-phase-ii", dataConfiguration: { version: 1 },
+  }] });
   mocks.useList.mockReturnValue({
     data,
     refresh: mocks.refresh,
     reload: mocks.reload,
   });
+});
+it.each([
+  ["Lists", Page, "list-demo", "/reports/lists"],
+  ["Project Prospecting", ProjectPage, "list-demo", "/reports/project-prospecting"],
+  ["Future Made Phase II", PhaseTwoPage, "future-made-phase-ii", "/reports/lists"],
+])("keeps %s list content, navigation, and refresh available through its own route", (_name, Route, listKey, backHref) => {
+  render(<Route params={{ listKey }} />);
+  expect(mocks.useList).toHaveBeenCalledWith(listKey);
+  expect(screen.getAllByRole("heading", { name: "Interests" })).toHaveLength(1);
+  expect(screen.getByRole("link", { name: /Back to/ })).toHaveAttribute("href", backHref);
+  expect(screen.getAllByRole("link", { name: "Open NXT" })).toHaveLength(25);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+  expect(mocks.refresh).toHaveBeenCalledOnce();
 });
 it("searches and paginates saved members without refreshing NXT and hides management controls from viewers", () => {
   render(<Page params={{ listKey: "list-demo" }} />);
