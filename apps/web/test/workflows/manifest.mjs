@@ -33,6 +33,9 @@ export const workflowGroups = {
     "src/app/api/utils/dashboardAuth.test.js",
   ],
   "Portfolios and work queues": [
+    "src/app/api/blackbaud/constituents/[constituentId]/summary/identity.test.js",
+    "src/app/api/blackbaud/constituents/[constituentId]/summary/route.test.js",
+    "src/app/api/blackbaud/portfolio-refresh/route.test.js",
     "src/app/api/utils/portfolioAssignmentRequests.test.js",
     "src/app/api/portfolio-assignment-requests/route.test.js",
     "src/components/RequestPortfolioAssignment.test.jsx",
