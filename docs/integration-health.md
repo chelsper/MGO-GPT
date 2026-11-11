@@ -46,6 +46,46 @@ execution time. Worker call reservations are not the remaining subscription quot
 Last-successful timestamps describe the most recent individual check, not a claim
 that the whole portfolio has refreshed.
 
+### Recovered Portfolio Attempts
+
+The portfolio alert separates unresolved failures from historical failed attempts
+in the latest job. A complete, error-free summary saved **after that same item's
+failure** confirms recovery of a summary-only attempt. Evidence is matched by
+workspace and constituent system ID, never by the most recent check elsewhere in
+the portfolio. Missing snapshots, incomplete payloads, new errors, equal/older
+timestamps, and missing failure timestamps do not establish recovery.
+
+Nightly work checks giving before the full summary. Only `optional_enrichment`
+and `summary_generation` identify summary-only failures. Other nightly stages,
+including proposal/identity/retrieval/normalization failures, conservatively need
+both a complete summary and a valid giving snapshot newer than the failure. A
+successful summary alone must not conceal a failed giving read. An unknown job
+mode or missing item evidence does not silently clear an alert. If saved job
+and item failure counts briefly disagree, the larger count is retained.
+
+Recovered attempts remain in the original job history; this projection changes
+no counters, receipts, or worker state and makes no NXT calls. Collapsed saved
+check details show failed attempts, those recovered since, and those without
+confirmed recovery. Current summary errors still trigger investigation. Routine
+backlogs, stale-progress notices, and active cooldowns remain separate from this
+failure history; recovery is not a claim that all data is current.
+
+The recovery projection is part of the existing bounded portfolio SQL read, not
+a per-constituent or per-workspace network loop. No schema migration is required.
+The disposable PostgreSQL check executes this exact query in read-only
+transactions with fictional data, using the same isolated local socket convention
+as the other maintenance database checks:
+
+```sh
+NXT_CREATE_TEST_PGHOST=/private/tmp/nxt-create-pg.XXXXXX node scripts/check-integration-health-recovery-postgres.mjs
+```
+
+Run from `apps/web` after starting a disposable test instance. The script rejects
+non-temporary socket paths, creates and drops only its randomized test schema,
+and checks that the health read leaves failed-item history unchanged. Do not use
+production credentials. Unit/UI tests cover alert precedence, conservative count
+handling, authorization, read-only boundaries, and unchanged request counts.
+
 ### Per-Portfolio Activity Coverage
 
 - Each enrolled active workspace shows assigned records, records with both gift

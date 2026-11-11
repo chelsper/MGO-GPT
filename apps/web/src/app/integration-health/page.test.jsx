@@ -29,6 +29,26 @@ it("reads one saved endpoint and keeps successful results quiet", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+it.each([0, 1])("distinguishes historical failures from unresolved checks without another read (%i unresolved)", async unresolved => {
+  const data = snapshot();
+  Object.assign(data.sections.portfolios.items[0], {
+    level: unresolved ? "review" : "notice",
+    label: unresolved ? "Refresh needs investigation" : "Refresh backlog",
+    job: { processed: 10, total: 10, completed: 7, failed: 3,
+      recoveredFailed: 3 - unresolved, unresolvedFailed: unresolved },
+  });
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  await screen.findByText("Test MGO");
+  const section = screen.getByRole("region", { name: "Portfolio maintenance" });
+  fireEvent.click(within(section).getByText("Saved check details"));
+  expect(within(section).getByText(/3 failed attempts recorded/)).toBeVisible();
+  expect(within(section).getByText(`${3 - unresolved} recovered since those attempts; ${unresolved} without confirmed recovery.`)).toBeVisible();
+  expect(within(section).getByText(/Historical failures stay in the job record/)).toBeVisible();
+  expect(within(section).queryByText("Refresh needs investigation") !== null).toBe(Boolean(unresolved));
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
 it.each([200, 401, 403])("hydrates the server loading view without replacing it or repeating reads (HTTP %i)", async (status) => {
   const view = <html lang="en"><head><title>Integration Health</title></head><body><IntegrationHealthPage /></body></html>;
   const doc = new DOMParser().parseFromString(renderToString(view), "text/html");

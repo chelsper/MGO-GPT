@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { sql, refreshUser } = vi.hoisted(() => ({ sql: vi.fn(), refreshUser: vi.fn() }));
 vi.mock("./sql", () => ({ default: sql }));
 vi.mock("./reportRefresh", () => ({ getReportRefreshUser: refreshUser }));
-import { connectionHealth, portfolioHealth, readIntegrationHealth } from "./integrationHealth";
+import { connectionHealth, portfolioHealth, portfolioJobFailureCounts, readIntegrationHealth } from "./integrationHealth";
 
 const now = Date.parse("2026-09-17T15:00:00Z");
 const current = { has_mapping: true, has_portfolio: true, total: 10, summary_current: 10, giving_current: 10, summary_failed: 0 };
@@ -54,9 +54,51 @@ describe("saved status classifications", () => {
     expect(portfolioHealth({ ...current, job_status: "processing", job_updated_at: "2026-09-17T14:00:00Z" }, now).label).toBe("Progress needs checking");
     expect(portfolioHealth({ ...current, job_status: "queued", job_updated_at: "2026-09-17T14:59:00Z" }, now).label).toBe("Refresh in progress");
   });
+  it("keeps recovered job attempts as history rather than current errors", () => {
+    const recovered = { ...current, job_status: "completed_with_failures", failed_count: 3,
+      failed_item_count: 3, recovered_failed_count: 3 };
+    expect(portfolioJobFailureCounts(recovered)).toEqual({ failed: 3, recoveredFailed: 3, unresolvedFailed: 0 });
+    expect(portfolioHealth(recovered, now).label).toBe("Saved data current");
+    expect(portfolioHealth({ ...recovered, summary_current: 9 }, now).label).toBe("Refresh backlog");
+    expect(portfolioHealth({ ...recovered, giving_current: 8 }, now).label).toBe("Refresh backlog");
+    expect(portfolioHealth({ ...recovered, summary_failed: 1 }, now).label).toBe("Refresh needs investigation");
+    expect(portfolioHealth({ ...recovered, recovered_failed_count: 2 }, now).level).toBe("review");
+    expect(portfolioHealth({ ...recovered, job_status: "processing", job_updated_at: "2026-09-17T14:59:00Z" }, now).label).toBe("Refresh in progress");
+    expect(portfolioHealth({ ...recovered, job_status: "processing", job_updated_at: "2026-09-17T14:00:00Z" }, now).label).toBe("Progress needs checking");
+    expect(portfolioHealth({ ...recovered, paused_until: "2026-09-17T16:00:00Z" }, now).label).toBe("Waiting for cooldown");
+  });
+  it.each([
+    [{ failed_count: 2 }, { failed: 2, recoveredFailed: 0, unresolvedFailed: 2 }],
+    [{ failed_count: 2, recovered_failed_count: 2 }, { failed: 2, recoveredFailed: 0, unresolvedFailed: 2 }],
+    [{ failed_count: 3, failed_item_count: 2, recovered_failed_count: 2 }, { failed: 3, recoveredFailed: 2, unresolvedFailed: 1 }],
+    [{ failed_count: 0, failed_item_count: 2, recovered_failed_count: 1 }, { failed: 2, recoveredFailed: 1, unresolvedFailed: 1 }],
+  ])("keeps missing evidence or a lagging job counter conservative: %j", (row, expected) => {
+    expect(portfolioJobFailureCounts(row)).toEqual(expected);
+    expect(portfolioHealth({ ...current, ...row }, now).level).toBe("review");
+  });
 });
 
 describe("read-only health projection", () => {
+  it("returns recovery counts without changing history or making extra portfolio reads", async () => {
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("WITH workspaces")
+      ? [{ ...current, id: 7, name: "Test", total_rows: 1, job_status: "completed_with_failures",
+        processed_count: 10, job_total: 10, success_count: 7, failed_count: 3,
+        failed_item_count: 3, recovered_failed_count: 3 }]
+      : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.portfolios.items[0]).toMatchObject({ level: "quiet", failed: 0,
+      job: { processed: 10, total: 10, completed: 7, failed: 3, recoveredFailed: 3, unresolvedFailed: 0 } });
+    expect(sql.mock.calls.filter(([s]) => s.join(" ").includes("WITH workspaces"))).toHaveLength(1);
+  });
+  it("keeps portfolio status unavailable when the recovery evidence cannot be read", async () => {
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("WITH workspaces")
+      ? Promise.reject(new Error("private query failure")) : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.portfolios).toEqual({ available: false });
+    expect(result.sections.verifications.available).toBe(true);
+  });
   it("reads maintenance budgets and fair turns without exposing tokens or initializing schema", async () => {
     vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
     vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://app.example");

@@ -33,6 +33,12 @@ export const workflowGroups = {
     "src/app/api/utils/workspaceWritePermission.test.js",
     "src/app/api/utils/dashboardAuth.test.js",
   ],
+  "Integration Health recovery": [
+    "src/app/api/utils/integrationHealth.test.js",
+    "src/app/api/admin/integration-health/route.test.js",
+    "src/app/integration-health/page.test.jsx",
+    "src/app/integration-health/PortfolioMaintenanceDetails.test.jsx",
+  ],
   "Portfolios and work queues": [
     "src/app/api/blackbaud/constituents/[constituentId]/summary/identity.test.js",
     "src/app/api/blackbaud/constituents/[constituentId]/summary/route.test.js",

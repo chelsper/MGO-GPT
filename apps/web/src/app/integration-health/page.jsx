@@ -187,7 +187,14 @@ export default function IntegrationHealthPage() {
           {maintenanceWorkspace === item.id && <PortfolioMaintenanceDetails key={item.id} workspaceId={item.id} />}
           <Details><p>Assignments checked: {when(item.assignmentsCheckedAt)}</p><p>Most recent successful summary check: {when(item.lastSummaryCheck)}</p><p>Most recent successful giving check: {when(item.lastGivingCheck)}</p>
             <p>These are the most recent individual checks, not confirmation that the entire portfolio was refreshed.</p>
-            {item.job && <><p>Latest job: {item.job.processed} / {item.job.total} processed; {item.job.completed} completed; {item.job.failed} failed.</p><p>Job updated: {when(item.job.updatedAt)}</p>{item.job.pausedUntil && <p>Saved pause ends: {when(item.job.pausedUntil)}</p>}</>}
+            {item.job && <>
+              <p>Latest job: {item.job.processed} / {item.job.total} processed; {item.job.completed} completed; {item.job.failed} failed attempts recorded.</p>
+              {item.job.failed > 0 && <>
+                <p>{item.job.recoveredFailed ?? 0} recovered since those attempts; {item.job.unresolvedFailed ?? item.job.failed} without confirmed recovery.</p>
+                <p>Historical failures stay in the job record. Only failures without confirmed recovery trigger investigation; routine due checks can still remain.</p>
+              </>}
+              <p>Job updated: {when(item.job.updatedAt)}</p>{item.job.pausedUntil && <p>Saved pause ends: {when(item.job.pausedUntil)}</p>}
+            </>}
           </Details>
         </article>)}</div>
         <Limited total={portfolios?.total} shown={portfolioItems.length} />
