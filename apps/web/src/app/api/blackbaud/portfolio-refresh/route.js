@@ -302,7 +302,7 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
     const reportedStatus = numeric(payload?.providerStatus);
     const lastProviderStatus = numeric(response.headers.get("x-mgogpt-nxt-last-status"));
     const providerFailure = reportedStatus >= 400 ? reportedStatus : lastProviderStatus >= 400 ? lastProviderStatus : null;
-    const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval", "blackbaud_auth"].includes(payload?.failureStage)
+    const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval", "blackbaud_auth", "constituent_identity", "constituent_retrieval"].includes(payload?.failureStage)
       ? payload.failureStage : providerFailure ? "blackbaud_retrieval" : "summary_processing";
     const connectionFailure = failureStage === "blackbaud_auth";
     const error = new Error(payload?.error || `Portfolio refresh returned ${response.status}`);

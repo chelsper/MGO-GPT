@@ -32,6 +32,20 @@ import {
 
 const CONSTITUENT_SUMMARY_CACHE_TTL_MS = PORTFOLIO_SUMMARY_TTL_MS;
 
+function constituentSystemId(value) {
+  if (typeof value === "number" && (!Number.isSafeInteger(value) || value <= 0)) return null;
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const id = String(value).trim();
+  return /^[1-9]\d*$/.test(id) ? id : null;
+}
+
+function summaryMatchesConstituent(payload, constituentId) {
+  const ids = [payload?.constituentId, payload?.mapped?.constituent?.id]
+    .filter(id => id != null);
+  // Older snapshots may carry only one ID, but no explicit ID may disagree.
+  return ids.length > 0 && ids.every(id => constituentSystemId(id) === constituentId);
+}
+
 function isFreshSummaryCache(cachedAt) {
   if (!cachedAt) return false;
   const cachedTime = new Date(cachedAt).getTime();
@@ -63,7 +77,7 @@ function buildSummaryCacheKey({
   ].join("|");
 }
 
-async function getCachedSummary({ workspaceUserId, authUserId, cacheKey, allowExpired = false }) {
+async function getCachedSummary({ workspaceUserId, authUserId, cacheKey, constituentId, allowExpired = false }) {
   if (!workspaceUserId || !authUserId || !cacheKey) return null;
 
   const rows = await sql`
@@ -77,7 +91,7 @@ async function getCachedSummary({ workspaceUserId, authUserId, cacheKey, allowEx
   const row = rows[0];
   const lightweight = !cacheKey.endsWith("|full");
   const ttl = lightweight ? 24 * 60 * 60 * 1000 : CONSTITUENT_SUMMARY_CACHE_TTL_MS;
-  if (!row?.payload) return null;
+  if (!summaryMatchesConstituent(row?.payload, constituentId)) return null;
   if (!allowExpired && (!isFreshSummaryCache(row.updated_at) || Date.now() - Date.parse(row.updated_at) > ttl)) return null;
   if (!allowExpired && Date.parse(getPortfolioSummaryStaleAfter(row.payload)) <= Date.now()) return null;
   return { ...row.payload, summaryRefreshedAt: row.payload.summaryRefreshedAt || row.updated_at };
@@ -129,7 +143,7 @@ async function getPortfolioSnapshotSummary({ workspaceUserId, constituentId }) {
       AND summary_payload IS NOT NULL
     LIMIT 1
   `;
-  return rows[0]?.summary_payload ? {
+  return summaryMatchesConstituent(rows[0]?.summary_payload, constituentId) ? {
     ...rows[0].summary_payload,
     summaryRefreshedAt: rows[0].summary_payload.summaryRefreshedAt || rows[0].last_refreshed_at,
   } : null;
@@ -197,110 +211,60 @@ function summaryResponse(payload, cacheStatus = "miss") {
   });
 }
 
-async function tryFetchConstituentById({
-  userId,
-  authUserId,
-  origin,
-  candidateId,
-}) {
-  if (!candidateId) return null;
-
-  try {
-    const payload = await blackbaudApiFetch(
-      `/constituent/v1/constituents/${encodeURIComponent(String(candidateId))}`,
-      {
-        userId,
-        authUserId,
-        origin,
-      },
-    );
-    return payload || null;
-  } catch (error) {
-    if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
-      throw error;
-    }
-    return null;
-  }
-}
-
 async function resolveConstituentPayload({
   userId,
   authUserId,
   origin,
   constituentId,
-  lookupId,
-  recordId,
-  name,
 }) {
-  const direct = await tryFetchConstituentById({
-    userId,
-    authUserId,
-    origin,
-    candidateId: constituentId,
-  });
-  if (direct) {
-    return direct;
+  let payload;
+  try {
+    // A lookup ID or name is not evidence that another system record is the
+    // selected constituent. Never substitute search results after a failure.
+    payload = await blackbaudApiFetch(
+      `/constituent/v1/constituents/${encodeURIComponent(constituentId)}`,
+      { userId, authUserId, origin },
+    );
+  } catch (error) {
+    const status = Number(error?.httpStatus);
+    const providerStatus = Number.isInteger(status) && status >= 400 && status <= 599 ? status : null;
+    const quotaPaused = error?.quotaPaused === true || isBlackbaudQuotaExceededError(error);
+    const paused = quotaPaused || providerStatus === 429;
+    const permissionDenied = providerStatus === 401 || providerStatus === 403;
+    const authFailure = error?.stage === "blackbaud_auth";
+    const retryAfterMs = Number(error?.retryAfterMs);
+    const message = paused
+      ? "Blackbaud has paused requests. Please try again after the pause; saved data has not been replaced."
+      : authFailure
+        ? "The NXT connection could not be verified. Check the connection before trying again."
+        : permissionDenied
+          ? "NXT could not verify access to this constituent. Check your NXT connection and permissions."
+          : providerStatus === 404
+            ? "This constituent could not be found in NXT. Check the constituent system record ID before trying again."
+            : "NXT could not verify the selected constituent. Please try again when the connection is available.";
+    // Provider errors can contain private response bodies. Retain only the
+    // status/backoff metadata needed by callers, not the original exception.
+    throw Object.assign(new Error(message), {
+      summaryIdentityFailure: true,
+      summaryHttpStatus: permissionDenied ? 403 : providerStatus === 404 ? 404 : 502,
+      stage: authFailure ? "blackbaud_auth" : "constituent_retrieval",
+      httpStatus: providerStatus,
+      connectionRetryable: authFailure && error?.connectionRetryable === true,
+      quotaPaused,
+      retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 0,
+    });
   }
-
-  const searchTerms = [lookupId, recordId, name]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  for (const term of searchTerms) {
-    try {
-      const payload = await blackbaudApiFetch(
-        "/constituent/v1/constituents/search",
-        {
-          userId,
-          authUserId,
-          origin,
-          searchParams: {
-            search_text: term,
-            limit: 10,
-          },
-        },
-      );
-
-      const rows = Array.isArray(payload?.value)
-        ? payload.value
-        : Array.isArray(payload)
-          ? payload
-          : [];
-
-      const normalizedTerm = term.toLowerCase();
-      const exact =
-        rows.find((item) => {
-          const lookupMatches =
-            String(item?.lookup_id || item?.lookupId || "")
-              .trim()
-              .toLowerCase() === normalizedTerm;
-          const nameMatches =
-            String(item?.name || "")
-              .trim()
-              .toLowerCase() === normalizedTerm;
-          return lookupMatches || nameMatches;
-        }) || rows[0];
-
-      if (exact?.id) {
-        const resolved = await tryFetchConstituentById({
-          userId,
-          authUserId,
-          origin,
-          candidateId: exact.id,
-        });
-        if (resolved) {
-          return resolved;
-        }
-      }
-    } catch (error) {
-      if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
-        throw error;
-      }
-      continue;
-    }
+  if (!payload || Array.isArray(payload) || constituentSystemId(payload.id) !== constituentId) {
+    throw Object.assign(new Error(
+      "NXT returned a constituent identity that could not be verified. No other record was substituted. Check the constituent system record ID before trying again.",
+    ), {
+      summaryIdentityFailure: true,
+      summaryHttpStatus: 409,
+      stage: "constituent_identity",
+      code: "NXT_CONSTITUENT_IDENTITY_MISMATCH",
+    });
   }
-
-  throw new Error("Blackbaud constituent summary request failed");
+  return payload;
 }
 
 function mapConstituent(constituent) {
@@ -1309,6 +1273,14 @@ async function handleGet(request, { params }) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const constituentId = constituentSystemId(params?.constituentId);
+  if (!constituentId) {
+    return Response.json(
+      { error: "A valid NXT constituent system record ID is required, not a lookup ID or name." },
+      { status: 400 },
+    );
+  }
+
   await ensureAppSchema();
 
   const origin = new URL(request.url).origin;
@@ -1319,14 +1291,6 @@ async function handleGet(request, { params }) {
         error: "Blackbaud is not configured",
         configIssues,
       },
-      { status: 400 },
-    );
-  }
-
-  const constituentId = String(params?.constituentId || "").trim();
-  if (!constituentId) {
-    return Response.json(
-      { error: "A Blackbaud constituent ID is required" },
       { status: 400 },
     );
   }
@@ -1431,10 +1395,9 @@ async function handleGet(request, { params }) {
     // This path cannot fall through to NXT, even on a cache miss or an expired
     // snapshot. Opening a briefing is not permission to run a provider refresh.
     if (savedOnly) {
-      const cached = await getCachedSummary({ workspaceUserId: user.id, authUserId, cacheKey, allowExpired: true });
+      const cached = await getCachedSummary({ workspaceUserId: user.id, authUserId, cacheKey, constituentId, allowExpired: true });
       const snapshot = await getPortfolioSnapshotSummary({ workspaceUserId: user.id, constituentId });
-      const saved = [cached, snapshot].filter(payload => payload &&
-        [payload.constituentId, payload.mapped?.constituent?.id].every(id => id == null || String(id) === constituentId))
+      const saved = [cached, snapshot].filter(Boolean)
         .sort((a, b) => (Date.parse(b.summaryRefreshedAt) || 0) - (Date.parse(a.summaryRefreshedAt) || 0))[0];
       if (!saved) return summaryResponse({ constituentId, mapped: {}, savedOnly: true }, "saved-miss");
       const { raw: _raw, ...payload } = await withPortfolioGivingSnapshot(user.id, constituentId, saved);
@@ -1446,6 +1409,7 @@ async function handleGet(request, { params }) {
         workspaceUserId: user.id,
         authUserId,
         cacheKey,
+        constituentId,
       });
       if (cachedSummary) {
         return summaryResponse(contactOnly || reportProfile ? cachedSummary :
@@ -1467,11 +1431,8 @@ async function handleGet(request, { params }) {
       authUserId,
       origin,
       constituentId,
-      lookupId,
-      recordId,
-      name,
     });
-    const resolvedConstituentId = String(constituentPayload?.id || constituentId).trim();
+    const resolvedConstituentId = constituentId;
 
     // Portfolio cards can request only the primary contact data on demand.
     // This avoids the four additional NXT requests required for the full
@@ -1748,7 +1709,9 @@ async function handleGet(request, { params }) {
 
     return summaryResponse(responsePayload, "miss");
   } catch (error) {
-    console.error("Blackbaud constituent summary error:", error);
+    console.error("Blackbaud constituent summary error:", error?.summaryIdentityFailure ? {
+      code: error.code || null, stage: error.stage, providerStatus: error.httpStatus || null,
+    } : error);
     const providerStatus = Number(error?.httpStatus || 0) || null;
     const quotaPaused = error?.quotaPaused === true || isBlackbaudQuotaExceededError(error);
     const retryAfterMs = Math.max(0, Number(error?.retryAfterMs || 0)) || null;
@@ -1759,17 +1722,19 @@ async function handleGet(request, { params }) {
             ? error.message
             : "Failed to fetch Blackbaud constituent summary",
         providerStatus,
-        failureStage: ["proposal_summary", "blackbaud_auth"].includes(error?.stage)
+        ...(error?.code === "NXT_CONSTITUENT_IDENTITY_MISMATCH" ? { code: error.code } : {}),
+        failureStage: ["proposal_summary", "blackbaud_auth", "constituent_identity", "constituent_retrieval"].includes(error?.stage)
           ? error.stage : providerStatus ? "blackbaud_retrieval" : "summary_processing",
         connectionRetryable: error?.stage === "blackbaud_auth" && error?.connectionRetryable === true,
         quotaPaused,
         retryAfterMs,
       },
       {
-        status: quotaPaused ? 503 : providerStatus === 429 ? 429 : 500,
-        headers: retryAfterMs
-          ? { "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))) }
-          : undefined,
+        status: quotaPaused ? 503 : providerStatus === 429 ? 429 : error?.summaryIdentityFailure ? error.summaryHttpStatus : 500,
+        headers: {
+          "Cache-Control": "private, no-store",
+          ...(retryAfterMs ? { "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))) } : {}),
+        },
       },
     );
   }

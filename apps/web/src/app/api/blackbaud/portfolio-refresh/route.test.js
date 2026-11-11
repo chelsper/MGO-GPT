@@ -80,6 +80,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("nightly portfolio batches", () => {
+  it.each([
+    ["constituent_identity", 409, null],
+    ["constituent_retrieval", 404, 404],
+    ["constituent_retrieval", 403, 403],
+  ])("retains %s diagnostics without replacing saved summaries or retrying (%i)", async (failureStage, status, providerStatus) => {
+    job.mode = "full";
+    fetch.mockResolvedValue(Response.json({ error: "Selected constituent could not be verified", failureStage, providerStatus }, { status }));
+    await POST(request());
+    const failure = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+    expect(failure).toContain("failed");
+    expect(failure).toContain(failureStage);
+    expect(failure).toContain(status);
+    expect(fetch).toHaveBeenCalledOnce();
+    const queries = sql.mock.calls.map(([s]) => s.join(" ")).join(" ");
+    expect(queries).not.toMatch(/summary_payload =|normalized_payload =|SET payload =|SET status = 'paused'/);
+  });
+
   it.each([429, 503])("defers an explicit temporary OAuth %i failure using the existing cooldown, without erasing data", async providerStatus => {
     fetch.mockImplementation(async () => Response.json({ error: "Renewal temporarily unavailable", providerStatus,
       failureStage: "blackbaud_auth", connectionRetryable: true, retryAfterMs: 60000,
