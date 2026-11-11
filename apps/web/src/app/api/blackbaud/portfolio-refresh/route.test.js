@@ -278,16 +278,21 @@ describe("nightly portfolio batches", () => {
     expect(itemWrite).not.toContain("failed");
   });
 
-  it("keeps the prior narrative and marks partial enrichment for retry", async () => {
+  it.each([
+    { warning: "education", field: "jacksonvilleUniversityEducation", saved: [{ school: "Jacksonville University" }] },
+    { warning: "familySummary", field: "familySummary", saved: { spouse: { name: "Taylor Example", isAlumniSpouse: true }, children: [] } },
+  ])("keeps prior $warning details and narrative when enrichment fails", async ({ warning, field, saved }) => {
     snapshot.stale_after = "2026-01-01";
     snapshot.last_refreshed_at = "2026-08-01T06:00:00Z";
+    snapshot.summary_payload.mapped[field] = saved;
     fetch.mockImplementation(async (url) => String(url).includes("giving_only=1")
       ? Response.json({ mapped, currentFyGiving: { recognizedReceived: 100 } })
-      : Response.json({ mapped: { ...snapshot.summary_payload.mapped, prospectSummaryNarrative: "Incomplete replacement" }, warnings: { education: "Unavailable" } }));
+      : Response.json({ mapped: { ...snapshot.summary_payload.mapped, [field]: null, prospectSummaryNarrative: "Incomplete replacement" }, warnings: { [warning]: "Unavailable" } }));
     await POST(request());
     const write = sql.mock.calls.find(([s]) => s.join(" ").includes("summary_payload ="));
     const safeSummary = JSON.parse(write[2]);
     expect(safeSummary.mapped.prospectSummaryNarrative).toBe("Good snapshot");
+    expect(safeSummary.mapped[field]).toEqual(saved);
     expect(safeSummary.summaryRefreshedAt).toBe("2026-08-01T06:00:00Z");
     expect(sql.mock.calls.some((call) => call.includes("IncompleteEnrichment"))).toBe(true);
   });
