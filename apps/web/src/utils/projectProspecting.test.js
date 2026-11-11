@@ -11,6 +11,10 @@ describe("Project Prospecting", () => {
     expect(source.queryId).toBe("31110"); expect(validateListSource(source)).toBeFalsy();
     expect(normalizeListSource(source)).toEqual(source);
     expect(validateListSource({ ...source, fieldCategory: "NXT write" })).toBeTruthy();
+    expect(validateListSource({ ...source, fieldDescription: "The Center" })).toBeTruthy();
+    const membership = { ...source, fieldCategory: "Prospect Research", fieldDescription: "The Center" };
+    expect(validateListSource(membership)).toBeFalsy();
+    expect(normalizeListSource(membership)).toEqual(membership);
     expect(validateListSource({ ...source, systemIdColumn: "qrecid" })).toBeTruthy();
     expect(validateListSource({ ...source, source: "custom_field" })).toBeTruthy();
     expect(validateListSource({ ...source, section: "arbitrary" })).toBeTruthy();
@@ -25,6 +29,7 @@ describe("Project Prospecting", () => {
   it("does not invalidate saved query data when mapping or display changes", () => {
     const report = { key: "list-project-center", dataConfiguration: source };
     expect(listSnapshotKeys(report, "https://app.test")).toEqual(listSnapshotKeys({ ...report, dataConfiguration: { ...source, systemIdColumn: "ID", columns: [] } }, "https://app.test"));
+    expect(listSnapshotKeys(report, "https://app.test")).toEqual(listSnapshotKeys({ ...report, dataConfiguration: { ...source, fieldCategory: "Prospect Research", fieldDescription: "The Center" } }, "https://app.test"));
     expect(listSnapshotKeys(report, "https://app.test")).not.toEqual(listSnapshotKeys({ ...report, dataConfiguration: { ...source, queryId: "99" } }, "https://app.test"));
   });
   it("keeps project and normal list navigation separate", () => {

@@ -58,6 +58,7 @@ export async function upsertOpenDataRequest({
           FROM data_change_requests
           WHERE requester_user_id = ${requesterUserId}
             AND source_pending_action_id IS NULL AND stewardship_request_key IS NULL
+            AND source_context IS DISTINCT FROM 'constituent_lookup_assignment'
             AND status IN (${DATA_REQUEST_STATUS_OPEN}, ${DATA_REQUEST_STATUS_IN_PROGRESS})
             AND (
               (${prospectPoolId || null}::BIGINT IS NOT NULL AND prospect_pool_id = ${prospectPoolId || null})
@@ -90,6 +91,7 @@ export async function upsertOpenDataRequest({
         updated_at = NOW()
       WHERE id = ${existing[0].id}
         AND source_pending_action_id IS NULL AND stewardship_request_key IS NULL
+        AND source_context IS DISTINCT FROM 'constituent_lookup_assignment'
       RETURNING *
     `;
     return updated[0]

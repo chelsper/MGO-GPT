@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import ListMembershipSearch from "./ListMembershipSearch";
+import { projectSource } from "@/utils/projectProspecting";
+import { LIST_MEMBERSHIP_TIMEOUT_MS } from "@/utils/listMembershipRequest";
 const report = {
   key: "list-demo",
   title: "Demo",
@@ -19,9 +21,10 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
-async function search() {
-  fireEvent.click(screen.getByText("Add a constituent to this list"));
+async function search(project = false) {
+  fireEvent.click(screen.getByText(project ? "Add a constituent to this project" : "Add a constituent to this list"));
   fireEvent.change(screen.getByLabelText("Find an NXT constituent"), {
     target: { value: "Example" },
   });
@@ -83,4 +86,51 @@ it("does not write when confirmation is cancelled", async () => {
   await search();
   fireEvent.click(screen.getByRole("button", { name: "Add to list" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+});
+const project = { ...report, dataConfiguration: { ...projectSource(), fieldCategory: "Prospect Research", fieldDescription: "The Center" } };
+it("shows the fixed NXT field separately from tags and confirms before adding to a project", async () => {
+  fetch.mockResolvedValueOnce(response(people)).mockResolvedValueOnce(response({ status: "added", message: "Added and verified in NXT" }));
+  render(<ListMembershipSearch report={project} />);
+  await search(true);
+  expect(screen.getByText(/Project tags are separate/)).toBeVisible();
+  expect(screen.queryByLabelText("Description to add")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add to project" }));
+  await screen.findByText("Added and verified in NXT");
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Prospect Research with value "The Center"'));
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ constituentId: "123", action: "add", value: "The Center", revision: "1" });
+  expect(screen.getByRole("button", { name: "Confirmed in NXT" })).toBeDisabled();
+});
+it("recovers from a stalled addition with verification only and ignores a late write response", async () => {
+  let resolve;
+  fetch.mockResolvedValueOnce(response(people))
+    .mockImplementationOnce(() => new Promise(done => { resolve = done; }))
+    .mockResolvedValueOnce(response({ status: "already_present", message: "Verified without another add" }));
+  render(<ListMembershipSearch report={project} />);
+  await search(true);
+  vi.useFakeTimers();
+  fireEvent.click(screen.getByRole("button", { name: "Add to project" }));
+  expect(screen.getByRole("button", { name: "Checking..." })).toBeDisabled();
+  await act(() => vi.advanceTimersByTimeAsync(LIST_MEMBERSHIP_TIMEOUT_MS));
+  expect(screen.getByText(/addition may have finished/)).toBeVisible();
+  await act(async () => resolve(response({ status: "added", message: "Late reply" })));
+  expect(screen.queryByText("Late reply")).not.toBeInTheDocument();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check status" })));
+  expect(screen.getByText("Verified without another add")).toBeVisible();
+  expect(fetch.mock.calls.slice(1).map(([, options]) => JSON.parse(options.body).action)).toEqual(["add", "verify"]);
+});
+it("offers a new explicit add only when verification confirms no recorded submission", async () => {
+  fetch.mockResolvedValueOnce(response(people))
+    .mockRejectedValueOnce(new Error("Connection unavailable"))
+    .mockResolvedValueOnce(response({ status: "not_submitted", message: "Nothing was submitted. You can add again." }))
+    .mockResolvedValueOnce(response({ status: "added", message: "Verified after reconnecting" }));
+  render(<ListMembershipSearch report={project} />);
+  await search(true);
+  fireEvent.click(screen.getByRole("button", { name: "Add to project" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Check status" }));
+  await screen.findByText("Nothing was submitted. You can add again.");
+  expect(fetch).toHaveBeenCalledTimes(3);
+  fireEvent.click(screen.getByRole("button", { name: "Add to project" }));
+  await screen.findByText("Verified after reconnecting");
+  expect(window.confirm).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.slice(1).map(([, options]) => JSON.parse(options.body).action)).toEqual(["add", "verify", "add"]);
 });

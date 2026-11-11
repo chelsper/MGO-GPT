@@ -21,13 +21,14 @@ export const validListKey = (key) =>
 export function serializeList(record, user) {
   const specificUserIds = parseReportSpecificUserIds(record.specific_user_ids);
   const legacy = record.report_key === LEGACY_LIST_KEY;
+  const project = isProjectProspecting({ dataConfiguration: record.data_configuration });
   const canView = legacy ? user?.active === true && canUserViewReport({ user, visibility: record.visibility, specificUserIds }) :
     user?.active === true &&
     record.active === true &&
     specificUserIds.includes(Number(user.id));
   return {
     ...listMetadata(record.report_key),
-    ...(isProjectProspecting({ dataConfiguration: record.data_configuration }) ? {
+    ...(project ? {
       href: `${PROJECT_HREF}/${encodeURIComponent(record.report_key)}`,
       reportTypeLabel: "Project Prospecting",
       canManageTags: canView,
@@ -42,7 +43,9 @@ export function serializeList(record, user) {
     canConfigure: user?.active === true && canManageWorkspaceRole(user.role),
     canManageMembers:
       canView && Boolean(record.data_configuration?.fieldCategory?.trim()) &&
-      (canManageWorkspaceRole(user.role) || isExecutiveRole(user.role)),
+      (project
+        ? Boolean(record.data_configuration?.fieldDescription?.trim())
+        : canManageWorkspaceRole(user.role) || isExecutiveRole(user.role)),
     revision: record.revision || String(record.updated_at),
   };
 }

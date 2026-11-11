@@ -40,8 +40,8 @@ export function validateListSource(value) {
   }
   if (Object.hasOwn(value, "section") && value.section !== PROJECT_SECTION)
     return "Choose a supported list section.";
-  if (value.section === PROJECT_SECTION && (!isQueryList(value) || value.fieldCategory?.trim()))
-    return "Projects use read-only constituent queries, without NXT membership edits.";
+  if (value.section === PROJECT_SECTION && !isQueryList(value))
+    return "Projects use constituent queries for their saved lists.";
   if (Object.hasOwn(value, "systemIdColumn") && (value.section !== PROJECT_SECTION ||
     typeof value.systemIdColumn !== "string" || value.systemIdColumn.length > 200 || value.systemIdColumn.toLowerCase() === "qrecid"))
     return "Select a constituent system record ID output column for this project.";
@@ -61,6 +61,8 @@ export function validateListSource(value) {
     value.fieldDescription.trim().length > 200
   )
     return "The optional description must be 200 characters or fewer.";
+  if (value.section === PROJECT_SECTION && Boolean(value.fieldCategory.trim()) !== Boolean(value.fieldDescription.trim()))
+    return "To enable project additions, set both the NXT custom field category and exact description/value. Leave both blank to disable additions.";
   if (
     value.source === "saved_query" &&
     (typeof value.queryId !== "string" ||

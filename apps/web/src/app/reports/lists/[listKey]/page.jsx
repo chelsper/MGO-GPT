@@ -129,6 +129,16 @@ export default function ConstituentListPage({ params, projectRoute = false }) {
               refreshing={refreshing}
               error={error}
             />
+            {project && (report.canManageMembers ? (
+              <ListMembershipSearch key={`${report.key}:${report.revision}`} report={report} compact />
+            ) : (
+              <p className={styles.notice}>
+                Adding people is not set up for this project yet. An Admin or
+                Advancement Services user can configure its NXT custom field
+                and description in Project settings.
+                {report.canConfigure && <> <a href="/report-configurations">Project settings</a></>}
+              </p>
+            ))}
             {!snapshot && !queryOutput && (
               <section className={listStyles.empty}>
                 <h2>{busy ? "Preparing your list" : "No saved list yet"}</h2>
@@ -282,7 +292,7 @@ export default function ConstituentListPage({ params, projectRoute = false }) {
                 )}
               </section>
             )}
-            {report.canManageMembers && (
+            {!project && report.canManageMembers && (
               <ListMembershipSearch
                 key={`${report.key}:${report.revision}`}
                 report={report}

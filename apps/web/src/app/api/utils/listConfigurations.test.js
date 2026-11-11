@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 vi.mock("./sql", () => ({ default: vi.fn() }));
 import sql from "./sql";
+import { projectSource } from "@/utils/projectProspecting";
 import {
   listConfigurations,
   saveListConfiguration,
@@ -52,6 +53,17 @@ it("preserves legacy access but prevents membership writes on query-only lists",
 it("keeps unshared lists out of normal users' configuration responses", async () => {
   expect(await listConfigurations({ ...user, role: "mgo", id: 2 })).toEqual([]);
   expect(await listConfigurations({ ...user, id: 2 })).toHaveLength(1);
+});
+it.each(["mgo", "admin", "advancement_services", "executive"])("allows an explicitly authorized %s to add project members, but not edit settings", role => {
+  const project = { ...record, data_configuration: { ...projectSource(), fieldCategory: "Prospect Research", fieldDescription: "The Center" } };
+  const member = { ...user, role };
+  expect(serializeList(project, member).canManageMembers).toBe(true);
+  if (role === "mgo") expect(serializeList(project, member).canConfigure).toBe(false);
+  for (const denied of [{ ...member, id: 2 }, { ...member, active: false }])
+    expect(serializeList(project, denied).canManageMembers).toBe(false);
+  expect(serializeList({ ...project, active: false }, member).canManageMembers).toBe(false);
+  expect(serializeList({ ...project, data_configuration: projectSource() }, member).canManageMembers).toBe(false);
+  expect(serializeList({ ...project, data_configuration: { ...project.data_configuration, fieldDescription: "" } }, member).canManageMembers).toBe(false);
 });
 it("creates disabled drafts without NXT access or new tables", async () => {
   sql.mockImplementation(async (parts, ...values) => [

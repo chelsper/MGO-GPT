@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "./reportConfigurationEditor.module.css";
 import listStyles from "./listReport.module.css";
+import { isProjectProspecting } from "@/utils/projectProspecting";
+import { requestListMembership } from "@/utils/listMembershipRequest";
 
 export default function ListMembershipSearch({ report, compact = false }) {
+  const project = isProjectProspecting(report);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [error, setError] = useState("");
@@ -13,12 +16,14 @@ export default function ListMembershipSearch({ report, compact = false }) {
   const [value, setValue] = useState("");
   const searchController = useRef(null);
   const writes = useRef(new Set());
+  const writeControllers = useRef(new Set());
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       searchController.current?.abort();
+      for (const controller of writeControllers.current) controller.abort();
     };
   }, []);
   async function search(event) {
@@ -65,33 +70,23 @@ export default function ListMembershipSearch({ report, compact = false }) {
     )
       return;
     writes.current.add(constituentId);
+    const controller = new AbortController();
+    writeControllers.current.add(controller);
     setStates((current) => ({
       ...current,
       [constituentId]: { status: "sending", message: "Checking NXT..." },
     }));
     try {
-      const response = await fetch(
+      const payload = await requestListMembership(
         `/api/reports/lists/${encodeURIComponent(report.key)}/membership`,
         {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            constituentId,
-            action: verifyOnly ? "verify" : "add",
-            value: description,
-            revision: report.revision,
-          }),
+          constituentId,
+          action: verifyOnly ? "verify" : "add",
+          value: description,
+          revision: report.revision,
         },
+        controller.signal,
       );
-      const payload = await response.json();
-      if (!response.ok) {
-        const failure = new Error(
-          payload.error || "Could not verify this addition.",
-        );
-        failure.safeToCorrect =
-          !verifyOnly && [400, 422].includes(response.status);
-        throw failure;
-      }
       if (mounted.current)
         setStates((current) => ({ ...current, [constituentId]: payload }));
     } catch (failure) {
@@ -107,6 +102,7 @@ export default function ListMembershipSearch({ report, compact = false }) {
         }));
     } finally {
       writes.current.delete(constituentId);
+      writeControllers.current.delete(controller);
     }
   }
   const configuredValue = report.dataConfiguration.fieldDescription;
@@ -116,12 +112,18 @@ export default function ListMembershipSearch({ report, compact = false }) {
         compact ? listStyles.membership : `${styles.card} ${styles.sourceList}`
       }
     >
-      <summary>Add a constituent to this list</summary>
+      <summary>{project ? "Add a constituent to this project" : "Add a constituent to this list"}</summary>
       <p className={styles.muted}>
         Adds the configured NXT custom field to an existing constituent only.
         Existing fields are not replaced, and uncertain writes are not
         automatically retried.
       </p>
+      {project && <p className={styles.muted}>
+        Everyone granted access to this project can add people using the field
+        below. Project tags are separate and stay in the app. Once NXT confirms
+        the addition, use Refresh list after indexing finishes. Other query
+        filters still apply; no one is inserted into the query results manually.
+      </p>}
       <p>
         <strong>{report.dataConfiguration.fieldCategory}</strong>
         {configuredValue ? ` / ${configuredValue}` : " / Any description"}
@@ -216,7 +218,7 @@ export default function ListMembershipSearch({ report, compact = false }) {
                           ? "Checking..."
                           : uncertain
                             ? "Check status"
-                            : "Add to list"}
+                            : project ? "Add to project" : "Add to list"}
                     </button>
                   )}
                 </div>

@@ -166,6 +166,9 @@ export async function POST(request) {
     }
 
     const body = await request.json();
+    if (body?.sourceContext === "constituent_lookup_assignment" || body?.requestType === "Portfolio assignment request") {
+      return Response.json({ error: "Request a portfolio assignment from Find a constituent so the requester is verified and duplicate requests are prevented." }, { status: 400 });
+    }
     if (body?.source_pending_action_id != null || body?.sourcePendingActionId != null || body?.stewardship_request_key != null ||
         /^stewardship/i.test(String(body?.requestType || "")) || body?.sourceContext === "stewardship") {
       return Response.json({ error: "Request stewardship assistance from the donor, opportunity, or gift follow-up so its context stays linked." }, { status: 400 });

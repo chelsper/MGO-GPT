@@ -7,6 +7,7 @@ import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { isAdminRole, isExecutiveRole, isMgoRole } from "@/utils/workspaceRoles";
 import RelationshipOriginator from "@/components/RelationshipOriginator";
+import RequestPortfolioAssignment from "@/components/RequestPortfolioAssignment";
 
 function getResultKey(result, index) {
   return (
@@ -59,6 +60,8 @@ export default function ConstituentLookupPage() {
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [viewerRole, setViewerRole] = useState("");
+  const [profileUser, setProfileUser] = useState(null);
+  const [viewingOtherWorkspace, setViewingOtherWorkspace] = useState(false);
   const [membershipStates, setMembershipStates] = useState({});
 
   useEffect(() => {
@@ -85,9 +88,12 @@ export default function ConstituentLookupPage() {
         const payload = await response.json().catch(() => null);
         if (!response.ok || controller.signal.aborted) return;
         setViewerRole(String(payload?.user?.role || ""));
+        setProfileUser(payload?.user || null);
+        setViewingOtherWorkspace(Boolean(payload?.actingAsUser));
       } catch {
         if (!controller.signal.aborted) {
           setViewerRole("");
+          setProfileUser(null);
         }
       }
     }
@@ -406,7 +412,10 @@ export default function ConstituentLookupPage() {
                           </div>
                         ) : null}
                       </div>
-                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {constituentId && profileUser?.id && (isAdminRole(viewerRole) || isMgoRole(viewerRole) || isExecutiveRole(viewerRole)) && (
+                          <RequestPortfolioAssignment key={`${profileUser.id}:${constituentId}`} constituentId={constituentId} constituentName={result.name} user={profileUser} viewingOtherWorkspace={viewingOtherWorkspace} />
+                        )}
                         {canManageFutureMadePhaseTwo && constituentId ? (
                           <button
                             type="button"

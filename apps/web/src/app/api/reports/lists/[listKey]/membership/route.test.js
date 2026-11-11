@@ -17,6 +17,7 @@ vi.mock("@/app/api/utils/constituentListMembership", () => ({
   addListMember: mocks.add,
 }));
 import { POST } from "./route";
+import { projectSource } from "@/utils/projectProspecting";
 const record = {
   report_key: "list-demo",
   title: "Demo",
@@ -89,5 +90,38 @@ it("stops when configuration changes before write", async () => {
   mocks.record
     .mockResolvedValueOnce(record)
     .mockResolvedValueOnce({ ...record, revision: "2" });
+  expect((await POST(req(), params)).status).toBe(409);
+});
+const project = { ...record, data_configuration: { ...projectSource(), fieldCategory: "Prospect Research", fieldDescription: "The Center" } };
+it("allows an authorized MGO to add or verify only the project's configured NXT field", async () => {
+  mocks.user.mockResolvedValue({ id: 1, active: true, role: "mgo" });
+  mocks.record.mockResolvedValue(project);
+  const response = await POST(req({ ...body, value: "The Center" }), params);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(mocks.add).toHaveBeenLastCalledWith(expect.objectContaining({ source: project.data_configuration, verifyOnly: false }));
+  expect((await POST(req({ ...body, action: "verify" }), params)).status).toBe(200);
+  expect(mocks.add).toHaveBeenLastCalledWith(expect.objectContaining({ verifyOnly: true }));
+});
+it("rejects arbitrary project values and categories, unshared users, inactive projects and unconfigured fields", async () => {
+  mocks.user.mockResolvedValue({ id: 1, active: true, role: "mgo" });
+  mocks.record.mockResolvedValue(project);
+  expect((await POST(req({ ...body, value: "Different project" }), params)).status).toBe(400);
+  expect((await POST(req({ ...body, fieldCategory: "Anything" }), params)).status).toBe(400);
+  for (const denied of [
+    { ...project, active: false },
+    { ...project, specific_user_ids: [2] },
+    { ...project, data_configuration: projectSource() },
+  ]) {
+    mocks.record.mockResolvedValueOnce(denied);
+    expect((await POST(req(), params)).status).toBe(403);
+  }
+  expect(mocks.add).not.toHaveBeenCalled();
+});
+it("stops a project addition if access is revoked or its NXT settings change before write", async () => {
+  mocks.user.mockResolvedValue({ id: 1, active: true, role: "mgo" });
+  mocks.record.mockResolvedValueOnce(project).mockResolvedValueOnce({ ...project, specific_user_ids: [] });
+  expect((await POST(req(), params)).status).toBe(403);
+  mocks.record.mockResolvedValueOnce(project).mockResolvedValueOnce({ ...project, revision: "2" });
   expect((await POST(req(), params)).status).toBe(409);
 });
