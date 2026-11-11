@@ -568,6 +568,104 @@ describe("portfolio badges and summary shared giving reads", () => {
     return GET(new Request(`https://jumgogpt.app/api/blackbaud/constituents/123/summary?${query}`), { params: { constituentId: "123" } });
   }
 
+  function familyProvider(relationships, relatives = {}) {
+    const original = blackbaudApiFetch.getMockImplementation();
+    blackbaudApiFetch.mockImplementation(async (path, options) => {
+      if (path.endsWith("/123/relationships")) {
+        if (relationships instanceof Error) throw relationships;
+        return { value: relationships };
+      }
+      const relative = relatives[path.split("/").at(-1)];
+      if (relative !== undefined) {
+        if (relative instanceof Error) throw relative;
+        return relative;
+      }
+      return original(path, options);
+    });
+  }
+
+  it("builds a complete summary from exact linked spouse and child system IDs", async () => {
+    familyProvider([
+      { type: "Spouse", name: "Taylor Example", relation_id: "456", constituent_id: "123" },
+      { type: "Son", name: "Morgan Example", relation_id: "789", constituent_id: "123" },
+    ], {
+      456: { id: "456", name: "Taylor Example", constituencies: [{ description: "Alumni" }] },
+      789: { id: "789", name: "Morgan Example", constituencies: [{ description: "Student" }] },
+    });
+    const response = await summary();
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.warnings.familySummary).toBeNull();
+    expect(payload.mapped.familySummary).toMatchObject({
+      spouse: { name: "Taylor Example", isAlumniSpouse: true },
+      children: [{ name: "Morgan Example", constituencyLabels: ["Student"] }],
+    });
+    for (const id of ["456", "789"]) {
+      expect(blackbaudApiFetch).toHaveBeenCalledWith(`/constituent/v1/constituents/${id}`,
+        expect.objectContaining({ userId: 42, authUserId: 42, origin: "https://jumgogpt.app" }));
+    }
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(true);
+  });
+
+  it("does not mistake the relationship owner's ID for the related person", async () => {
+    familyProvider([{ type: "Spouse", name: "Taylor Example", constituent_id: "123" }]);
+    const payload = await (await summary()).json();
+    expect(payload.warnings.familySummary).toBeNull();
+    expect(payload.mapped.familySummary.spouse.name).toBe("Taylor Example");
+    expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/constituents/123"))).toHaveLength(1);
+  });
+
+  it.each(["bad-id", "00123", 0, Number.MAX_SAFE_INTEGER + 1])("does not fetch an invalid related system ID %s", async relationId => {
+    familyProvider([{ type: "Spouse", name: "Taylor Example", relation_id: relationId, constituent_id: "123" }]);
+    const payload = await (await summary()).json();
+    expect(payload.warnings.familySummary).toContain("system record ID");
+    expect(blackbaudApiFetch.mock.calls.filter(([path]) => /\/constituents\/[^/]+$/.test(path))).toHaveLength(1);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it.each(["Spouse", "Daughter"])("rejects a different person returned for a linked %s", async type => {
+    familyProvider([{ type, name: "Taylor Example", relation_id: "456" }], {
+      456: { id: "999", name: "Unrelated Person", constituencies: [{ description: "Alumni" }] },
+    });
+    const payload = await (await summary()).json();
+    expect(payload.warnings.familySummary).toContain("identity");
+    expect(JSON.stringify(payload.mapped.familySummary)).not.toContain("Unrelated Person");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+    expect(blackbaudApiFetch.mock.calls.some(([path]) => path.includes("search"))).toBe(false);
+  });
+
+  it.each([403, 404, 503])("retains an incomplete-family warning on related-record HTTP %s", async httpStatus => {
+    familyProvider([{ type: "Spouse", name: "Taylor Example", relation_id: "456" }], {
+      456: Object.assign(new Error("Private provider response must not leak"), { httpStatus }),
+    });
+    const response = await summary();
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.warnings.familySummary).toBeTruthy();
+    expect(blackbaudApiFetch).toHaveBeenCalledWith("/constituent/v1/constituents/456", expect.any(Object));
+    expect(payload.warnings.familySummary).not.toContain("not defined");
+    expect(JSON.stringify(payload)).not.toContain("Private provider response");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it("pauses a related-record lookup on throttling instead of saving an empty family", async () => {
+    familyProvider([{ type: "Spouse", name: "Taylor Example", relation_id: "456" }], {
+      456: Object.assign(new Error("Paused"), { httpStatus: 429, retryAfterMs: 45000 }),
+    });
+    const response = await summary();
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ providerStatus: 429, retryAfterMs: 45000 });
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it("marks family information unavailable when its relationship source failed", async () => {
+    familyProvider(Object.assign(new Error("Relationships unavailable"), { httpStatus: 503 }));
+    const payload = await (await summary()).json();
+    expect(payload.warnings.relationships).toBeTruthy();
+    expect(payload.warnings.familySummary).toBeTruthy();
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
   it("uses badge giving data in the stale-only summary job without repeat API calls", async () => {
     const badgeResponse = await badges();
     const badgeData = await badgeResponse.json();

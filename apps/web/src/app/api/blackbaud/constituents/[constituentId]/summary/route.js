@@ -1109,12 +1109,20 @@ async function buildSpouseAndFamilySummary({
         "",
     ),
     name: compactWhitespace(relationship?.name || relationship?.relation_name),
+    // constituent_id owns the relationship; it is not the related person's ID.
     relationId:
-      relationship?.relation_id ||
-      relationship?.related_constituent_id ||
-      relationship?.constituent_id ||
+      relationship?.relation_id ??
+      relationship?.related_constituent_id ??
       null,
   }));
+
+  const loadRelative = async (relationId) => {
+    const constituentId = constituentSystemId(relationId);
+    if (!constituentId) {
+      throw new Error("A related person's system record ID could not be verified. Saved family details are retained.");
+    }
+    return resolveConstituentPayload({ userId, authUserId, origin, constituentId });
+  };
 
   const spouse = normalizedRows.find(
     (relationship) => relationship.type.includes("spouse") || relationship.type.includes("husband") || relationship.type.includes("wife"),
@@ -1125,13 +1133,8 @@ async function buildSpouseAndFamilySummary({
     name: spouse?.name || null,
   };
 
-  if (spouse?.relationId) {
-    const spousePayload = await tryFetchConstituentById({
-      userId,
-      authUserId,
-      origin,
-      candidateId: spouse.relationId,
-    }).catch(() => null);
+  if (spouse?.relationId != null && spouse.relationId !== "") {
+    const spousePayload = await loadRelative(spouse.relationId);
     if (spousePayload) {
       const spouseConstituencies = getConstituencyLabels(spousePayload, []);
       spouseSummary.isAlumniSpouse = spouseConstituencies.some((label) =>
@@ -1148,13 +1151,8 @@ async function buildSpouseAndFamilySummary({
     childRows.map(async (child) => {
       let childConstituencyLabel = null;
       let childConstituencyLabels = [];
-      if (child.relationId) {
-        const childPayload = await tryFetchConstituentById({
-          userId,
-          authUserId,
-          origin,
-          candidateId: child.relationId,
-        }).catch(() => null);
+      if (child.relationId != null && child.relationId !== "") {
+        const childPayload = await loadRelative(child.relationId);
         if (childPayload) {
           childConstituencyLabels = getConstituencyLabels(childPayload, []);
           childConstituencyLabel = resolvePrimaryIdentity(childConstituencyLabels);
@@ -1614,15 +1612,18 @@ async function handleGet(request, { params }) {
         currentFYNumber,
       }),
     );
-    const familySummaryResult = await loadOptionalSection("familySummary", () =>
-      buildSpouseAndFamilySummary({
+    const familySummaryResult = await loadOptionalSection("familySummary", () => {
+      if (!relationshipsResult.ok) {
+        throw new Error("Family details could not be checked because relationships were unavailable.");
+      }
+      return buildSpouseAndFamilySummary({
         userId: user.id,
         authUserId,
         origin,
         relationshipsPayload: relationships,
         educationRecords,
-      }),
-    );
+      });
+    });
     const proposalSummary = proposalSummaryResult.ok ? proposalSummaryResult.payload : [];
     const familySummary = familySummaryResult.ok
       ? familySummaryResult.payload

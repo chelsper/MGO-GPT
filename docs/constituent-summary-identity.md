@@ -39,6 +39,34 @@ private provider response bodies. Background portfolio refreshes retain the
 identity/retrieval stage rather than reporting a generic processing failure.
 Error responses are not cached.
 
+## Related-person lookups and recovery
+
+Family summaries use the same exact-system-ID lookup for linked spouses and
+children. A relationship's `relation_id` identifies the related person;
+`constituent_id` identifies the relationship owner and is never a fallback.
+Unlinked relationship names can still appear without a related-person lookup.
+Invalid or mismatched linked IDs produce an incomplete-family warning rather
+than a substituted person. Related-record access errors remain sanitized, and
+throttling pauses propagate to the worker.
+
+If the relationships source or a linked-person lookup fails, the worker retains
+the last good family details and narrative. It does not record an empty family
+as a successful refresh.
+
+On November 11, 2026, saved-only checks of five failed summaries across three
+workspaces found the same family warning: `tryFetchConstituentById is not
+defined`. The identity refactor had removed that helper while leaving family
+call sites behind. The repair routes those calls through the verified loader;
+regressions cover successful relatives, invalid/mismatched IDs, provider
+failures, throttling, and preservation of saved family data.
+
+After deploying the repair, retry only those failed items through the normal
+rate-limited workflow and confirm their saved warnings clear. Do not delete
+snapshots or rebuild every portfolio. An `optional_enrichment` failure may show
+HTTP 200 and the last successful endpoint; inspect its saved section warnings
+instead of treating that endpoint as the failed operation. Local passing tests
+do not establish that the saved production failures have recovered.
+
 ## Verification and release
 
 The required offline workflow gate includes the summary identity regressions,
