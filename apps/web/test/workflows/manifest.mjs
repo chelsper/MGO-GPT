@@ -38,6 +38,8 @@ export const workflowGroups = {
     "src/app/api/admin/integration-health/route.test.js",
     "src/app/integration-health/page.test.jsx",
     "src/app/integration-health/PortfolioMaintenanceDetails.test.jsx",
+    "src/components/PortfolioMaintenanceIndicator.test.jsx",
+    "src/app/api/utils/portfolioFreshnessStatus.test.js",
   ],
   "Portfolios and work queues": [
     "src/app/api/blackbaud/constituents/[constituentId]/summary/identity.test.js",
