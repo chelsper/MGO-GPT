@@ -17,12 +17,14 @@ const run = query => new Promise((resolve, reject) => {
   child.stdin.end(`SET search_path TO ${schema};\n${query}`);
 });
 const source = readFileSync(new URL("../src/app/api/utils/integrationHealth.js", import.meta.url), "utf8");
-const query = source.match(/async function portfolios\(\) \{[\s\S]*?const rows = await sql`([\s\S]*?)`;/)?.[1];
+const query = source.match(/async function portfolios\(context\) \{[\s\S]*?const rows = await sql`([\s\S]*?)`;/)?.[1];
 assert.ok(query && !query.includes("${"), "Expected the actual parameter-free portfolio query");
 const read = async () => JSON.parse(await run(`BEGIN TRANSACTION READ ONLY;
   WITH result AS (${query}) SELECT COALESCE(json_agg(result), '[]'::json) FROM result; ROLLBACK;`));
 const quote = value => value == null ? "NULL" : `'${String(value).replaceAll("'", "''")}'`;
-const before = "2026-09-17T12:00:00Z", failedAt = "2026-09-17T13:00:00Z", after = "2026-09-17T14:00:00Z";
+const reference = Date.now();
+const hoursAgo = hours => new Date(reference - hours * 60 * 60_000).toISOString();
+const before = hoursAgo(3), failedAt = hoursAgo(2), after = hoursAgo(1);
 const cases = [
   { name: "optional enrichment recovered", recovered: 1 },
   { name: "summary generation recovered", stage: "summary_generation", recovered: 1 },
@@ -78,7 +80,7 @@ try {
       INSERT INTO portfolio_refresh_jobs VALUES (${id},${id},${quote(row.mode)},'completed_with_failures',1,1,0,1,NULL,NOW(),NOW());
       INSERT INTO portfolio_refresh_items VALUES (${id},${id},'A','failed',${quote(row.stage)},${quote(row.failedAt)});
       ${row.noSummary ? "" : `INSERT INTO portfolio_constituent_snapshots VALUES (${id},${quote(row.summaryId)},${row.complete},
-        ${quote(row.payload)},${quote(row.error)},NOW() ${row.stale ? "-" : "+"} INTERVAL '1 day',${quote(row.summaryAt)});`}
+        ${quote(row.payload)},${quote(row.error)},NOW() ${row.stale ? "-" : "+"} INTERVAL '1 hour',${quote(row.summaryAt)});`}
       ${row.noGiving ? "" : `INSERT INTO portfolio_giving_snapshots VALUES (${id},'A',${quote(row.givingPayload)},
         ${quote(row.givingAt)},NOW() ${row.stale ? "-" : "+"} INTERVAL '1 day');`}`);
   }
@@ -92,10 +94,38 @@ try {
     assert.equal(row.failed_count, 1, test.name);
     assert.equal(row.failed_item_count, 1, test.name);
     assert.equal(row.recovered_failed_count, test.recovered || 0, test.name);
+    assert.equal(row.delayed_count, 0, `${test.name}: routine due/missing checks are not proof of a material age delay`);
+    assert.equal(row.job_mode, test.mode === undefined ? "nightly" : test.mode, test.name);
   }
   assert.equal(rows.find(row => row.name === "still due after recovery").summary_current, 0);
   assert.equal(rows.find(row => row.name === "still due after recovery").giving_current, 0);
   assert.equal(await run(historyQuery), history, "Health reads must not rewrite failed-item history");
+
+  const delayCases = [
+    { name: "giving older than 48 hours", givingAt: hoursAgo(49), delayed: 1 },
+    { name: "giving not yet 48 hours old", givingAt: hoursAgo(47), delayed: 0 },
+    { name: "summary overdue more than 24 hours", summaryDue: hoursAgo(25), delayed: 1 },
+    { name: "summary not yet 24 hours overdue", summaryDue: hoursAgo(23), delayed: 0 },
+    { name: "both checks old count once", givingAt: hoursAgo(49), summaryDue: hoursAgo(25), delayed: 1 },
+    { name: "missing giving timestamp", givingAt: null, delayed: 0 },
+    { name: "missing summary due date", summaryDue: null, delayed: 0 },
+    { name: "old unassigned record excluded", givingAt: hoursAgo(49), summaryDue: hoursAgo(25), constituentId: "B", delayed: 0 },
+  ];
+  for (const [index, test] of delayCases.entries()) {
+    const id = index + 100;
+    const record = { constituentId: "A", givingAt: after, summaryDue: hoursAgo(-1), ...test };
+    await run(`INSERT INTO users VALUES (${id},${quote(test.name)},true,'mgo','MGO',
+      '{"leadSolicitor":[{"constituentId":"A"},{"constituentId":"A"}],"supportingSolicitor":[{"constituentId":"A"}]}',NOW());
+      INSERT INTO portfolio_constituent_snapshots VALUES (${id},${quote(record.constituentId)},true,'{}',NULL,${quote(record.summaryDue)},NOW());
+      INSERT INTO portfolio_giving_snapshots VALUES (${id},${quote(record.constituentId)},'{}',${quote(record.givingAt)},NOW());`);
+  }
+  const delays = await read();
+  for (const test of delayCases) {
+    const row = delays.find(item => item.name === test.name);
+    assert.equal(row.total, 1, test.name);
+    assert.equal(row.delayed_count, test.delayed, test.name);
+  }
+  assert.equal(await run(historyQuery), history, "Delay projection must not change failed-item history");
 
   await run(`INSERT INTO portfolio_refresh_jobs VALUES (1000,1,'nightly','completed',1,1,1,0,NULL,NOW(),NOW());
     INSERT INTO portfolio_refresh_items VALUES (1000,1000,'A','success','complete',NOW());
@@ -105,7 +135,7 @@ try {
   assert.equal(latest.find(row => row.id === 1000).failed_item_count, 0);
   assert.equal(latest.find(row => row.id === 1000).recovered_failed_count, 0);
   assert.equal(latest.find(row => row.id === 1000).job_status, null);
-  console.log(`PASS: ${cases.length} recovery scenarios, workspace/constituent isolation, latest-job selection, empty job, deduplication, stale backlog, and unchanged history in read-only transactions.`);
+  console.log(`PASS: ${cases.length} recovery and ${delayCases.length} delay scenarios, workspace/constituent isolation, latest-job selection, empty job, deduplication, stale backlog, and unchanged history in read-only transactions.`);
 } finally {
   await run(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
 }

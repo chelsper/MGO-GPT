@@ -8,7 +8,7 @@ const snapshot = () => ({ viewerId: "1", readAt: "2026-09-17T15:00:00Z", limit: 
   quota: { available: true, paused: false },
   connections: { available: true, credentialsPresent: true, scheduledOwner: { id: "1", name: "Test Admin" }, total: 1,
     items: [{ id: "1", name: "Test Admin", isViewer: true, level: "quiet", label: "Saved connection; renewal available", guidance: "Not a live check." }] },
-  portfolios: { available: true, total: 1, items: [{ id: "7", name: "Test MGO", level: "notice", label: "Refresh backlog",
+  portfolios: { available: true, total: 1, items: [{ id: "7", name: "Test MGO", level: "notice", label: "Scheduled update pending",
     total: 10, summaryDue: 2, givingDue: 3, failed: 0, guidance: "Wait for overnight maintenance.", job: null }] },
   activity: { available: true, enabled: false },
   verifications: { available: true, total: 0, items: [] },
@@ -33,7 +33,7 @@ it.each([0, 1])("distinguishes historical failures from unresolved checks withou
   const data = snapshot();
   Object.assign(data.sections.portfolios.items[0], {
     level: unresolved ? "review" : "notice",
-    label: unresolved ? "Refresh needs investigation" : "Refresh backlog",
+    label: unresolved ? "Refresh needs investigation" : "Scheduled update pending",
     job: { processed: 10, total: 10, completed: 7, failed: 3,
       recoveredFailed: 3 - unresolved, unresolvedFailed: unresolved },
   });
@@ -116,12 +116,37 @@ it("explains wait versus verification and preserves the original owner context",
   ] };
   fetch.mockResolvedValueOnce(reply(data));
   render(<IntegrationHealthPage />);
-  expect(await screen.findByText("Wait before more NXT reads")).toBeVisible();
+  expect(await screen.findByText("Updates temporarily paused")).toHaveClass("bg-gray-50");
   expect(screen.getByText(/Select the named owner's workspace/)).toBeVisible();
   expect(screen.getByRole("link", { name: "Open in Follow-ups" })).toHaveAttribute("href", "/follow-ups?tab=next-steps&nextStepId=33&status=Open");
   expect(screen.getByText(/Owner is inactive/)).toBeVisible();
   expect(screen.getByText(/Showing 2 of 104/)).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ["notice", "Scheduled update pending", "bg-gray-50", 0],
+  ["wait", "Updates temporarily paused", "bg-gray-50", 0],
+  ["delayed", "Some information is delayed", "bg-amber-50", 2],
+  ["review", "Refresh needs investigation", "bg-red-50", 0],
+])("keeps %s status distinct without extra reads or exposing details by default", async (level, label, tone, delayed) => {
+  const data = snapshot();
+  Object.assign(data.sections.portfolios.items[0], { level, label, delayed });
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  expect(await screen.findByText(label)).toHaveClass(tone);
+  const section = screen.getByRole("region", { name: "Portfolio maintenance" });
+  if (delayed) {
+    const detail = within(section).getByText(/2 assigned records have giving checks older than 48 hours/);
+    expect(detail).not.toBeVisible();
+    fireEvent.click(within(section).getByText("Saved check details"));
+    expect(detail).toBeVisible();
+    expect(detail).toHaveTextContent("Each assigned record is counted once.");
+  } else {
+    expect(within(section).queryByText(/assigned records have giving checks older/)).not.toBeInTheDocument();
+  }
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: /restart|retry|sync|refresh now/i })).not.toBeInTheDocument();
 });
 
 it("aborts a pending read on unmount without starting any workflow", async () => {

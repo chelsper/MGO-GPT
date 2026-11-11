@@ -96,6 +96,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
 });
@@ -337,7 +338,9 @@ it("closes a portfolio detail deep link in place without clearing other URL cont
 });
 
 it("keeps healthy background progress compact on the page but exposes status-query failures", () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
   state.data["portfolio-refresh-job"] = {
+    serverManaged: true,
     inventory: { total: 2, current: 2, stale: 0, failed: 0, freshness: { givingUpdatedAt: "2026-10-01T12:00:00Z", delayed: 0, missing: 0 } },
     job: { jobId: "40", workspaceUserId: 44, mode: "nightly", status: "queued",
       totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
@@ -345,7 +348,8 @@ it("keeps healthy background progress compact on the page but exposes status-que
   };
   const { rerender } = render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  expect(screen.getByText("Giving last updated Oct 1, 2026")).toBeVisible();
+  expect(screen.getByText("Giving last checked Oct 1, 2026")).toBeVisible();
+  expect(screen.getByText("Updates automatically")).toBeVisible();
   expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
   state.queryErrors["portfolio-refresh-job"] = new Error("Failed to load portfolio refresh progress");
   rerender(<MyProspects />);
@@ -356,7 +360,9 @@ it("keeps healthy background progress compact on the page but exposes status-que
 });
 
 it("keeps cooldown details and controls in Integration Health, not the portfolio worklist", () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
   state.data["portfolio-refresh-job"] = {
+    serverManaged: true,
     inventory: { total: 2, current: 2, stale: 0, failed: 0, freshness: { givingUpdatedAt: "2026-10-01T12:00:00Z", delayed: 0, missing: 0 } },
     job: { jobId: "41", workspaceUserId: 44, mode: "nightly", status: "paused",
       totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
@@ -364,7 +370,8 @@ it("keeps cooldown details and controls in Integration Health, not the portfolio
   };
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  expect(screen.getByText("Giving last updated Oct 1, 2026")).toBeVisible();
+  expect(screen.getByText("Giving last checked Oct 1, 2026")).toBeVisible();
+  expect(screen.getByText("Updates automatically")).toBeVisible();
   expect(screen.queryByText("Background portfolio maintenance")).not.toBeInTheDocument();
   expect(screen.queryByText(/This refresh will continue automatically/)).not.toBeInTheDocument();
   expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toBeVisible();

@@ -5,7 +5,7 @@ import { activityEnrollmentConfig, resolveActivityEnrollment } from "./portfolio
 import { readPortfolioActivityCoverage } from "./portfolioActivityCoverage";
 import { activityCapacity, readPortfolioRefreshCapacity } from "./portfolioRefreshCapacity";
 import { activityCatchupEnabled } from "./portfolioActivityCatchup";
-import { maintenanceContinuationEnabled, maintenanceOrigin, MAINTENANCE_DAYTIME_CALLS, MAINTENANCE_NIGHT_CALLS, MAINTENANCE_BATCH_CALLS } from "./portfolioMaintenanceContinuation";
+import { maintenanceContinuationEnabled, maintenanceOrigin, isPortfolioOvernight, MAINTENANCE_DAYTIME_CALLS, MAINTENANCE_NIGHT_CALLS, MAINTENANCE_BATCH_CALLS } from "./portfolioMaintenanceContinuation";
 
 const LIMIT = 100;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -29,19 +29,40 @@ export function portfolioJobFailureCounts(row) {
   return { failed, recoveredFailed, unresolvedFailed: failed - recoveredFailed };
 }
 
-export function portfolioHealth(row, now = Date.now()) {
+export function portfolioHealth(row, now = Date.now(), { maintenance, quota } = {}) {
   if (!row.has_mapping) return status("review", "Fundraiser mapping needed", "Check this MGO's system-ID mapping in Security & Access. Reconnecting will not fix a missing fundraiser mapping.");
   if (!row.has_portfolio) return status("notice", "No assignment snapshot", "Select this MGO in My Prospects and check the saved portfolio before choosing Sync NXT portfolio.");
-  if (date(row.paused_until) && Date.parse(row.paused_until) > now) return status("wait", "Waiting for cooldown", "Wait until the saved pause ends. Do not reconnect or repeatedly restart portfolios for a rate limit.");
   if (count(row.summary_failed) || portfolioJobFailureCounts(row).unresolvedFailed) return status("review", "Refresh needs investigation", "Open maintenance details below. Keep saved values; retry reads only after checking the cause.");
-  if (["queued", "processing", "paused"].includes(row.job_status)) {
+  const scheduled = maintenance?.available === true && maintenance.enabled === true && maintenance.initialized === true;
+  const active = ["queued", "processing", "paused"].includes(row.job_status);
+  const automaticJob = scheduled && row.job_mode === "nightly";
+  const due = count(row.summary_current) < count(row.total) || count(row.giving_current) < count(row.total);
+  const paused = (active && date(row.paused_until) && Date.parse(row.paused_until) > now) ||
+    ((active || due) && quota?.available === true && quota.paused === true && date(quota.blockedUntil) && Date.parse(quota.blockedUntil) > now);
+  const overnight = isPortfolioOvernight(new Date(now));
+  const used = overnight ? maintenance?.nightCalls : maintenance?.dayCalls;
+  const limit = overnight ? MAINTENANCE_NIGHT_CALLS : MAINTENANCE_DAYTIME_CALLS;
+  // Unknown or expired-day counters cannot explain a quiet job. These counters
+  // are read for today's Eastern date, from the configured origin only.
+  const budgetWait = automaticJob && active && Number.isSafeInteger(used) && used >= limit;
+  const waitGuidance = paused ? automaticJob
+      ? "Automatic updates will continue when the saved pause and request allowance permit. No manual retry is needed."
+      : "Wait until the saved pause ends before continuing the original workflow. Do not reconnect or repeatedly retry."
+    : budgetWait ? "Automatic updates are waiting for the next background request allowance. No manual retry is needed." : null;
+  if (count(row.delayed_count)) return status("delayed", "Some information is delayed",
+    `Saved details remain available, but some checks are older than the normal update window. ${waitGuidance || "Check the saved maintenance details if the delay persists; this does not by itself mean a failure."}`);
+  if (paused) return status("wait", "Updates temporarily paused", `Showing saved information. ${waitGuidance}`);
+  if (budgetWait) return status("notice", "Scheduled update pending", `Showing saved information. ${waitGuidance}`);
+  if (active) {
     if (!date(row.job_updated_at) || now - Date.parse(row.job_updated_at) > 15 * 60_000) {
-      return status("notice", "Progress needs checking", "No progress has been saved in 15 minutes. This does not prove a failure. Check the portfolio's job and next scheduled window before resuming a read.");
+      return status("delayed", "Update timing needs a check", "No progress has been saved in 15 minutes, and no current pause or exhausted background allowance explains the wait. Check maintenance details before retrying; this is not a confirmed failure.");
     }
-    return status("wait", "Refresh in progress", "Let the existing refresh continue. These are saved progress counts, not a live worker heartbeat.");
+    return status("notice", automaticJob ? "Updating automatically" : "Update in progress", "Showing saved information while updates continue. No additional refresh is needed. These are saved progress counts, not a live worker heartbeat.");
   }
-  if (count(row.summary_current) < count(row.total) || count(row.giving_current) < count(row.total)) {
-    return status("notice", "Refresh backlog", "Saved values remain available. Normal due work can wait for overnight maintenance; inspect the portfolio if it remains unchanged after that window.");
+  if (due) {
+    return status("notice", scheduled ? "Scheduled update pending" : "Updates pending", scheduled
+      ? "Showing saved information. Automatic updates run in scheduled batches; no action is needed for routine due checks."
+      : "Showing saved information. Check maintenance setup in Admin before starting an update; an automatic schedule has not been confirmed here.");
   }
   return status("quiet", "Saved data current", "No refresh is needed according to the saved freshness rules. This is not a live NXT check.");
 }
@@ -69,7 +90,7 @@ async function connections(viewerId) {
   };
 }
 
-async function portfolios() {
+async function portfolios(context) {
   // Only optional enrichment and narrative generation prove a summary-only
   // failure. Other nightly stages can fail during giving, so require both saved
   // checks after the failed attempt. Freshness/backlog is evaluated separately.
@@ -86,7 +107,7 @@ async function portfolios() {
       (jsonb_typeof(w.blackbaud_portfolio_cache -> 'leadSolicitor') = 'array'
         AND jsonb_typeof(w.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array') AS has_portfolio,
       w.blackbaud_portfolio_cached_at, totals.*,
-      j.status AS job_status, j.processed_count, j.total_count AS job_total,
+      j.status AS job_status, j.mode AS job_mode, j.processed_count, j.total_count AS job_total,
       j.success_count, j.failed_count, j.paused_until, j.updated_at AS job_updated_at,
       failures.failed_item_count, failures.recovered_failed_count
     FROM workspaces w
@@ -96,6 +117,8 @@ async function portfolios() {
           AND s.last_error_stage IS NULL AND s.stale_after > NOW())::int AS summary_current,
         COUNT(*) FILTER (WHERE g.payload IS NOT NULL AND g.stale_after > NOW())::int AS giving_current,
         COUNT(*) FILTER (WHERE s.last_error_stage IS NOT NULL)::int AS summary_failed,
+        COUNT(*) FILTER (WHERE g.refreshed_at < NOW() - INTERVAL '48 hours'
+          OR s.stale_after < NOW() - INTERVAL '24 hours')::int AS delayed_count,
         MAX(s.last_refreshed_at) AS last_summary_check, MAX(g.refreshed_at) AS last_giving_check
       FROM (
         SELECT DISTINCT person ->> 'constituentId' AS id FROM jsonb_array_elements(
@@ -129,11 +152,12 @@ async function portfolios() {
     ) failures ORDER BY LOWER(w.name), w.id
   `;
   return { total: count(rows[0]?.total_rows), items: rows.map(row => ({
-    id: String(row.id), name: name(row.name), ...portfolioHealth(row),
+    id: String(row.id), name: name(row.name), ...portfolioHealth(row, Date.now(), context),
     total: row.has_portfolio ? count(row.total) : null,
     summaryDue: row.has_portfolio ? Math.max(0, count(row.total) - count(row.summary_current)) : null,
     givingDue: row.has_portfolio ? Math.max(0, count(row.total) - count(row.giving_current)) : null,
     failed: row.has_portfolio ? count(row.summary_failed) : null,
+    delayed: row.has_portfolio ? count(row.delayed_count) : null,
     assignmentsCheckedAt: date(row.blackbaud_portfolio_cached_at),
     lastSummaryCheck: date(row.last_summary_check), lastGivingCheck: date(row.last_giving_check),
     job: row.job_status ? { processed: count(row.processed_count), total: count(row.job_total),
@@ -188,7 +212,7 @@ export async function readIntegrationHealth({ viewerId, origin }) {
       return { blockedUntil: date(row?.blocked_until), updatedAt: date(row?.updated_at),
         paused: Boolean(date(row?.blocked_until) && Date.parse(row.blocked_until) > Date.now()) };
     },
-    connections: () => connections(viewerId), portfolios, capacity: readPortfolioRefreshCapacity,
+    connections: () => connections(viewerId), capacity: readPortfolioRefreshCapacity,
     maintenance: async () => {
       if (!maintenanceContinuationEnabled() || origin !== maintenanceOrigin()) return { enabled: false };
       const [tables] = await sql`SELECT to_regclass('portfolio_maintenance_gate') IS NOT NULL AS has_gate,
@@ -196,7 +220,7 @@ export async function readIntegrationHealth({ viewerId, origin }) {
       const [gate] = tables?.has_gate ? await sql`SELECT
         CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS day_calls,
         CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN (to_jsonb(portfolio_maintenance_gate)->>'night_call_count')::int ELSE 0 END AS night_calls,
-        next_allowed_at, lease_until FROM portfolio_maintenance_gate WHERE id = 1` : [];
+        next_allowed_at, lease_until FROM portfolio_maintenance_gate WHERE id = 1 AND origin = ${origin}` : [];
       const turns = tables?.has_schedule ? await sql`SELECT u.id, u.name, s.last_served_at, s.next_attempt_at, s.last_result
         FROM portfolio_maintenance_schedule s JOIN users u ON u.id = s.workspace_user_id WHERE u.active = TRUE
         ORDER BY s.last_served_at ASC NULLS FIRST, u.id LIMIT 100` : [];
@@ -207,6 +231,7 @@ export async function readIntegrationHealth({ viewerId, origin }) {
         turns: turns.map(row => ({ id: String(row.id), name: name(row.name), lastServedAt: date(row.last_served_at),
           nextAttemptAt: date(row.next_attempt_at), result: String(row.last_result || "Waiting for first turn") })) };
     },
+    portfolios: () => portfolios({ maintenance: sections.maintenance, quota: sections.quota }),
     activity: () => activity(origin), verifications,
   };
   // Partial failures stay unknown, never become empty/healthy sections. No schema,

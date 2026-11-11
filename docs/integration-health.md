@@ -40,11 +40,43 @@ does not certify live authorization, cron execution, or end-to-end health.
 | Last gift/action enrichment | Current enrollment mode, current-origin assigned records, per-portfolio coverage, checks never verified/currently due, classified failures, and shared worker daily budget. Missing queue rows count as never checked |
 | NXT action verification | Reminder-linked receipts in review/processing, plus historical saved receipts without a confirmed local-finalization marker, with owner and reminder ID. No donor name, action notes, request payload, raw provider message, or constituent ID is returned |
 
-Portfolio jobs unchanged for 15 minutes are described as needing a progress check,
-not definitively failed. Activity eligibility/lease timestamps are not promises of
+Portfolio jobs unchanged for 15 minutes need a timing check unless a current saved
+pause or an exhausted scheduled request allowance explains the wait. Neither state
+is treated as a confirmed failure. Activity eligibility/lease timestamps are not promises of
 execution time. Worker call reservations are not the remaining subscription quota.
 Last-successful timestamps describe the most recent individual check, not a claim
 that the whole portfolio has refreshed.
+
+### Routine Refresh Status
+
+The MGO portfolio uses a small neutral **Giving last checked** date and, only when
+server-managed maintenance is enabled, **Updates automatically**. This date is
+the oldest successful giving check across all assigned records, not the most
+recent individual update. Missing, invalid, or future timestamps are not shown as
+a successful portfolio check. Missing data and unavailable status remain explicit;
+there is no indefinite loading message, new polling, or retry control in this line.
+
+Admin status distinguishes these states:
+
+- **Scheduled update pending**, **Updating automatically**, and **Updates
+  temporarily paused** are neutral. Saved information remains available. Only
+  confirmed automatic jobs get automatic-resumption guidance; manual work retains
+  its original workflow guidance.
+- **Some information is delayed** is amber when an assigned record's giving check
+  is more than 48 hours old or its summary is more than 24 hours overdue. The union
+  counts each assigned constituent once. A routine due check is not enough.
+- **Update timing needs a check** is amber for an active job with no saved progress
+  for 15 minutes and no current pause/exhausted background allowance explaining it.
+- **Refresh needs investigation** remains red for current summary errors or
+  unresolved failed attempts, even during a scheduled wait or cooldown.
+
+The budget explanation reuses existing saved health reads and the worker's Eastern
+day/overnight window, including daylight-saving transitions. Counters must belong
+to today's Eastern date and the configured origin. Unknown counters, disabled
+maintenance, and manual jobs cannot excuse a quiet job as a scheduled budget wait.
+These labels are not a live worker heartbeat or a promised completion time.
+Technical progress, historical failure evidence, and existing read-retry controls
+remain in Admin. Schedules, API budgets, workers, and NXT records are unchanged.
 
 ### Recovered Portfolio Attempts
 

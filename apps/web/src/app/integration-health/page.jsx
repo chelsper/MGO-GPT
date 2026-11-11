@@ -6,7 +6,8 @@ import PortfolioMaintenanceDetails from "./PortfolioMaintenanceDetails";
 
 const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-50";
 const tones = { quiet: "border-emerald-200 bg-emerald-50 text-emerald-900", notice: "border-gray-200 bg-gray-50 text-gray-700",
-  wait: "border-amber-200 bg-amber-50 text-amber-900", review: "border-red-200 bg-red-50 text-red-900" };
+  wait: "border-gray-200 bg-gray-50 text-gray-700", delayed: "border-amber-200 bg-amber-50 text-amber-900",
+  review: "border-red-200 bg-red-50 text-red-900" };
 
 function when(value) {
   if (!value || !Number.isFinite(Date.parse(value))) return "Not recorded";
@@ -120,7 +121,7 @@ export default function IntegrationHealthPage() {
     {data && <>
       <Section id="health-quota" title="Blackbaud cooldown" available={quota?.available}
         description="A subscription-wide pause affects multiple users. Reconnecting an account does not replenish API capacity.">
-        <Badge level={quota?.paused ? "wait" : "quiet"}>{quota?.paused ? "Wait before more NXT reads" : "No active saved cooldown"}</Badge>
+        <Badge level={quota?.paused ? "wait" : "quiet"}>{quota?.paused ? "Updates temporarily paused" : "No active saved cooldown"}</Badge>
         <p className="mt-3 text-sm leading-relaxed text-gray-700">{quota?.paused
           ? `Wait until ${when(quota.blockedUntil)} before resuming paused reads in their original workflow. Existing schedules and checkpoints remain unchanged.`
           : "No current subscription cooldown is recorded. This does not guarantee live API availability; individual jobs may have their own pause."}</p>
@@ -187,6 +188,7 @@ export default function IntegrationHealthPage() {
           {maintenanceWorkspace === item.id && <PortfolioMaintenanceDetails key={item.id} workspaceId={item.id} />}
           <Details><p>Assignments checked: {when(item.assignmentsCheckedAt)}</p><p>Most recent successful summary check: {when(item.lastSummaryCheck)}</p><p>Most recent successful giving check: {when(item.lastGivingCheck)}</p>
             <p>These are the most recent individual checks, not confirmation that the entire portfolio was refreshed.</p>
+            {item.delayed > 0 && <p>{item.delayed} assigned records have giving checks older than 48 hours or summaries overdue by more than 24 hours. Each assigned record is counted once.</p>}
             {item.job && <>
               <p>Latest job: {item.job.processed} / {item.job.total} processed; {item.job.completed} completed; {item.job.failed} failed attempts recorded.</p>
               {item.job.failed > 0 && <>

@@ -7,6 +7,8 @@ import { connectionHealth, portfolioHealth, portfolioJobFailureCounts, readInteg
 
 const now = Date.parse("2026-09-17T15:00:00Z");
 const current = { has_mapping: true, has_portfolio: true, total: 10, summary_current: 10, giving_current: 10, summary_failed: 0 };
+const scheduled = { available: true, enabled: true, initialized: true, dayCalls: 360, nightCalls: 100 };
+const quietJob = { ...current, job_mode: "nightly", job_status: "queued", job_updated_at: "2026-09-17T14:00:00Z" };
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(now);
   vi.clearAllMocks();
@@ -16,6 +18,7 @@ beforeEach(() => {
   vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", "https://app.example");
   vi.stubEnv("VERCEL_ENV", "production");
   vi.stubEnv("PORTFOLIO_ACTIVITY_CATCHUP_ENABLED", "");
+  vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "");
   refreshUser.mockResolvedValue({ id: 7, name: "Service owner", email: "private@example.test" });
   sql.mockImplementation(async (strings, ...values) => {
     const text = strings.join(" ");
@@ -45,27 +48,70 @@ describe("saved status classifications", () => {
     expect(portfolioHealth(current, now).level).toBe("quiet");
     expect(portfolioHealth({ ...current, has_portfolio: false }, now).label).toBe("No assignment snapshot");
     expect(portfolioHealth({ ...current, has_mapping: false }, now).label).toBe("Fundraiser mapping needed");
-    expect(portfolioHealth({ ...current, summary_current: 4 }, now).label).toBe("Refresh backlog");
+    expect(portfolioHealth({ ...current, summary_current: 4 }, now).label).toBe("Updates pending");
     expect(portfolioHealth({ ...current, summary_failed: 1 }, now).level).toBe("review");
     expect(portfolioHealth({ ...current, job_status: "completed_with_failures", failed_count: 1 }, now).level).toBe("review");
   });
-  it("prioritizes an active cooldown and does not promise a worker heartbeat", () => {
-    expect(portfolioHealth({ ...current, summary_failed: 5, paused_until: "2026-09-17T16:00:00Z" }, now).level).toBe("wait");
-    expect(portfolioHealth({ ...current, job_status: "processing", job_updated_at: "2026-09-17T14:00:00Z" }, now).label).toBe("Progress needs checking");
-    expect(portfolioHealth({ ...current, job_status: "queued", job_updated_at: "2026-09-17T14:59:00Z" }, now).label).toBe("Refresh in progress");
+  it("shows a routine cooldown neutrally without hiding confirmed errors or unexplained delays", () => {
+    expect(portfolioHealth({ ...quietJob, paused_until: "2026-09-17T16:00:00Z" }, now).level).toBe("wait");
+    expect(portfolioHealth({ ...quietJob, summary_failed: 5, paused_until: "2026-09-17T16:00:00Z" }, now).level).toBe("review");
+    expect(portfolioHealth(quietJob, now).label).toBe("Update timing needs a check");
+    expect(portfolioHealth({ ...current, job_status: "queued", job_updated_at: "2026-09-17T14:59:00Z" }, now).label).toBe("Update in progress");
   });
   it("keeps recovered job attempts as history rather than current errors", () => {
     const recovered = { ...current, job_status: "completed_with_failures", failed_count: 3,
       failed_item_count: 3, recovered_failed_count: 3 };
     expect(portfolioJobFailureCounts(recovered)).toEqual({ failed: 3, recoveredFailed: 3, unresolvedFailed: 0 });
     expect(portfolioHealth(recovered, now).label).toBe("Saved data current");
-    expect(portfolioHealth({ ...recovered, summary_current: 9 }, now).label).toBe("Refresh backlog");
-    expect(portfolioHealth({ ...recovered, giving_current: 8 }, now).label).toBe("Refresh backlog");
+    expect(portfolioHealth({ ...recovered, summary_current: 9 }, now).label).toBe("Updates pending");
+    expect(portfolioHealth({ ...recovered, giving_current: 8 }, now).label).toBe("Updates pending");
     expect(portfolioHealth({ ...recovered, summary_failed: 1 }, now).label).toBe("Refresh needs investigation");
     expect(portfolioHealth({ ...recovered, recovered_failed_count: 2 }, now).level).toBe("review");
-    expect(portfolioHealth({ ...recovered, job_status: "processing", job_updated_at: "2026-09-17T14:59:00Z" }, now).label).toBe("Refresh in progress");
-    expect(portfolioHealth({ ...recovered, job_status: "processing", job_updated_at: "2026-09-17T14:00:00Z" }, now).label).toBe("Progress needs checking");
-    expect(portfolioHealth({ ...recovered, paused_until: "2026-09-17T16:00:00Z" }, now).label).toBe("Waiting for cooldown");
+    expect(portfolioHealth({ ...recovered, job_status: "processing", job_updated_at: "2026-09-17T14:59:00Z" }, now).label).toBe("Update in progress");
+    expect(portfolioHealth({ ...recovered, job_status: "processing", job_updated_at: "2026-09-17T14:00:00Z" }, now).label).toBe("Update timing needs a check");
+    expect(portfolioHealth({ ...recovered, job_status: "paused", paused_until: "2026-09-17T16:00:00Z" }, now).label).toBe("Updates temporarily paused");
+  });
+  it("explains a confirmed scheduled budget wait without calling it a failure", () => {
+    expect(portfolioHealth(quietJob, now, { maintenance: scheduled })).toMatchObject({ level: "notice", label: "Scheduled update pending" });
+    expect(portfolioHealth(quietJob, now, { maintenance: scheduled }).guidance).toContain("No manual retry is needed");
+    expect(portfolioHealth({ ...current, giving_current: 9 }, now, { maintenance: scheduled }).label).toBe("Scheduled update pending");
+    expect(portfolioHealth({ ...quietJob, job_updated_at: "2026-09-17T14:59:00Z" }, now,
+      { maintenance: { ...scheduled, dayCalls: 359 } }).label).toBe("Updating automatically");
+  });
+  it.each([
+    { available: false }, { ...scheduled, enabled: false }, { ...scheduled, initialized: false },
+    { ...scheduled, dayCalls: null }, { ...scheduled, dayCalls: undefined },
+    { ...scheduled, dayCalls: "360" }, { ...scheduled, dayCalls: -1 }, { ...scheduled, dayCalls: 359 },
+  ])("does not explain away a quiet job with missing or inadequate budget evidence: %j", maintenance => {
+    expect(portfolioHealth(quietJob, now, { maintenance }).label).toBe("Update timing needs a check");
+  });
+  it.each(["stale", "full", null])("does not apply scheduled budget excuses to manual/unknown mode %s", job_mode => {
+    expect(portfolioHealth({ ...quietJob, job_mode }, now, { maintenance: scheduled }).level).toBe("delayed");
+  });
+  it.each([
+    ["2026-09-17T04:59:00Z", 360, 0, "Scheduled update pending"],
+    ["2026-09-17T05:00:00Z", 360, 0, "Update timing needs a check"],
+    ["2026-09-17T10:59:00Z", 0, 2160, "Scheduled update pending"],
+    ["2026-09-17T11:00:00Z", 0, 2160, "Update timing needs a check"],
+    ["2026-11-01T05:30:00Z", 0, 2160, "Scheduled update pending"],
+    ["2026-11-01T06:30:00Z", 0, 2160, "Scheduled update pending"],
+  ])("uses the worker's Eastern budget window at %s", (timestamp, dayCalls, nightCalls, label) => {
+    expect(portfolioHealth({ ...quietJob, job_updated_at: "2026-09-16T12:00:00Z" }, Date.parse(timestamp),
+      { maintenance: { ...scheduled, dayCalls, nightCalls } }).label).toBe(label);
+  });
+  it("keeps material delays and current errors visible even during intentional waits", () => {
+    const delayed = portfolioHealth({ ...quietJob, delayed_count: 1 }, now, { maintenance: scheduled });
+    expect(delayed).toMatchObject({ level: "delayed", label: "Some information is delayed" });
+    expect(delayed.guidance).toContain("next background request allowance");
+    expect(portfolioHealth({ ...quietJob, summary_failed: 1 }, now, { maintenance: scheduled }).level).toBe("review");
+    expect(portfolioHealth({ ...quietJob, failed_count: 1 }, now, { maintenance: scheduled }).level).toBe("review");
+  });
+  it("uses a confirmed shared pause without inventing one from unknown or expired evidence", () => {
+    const quota = { available: true, paused: true, blockedUntil: "2026-09-17T16:00:00Z" };
+    expect(portfolioHealth(quietJob, now, { quota, maintenance: scheduled }).label).toBe("Updates temporarily paused");
+    expect(portfolioHealth(quietJob, now, { quota: { ...quota, available: false } }).level).toBe("delayed");
+    expect(portfolioHealth(quietJob, now, { quota: { ...quota, blockedUntil: "2026-09-17T14:00:00Z" } }).level).toBe("delayed");
+    expect(portfolioHealth(current, now, { quota }).label).toBe("Saved data current");
   });
   it.each([
     [{ failed_count: 2 }, { failed: 2, recoveredFailed: 0, unresolvedFailed: 2 }],
@@ -114,10 +160,32 @@ describe("read-only health projection", () => {
     expect(result.sections.maintenance).toMatchObject({ enabled: true, initialized: true, dayCalls: 15, nightCalls: 100, dayLimit: 360, nightLimit: 2160,
       turns: [{ id: "7", name: "Test MGO", result: "queued" }] });
     expect(JSON.stringify(result)).not.toContain("PRIVATE-TOKEN");
+    const gateRead = sql.mock.calls.find(([s]) => s.join(" ").includes("FROM portfolio_maintenance_gate WHERE"));
+    expect(gateRead[0].join(" ")).toContain("AND origin =");
+    expect(gateRead.slice(1)).toEqual(["https://app.example"]);
     expect(sql.mock.calls.map(([s]) => s.join(" ")).join(" ")).not.toMatch(/\b(INSERT|UPDATE|DELETE|ALTER|CREATE)\b/);
     sql.mockClear();
     expect((await readIntegrationHealth({ viewerId: 7, origin: "https://other.example" })).sections.maintenance.enabled).toBe(false);
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("portfolio_maintenance"))).toBe(false);
+  });
+  it("reuses saved maintenance evidence before classifying portfolios, with no extra reads or writes", async () => {
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+    vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://app.example");
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => {
+      const query = s.join(" ");
+      if (query.includes("blackbaud_api_limit_state")) return [];
+      if (query.includes("to_regclass('portfolio_maintenance_gate')")) return [{ has_gate: true, has_schedule: true }];
+      if (query.includes("FROM portfolio_maintenance_gate WHERE")) return [{ day_calls: 360, night_calls: 100 }];
+      if (query.includes("FROM portfolio_maintenance_schedule")) return [];
+      if (query.includes("WITH workspaces")) return [{ ...quietJob, id: 7, name: "Test MGO", total_rows: 1 }];
+      return original(s, ...v);
+    });
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.portfolios.items[0]).toMatchObject({ label: "Scheduled update pending", level: "notice" });
+    expect(sql.mock.calls.filter(([s]) => s.join(" ").includes("FROM portfolio_maintenance_gate WHERE"))).toHaveLength(1);
+    expect(sql.mock.calls.filter(([s]) => s.join(" ").includes("WITH workspaces"))).toHaveLength(1);
+    expect(sql.mock.calls.map(([s]) => s.join(" ")).join(" ")).not.toMatch(/\b(INSERT|UPDATE|DELETE|ALTER|CREATE)\b/);
   });
   it("returns only allowlisted operational data, with no provider calls or writes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
