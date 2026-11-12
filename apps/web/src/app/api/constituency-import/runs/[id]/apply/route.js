@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { parseImportDate as parseBirthDate } from "@/utils/importDate";
 import { completeImportContactCollection } from "@/utils/importContactCollection";
 import { claimImportRowForApply } from "@/app/api/utils/importRowApplyClaim";
 import { verifyImportTargetIdentity } from "@/app/api/utils/importTargetIdentity";
@@ -185,28 +186,6 @@ function toBlackbaudFuzzyDate(value) {
   if (match[2]) fuzzyDate.m = Number(match[2]);
   if (match[3]) fuzzyDate.d = Number(match[3]);
   return fuzzyDate;
-}
-
-function parseBirthDate(value) {
-  const normalized = cleanText(value);
-  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  const usMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-  if (!isoMatch && !usMatch) return null;
-
-  const year = Number(isoMatch?.[1] ?? usMatch?.[3]);
-  const month = Number(isoMatch?.[2] ?? usMatch?.[1]);
-  const day = Number(isoMatch?.[3] ?? usMatch?.[2]);
-  const currentTwoDigitYear = new Date().getUTCFullYear() % 100;
-  const resolvedYear = year < 100 ? (year <= currentTwoDigitYear ? 2000 + year : 1900 + year) : year;
-  const date = new Date(Date.UTC(resolvedYear, month - 1, day));
-  if (
-    date.getUTCFullYear() !== resolvedYear ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return null;
-  }
-  return { y: resolvedYear, m: month, d: day };
 }
 
 function getConstituencyLabel(value) {

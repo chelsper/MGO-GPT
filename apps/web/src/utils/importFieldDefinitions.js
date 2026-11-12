@@ -429,6 +429,11 @@ export const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
 }, {});
 
 const IMPORT_HEADER_ALIASES = {
+  firstName: ["Given Name"],
+  lastName: ["Family Name", "Surname"],
+  email: ["Email", "E-mail"],
+  phoneNumber: ["Phone", "Telephone"],
+  postalCode: ["ZIP", "ZIP Code"],
   externalConstituentId: [
     "External Constituent ID",
     "Source Constituent ID",
@@ -451,15 +456,12 @@ export function getUploadedHeaderForField(fieldKey, availableHeaders) {
   const field = FIELD_BY_KEY[fieldKey];
   if (!field) return "";
 
-  const headerByNormalizedValue = new Map(
-    (Array.isArray(availableHeaders) ? availableHeaders : [])
-      .map((header) => [normalizeImportHeader(header), String(header || "").trim()])
-      .filter(([normalizedHeader, header]) => normalizedHeader && header),
-  );
   const candidates = [field.header, ...(IMPORT_HEADER_ALIASES[fieldKey] || [])];
   for (const candidate of candidates) {
-    const matchedHeader = headerByNormalizedValue.get(normalizeImportHeader(candidate));
-    if (matchedHeader) return matchedHeader;
+    const matches = (Array.isArray(availableHeaders) ? availableHeaders : [])
+      .filter((header) => normalizeImportHeader(header) === normalizeImportHeader(candidate));
+    if (matches.length > 1) return "";
+    if (matches.length === 1) return matches[0];
   }
   return "";
 }

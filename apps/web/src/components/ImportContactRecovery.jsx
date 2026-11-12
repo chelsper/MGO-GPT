@@ -12,6 +12,7 @@ export default function ImportContactRecovery({ run, rows, disabled, onOpen }) {
   const locked = disabled || busy;
   const sourceRunId = run.contactRecoverySourceRunId || rows.find((row) => row.contactRecovery)?.contactRecovery.sourceRunId;
   const show = sourceRunId || rows.some((row) => row.createdBlackbaudConstituentId || row.quickCreateStatus === "uncertain");
+  const omittedCount = rows.filter((row) => row.createdBlackbaudConstituentId && !row.savedContactContext?.correctionRunId && row.savedContactContext?.omissions?.some((value) => !value.intentional)).length;
   if (!show) return null;
 
   async function check() {
@@ -63,13 +64,14 @@ export default function ImportContactRecovery({ run, rows, disabled, onOpen }) {
   }
 
   return <section id="import-contact-recovery" tabIndex={-1} className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4" aria-label="Complete missing contact information">
-    <h3 className="font-bold text-slate-900">{sourceRunId ? "Contact correction" : "Missing email addresses or phone numbers?"}</h3>
+    <h3 className="font-bold text-slate-900">{sourceRunId ? "Contact correction" : "Finish missing details"}</h3>
+    {!sourceRunId && omittedCount > 0 && <p className="text-sm font-semibold text-amber-900">{omittedCount} created {omittedCount === 1 ? "record has" : "records have"} email or phone values saved in the upload but left out of the import plan. This is saved history, not a live NXT check.</p>}
     <p className="text-sm text-slate-700">{sourceRunId
       ? `This update-only batch completes contacts omitted from import #${sourceRunId}. It uses the IDs already created, not a new constituent search. Review the contacts and primary settings below before sending.`
       : "Recover omitted email and phone fields from the saved upload. There is no need to upload again or copy the newly created IDs."}</p>
     {sourceRunId ? <button type="button" className={buttonClass} disabled={locked} onClick={() => onOpen(sourceRunId)}>Back to original import</button> : <>
       <button type="button" className={buttonClass} disabled={locked} onClick={check}>
-        {busy ? "Working..." : saved ? "Check saved contacts again" : "Complete missing contact information"}
+        {busy ? "Working..." : saved ? "Check saved contacts again" : "Finish missing details"}
       </button>
       {saved && <>
         <p className="text-sm text-slate-700">Only omitted fields go into a correction. Contacts already staged or attempted stay in the original review and verification flow. Neither checking nor preparing sends anything to NXT.</p>

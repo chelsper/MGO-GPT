@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { parseImportDate as parseBirthDate } from "@/utils/importDate";
 import { importSetupFileBlockers } from "@/utils/importSetups";
 import { IMPORT_CONTACT_GROUPS, importContactPreflight, mappedImportContacts } from "@/utils/importContactPreflight";
 import { getImportMatchCandidates, isImportMatchRejected, rejectedImportMatchPreview, normalizeImportMatchCandidate } from "@/utils/importMatchReview";
@@ -145,29 +146,6 @@ function hasAnyValue(values, keys = null) {
 
 function hasConstituencyChange(input) {
   return Boolean(cleanText(input.sourceConstituency) || cleanText(input.targetConstituency));
-}
-
-function parseBirthDate(value) {
-  const normalized = cleanText(value);
-  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  const usMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-  if (!isoMatch && !usMatch) return null;
-
-  const year = Number(isoMatch?.[1] ?? usMatch?.[3]);
-  const month = Number(isoMatch?.[2] ?? usMatch?.[1]);
-  const day = Number(isoMatch?.[3] ?? usMatch?.[2]);
-  const currentTwoDigitYear = new Date().getUTCFullYear() % 100;
-  const resolvedYear = year < 100 ? (year <= currentTwoDigitYear ? 2000 + year : 1900 + year) : year;
-  const date = new Date(Date.UTC(resolvedYear, month - 1, day));
-  if (
-    date.getUTCFullYear() !== resolvedYear ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return { y: resolvedYear, m: month, d: day };
 }
 
 function formatBirthDate(value) {
