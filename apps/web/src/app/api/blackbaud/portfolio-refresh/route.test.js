@@ -184,6 +184,26 @@ describe("nightly portfolio batches", () => {
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("UPDATE portfolio_constituent_snapshots"))).toBe(false);
   });
 
+  it("keeps a sanitized related-person quota failure pending without repeating a saved giving check", async () => {
+    giving = { constituent_id: "123", payload: { mapped, currentFyGiving: {} }, stale_after: new Date(Date.now() + 86400000).toISOString() };
+    snapshot.stale_after = "2026-01-01";
+    fetch.mockResolvedValue(Response.json({ error: "Blackbaud has paused requests", quotaPaused: true,
+      providerStatus: null, failureStage: "constituent_retrieval", retryAfterMs: 720000 }, {
+      status: 503, headers: { "x-mgogpt-nxt-last-status": "429", "x-mgogpt-nxt-last-endpoint": "/constituent/v1/constituents/456" },
+    }));
+    await POST(request());
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(String(fetch.mock.calls[0][0])).not.toContain("giving_only");
+    const update = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+    expect(update).toContain("pending");
+    expect(update).not.toContain("failed");
+    expect(update).toContain("constituent_retrieval");
+    expect(update).toContain(720000);
+    expect(update).toContain(429);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(true);
+    expect(sql.mock.calls.map(([s]) => s.join(" ")).join(" ")).not.toMatch(/summary_payload =|normalized_payload =|SET payload =|UPDATE portfolio_constituent_snapshots/);
+  });
+
   it("does not invalidate a current summary when only giving retrieval fails", async () => {
     fetch.mockResolvedValue(Response.json({ error: "Unavailable" }, { status: 500 }));
     await POST(request());
