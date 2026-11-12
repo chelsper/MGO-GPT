@@ -64,13 +64,13 @@ describe("standard import completion flow", () => {
       return baseFetch(url, options);
     });
     await openRun();
-    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish missing details" }));
     fireEvent.click(await screen.findByRole("button", { name: "Prepare contact correction (1)" }));
     expect(await screen.findByRole("button", { name: "Back to original import" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Confirm as new constituent/ })).not.toBeInTheDocument();
     expect(fetch.mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => url)).toEqual(["/api/constituency-import/runs/42/contact-recovery"]);
     fireEvent.click(screen.getByRole("button", { name: "Back to original import" }));
-    expect(await screen.findByRole("button", { name: "Complete missing contact information" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Finish missing details" })).toBeEnabled();
   });
 
   it("opens the exact requested saved row only after a click, preserving the no-preload handoff", async () => {
@@ -270,6 +270,30 @@ describe("filterable import review", () => {
 });
 
 describe("contact preparation from an uploaded file", () => {
+  it("maps common headers, adds a custom column in place, and resets fields for a replacement file", async () => {
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("button", { name: /Run #42/ });
+    const input = document.getElementById("constituency-import-file");
+    fireEvent.change(input, { target: { files: [{ name: "custom.csv", text: async () => "NXT System ID,Email,Phone,Nickname\n123,avery@example.test,9045551212,Ave" }] } });
+    await screen.findByText("Loaded custom.csv.");
+    expect(screen.getByLabelText("Email Address column")).toHaveValue("Email");
+    expect(screen.getByLabelText("Phone Number column")).toHaveValue("Phone");
+    expect(screen.queryByLabelText("First Name column")).not.toBeInTheDocument();
+    expect(screen.getByText("More fields and update options").closest("details")).not.toHaveAttribute("open");
+    fireEvent.change(screen.getByLabelText("Add another field"), { target: { value: "preferredName" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add field" }));
+    fireEvent.change(screen.getByLabelText("Preferred Name column"), { target: { value: "Nickname" } });
+    expect(screen.getByText("Sample: Ave")).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: /I checked the columns/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Preferred Name from import" }));
+    expect(screen.queryByLabelText("Preferred Name column")).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { files: [{ name: "next.csv", text: async () => "NXT Lookup ID,First Name,Last Name\nA123,Avery,Example" }] } });
+    await screen.findByText("Loaded next.csv.");
+    expect(screen.queryByLabelText("Email Address column")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Phone Number column")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("NXT System ID column")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  });
   const file = { name: "contacts.csv", text: async () => "First Name,Last Name,Email Address,Email Make Primary?,Phone Number,Phone Make Primary?,New Constituent Code\nAvery,Newcomer,avery@example.test,Yes,9045551212,Yes,Friend" };
   async function upload() {
     render(<ConstituencyImportPage />);

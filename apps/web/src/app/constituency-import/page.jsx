@@ -3362,17 +3362,9 @@ export default function ConstituencyImportPage() {
     setRows(parsed.rows);
     setHeaders(parsed.headers);
     setContactImportDefaults({ contactMatchingOnly: {} });
-    setActiveFields((current) => {
-      let changed = false;
-      const next = { ...current };
-      IMPORT_FIELDS.forEach((field) => {
-        if (getUploadedHeaderForField(field.key, parsed.headers) && !next[field.key]) {
-          next[field.key] = true;
-          changed = true;
-        }
-      });
-      return changed ? next : current;
-    });
+    // Start each file with only its recognized columns. A selected saved setup
+    // takes the separate path above and retains its explicit missing mappings.
+    setActiveFields(Object.fromEntries(IMPORT_FIELDS.map((field) => [field.key, Boolean(getUploadedHeaderForField(field.key, parsed.headers))])));
     // These fields are unambiguous profile changes, unlike first and last name, which may only
     // be present to match a record. Selecting the review operation lets the user preview them.
     if (detectedIndividualProfileHeaders.length) {
@@ -3503,8 +3495,12 @@ export default function ConstituencyImportPage() {
   }
 
   function toggleField(key) {
+    if (importBusy || preview?.savedRun) return;
     setActiveFields((current) => ({ ...current, [key]: !current[key] }));
+    if (headers.length) setSetupInUse(true);
+    setSetupConfirmation("");
     setPreview(null);
+    setSaveMessage("");
   }
 
   function chooseContactImport(group, mode) {
@@ -5776,6 +5772,15 @@ export default function ConstituencyImportPage() {
 
         <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loadedRowId={focusedRowId} loading={Boolean(loadingRunId)} />
 
+        {isReviewer && preview?.savedRun ? (
+          <div className="mb-4">
+            <ImportContactRecovery key={`contact-recovery-${preview.savedRun.id}`}
+              run={preview.savedRun} rows={preview.rows}
+              disabled={importBusy || reviewEditsPending}
+              onOpen={openSavedRun} />
+          </div>
+        ) : null}
+
         <ImportSetupLibrary selected={selectedSetup} configuration={{ mappings, defaults: importDefaults }}
           disabled={importBusy || reviewEditsPending || Boolean(preview?.savedRun)}
           canSave={rows.length > 0 && selectedFields.length > 0 && !preview?.savedRun}
@@ -6042,14 +6047,37 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  3. Choose import fields
+                  3. Columns and contact defaults
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                  Turn on only the NXT fields represented in your import. The CSV must use the
-                  exact column headers shown on each active field.
+                  Match the columns already in your file. Use more options below for field
+                  descriptions, templates, and changes to existing names or addresses.
                 </p>
               </div>
 
+              {!preview?.savedRun && <>
+                <ImportColumnMapping fields={selectedFields} availableFields={IMPORT_FIELDS} headers={headers} mappings={mappings} rows={rows} disabled={importBusy}
+                  onToggle={toggleField}
+                  onChange={(key, value) => {
+                    if (importBusy) return;
+                    setSetupInUse(true);
+                    setMappingOverrides((current) => ({ ...current, [key]: value }));
+                    setSetupConfirmation("");
+                    setPreview(null);
+                    setSaveMessage("");
+                  }} />
+                <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
+                  disabled={importBusy} onChoice={chooseContactImport}
+                  onDefaultType={(key, value) => {
+                    if (importBusy) return;
+                    setContactImportDefaults((current) => ({ ...current, [key]: value }));
+                    setPreview(null);
+                    setSaveMessage("");
+                  }} />
+              </>}
+              <details open={headers.length === 0 && !preview?.savedRun}>
+                <summary className="min-h-11 cursor-pointer py-3 font-semibold text-slate-700">More fields and update options</summary>
+                <div className="grid gap-3">
               {FIELD_GROUP_ORDER.map((group) => {
                 const contactSet = ADDITIONAL_CONTACT_SETS[group];
                 const contactSetActive = contactSet
@@ -6664,7 +6692,7 @@ export default function ConstituencyImportPage() {
                         </div>
                       ) : null}
                       {["Email fields", "Phone fields"].includes(group) ? (
-                        <p className="text-sm text-slate-600">Select the columns here, then choose whether to import these contacts in the contact plan under Review import.</p>
+                        <p className="text-sm text-slate-600">Choose whether to import these contacts in the contact plan above.</p>
                       ) : null}
                       {group === "Address fields" && addressFieldsActive ? (
                         <div
@@ -6755,6 +6783,8 @@ export default function ConstituencyImportPage() {
                   </div>
                 );
               })}
+                </div>
+              </details>
             </section>
 
             <section
@@ -6955,23 +6985,6 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
-          {!preview?.savedRun && <ImportColumnMapping fields={selectedFields} headers={headers} mappings={mappings} disabled={importBusy}
-            onChange={(key, value) => {
-              if (importBusy) return;
-              setSetupInUse(true);
-              setMappingOverrides((current) => ({ ...current, [key]: value }));
-              setSetupConfirmation("");
-              setPreview(null);
-              setSaveMessage("");
-            }} />}
-          <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
-            disabled={importBusy} onChoice={chooseContactImport}
-            onDefaultType={(key, value) => {
-              if (importBusy) return;
-              setContactImportDefaults((current) => ({ ...current, [key]: value }));
-              setPreview(null);
-              setSaveMessage("");
-            }} />
           {setupInUse && rows.length > 0 && !preview?.savedRun && <section aria-label="Confirm saved setup" className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
             <h3 className="font-bold text-slate-900">Confirm this file's plan</h3>
             <p className="mt-1 text-sm text-slate-700">{importIntent === "updates" ? "Update existing records only. Every row needs an NXT System ID or Lookup ID; no new constituents will be created."
@@ -7295,12 +7308,6 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
-          {isReviewer && preview?.savedRun ? (
-            <ImportContactRecovery key={`contact-recovery-${preview.savedRun.id}`}
-              run={preview.savedRun} rows={preview.rows}
-              disabled={Boolean(quickCreating || applyingRun || creatingRowId || previewing || savingRun || loadingRunId || hasDirtyReviewChoices || editingSavedRowId || savingCombinedReviewRowId || savingSavedRowCorrectionId)}
-              onOpen={loadSavedRun} />
-          ) : null}
           {preview?.savedRun && preview.rows.some((row) => ["ready_new", "potential_new", "created_new_record"].includes(row.intentDisposition?.key)) ? (
             <QuickNewConstituentImport
               key={preview.savedRun.id}

@@ -11,12 +11,21 @@ beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("contact recovery controls", () => {
+  it("surfaces omitted contacts without claiming they are missing from NXT or counting intentional omissions", () => {
+    render(<ImportContactRecovery {...props} rows={[
+      { createdBlackbaudConstituentId: "123", savedContactContext: { omissions: [{ kind: "email" }] } },
+      { createdBlackbaudConstituentId: "124", savedContactContext: { omissions: [{ kind: "email", intentional: true }] } },
+      { createdBlackbaudConstituentId: "125", savedContactContext: { correctionRunId: "77", omissions: [{ kind: "phone" }] } },
+    ]} />);
+    expect(screen.getByText(/1 created record has email or phone values/)).toHaveTextContent("not a live NXT check");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("requires an explicit click and approval; preparation only opens a saved correction", async () => {
     const onOpen = vi.fn().mockResolvedValue({});
     fetchMock.mockResolvedValueOnce(response({ rows: [entry] })).mockResolvedValueOnce(response({ runId: "77" }));
     render(<ImportContactRecovery {...props} onOpen={onOpen} />);
     expect(fetchMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish missing details" }));
     await screen.findByRole("checkbox", { name: "Include Alex Example" });
     expect(screen.getByText(/make primary/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -28,7 +37,7 @@ describe("contact recovery controls", () => {
   it("requires a missing contact type without guessing it", async () => {
     fetchMock.mockResolvedValueOnce(response({ rows: [{ ...entry, emailUpdates: [{ ...entry.emailUpdates[0], type: "" }] }] }));
     render(<ImportContactRecovery {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish missing details" }));
     const field = await screen.findByLabelText(/Email type for blank types/);
     expect(screen.getByRole("button", { name: "Prepare contact correction (1)" })).toBeDisabled();
     fireEvent.change(field, { target: { value: "Personal" } });
@@ -38,7 +47,7 @@ describe("contact recovery controls", () => {
     const onOpen = vi.fn();
     fetchMock.mockResolvedValueOnce(response({ rows: [{ ...entry, recoveryRunId: "77" }] }));
     render(<ImportContactRecovery {...props} onOpen={onOpen} />);
-    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish missing details" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open saved correction #77" }));
     expect(onOpen).toHaveBeenCalledWith("77");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -54,14 +63,14 @@ describe("contact recovery controls", () => {
   it("keeps uncertain rows out of selection and retains actionable errors", async () => {
     fetchMock.mockResolvedValueOnce(response({ rows: [{ ...entry, blockers: ["Verify the original uncertain write first."] }] }));
     render(<ImportContactRecovery {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish missing details" }));
     expect(await screen.findByRole("checkbox", { name: "Include Alex Example" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Prepare contact correction (0)" })).toBeDisabled();
   });
   it("reports preparation errors without starting NXT writes", async () => {
     fetchMock.mockResolvedValueOnce(response({ rows: [entry] })).mockResolvedValueOnce(response({ error: "Check saved contacts again." }, false));
     render(<ImportContactRecovery {...props} onOpen={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Complete missing contact information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish missing details" }));
     fireEvent.click(await screen.findByRole("button", { name: "Prepare contact correction (1)" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Check saved contacts again.");
   });

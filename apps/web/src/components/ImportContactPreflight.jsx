@@ -4,7 +4,7 @@ export default function ImportContactPreflight({ summary, intent, defaults, onCh
   const id = useId();
   if (!summary.groups.length) return null;
   return <section aria-label="Contact import plan" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:p-5">
-    <h3 className="text-lg font-bold text-slate-900">What will happen to the contact information?</h3>
+    <h3 className="text-lg font-bold text-slate-900">Include contacts and set defaults</h3>
     <p className="mt-1 text-sm text-slate-700">{intent === "new"
       ? "Contacts marked for import will be included when you approve eligible new records. Possible duplicates still need review."
       : intent === "mixed"
@@ -33,12 +33,18 @@ export default function ImportContactPreflight({ summary, intent, defaults, onCh
         {group.mode === "choose" && <p className="mt-2 text-sm text-amber-900">Choose one option before reviewing the CSV.</p>}
         {group.mode === "import" && <>
           <p className="mt-2 text-sm text-emerald-800">Included for review, not sent yet. Blank primary flags do not request a primary change.</p>
-          {group.blankTypeCount > 0 && <label className="mt-3 grid gap-1 text-sm font-semibold text-slate-800">
+          {group.blankTypeCount > 0 && <div className="mt-3"><label className="grid gap-1 text-sm font-semibold text-slate-800">
             Default {group.key} type for blank values
             <input value={defaults[group.defaultType] || ""} maxLength={100} onChange={(event) => onDefaultType(group.defaultType, event.target.value)}
               className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal" />
             <span className="font-normal text-slate-600">Use a type configured in NXT. Applies to {group.blankTypeCount} blank {group.blankTypeCount === 1 ? "type" : "types"} only; file values are kept.</span>
-          </label>}
+          </label>
+          {group.fileTypes?.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+            <span>Reuse a type from this file (not verified with NXT):</span>
+            {group.fileTypes.map((type) => <button key={type} type="button" onClick={() => onDefaultType(group.defaultType, type)}
+              className="min-h-11 rounded-full border border-slate-300 px-3 font-semibold text-slate-700">Use {type}</button>)}
+          </div>}
+          </div>}
           {group.issues.length > 0 && <details className="mt-3 text-sm text-amber-900">
             <summary className="cursor-pointer font-semibold">{group.issues.length} {group.issues.length === 1 ? "row needs" : "rows need"} {group.key} review</summary>
             <p className="mt-2">Correct these values now or review the affected contacts after preparation. Preparing the file does not approve them.</p>

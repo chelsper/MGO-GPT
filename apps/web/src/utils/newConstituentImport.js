@@ -1,4 +1,5 @@
 import { importMatchEvidence, matchingHouseholdAddress, streetParts } from "./importMatchEvidence";
+import { parseImportDate } from "./importDate";
 export const cleanImportText = (value) => String(value ?? "").trim();
 export class ImportReviewRequired extends Error {}
 const text = cleanImportText;
@@ -57,9 +58,8 @@ export function validateNewRecordContacts(input) {
       if (!keyValue || seen.has(keyValue)) throw new ImportReviewRequired(`Repeated or invalid ${label} values need review; no duplicate contact will be added.`);
       seen.add(keyValue);
       if (label === "address" && text(value.validFrom)) {
-        const match = text(value.validFrom).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (!match || new Date(Date.UTC(+match[1], +match[2] - 1, +match[3])).toISOString().slice(0, 10) !== text(value.validFrom)) {
-          throw new ImportReviewRequired("Address Valid From needs a valid YYYY-MM-DD date before automatic completion.");
+        if (!parseImportDate(value.validFrom)) {
+          throw new ImportReviewRequired("Address Valid From needs a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD date before automatic completion.");
         }
       }
     }

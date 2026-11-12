@@ -26,3 +26,14 @@ it("does not permit changes while the import is busy", () => {
   render(<ImportContactPreflight {...props({ updateEmailFields: true })} disabled />);
   for (const element of [...screen.getAllByRole("radio"), ...screen.getAllByRole("textbox")]) expect(element).toBeDisabled();
 });
+it("offers file types explicitly without treating them as verified NXT choices", () => {
+  const p = props({ updateEmailFields: true });
+  p.summary = importContactPreflight([{ email: "one@example.test", type: "Personal" }, { email: "two@example.test" }], { email: "email", emailType: "type" }, { updateEmailFields: true });
+  const { rerender } = render(<ImportContactPreflight {...p} />);
+  expect(screen.getByText(/not verified with NXT/)).toBeVisible();
+  expect(screen.getByRole("textbox", { name: /Default email type/ })).toHaveValue("");
+  fireEvent.click(screen.getByRole("button", { name: "Use Personal" }));
+  expect(p.onDefaultType).toHaveBeenCalledWith("defaultEmailType", "Personal");
+  rerender(<ImportContactPreflight {...p} disabled />);
+  expect(screen.getByRole("button", { name: "Use Personal" })).toBeDisabled();
+});

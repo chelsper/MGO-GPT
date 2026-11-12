@@ -93,6 +93,13 @@ export const workflowGroups = {
     "src/app/api/utils/pipelineOpportunityChange.test.js",
   ],
   "Constituent imports": [
+    "src/app/constituency-import/page.test.jsx",
+    "src/components/ImportColumnMapping.test.jsx",
+    "src/components/ImportContactPreflight.test.jsx",
+    "src/utils/importFieldDefinitions.test.js",
+    "src/utils/importContactPreflight.test.js",
+    "src/utils/importDate.test.js",
+    "src/app/api/constituency-import/preview/route.test.js",
     "src/app/constituency-import/page.access.test.jsx",
     "src/components/QuickNewConstituentImport.test.jsx",
     "src/components/ImportContactRecovery.test.jsx",

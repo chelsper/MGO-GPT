@@ -37,7 +37,7 @@ export function importContactPreflight(rows, mappings = {}, defaults = {}, rowOf
     // An omission is intentional only for the exact set of selected columns.
     const excluded = defaults.contactMatchingOnly?.[group.key] === mappingKey;
     const result = { ...group, mappingKey, mode: imported ? "import" : excluded ? "matching" : "choose",
-      count: 0, rowCount: 0, primaryCount: 0, blankTypeCount: 0, issues: [] };
+      count: 0, rowCount: 0, primaryCount: 0, blankTypeCount: 0, fileTypes: [], issues: [] };
     const fallback = defaults[group.defaultType];
     if (imported && fallback != null && (typeof fallback !== "string" || fallback.length > 100 || /[\r\n]/.test(fallback))) {
       blockers.push(`Use a valid default ${group.key} type of 100 characters or fewer.`);
@@ -48,7 +48,11 @@ export function importContactPreflight(rows, mappings = {}, defaults = {}, rowOf
       result.rowCount += 1;
       result.count += values.length;
       result.primaryCount += values.filter((value) => value.makePrimary === true).length;
-      result.blankTypeCount += mappedImportContacts(row, mappings, {}, group).filter((value) => !value.type).length;
+      const fileContacts = mappedImportContacts(row, mappings, {}, group);
+      result.blankTypeCount += fileContacts.filter((value) => !value.type).length;
+      for (const { type } of fileContacts) {
+        if (type && type.length <= 100 && !/[\r\n]/.test(type) && !result.fileTypes.includes(type) && result.fileTypes.length < 10) result.fileTypes.push(type);
+      }
       if (imported) {
         if (values.some((value) => value.makePrimary != null && typeof value.makePrimary !== "boolean")) {
           blockers.push(`Row ${rowOffset + index + 1}: use Yes or No for each ${group.key} primary flag, or leave it blank.`);

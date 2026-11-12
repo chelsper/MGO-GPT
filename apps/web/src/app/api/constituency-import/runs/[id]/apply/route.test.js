@@ -590,7 +590,7 @@ describe("constituency import run apply route", () => {
     expect(payload.applySummary.applied).toBe(1);
   });
 
-  it("replaces a selected NXT address without overwriting its type or primary setting", async () => {
+  it.each(["07/01/2026", "2026-07-01"])("replaces a selected NXT address dated %s without overwriting its type or primary setting", async (validFrom) => {
     const { POST } = await import("./route.js");
     const write = {
       type: "address",
@@ -602,7 +602,7 @@ describe("constituency import run apply route", () => {
       state: "FL",
       postalCode: "32211",
       country: "United States",
-      validFrom: "07/01/2026",
+      validFrom,
       preserveExistingSettings: true,
     };
     const row = {

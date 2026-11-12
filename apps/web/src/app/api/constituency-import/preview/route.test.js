@@ -967,6 +967,23 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan).toEqual([]);
   });
 
+  it.each(["07/01/2026", "2026-07-01"])("normalizes address valid-from %s for the write plan", async (validFrom) => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({ blackbaudConstituentId: "123", name: "Avery Example" });
+    blackbaudApiFetchMock.mockResolvedValue({ value: [], count: 0 });
+    const response = await POST(makeRequest({
+      rows: [{ ID: "123", Street: "1 Example St", Type: "Home", Date: validFrom }],
+      mappings: { blackbaudConstituentId: "ID", addressLine1: "Street", addressType: "Type", addressValidFrom: "Date" },
+      defaults: { updateAddressFields: true },
+      contactDecisions: { 1: { address: { 0: { mode: "add" } } } },
+    }));
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].input.addressUpdates[0].validFrom).toBe(validFrom);
+    expect(payload.rows[0].writePlan).toContainEqual(expect.objectContaining({ type: "address", validFrom: "2026-07-01" }));
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
+
   it("does not load NXT addresses when the reviewer skips the uploaded address", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
