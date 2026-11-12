@@ -89,6 +89,50 @@ good summary; the normal scheduler resumes after the saved cooldown without
 repeating a still-current giving check. Previously failed items remain in saved
 history and are not reset or automatically replayed by this fix.
 
+### Avoiding Repeat Reads
+
+Nightly change detection compares giving/proposal values structurally. PostgreSQL
+JSONB reorders object properties; comparing serialized text to a freshly mapped
+response caused unchanged inputs to trigger full summary rebuilds. Property order
+alone no longer counts as a change. Actual values, types, fields and array order
+still do. Expired, missing, incomplete or failed summaries still rebuild under the
+existing weekly policy. No summary timestamp is advanced just for checking giving.
+
+The fiscal-year reader goes directly to the existing four-page individual lookup
+for a single constituent. It does not repeat a complete zero-result lookup, or
+restart at page one after the former two-page combined-list allowance. Multi-person
+requests retain their two-page combined list and per-person soft-credit fallback;
+individual checks already performed during a truncation fallback are not repeated.
+Incomplete results retain warnings, preventing a partial nightly giving snapshot
+from being published. Read budgets, permissions, freshness windows and provider
+cooldowns are unchanged; this does not add a new cross-workspace cache.
+
+#### Pre-Release Baseline (2026-11-12)
+
+A read-only transaction at 11:36 AM Eastern inspected saved final-attempt counters
+over the preceding 24 hours, without NXT requests or data changes:
+
+- 240 successful full summaries: 2,169 recorded calls, mean 9.04, median 9, max 15.
+- 16 successful current-snapshot skips: zero recorded calls.
+- No successful `giving_refreshed_summary_current` items in that window.
+- 225 of the 256 latest successful workspace/constituent items had zero received
+  and committed FY giving in their saved snapshot.
+- Saved lifetime-giving key order differed from `mapLifetimeGiving` output order.
+
+These are final-attempt counters, not total subscription usage or a complete retry
+ledger. Some items have prior attempts; saved snapshots can change after completion.
+Do not infer that every past full summary was unnecessary or that the 225 records
+represent a measured production saving. The zero-result regression demonstrates
+one avoided gift-list request per complete one-page individual check. Actual full
+summary savings depend on current data and genuinely changed inputs.
+
+After approved deployment, compare one normal overnight cycle without forcing
+refreshes: calls per successful item by stage, giving-only successes versus full
+summaries, oldest giving-check age, never-checked counts and records over 48 hours
+old. Use matching workspace scopes and observation times; due counts can rise as
+records age. Confirm fair turns, current-data skips and provider pauses remain
+intact before considering any further capacity changes.
+
 ### Connection Renewal Failures
 
 OAuth renewal errors retain their provider HTTP status and `blackbaud_auth`
@@ -168,6 +212,9 @@ cooldowns, cancelled/inactive jobs, and DST boundaries. It also runs the actual
 scheduler SQL for enrollment, rotation, current-data skipping, concurrent claims,
 setup backoff, paused-job bypass and manual-job isolation. It drops only its own
 test schema. It does not load app environment files or connect to production.
+It also passes representative summary inputs through actual JSONB storage to
+verify that property reordering does not trigger a rebuild, while real giving
+and proposal changes still do.
 
 ```sh
 MAINTENANCE_TEST_PGHOST=/tmp/your-disposable-pg-directory \

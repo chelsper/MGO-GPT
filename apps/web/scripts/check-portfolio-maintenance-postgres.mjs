@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { hasPortfolioSummaryChanges } from "../src/app/api/utils/portfolioSummaryFreshness.js";
 
 const host = process.env.MAINTENANCE_TEST_PGHOST;
 if (!host?.startsWith("/private/tmp/") && !host?.startsWith("/tmp/")) throw Error("Use a disposable local PostgreSQL socket under /tmp.");
@@ -49,6 +50,20 @@ try {
     INSERT INTO users (id,active) VALUES (7,TRUE),(8,FALSE);
     INSERT INTO portfolio_refresh_jobs (id,workspace_user_id,mode,status) VALUES (1,7,'nightly','queued'),(2,7,'full','queued');
     INSERT INTO portfolio_refresh_items VALUES (1,'123','pending','2026-01-01');`);
+  const liveInputs = { mapped: {
+    lifetimeGiving: { constituentId: "123", totalGiving: 100, totalReceivedGiving: 80 },
+    proposalSummary: [{ name: "Example project", id: 5, amount: 1000 }],
+  } };
+  const savedInputs = JSON.parse(await run(`SELECT ${quote(JSON.stringify(liveInputs))}::jsonb::text`));
+  assert.notEqual(JSON.stringify(savedInputs.mapped.lifetimeGiving), JSON.stringify(liveInputs.mapped.lifetimeGiving));
+  assert.equal(hasPortfolioSummaryChanges(savedInputs, liveInputs), false);
+  assert.equal(hasPortfolioSummaryChanges(savedInputs, { mapped: { ...liveInputs.mapped,
+    lifetimeGiving: { ...liveInputs.mapped.lifetimeGiving, totalGiving: 101 },
+  } }), true);
+  assert.equal(hasPortfolioSummaryChanges(savedInputs, { mapped: { ...liveInputs.mapped,
+    proposalSummary: [{ ...liveInputs.mapped.proposalSummary[0], amount: 900 }],
+  } }), true);
+  console.log("PASS JSONB round-trip ignores field order but detects real giving and proposal changes.");
   await Promise.all(Array.from({ length: 8 }, () => store.ensureMaintenanceGate()));
   const claims = await Promise.all(Array.from({ length: 8 }, () => store.claimMaintenanceGate(origin, "1")));
   const gate = claims.find(Boolean);

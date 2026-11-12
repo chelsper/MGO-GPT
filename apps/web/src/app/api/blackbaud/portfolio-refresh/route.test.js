@@ -154,6 +154,19 @@ describe("nightly portfolio batches", () => {
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("summary_payload ="))).toBe(false);
   });
 
+  it("skips a current summary rebuild when JSONB only reordered unchanged fields", async () => {
+    snapshot.summary_payload.mapped.lifetimeGiving = { totalGiving: 100, constituentId: "123" };
+    snapshot.summary_payload.mapped.proposalSummary = [{ id: 4, name: "Project" }];
+    fetch.mockResolvedValue(Response.json({ constituentId: "123", mapped: {
+      lifetimeGiving: { constituentId: "123", totalGiving: 100 },
+      proposalSummary: [{ name: "Project", id: 4 }],
+    }, currentFyGiving: { recognizedReceived: 100 } }, { headers: { "x-mgogpt-nxt-api-calls": "2" } }));
+    expect((await POST(request())).status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(sql.mock.calls.some(call => call.includes("giving_refreshed_summary_current"))).toBe(true);
+    expect(sql.mock.calls.map(([s]) => s.join(" ")).join(" ")).not.toMatch(/summary_payload =|normalized_payload =|SET payload =/);
+  });
+
   it("rebuilds an expired summary after persisting nightly giving", async () => {
     snapshot.stale_after = "2026-01-01";
     await POST(request());

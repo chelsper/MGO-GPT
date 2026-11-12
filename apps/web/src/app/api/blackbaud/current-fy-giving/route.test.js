@@ -222,7 +222,7 @@ describe("current fiscal year giving route", () => {
     });
   });
 
-  it("rechecks zero-result constituents for recipient-side soft-credit gifts", async () => {
+  it("rechecks zero-result constituents from a combined list for recipient-side soft-credit gifts", async () => {
     listBlackbaudGiftsMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -234,7 +234,7 @@ describe("current fiscal year giving route", () => {
           amount: { value: 50000 },
           soft_credits: [],
         },
-      ]);
+      ]).mockResolvedValue([]);
     getBlackbaudGiftMock.mockResolvedValue({
       id: "pledge-payment-soft-credit-1",
       constituent_id: "direct-donor-id",
@@ -247,17 +247,21 @@ describe("current fiscal year giving route", () => {
     const { GET } = await import("./route.js");
     const response = await GET(
       new Request(
-        "https://example.com/api/blackbaud/current-fy-giving?constituentId=cynthia-id",
+        "https://example.com/api/blackbaud/current-fy-giving?constituentIds=cynthia-id,other-id",
       ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload.usedPerConstituentFallback).toBe(true);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(3);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(expect.objectContaining({
+      searchParams: { constituent_id: "cynthia-id", start_gift_date: "2026-07-01", end_gift_date: "2026-08-11" },
+    }));
     expect(listBlackbaudGiftsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         searchParams: {
-          constituent_id: "cynthia-id",
+          constituent_id: "other-id",
           start_gift_date: "2026-07-01",
           end_gift_date: "2026-08-11",
         },
@@ -291,7 +295,7 @@ describe("current fiscal year giving route", () => {
         ],
         pageCount: 1,
         hasMore: false,
-      });
+      }).mockResolvedValue({ gifts: [], hasMore: false });
     getBlackbaudGiftMock.mockResolvedValue({
       id: "pledge-payment-fallback-1",
       constituent_id: "donor-constituent-id",
@@ -304,13 +308,14 @@ describe("current fiscal year giving route", () => {
     const { GET } = await import("./route.js");
     const response = await GET(
       new Request(
-        "https://example.com/api/blackbaud/current-fy-giving?constituentId=888",
+        "https://example.com/api/blackbaud/current-fy-giving?constituentIds=888,889",
       ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload.usedPerConstituentFallback).toBe(true);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(3);
     expect(payload.byConstituentId["888"]).toMatchObject({
       recognizedReceived: 50000,
       recognizedCommitted: 0,
@@ -318,7 +323,7 @@ describe("current fiscal year giving route", () => {
     expect(listBlackbaudGiftsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         searchParams: {
-          constituent_id: "888",
+          constituent_id: "889",
           start_gift_date: "2026-07-01",
           end_gift_date: "2026-08-11",
         },
@@ -326,5 +331,89 @@ describe("current fiscal year giving route", () => {
         includePageMetadata: true,
       }),
     );
+  });
+
+  it.each(["", "&portfolio_refresh=1"])("does not read a complete single-person zero result twice (%s)", async (mode) => {
+    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], hasMore: false });
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request(`https://example.com/api/blackbaud/current-fy-giving?constituentId=zero-${mode ? "nightly" : "interactive"}${mode}`));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(Object.values(data.byConstituentId)[0]).toMatchObject({ recognizedReceived: 0, recognizedCommitted: 0 });
+    expect(data.warnings).toEqual({});
+    expect(data.usedPerConstituentFallback).toBe(false);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(expect.objectContaining({
+      searchParams: { constituent_id: `zero-${mode ? "nightly" : "interactive"}`, start_gift_date: "2026-07-01", end_gift_date: "2026-08-11" },
+      maxPages: 4, pageLimit: 500, strictResponse: Boolean(mode),
+    }));
+    expect(getRealizedPlannedGiftIdsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps truncated individual results marked incomplete without replaying the list", async () => {
+    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], pageCount: 4, hasMore: true });
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=large&portfolio_refresh=1"));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.warnings.large).toContain("safe per-constituent read limit");
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not recheck zero results again after a truncated combined list was reloaded individually", async () => {
+    listBlackbaudGiftsMock.mockResolvedValueOnce({ gifts: [], hasMore: true })
+      .mockResolvedValue({ gifts: [], hasMore: false });
+    const { GET } = await import("./route.js");
+    const data = await (await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentIds=zero-a,zero-b&portfolio_refresh=1"))).json();
+    expect(data.warnings).toEqual({});
+    expect(data.usedPerConstituentFallback).toBe(true);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(3);
+    expect(getRealizedPlannedGiftIdsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still performs a fresh giving read for each explicit nightly refresh", async () => {
+    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], hasMore: false });
+    const { GET } = await import("./route.js");
+    const url = "https://example.com/api/blackbaud/current-fy-giving?constituentId=fresh-zero&portfolio_refresh=1";
+    await GET(new Request(url));
+    await GET(new Request(url));
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the existing four-page individual allowance without restarting at page one", async () => {
+    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [{
+      id: "third-page-gift", constituent_id: "three-pages", gift_type: "Donation",
+      date: "2026-08-02", amount: { value: 300 },
+    }], pageCount: 3, hasMore: false });
+    const { GET } = await import("./route.js");
+    const data = await (await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=three-pages&portfolio_refresh=1"))).json();
+    expect(data.byConstituentId["three-pages"]).toMatchObject({ recognizedReceived: 300 });
+    expect(data.warnings).toEqual({});
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(expect.objectContaining({ maxPages: 4, strictResponse: true }));
+  });
+
+  it("preserves incomplete-result warnings after the combined-list fallback", async () => {
+    listBlackbaudGiftsMock.mockResolvedValueOnce({ gifts: [], hasMore: true })
+      .mockResolvedValueOnce({ gifts: [], hasMore: true })
+      .mockResolvedValue({ gifts: [], hasMore: false });
+    const { GET } = await import("./route.js");
+    const data = await (await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentIds=incomplete,complete&portfolio_refresh=1"))).json();
+    expect(data.warnings.incomplete).toContain("safe per-constituent read limit");
+    expect(data.warnings.complete).toBeUndefined();
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not reuse a different workspace's zero-result summary", async () => {
+    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], hasMore: false });
+    const { GET } = await import("./route.js");
+    const url = "https://example.com/api/blackbaud/current-fy-giving?constituentId=shared-person";
+    await GET(new Request(url));
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 9 }, workspaceUser: { id: 10 }, isActing: true,
+    });
+    await GET(new Request(url));
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(2);
+    expect(listBlackbaudGiftsMock).toHaveBeenLastCalledWith(expect.objectContaining({ userId: 10, authUserId: 9 }));
   });
 });

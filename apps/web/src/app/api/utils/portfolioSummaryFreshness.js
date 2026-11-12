@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 export const PORTFOLIO_SUMMARY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function getPortfolioSummaryStaleAfter(payload, now = Date.now()) {
@@ -40,7 +42,8 @@ export function selectPortfolioRefreshIds(ids, snapshots, mode, now = Date.now()
 
 export function hasPortfolioSummaryChanges(summary, giving) {
   if (!summary?.mapped || !giving?.mapped) return false;
-  // Compare inputs, not freshness timestamps: unchanged donors stay weekly.
+  // JSONB reorders object keys. Compare values, not serialized key order or
+  // freshness timestamps, so unchanged donors keep the weekly summary schedule.
   return ["lifetimeGiving", "proposalSummary"].some((field) =>
-    JSON.stringify(summary.mapped[field]) !== JSON.stringify(giving.mapped[field]));
+    !isDeepStrictEqual(summary.mapped[field], giving.mapped[field]));
 }

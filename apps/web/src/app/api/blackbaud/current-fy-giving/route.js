@@ -390,6 +390,7 @@ export async function GET(request) {
       });
     }
 
+    const singleConstituent = constituentIds.length === 1;
     const portfolioGiftResponse = await listBlackbaudGifts({
       userId: user.id,
       authUserId,
@@ -397,12 +398,12 @@ export async function GET(request) {
       searchParams: {
         // Repeated IDs ensure Blackbaud returns gifts associated through either
         // direct or recognition/soft credit for every portfolio constituent.
-        constituent_id: constituentIds,
+        constituent_id: singleConstituent ? constituentIds[0] : constituentIds,
         start_gift_date: period.startDate,
         end_gift_date: period.endDate,
       },
       pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
-      maxPages: PORTFOLIO_GIFT_MAX_PAGES,
+      maxPages: singleConstituent ? CONSTITUENT_GIFT_MAX_PAGES : PORTFOLIO_GIFT_MAX_PAGES,
       includePageMetadata: true,
       strictResponse: strict,
     });
@@ -410,11 +411,12 @@ export async function GET(request) {
       !Array.isArray(portfolioGiftResponse) && Boolean(portfolioGiftResponse?.hasMore);
     let gifts = responseGifts(portfolioGiftResponse, strict);
     let warnings = {};
+    const usedTruncatedFallback = !singleConstituent && portfolioGiftListWasTruncated;
 
     // A combined portfolio list can contain far more gifts than the dashboard
     // needs. If it is truncated, reload by constituent so a soft credit is not
     // silently lost behind another prospect's gift history.
-    if (portfolioGiftListWasTruncated) {
+    if (usedTruncatedFallback) {
       const constituentGiftLists = await loadConstituentGiftLists({
         constituentIds,
         userId: user.id,
@@ -425,6 +427,9 @@ export async function GET(request) {
       });
       gifts = constituentGiftLists.gifts;
       warnings = constituentGiftLists.warnings;
+    } else if (portfolioGiftListWasTruncated) {
+      warnings[constituentIds[0]] =
+        "Current fiscal-year Gift API results exceeded the safe per-constituent read limit.";
     }
 
     let enrichedGifts = await enrichAssociatedPledgePayments({
@@ -455,8 +460,10 @@ export async function GET(request) {
     // response even when it is not paginated. Recheck only the zero-result
     // constituents one at a time. This is a background dashboard read and is
     // deliberately bounded and cached; it prevents a soft-credit recipient
-    // from silently appearing to have no fiscal-year giving.
-    const zeroResultConstituentIds = constituentIds.filter(
+    // from silently appearing to have no fiscal-year giving. A single-person
+    // request (or the pagination fallback above) already did that exact lookup;
+    // repeating it cannot make a complete zero result more authoritative.
+    const zeroResultConstituentIds = singleConstituent || usedTruncatedFallback ? [] : constituentIds.filter(
       (constituentId) => !hasCurrentFiscalYearGiving(summary.byConstituentId[constituentId]),
     );
     let usedZeroResultFallback = false;
@@ -505,7 +512,7 @@ export async function GET(request) {
       calculatedAt: new Date().toISOString(),
       warnings,
       usedPerConstituentFallback:
-        portfolioGiftListWasTruncated || usedZeroResultFallback,
+        usedTruncatedFallback || usedZeroResultFallback,
     };
     summaryCache.set(cacheKey, {
       expiresAt: Date.now() + CACHE_TTL_MS,

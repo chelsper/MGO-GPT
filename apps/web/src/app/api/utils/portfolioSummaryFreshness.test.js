@@ -47,4 +47,29 @@ describe("lightweight portfolio policy", () => {
     expect(hasPortfolioSummaryChanges(summary, { mapped: { ...summary.mapped, lifetimeGiving: { totalGiving: 124 } } })).toBe(true);
     expect(hasPortfolioSummaryChanges(summary, { mapped: { ...summary.mapped, proposalSummary: [] } })).toBe(true);
   });
+
+  it("does not rebuild for JSONB object-key ordering, including nested proposals", () => {
+    const summary = { mapped: {
+      lifetimeGiving: { totalGiving: 100, constituentId: "123", totalReceivedGiving: 80 },
+      proposalSummary: [{ id: 1, detail: { name: "Project", amount: 1000 } }],
+    } };
+    const giving = { mapped: {
+      lifetimeGiving: { constituentId: "123", totalReceivedGiving: 80, totalGiving: 100 },
+      proposalSummary: [{ detail: { amount: 1000, name: "Project" }, id: 1 }],
+    } };
+    expect(hasPortfolioSummaryChanges(summary, giving)).toBe(false);
+    expect(Object.keys(giving.mapped.lifetimeGiving)).toEqual(["constituentId", "totalReceivedGiving", "totalGiving"]);
+  });
+
+  it.each([
+    { lifetimeGiving: { totalGiving: 101 }, proposalSummary: [{ id: 1 }, { id: 2 }] },
+    { lifetimeGiving: { totalGiving: "100" }, proposalSummary: [{ id: 1 }, { id: 2 }] },
+    { lifetimeGiving: { totalGiving: 100, totalSoftCredits: 5 }, proposalSummary: [{ id: 1 }, { id: 2 }] },
+    { lifetimeGiving: null, proposalSummary: [{ id: 1 }, { id: 2 }] },
+    { lifetimeGiving: { totalGiving: 100 }, proposalSummary: [{ id: 2 }, { id: 1 }] },
+    { lifetimeGiving: { totalGiving: 100 }, proposalSummary: [{ id: 1 }, { id: 2, amount: 0 }] },
+  ])("still detects actual input changes: %j", (mapped) => {
+    const summary = { mapped: { lifetimeGiving: { totalGiving: 100 }, proposalSummary: [{ id: 1 }, { id: 2 }] } };
+    expect(hasPortfolioSummaryChanges(summary, { mapped })).toBe(true);
+  });
 });
