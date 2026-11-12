@@ -43,6 +43,17 @@ it("returns gift pagination metadata without changing the default reader", async
     .toEqual({ gifts: [{ id: "1" }, { id: "2" }], pageCount: 2, hasMore: false });
   expect(fetch).toHaveBeenCalledTimes(2);
 });
+it("sends identical Gift API filters for a scalar ID and a one-ID array", async () => {
+  fetch.mockImplementation(async () => Response.json({ value: [] }));
+  for (const constituent_id of ["123", ["123"]]) {
+    await listBlackbaudGifts({ ...options, searchParams: {
+      constituent_id, start_gift_date: "2026-07-01", end_gift_date: "2026-11-12",
+    }, strictResponse: true });
+  }
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(String(fetch.mock.calls[0][0])).toBe(String(fetch.mock.calls[1][0]));
+  expect(new URL(fetch.mock.calls[0][0]).searchParams.getAll("constituent_id")).toEqual(["123"]);
+});
 it("does not begin an expired gift refresh", async () => {
   await expect(listBlackbaudGifts({ ...options, deadlineAt: Date.now() - 1 })).rejects.toMatchObject({ code: "NXT_REFRESH_LIMIT" });
   expect(fetch).not.toHaveBeenCalled();

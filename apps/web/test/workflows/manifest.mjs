@@ -45,6 +45,8 @@ export const workflowGroups = {
     "src/app/api/blackbaud/constituents/[constituentId]/summary/identity.test.js",
     "src/app/api/blackbaud/constituents/[constituentId]/summary/route.test.js",
     "src/app/api/blackbaud/portfolio-refresh/route.test.js",
+    "src/app/api/blackbaud/current-fy-giving/route.test.js",
+    "src/app/api/utils/portfolioSummaryFreshness.test.js",
     "src/app/api/utils/portfolioAssignmentRequests.test.js",
     "src/app/api/portfolio-assignment-requests/route.test.js",
     "src/components/RequestPortfolioAssignment.test.jsx",

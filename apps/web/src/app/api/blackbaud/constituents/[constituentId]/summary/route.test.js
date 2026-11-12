@@ -721,7 +721,7 @@ describe("portfolio badges and summary shared giving reads", () => {
 
   it("does not persist a giving snapshot if the FY gift request fails after lifetime data succeeds", async () => {
     listBlackbaudGifts.mockImplementation(async ({ searchParams }) => {
-      if (Array.isArray(searchParams.constituent_id)) throw Object.assign(new Error("Rate limited"), { httpStatus: 429, retryAfterMs: 30000 });
+      if (searchParams.start_gift_date === "2026-07-01") throw Object.assign(new Error("Rate limited"), { httpStatus: 429, retryAfterMs: 30000 });
       return { gifts: [], hasMore: false };
     });
     const response = await summary("giving_only=1&refresh=1");
