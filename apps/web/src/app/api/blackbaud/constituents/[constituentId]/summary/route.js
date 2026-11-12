@@ -1234,7 +1234,7 @@ async function loadBlackbaudSection(label, requestFactory) {
     const payload = await requestFactory();
     return { ok: true, payload };
   } catch (error) {
-    if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
+    if (error?.quotaPaused === true || isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
       throw error;
     }
     return {
@@ -1250,7 +1250,8 @@ async function loadOptionalSection(label, requestFactory) {
     const payload = await requestFactory();
     return { ok: true, payload };
   } catch (error) {
-    if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
+    // Identity sanitization retains quotaPaused, not the provider exception class.
+    if (error?.quotaPaused === true || isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
       throw error;
     }
     return {

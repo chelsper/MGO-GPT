@@ -80,6 +80,15 @@ and do not immediately replay the request. A shorter new cooldown cannot replace
 a longer saved one. Subsequent workers wait; saved data remains available. This
 does not add retries to NXT writes or change the interactive request retry policy.
 
+Linked spouse/child reads sanitize provider errors before returning them. Optional
+summary sections must propagate their explicit `quotaPaused` flag as well as the
+original quota exception or HTTP 429. A sanitized quota error may have no HTTP
+status; treating it as an ordinary optional warning would permanently fail the
+item instead of pausing it. A pause keeps the item pending and preserves the last
+good summary; the normal scheduler resumes after the saved cooldown without
+repeating a still-current giving check. Previously failed items remain in saved
+history and are not reset or automatically replayed by this fix.
+
 ### Connection Renewal Failures
 
 OAuth renewal errors retain their provider HTTP status and `blackbaud_auth`

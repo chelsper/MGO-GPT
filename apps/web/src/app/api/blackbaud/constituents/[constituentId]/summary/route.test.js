@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-import { blackbaudApiFetch, getBlackbaudConfigIssues, listBlackbaudGifts } from "@/app/api/utils/blackbaud";
+import { blackbaudApiFetch, getBlackbaudConfigIssues, isBlackbaudQuotaExceededError, listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 import { loadSocietyAnnualGifts } from "@/app/api/utils/societyGivingSource";
 import { reserveMaintenanceCall } from "@/app/api/utils/portfolioMaintenanceStore";
 import { reserveBlackbaudRead } from "@/app/api/utils/blackbaudReadBudget";
@@ -655,6 +655,35 @@ describe("portfolio badges and summary shared giving reads", () => {
     const response = await summary();
     expect(response.status).toBe(429);
     expect(await response.json()).toMatchObject({ providerStatus: 429, retryAfterMs: 45000 });
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it.each(["Spouse", "Daughter"])("preserves a sanitized quota pause from a linked %s without saving partial family data", async type => {
+    // The real quota exception has a retry delay but no httpStatus. The identity
+    // sanitizer replaces it with a plain Error carrying quotaPaused instead.
+    const quota = Object.assign(new Error("Private quota provider response"), { retryAfterMs: 720000 });
+    isBlackbaudQuotaExceededError.mockImplementation(error => error === quota);
+    familyProvider([{ type, name: "Taylor Example", relation_id: "456" }], { 456: quota });
+    const response = await summary();
+    const payload = await response.json();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("720");
+    expect(payload).toMatchObject({ quotaPaused: true, providerStatus: null, retryAfterMs: 720000,
+      failureStage: "constituent_retrieval" });
+    expect(JSON.stringify(payload)).not.toContain("Private quota provider response");
+    expect(payload).not.toHaveProperty("mapped");
+    expect(payload).not.toHaveProperty("warnings");
+    expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/constituents/456"))).toHaveLength(1);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+    expect(sql.mock.calls.some(([s, ...values]) => s.join(" ").includes("INSERT INTO blackbaud_constituent_summary_cache") &&
+      values.some(value => typeof value === "string" && value.startsWith("constituent-summary-v4|")))).toBe(false);
+  });
+
+  it("propagates an explicit saved quota pause from an optional provider section", async () => {
+    familyProvider(Object.assign(new Error("Requests paused"), { quotaPaused: true, retryAfterMs: 900000 }));
+    const response = await summary();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ quotaPaused: true, retryAfterMs: 900000 });
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
   });
 
