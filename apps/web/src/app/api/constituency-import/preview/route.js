@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { customFieldInput, deferredCustomFieldWrite } from "@/utils/importCustomFields";
 import { EXTENDED_IMPORT_NAMES, extendedNameValidation } from "@/utils/importExtendedNames";
 import { parseImportDate as parseBirthDate } from "@/utils/importDate";
 import { importSetupFileBlockers } from "@/utils/importSetups";
@@ -275,6 +276,9 @@ function getRowInput(row, mappings, defaults = {}) {
     startDate: getMappedValue(row, mappings, "startDate") || cleanText(defaults.startDate),
     endDate: getMappedValue(row, mappings, "endDate") || cleanText(defaults.endDate),
   };
+
+  const customField = customFieldInput(row, mappings, defaults);
+  if (customField) input.customField = customField;
 
   const educationRelationship = {
     action: defaultEducationAction,
@@ -1456,6 +1460,7 @@ export function buildNewConstituentReviewWrites(input, match) {
     buildDeferredProfileDetailWrite(input), buildDeferredContactDetailWrite(input),
     buildDeferredNameFormatDetailWrite(input), buildDeferredEducationRelationshipWrite(input, match),
     buildDeferredConstituencyCodeDetailWrite(input), buildOrganizationRelationshipWrite(input, match),
+    deferredCustomFieldWrite(input),
   ].filter(Boolean);
 }
 
@@ -1511,7 +1516,7 @@ function buildWritePlan(
   const deferNameFormatReview = options?.deferNameFormatReview === true;
   const deferConstituencyReview = options?.deferConstituencyReview === true;
   const contactSnapshotStatus = options?.contactSnapshotStatus;
-  const writes = [];
+  const writes = [deferredCustomFieldWrite(input)].filter(Boolean);
   const reasons = [];
 
   if (deferConstituencyReview) {
@@ -3184,6 +3189,7 @@ export async function POST(request) {
       let educationFetchError = "";
       let deferConstituencyCodes = false;
       const deferredHydration = {
+        ...(input.customField ? { customFields: true } : {}),
         detail: false,
         contacts: false,
         nameFormats: false,

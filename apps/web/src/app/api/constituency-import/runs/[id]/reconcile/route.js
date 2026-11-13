@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { readImportCustomFields, releaseImportCustomFieldClaim } from "@/app/api/utils/importCustomFields";
+import { matchingCustomFields, customFieldInputError } from "@/utils/importCustomFields";
 import { EXTENDED_IMPORT_NAMES } from "@/utils/importExtendedNames";
 import { quickImportInputKey } from "@/utils/quickImportWorkflow";
 import { getImportWriteResults } from "@/utils/importWriteResults";
@@ -289,6 +291,7 @@ function createSnapshotReader({ request, user, constituentId }) {
     return cache.get(key);
   };
   return {
+    customFields: () => readImportCustomFields({ user, origin, constituentId }),
     constituent: () => read("constituent", `/constituent/v1/constituents/${encodeURIComponent(constituentId)}`),
     emails: async () => getCollection(await read("emails", `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/emailaddresses`)),
     phones: async () => getCollection(await read("phones", `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/phones`)),
@@ -327,6 +330,15 @@ function contactMismatch({ write, applyResult, contacts, contact, kind }) {
 async function reconcileWrite({ write, applyResult, reader, verifyExisting = false }) {
   if (!verifyExisting && applyResult?.status !== "applied") {
     return needsReview(write, "No completed NXT write is available to verify for this staged change.");
+  }
+
+  if (write.type === "constituent_custom_field") {
+    if (customFieldInputError(write) || !write.payload || write.requiresReview) return needsReview(write, "The custom-field plan is not fully validated.");
+    const fields = await reader.customFields();
+    const matches = matchingCustomFields(fields, write.payload, write.dataType);
+    return matches.length === 1 && fields.filter((field) => field.category.toLowerCase() === write.payload.category.toLowerCase()).length === 1 && (!applyResult?.customFieldId || String(matches[0].id) === applyResult.customFieldId)
+      ? confirmed(write, "The custom-field category, value, date and comment match NXT.")
+      : needsReview(write, "The exact custom field is missing, differs, or is duplicated. Nothing was resent.");
   }
 
   if (write.type === "constituent_name") {
@@ -531,7 +543,9 @@ async function reconcileRow({ request, user, row, verifyExisting = false }) {
   const results = [];
   for (const [writeIndex, write] of writes.entries()) {
     try {
-      results.push({ ...(await reconcileWrite({ write, applyResult: getAppliedResult(row, writeIndex), reader, verifyExisting })), writeIndex });
+      const result = await reconcileWrite({ write, applyResult: getAppliedResult(row, writeIndex), reader, verifyExisting });
+      if (write.type === "constituent_custom_field" && result.status === "confirmed") await releaseImportCustomFieldClaim(row.id, constituentId, write.category);
+      results.push({ ...result, writeIndex });
     } catch (error) {
       results.push({
         ...needsReview(write, error instanceof Error ? error.message : "NXT could not be read for verification."),

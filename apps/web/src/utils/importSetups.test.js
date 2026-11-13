@@ -6,6 +6,13 @@ const mappings = { blackbaudConstituentId: "Record", email: "Email", emailMakePr
 const base = () => ({ name: "Update contacts", mappings, defaults: { importIntent: "updates", updateEmailFields: true, defaultEmailType: "Personal" } });
 
 describe("reusable import configuration", () => {
+  it("retains category and column mappings, but never row values or approval", () => {
+    const setup = normalizeImportSetup({ name: "Interests", mappings: { blackbaudConstituentId: "ID", customFieldValue: "Value", customFieldDate: "Date", customFieldComment: "Comment" }, defaults: { customFieldCategory: "Prospect Research", customFieldValue: "Private value", approved: true } });
+    expect(setup.defaults.customFieldCategory).toBe("Prospect Research");
+    expect(setup.mappings.customFieldValue).toBe("Value");
+    expect(JSON.stringify(setup)).not.toMatch(/Private value|approved/);
+    for (const name of ["MGOGPT", "Relationship Originator"]) expect(() => normalizeImportSetup({ ...setup, defaults: { customFieldCategory: name } })).toThrow();
+  });
   it("stores only allowlisted reusable values, never approvals or record-specific decisions", () => {
     const source = { ...base(), rows: [{ firstName: "Private" }], sourceFilename: "private.csv", match: { id: "123" },
       defaults: { ...base().defaults, createdBlackbaudConstituentId: "123", importSetupConfirmed: true, reusableSetup: true, makePrimary: true,

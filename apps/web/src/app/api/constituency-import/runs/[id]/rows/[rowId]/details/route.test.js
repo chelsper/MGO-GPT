@@ -90,6 +90,22 @@ function makeRequest(body) {
 }
 
 describe("constituency import row detail route", () => {
+  it.each([[], [{ id: "1", category: "Interest", value: "Science" }], [{ id: "1", category: "Interest", value: "Other" }]].map((fields) => [fields]))("hydrates custom fields without dropping another pending operation: %j", async (fields) => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.input.customField = { category: "Interest", value: "Science", date: "", comment: "" };
+    row.preview.deferredHydration.customFields = true;
+    row.requested_writes.push({ type: "constituent_custom_field", ...row.preview.input.customField, action: "load_current", requiresReview: true, deferredHydration: true });
+    sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "9" }]).mockResolvedValueOnce([{ status: "Needs Review" }]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockImplementation(async (path) => path.endsWith("categories/details") ? [{ category: "Interest", type: "Text" }] : { value: fields });
+    const response = await POST(makeRequest({ scopes: ["customFields"] }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(200);
+    const call = sqlMock.mock.calls.find(([strings]) => strings.join("").includes("UPDATE constituency_import_rows"));
+    const writes = JSON.parse(call[3]);
+    expect(writes.some((write) => write.type === "profile_detail_review")).toBe(true);
+    expect(writes.find((write) => write.type === "constituent_custom_field").action).toBe(!fields.length ? "add" : fields[0].value === "Science" ? "skip_existing" : "review_existing");
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method)).toBe(true);
+  });
   beforeEach(() => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();

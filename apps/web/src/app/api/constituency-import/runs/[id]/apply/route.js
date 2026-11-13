@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { applyImportCustomField } from "@/app/api/utils/importCustomFields";
 import { EXTENDED_IMPORT_NAMES, extendedNamePayload, extendedNameValidation } from "@/utils/importExtendedNames";
 import { parseImportDate as parseBirthDate } from "@/utils/importDate";
 import { completeImportContactCollection } from "@/utils/importContactCollection";
@@ -1970,6 +1971,7 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
 }
 
 async function applyWrite({ request, user, row, write }) {
+  if (write?.type === "constituent_custom_field") return applyImportCustomField({ request, user, row, write }, blackbaudApiFetch);
   if (write?.type === "constituent_name" && write?.action === "update") {
     return applyConstituentNameUpdate({ request, user, row, write });
   }

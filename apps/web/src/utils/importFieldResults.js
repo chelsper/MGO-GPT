@@ -41,6 +41,7 @@ export function savedImportContactContext(row, run) {
 }
 
 function describeWrite(write) {
+  if (write.type === "constituent_custom_field") return [{ field: `Custom field: ${write.category || "Category needed"}`, value: [write.value, write.date && `date ${write.date}`, write.comment && `comment ${write.comment}`].filter((value) => value !== undefined && value !== "").join("; ") }];
   if (["constituent_name", "constituent_profile"].includes(write.type)) {
     const keys = write.type === "constituent_name" ? ["firstName", "lastName", "preferredName", "middleName", "maidenName"] : ["title", "gender", "ethnicity", "birthDate", "suffix"];
     return keys.filter((key) => text(write[key])).map((key) => ({ field: labels[key], value: text(write[key]), fieldKey: key }));

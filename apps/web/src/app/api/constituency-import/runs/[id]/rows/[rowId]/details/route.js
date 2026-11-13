@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { prepareImportCustomField } from "@/app/api/utils/importCustomFields";
 import { completeImportContactCollection } from "@/utils/importContactCollection";
 import { isImportMatchRejected } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
@@ -32,10 +33,11 @@ import {
 } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
-const DETAIL_SCOPES = new Set(["profile", "contacts", "nameFormats", "educations", "codes"]);
+const DETAIL_SCOPES = new Set(["profile", "contacts", "nameFormats", "educations", "codes", "customFields"]);
 const DEFERRED_DETAIL_REASON_PATTERN =
   /^Open this row to (?:finish loading|load) the current NXT\b/i;
 const SCOPE_WRITE_TYPES = {
+  customFields: new Set(["constituent_custom_field"]),
   profile: new Set(["profile_detail_review", "constituent_name", "constituent_profile"]),
   contacts: new Set(["contact_detail_review", "email_address", "phone", "address"]),
   nameFormats: new Set(["name_format_detail_review", "constituent_name_format"]),
@@ -235,6 +237,7 @@ function getDeferredHydration(preview) {
 
 function removeDetailReason(reasons, scope) {
   const patterns = {
+    customFields: /load the current NXT custom fields/i,
     profile: /load the current NXT name and profile values/i,
     contacts: /load the current NXT email, phone, and address values/i,
     nameFormats: /load the current NXT addressee and salutation values/i,
@@ -508,7 +511,7 @@ function getFieldReviewDecisions(preview, writePlan, type) {
 
 function getDetailFailureMessage(scope, error) {
   const name =
-    scope === "profile"
+    scope === "customFields" ? "custom-field" : scope === "profile"
       ? "profile"
       : scope === "contacts"
         ? "contact"
@@ -754,6 +757,17 @@ export async function POST(request, { params }) {
       } catch (error) {
         recordScopeFailure("nameFormats", error);
       }
+    }
+
+    if (scopes.includes("customFields") && preview.input?.customField) {
+      try {
+        const write = await prepareImportCustomField(preview.input.customField, { user: authResult.user, origin, constituentId });
+        writePlan = appendScopeWrites(removeScopeWrites(writePlan, "customFields"), "customFields", [write]);
+        deferredHydration.customFields = false;
+        reasons = removeDetailReason(reasons, "customFields");
+        detailMessages.push(write.validationMessage || "Checked the custom-field category and existing values in NXT.");
+        loadedAnyScope = true;
+      } catch (error) { recordScopeFailure("customFields", error); }
     }
 
     if (scopes.includes("educations") && preview.input?.educationRelationship) {

@@ -102,6 +102,17 @@ function makeRow(overrides = {}) {
 }
 
 describe("constituency import new-record create route", () => {
+  it.each([false, true])("validates custom-field configuration before creating identity: %s", async (invalid) => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.input.customField = { category: invalid ? "MGOGPT" : "Interest", value: "Science", date: "", comment: "" };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValueOnce([{ ...row, status: "Creating" }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ status: "Ready" }]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockImplementation(async (path) => path.endsWith("categories/details") ? [{ category: "Interest", type: "Text" }] : { id: "456" });
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const writes = blackbaudApiFetchMock.mock.calls.filter(([, options]) => options.method === "POST");
+    if (invalid) { expect(response.ok).toBe(false); expect(writes).toHaveLength(0); }
+    else { expect(response.status).toBe(200); expect(writes).toHaveLength(1); expect(writes[0][0]).toBe("/constituent/v1/constituents"); expect(writes[0][1].body).not.toHaveProperty("customField"); }
+  });
   it.each([false, true])("sends extended names on creation or holds invalid values: %s", async (invalid) => {
     const { POST } = await import("./route.js");
     const row = makeRow();

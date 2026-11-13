@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { validateImportCustomField } from "@/app/api/utils/importCustomFields";
 import { extendedNamePayload, extendedNameValidation } from "@/utils/importExtendedNames";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
@@ -305,6 +306,13 @@ export async function POST(request, { params }) {
     const credentials = { userId: authResult.user.id, authUserId: authResult.user.id, origin };
     let newRecordFields = {};
     try {
+      if (input.customField) {
+        try { await validateImportCustomField(input.customField, { user: authResult.user, origin }); }
+        catch (error) {
+          if (error.httpStatus || error.status || error.retryAfterMs) throw error;
+          throw new ImportReviewRequired(`Custom field: ${error.message}`);
+        }
+      }
       newRecordFields = await configuredNameFormatPayload(input, credentials);
       let matchCandidates = [];
       let localDuplicate = null;

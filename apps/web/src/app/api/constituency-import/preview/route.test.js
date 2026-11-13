@@ -60,6 +60,20 @@ const mappings = {
 };
 
 describe("constituency import preview route", () => {
+  it("maps custom field columns and stages a held addition without writing or eagerly scanning fields", async () => {
+    const { POST } = await import("./route.js");
+    const match = { blackbaudConstituentId: "123", lookupId: "A123", name: "Avery Example", raw: { type: "Individual", first: "Avery", last: "Example" } };
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue(match);
+    getBlackbaudConstituentByIdMock.mockResolvedValue(match);
+    const response = await POST(makeRequest({ rows: [{ ID: "A123", Value: "Science", Date: "11/13/2026", Comment: "Reviewed" }], mappings: { lookupId: "ID", customFieldValue: "Value", customFieldDate: "Date", customFieldComment: "Comment" }, defaults: { customFieldCategory: "Interest" } }));
+    expect(response.status).toBe(200);
+    const row = (await response.json()).rows[0];
+    expect(row.input.customField).toEqual({ category: "Interest", value: "Science", date: "11/13/2026", comment: "Reviewed" });
+    expect(row.writePlan).toContainEqual(expect.objectContaining({ type: "constituent_custom_field", action: "load_current", requiresReview: true }));
+    expect(row.status).toBe("Needs Review");
+    expect(row.deferredHydration.customFields).toBe(true);
+    expect(blackbaudApiFetchMock.mock.calls.every(([path, options]) => !options.method && !path.includes("customfields"))).toBe(true);
+  });
   it.each([true, false])("maps middle/former names and only stages approved updates: %s", async (enabled) => {
     const { POST } = await import("./route.js");
     const match = { blackbaudConstituentId: "123", lookupId: "A123", name: "Avery Example", raw: { type: "Individual", first: "Avery", last: "Example", middle: "Old", former_name: "Previous" } };

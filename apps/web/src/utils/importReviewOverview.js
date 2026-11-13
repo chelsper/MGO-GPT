@@ -161,6 +161,7 @@ export function newRecordRequestedChanges(row) {
     return [];
   const input = row.input || {};
   const lines = [];
+  if (input.customField) lines.push(`Custom field: ${input.customField.category || "Category needed"} = ${input.customField.value || "Value needed"}${input.customField.date ? `; date ${input.customField.date}` : ""}${input.customField.comment ? `; comment ${input.customField.comment}` : ""} (add only; validated before sending)`);
   const fields = (object, labels) =>
     labels
       .filter(([key]) => object?.[key])

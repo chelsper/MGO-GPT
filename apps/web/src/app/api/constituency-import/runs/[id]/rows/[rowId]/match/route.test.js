@@ -133,6 +133,7 @@ describe("manual NXT import match route", () => {
   it.each([false, true])("persists the reviewer-selected match without NXT writes, clearing identity holds (%s)", async (identityHeld) => {
     const { POST } = await import("./route.js");
     const row = makeRow();
+    row.preview.input.customField = { category: "Interest", value: "Science", date: "", comment: "" };
     if (identityHeld) {
       row.matched_blackbaud_constituent_id = "5566";
       row.preview.match = { blackbaudConstituentId: "5566", lookupId: "JH-104" };
@@ -178,6 +179,8 @@ describe("manual NXT import match route", () => {
     expect(updateCall).toBeTruthy();
     const savedPreview = JSON.parse(updateCall[7]);
     const savedWrites = JSON.parse(updateCall[8]);
+    expect(savedPreview.deferredHydration.customFields).toBe(true);
+    expect(savedWrites).toContainEqual(expect.objectContaining({ type: "constituent_custom_field", action: "load_current", requiresReview: true }));
     const savedResult = JSON.parse(updateCall[9]);
     expect(savedPreview).toMatchObject({
       matchStatus: "matched",
@@ -188,7 +191,7 @@ describe("manual NXT import match route", () => {
       profileSnapshotLoaded: true,
     });
     expect(savedPreview.reasons.join(" ")).not.toContain("Too Many Requests");
-    expect(savedWrites).toEqual([]);
+    expect(savedWrites).toEqual([expect.objectContaining({ type: "constituent_custom_field", action: "load_current", requiresReview: true })]);
     expect(savedResult.manualMatch).toMatchObject({
       constituentId: "5566",
       selectedByUserId: "7",
