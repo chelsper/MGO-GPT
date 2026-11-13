@@ -24,6 +24,8 @@ import ImportContactRecovery from "@/components/ImportContactRecovery";
 import ImportContactPreflight from "@/components/ImportContactPreflight";
 import ImportSetupLibrary from "@/components/ImportSetupLibrary";
 import ImportColumnMapping from "@/components/ImportColumnMapping";
+import ImportSetupPlan from "@/components/ImportSetupPlan";
+import { importSetupPlan } from "@/utils/importSetupPlan";
 import { importSetupActiveFields, importSetupFileBlockers } from "@/utils/importSetups";
 import ImportReviewOverview from "@/components/ImportReviewOverview";
 import ImportRowChangeSummary from "@/components/ImportRowChangeSummary";
@@ -3034,6 +3036,7 @@ export default function ConstituencyImportPage() {
   const [csvWarningCount, setCsvWarningCount] = useState(0);
   const [sourceFilename, setSourceFilename] = useState("");
   const fileInputRef = useRef(null);
+  const fieldOptionsRef = useRef(null);
   const fileReadVersionRef = useRef(0);
   const lastReadFileRef = useRef(null);
   const fileSelectionHandlerRef = useRef(null);
@@ -3135,7 +3138,6 @@ export default function ConstituencyImportPage() {
     [selectedFields, uploadedHeadersByField, mappingOverrides],
   );
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
-  const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
   const hasUploadedHeader = (key) => Boolean(activeFields[key] && uploadedHeadersByField[key]);
   const educationRelationshipFieldsActive = Boolean(
     activeFields.educationInstitution ||
@@ -3206,6 +3208,7 @@ export default function ConstituencyImportPage() {
     addresseeFormat, salutationFormat, newRecordNameFormats, updateEmailFields, updatePhoneFields, updateAddressFields,
   };
   const setupPlanKey = JSON.stringify({ rows, mappings, defaults: importDefaults });
+  const displayedSetupPlan = importSetupPlan({ rows, headers, mappings, defaults: importDefaults });
   const setupConfirmed = setupConfirmation === setupPlanKey;
   const setupBlockers = importSetupFileBlockers(rows, mappings, { ...importDefaults, reusableSetup: setupInUse });
   if (setupInUse && csvWarningCount) setupBlockers.push("Correct the CSV formatting warnings or duplicate column names, then upload the file again.");
@@ -3349,6 +3352,8 @@ export default function ConstituencyImportPage() {
 
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
+    if (fieldOptionsRef.current) fieldOptionsRef.current.open = false;
+    setOpenFieldGroups({});
     setCsvWarningCount(parsed.errors.length);
     setSetupConfirmation("");
     if (selectedSetup) {
@@ -3541,6 +3546,26 @@ export default function ConstituencyImportPage() {
 
   function toggleFieldGroup(group) {
     setOpenFieldGroups((current) => ({ ...current, [group]: !current[group] }));
+  }
+
+  function showFieldOptions(group) {
+    if (!FIELD_GROUP_ORDER.includes(group)) return;
+    setOpenFieldGroups({ [group]: true });
+    if (!fieldOptionsRef.current) return;
+    fieldOptionsRef.current.open = true;
+    const target = fieldOptionsRef.current.querySelector(`[data-import-field-group="${group}"]`);
+    target?.focus();
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function chooseSetupUpdate(key, enabled) {
+    if (importBusy || preview?.savedRun) return;
+    const setter = { updateNameFields: setUpdateNameFields, updateIndividualProfileFields: setUpdateIndividualProfileFields, updateAddressFields: setUpdateAddressFields }[key];
+    if (!setter) return;
+    setter(enabled);
+    setSetupConfirmation("");
+    setPreview(null);
+    setSaveMessage("");
   }
 
   function selectConstituencyAction(nextAction) {
@@ -6044,7 +6069,7 @@ export default function ConstituencyImportPage() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
             gap: "18px",
             alignItems: "start",
           }}
@@ -6062,11 +6087,11 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  3. Columns and contact defaults
+                  3. Match columns and choose changes
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                  Match the columns already in your file. Use more options below for field
-                  descriptions, templates, and changes to existing names or addresses.
+                  Only detected or selected fields are shown. Check their sample values, then
+                  choose what to include in Your import plan. Use Add more fields for anything missing.
                 </p>
               </div>
 
@@ -6081,18 +6106,11 @@ export default function ConstituencyImportPage() {
                     setPreview(null);
                     setSaveMessage("");
                   }} />
-                <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
-                  disabled={importBusy} onChoice={chooseContactImport}
-                  onDefaultType={(key, value) => {
-                    if (importBusy) return;
-                    setContactImportDefaults((current) => ({ ...current, [key]: value }));
-                    setPreview(null);
-                    setSaveMessage("");
-                  }} />
               </>}
-              <details open={headers.length === 0 && !preview?.savedRun}>
+              {!headers.length && !preview?.savedRun && <p className="text-sm text-slate-600">Upload your file first. Fields will be detected automatically. If you need a template, choose fields below.</p>}
+              <details ref={fieldOptionsRef}>
                 <summary className="min-h-11 cursor-pointer py-3 font-semibold text-slate-700">More fields and update options</summary>
-                <div className="grid gap-3">
+                <fieldset disabled={importBusy || Boolean(preview?.savedRun)} className="grid min-w-0 gap-3">
               {FIELD_GROUP_ORDER.map((group) => {
                 const contactSet = ADDITIONAL_CONTACT_SETS[group];
                 const contactSetActive = contactSet
@@ -6116,6 +6134,8 @@ export default function ConstituencyImportPage() {
                   >
                     <button
                       type="button"
+                      data-import-field-group={group}
+                      className="focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-700"
                       onClick={() => toggleFieldGroup(group)}
                       aria-expanded={isOpen}
                       style={{
@@ -6451,7 +6471,7 @@ export default function ConstituencyImportPage() {
                           </div>
                         </div>
                       ) : null}
-                      {group === "Name fields" && nameFieldsActive ? (
+                      {group === "Name fields" && nameFieldsActive && !headers.length ? (
                         <div
                           style={{
                             border: "1px solid #C7D2FE",
@@ -6501,7 +6521,7 @@ export default function ConstituencyImportPage() {
                           </label>
                         </div>
                       ) : null}
-                      {group === "Individual profile fields" && individualProfileFieldsActive ? (
+                      {group === "Individual profile fields" && individualProfileFieldsActive && !headers.length ? (
                         <div
                           style={{
                             border: "1px solid #C7D2FE",
@@ -6707,9 +6727,9 @@ export default function ConstituencyImportPage() {
                         </div>
                       ) : null}
                       {["Email fields", "Phone fields"].includes(group) ? (
-                        <p className="text-sm text-slate-600">Choose whether to import these contacts in the contact plan above.</p>
+                        <p className="text-sm text-slate-600">Choose whether to import these contacts in Your import plan.</p>
                       ) : null}
-                      {group === "Address fields" && addressFieldsActive ? (
+                      {group === "Address fields" && addressFieldsActive && !headers.length ? (
                         <div
                           style={{
                             border: "1px solid #BBF7D0",
@@ -6798,11 +6818,11 @@ export default function ConstituencyImportPage() {
                   </div>
                 );
               })}
-                </div>
+                </fieldset>
               </details>
             </section>
 
-            <section
+            <details
               style={{
                 backgroundColor: "white",
                 border: "1px solid #E5E7EB",
@@ -6812,15 +6832,8 @@ export default function ConstituencyImportPage() {
                 gap: "14px",
               }}
             >
-              <div>
-                <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  Active CSV headers
-                </h2>
-                <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                  These active fields are expected in the uploaded CSV. Extra columns are ignored
-                  in the import review, and missing optional active headers are ignored.
-                </p>
-              </div>
+              <summary className="min-h-11 cursor-pointer py-3 font-semibold text-slate-700">Template and selected CSV headers</summary>
+              <p className="my-3 text-sm text-slate-600">Optional: download a template using the selected fields. You can use your own CSV instead.</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                 {expectedHeaders.map((header) => (
                   <CopyableHeaderCode key={header}>{header}</CopyableHeaderCode>
@@ -6843,7 +6856,7 @@ export default function ConstituencyImportPage() {
                   Download template CSV
                 </button>
               </div>
-            </section>
+            </details>
           </div>
 
           <aside
@@ -6852,70 +6865,21 @@ export default function ConstituencyImportPage() {
               border: "1px solid #E5E7EB",
               borderRadius: "20px",
               padding: "20px",
-              position: "sticky",
-              top: "16px",
               display: "grid",
               gap: "14px",
             }}
           >
-            <div>
-              <h2 style={{ margin: 0, fontSize: "20px", color: "#111827" }}>
-                Import review checklist
-              </h2>
-              <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                Nothing on this page writes to NXT.
-              </p>
-            </div>
-            <div style={{ display: "grid", gap: "8px" }}>
-              <Pill tone={identityRequirementMet ? "green" : "amber"}>
-                {identityRequirementMet
-                  ? importIntent === "new"
-                    ? "New-record identity fields active"
-                    : "Identity fields active"
-                  : importIntent === "new"
-                    ? "Activate first and last name"
-                    : "Activate ID, lookup, email, or first/last name"}
-              </Pill>
-              <Pill tone="blue">
-                {importIntent === "updates"
-                  ? "Existing-record update mode"
-                  : importIntent === "new"
-                    ? "Potential new records stay in review"
-                    : "Mixed file: updates and new candidates"}
-              </Pill>
-              <Pill tone={hasImportOperation ? "green" : "amber"}>
-                {hasImportOperation
-                  ? "Import operation selected"
-                  : "Select a constituent code, relationship, name, or email operation"}
-              </Pill>
-              {mappedEmailUpdate ? <Pill tone="blue">Email: Included for review</Pill> : null}
-              {mappedPhoneUpdate ? <Pill tone="blue">Phone: Included for review</Pill> : null}
-              {mappedIndividualProfileUpdate ? (
-                <Pill tone="blue">Individual profile: Review and update</Pill>
-              ) : null}
-              {activeFields.targetConstituency ? (
-                <Pill tone="blue">
-                  Constituent code:{" "}
-                  {constituencyAction === "add" ? "Add Additional" : "Replace Existing"}
-                </Pill>
-              ) : null}
-              {educationRelationshipFieldsActive ? (
-                <Pill tone="blue">
-                  Education: {educationRelationshipAction === "review-update" ? "Update Existing" : "Add Additional"}
-                </Pill>
-              ) : null}
-              {organizationRelationshipFieldsActive ? (
-                <Pill tone="blue">Organization: Add Additional</Pill>
-              ) : null}
-              <Pill tone={rows.length ? "green" : "amber"}>
-                {rows.length ? `${rows.length} rows parsed` : "Upload CSV rows"}
-              </Pill>
-              <Pill tone={missingHeaders.length === 0 ? "green" : "amber"}>
-                {missingHeaders.length === 0
-                  ? "All active headers present"
-                  : `${missingHeaders.length} active header(s) not in CSV`}
-              </Pill>
-            </div>
+            <ImportSetupPlan plan={displayedSetupPlan} saved={Boolean(preview?.savedRun)} disabled={importBusy}
+              onChoice={chooseSetupUpdate} onOptions={showFieldOptions}>
+              <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
+                disabled={importBusy} onChoice={chooseContactImport}
+                onDefaultType={(key, value) => {
+                  if (importBusy) return;
+                  setContactImportDefaults((current) => ({ ...current, [key]: value }));
+                  setPreview(null);
+                  setSaveMessage("");
+                }} />
+            </ImportSetupPlan>
             <div
               style={{
                 borderTop: "1px solid #E5E7EB",
@@ -7095,7 +7059,7 @@ export default function ConstituencyImportPage() {
               NXT availability is not available right now. You can still prepare this import. {nxtAvailabilityError}
             </div>
           ) : null}
-          {missingHeaders.length ? (
+          {missingHeaders.length && rows.length && !preview?.savedRun ? (
             <div
               style={{
                 border: "1px solid #FDE68A",
@@ -7106,22 +7070,8 @@ export default function ConstituencyImportPage() {
                 fontWeight: 800,
               }}
             >
-              Active fields not found in this CSV will be ignored for this import review:{" "}
+              Selected fields have no available column. Map or remove them in Match your columns:{" "}
               {missingHeaders.join(", ")}
-            </div>
-          ) : null}
-          {extraHeaders.length ? (
-            <div
-              style={{
-                border: "1px solid #FDE68A",
-                borderRadius: "14px",
-                backgroundColor: "#FFFBEB",
-                color: "#92400E",
-                padding: "12px",
-                fontWeight: 800,
-              }}
-            >
-              Extra CSV headers will be ignored in this import review: {extraHeaders.join(", ")}
             </div>
           ) : null}
           {error ? (
@@ -7142,7 +7092,7 @@ export default function ConstituencyImportPage() {
                 : `Import review could not be created: ${error}`}
             </div>
           ) : null}
-          {previewBlockers.length ? (
+          {!preview?.savedRun && rows.length > 0 && (previewBlockers.length ? (
             <div
               style={{
                 border: "1px solid #FDE68A",
@@ -7154,7 +7104,9 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Import review needs: {previewBlockers.join(" ")}
+              <strong>Before checking NXT</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5">{[...new Set(previewBlockers)].map((message) => <li key={message}>{message}</li>)}</ul>
+              <p className="mt-2 text-sm font-normal">Your file is still here. Resolve these choices in the plan above; nothing has been sent.</p>
             </div>
           ) : (
             <button
@@ -7179,7 +7131,7 @@ export default function ConstituencyImportPage() {
                   : "Checking import..."
                 : "Review uploaded CSV"}
             </button>
-          )}
+          ))}
 
           {previewProgress ? (
             <div

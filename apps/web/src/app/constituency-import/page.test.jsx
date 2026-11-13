@@ -270,6 +270,38 @@ describe("filterable import review", () => {
 });
 
 describe("contact preparation from an uploaded file", () => {
+  it("keeps the catalog and template closed before upload and retains access to saved runs", async () => {
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("button", { name: /Run #42/ });
+    expect(screen.getByText("More fields and update options").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Template and selected CSV headers").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(/Upload a CSV to see its fields and choices/)).toBeVisible();
+    expect(screen.queryByText("Before checking NXT")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Run #42/ }));
+    await screen.findByRole("heading", { name: "Saved import" });
+    expect(screen.queryByText(/requested plan, not an approval/)).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  });
+  it("changes matched-record choices in the plan without sending, and opens only the requested advanced group", async () => {
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("button", { name: /Run #42/ });
+    fireEvent.change(document.getElementById("constituency-import-file"), { target: { files: [{ name: "choices.csv", text: async () => "NXT System ID,First Name,Title,Address Line 1\n123,Avery,Dr.,1 Fictional Way" }] } });
+    await screen.findByText("Loaded choices.csv.");
+    const plan = within(screen.getByRole("region", { name: "Your import plan" }));
+    expect(plan.getByRole("checkbox", { name: "Update matched NXT name fields" })).not.toBeChecked();
+    fireEvent.click(plan.getByRole("checkbox", { name: "Update matched NXT name fields" }));
+    expect(plan.getByRole("checkbox", { name: "Update matched NXT name fields" })).toBeChecked();
+    fireEvent.click(plan.getByRole("checkbox", { name: "Review and import addresses" }));
+    expect(plan.getByText("Matching only")).toBeVisible();
+    fireEvent.click(plan.getByRole("button", { name: "Options for name fields" }));
+    expect(screen.getByText("More fields and update options").closest("details")).toHaveAttribute("open");
+    const target = document.querySelector('[data-import-field-group="Name fields"]');
+    expect(target).toHaveAttribute("aria-expanded", "true");
+    expect(target).toHaveFocus();
+    expect(screen.getAllByRole("checkbox", { name: "Update matched NXT name fields" })).toHaveLength(1);
+    expect(fetch.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  });
   it("maps middle/former names in place without submitting an import and clears them on a new file", async () => {
     render(<ConstituencyImportPage />);
     await screen.findByRole("button", { name: /Run #42/ });
@@ -296,6 +328,7 @@ describe("contact preparation from an uploaded file", () => {
     expect(screen.getByLabelText("Phone Number column")).toHaveValue("Phone");
     expect(screen.queryByLabelText("First Name column")).not.toBeInTheDocument();
     expect(screen.getByText("More fields and update options").closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("Add more fields"));
     fireEvent.change(screen.getByLabelText("Add another field"), { target: { value: "preferredName" } });
     fireEvent.click(screen.getByRole("button", { name: "Add field" }));
     fireEvent.change(screen.getByLabelText("Preferred Name column"), { target: { value: "Nickname" } });
@@ -414,6 +447,15 @@ describe("saved import setups in the full import workflow", () => {
     fireEvent.change(screen.getByLabelText("Email Address column"), { target: { value: "" } });
     expect(confirmation()).not.toBeChecked();
     expect(screen.getByText(/Choose an available column for Email Address/)).toBeInTheDocument();
+  });
+  it("invalidates setup confirmation when matched-name choices change in the plan", async () => {
+    await start(); await upload();
+    fireEvent.click(confirmation());
+    expect(confirmation()).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Update matched NXT name fields" }));
+    expect(confirmation()).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
   });
   it("blocks missing headers without silently mapping an alias and lets the user repair them", async () => {
     await start(); await upload(csv.replace("Given,", "First Name,"));

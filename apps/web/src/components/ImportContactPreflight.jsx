@@ -15,7 +15,7 @@ export default function ImportContactPreflight({ summary, intent, defaults, onCh
       className="mt-3 min-h-11 rounded-full border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50">
       Include all mapped emails and phones
     </button>}
-    <div className="mt-4 grid gap-3 md:grid-cols-2">
+    <div className="mt-4 grid gap-3 xl:grid-cols-2">
       {summary.groups.map((group) => <fieldset key={group.key} disabled={disabled} className="min-w-0 rounded-xl border border-emerald-200 bg-white p-4">
         <legend className="px-1 font-bold text-slate-900">{group.label}</legend>
         <p className="text-sm text-slate-600">{group.count} contact {group.count === 1 ? "value" : "values"} across {group.rowCount} {group.rowCount === 1 ? "row" : "rows"}; {group.primaryCount} marked primary in the file.</p>
