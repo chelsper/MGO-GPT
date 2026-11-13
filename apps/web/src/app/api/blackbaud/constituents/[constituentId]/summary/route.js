@@ -9,6 +9,7 @@ import sql from "@/app/api/utils/sql";
 import { maintenanceContinuationEnabled, maintenanceOrigin } from "@/app/api/utils/portfolioMaintenanceContinuation";
 import { reserveMaintenanceCall } from "@/app/api/utils/portfolioMaintenanceStore";
 import { withBlackbaudReadBudget } from "@/app/api/utils/blackbaudReadBudget";
+import { isBlackbaudReadTimeout, readTimeoutMetadata } from "@/app/api/utils/blackbaudReadTimeout";
 import {
   blackbaudApiFetch,
   getBlackbaudConfigIssues,
@@ -250,6 +251,7 @@ async function resolveConstituentPayload({
       stage: authFailure ? "blackbaud_auth" : "constituent_retrieval",
       httpStatus: providerStatus,
       connectionRetryable: authFailure && error?.connectionRetryable === true,
+      ...readTimeoutMetadata(error),
       quotaPaused,
       retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 0,
     });
@@ -1359,7 +1361,8 @@ async function handleGet(request, { params }) {
       const fy = await fyResponse.json();
       if (!fyResponse.ok || Object.values(fy?.warnings || {}).some(Boolean) || !fy?.byConstituentId?.[constituentId]) {
         const error = new Error(fy?.error || "Incomplete fiscal-year giving; previous snapshot retained");
-        error.httpStatus = fy?.providerStatus || fyResponse.status;
+        error.httpStatus = fy?.providerStatus || (isBlackbaudReadTimeout(fy) ? null : fyResponse.status);
+        Object.assign(error, readTimeoutMetadata(fy));
         error.retryAfterMs = fy?.retryAfterMs || 0;
         error.quotaPaused = fy?.quotaPaused;
         if (fy?.failureStage === "blackbaud_auth") {
@@ -1725,14 +1728,15 @@ async function handleGet(request, { params }) {
             : "Failed to fetch Blackbaud constituent summary",
         providerStatus,
         ...(error?.code === "NXT_CONSTITUENT_IDENTITY_MISMATCH" ? { code: error.code } : {}),
+        ...readTimeoutMetadata(error),
         failureStage: ["proposal_summary", "blackbaud_auth", "constituent_identity", "constituent_retrieval"].includes(error?.stage)
-          ? error.stage : providerStatus ? "blackbaud_retrieval" : "summary_processing",
+          ? error.stage : providerStatus || isBlackbaudReadTimeout(error) ? "blackbaud_retrieval" : "summary_processing",
         connectionRetryable: error?.stage === "blackbaud_auth" && error?.connectionRetryable === true,
         quotaPaused,
         retryAfterMs,
       },
       {
-        status: quotaPaused ? 503 : providerStatus === 429 ? 429 : error?.summaryIdentityFailure ? error.summaryHttpStatus : 500,
+        status: quotaPaused ? 503 : providerStatus === 429 ? 429 : isBlackbaudReadTimeout(error) ? 504 : error?.summaryIdentityFailure ? error.summaryHttpStatus : 500,
         headers: {
           "Cache-Control": "private, no-store",
           ...(retryAfterMs ? { "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))) } : {}),

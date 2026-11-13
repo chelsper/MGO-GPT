@@ -132,6 +132,21 @@ describe("constituent summary identity boundary", () => {
     expect(writes()).toHaveLength(0);
   });
 
+  it("retains a verified read-timeout signal through identity sanitization", async () => {
+    blackbaudApiFetch.mockRejectedValue(Object.assign(new Error("private transport detail"), {
+      code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+    }));
+    const response = await read();
+    expect(response.status).toBe(504);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+      failureStage: "constituent_retrieval", providerStatus: null });
+    expect(JSON.stringify(payload)).not.toContain("private transport detail");
+    expect(loggedErrors()).not.toContain("private transport detail");
+    expect(writes()).toHaveLength(0);
+    expect(blackbaudApiFetch).toHaveBeenCalledOnce();
+  });
+
   it.each([false, true])("keeps the existing throttle/backoff contract (quota pause: %s)", async quotaPaused => {
     blackbaudApiFetch.mockRejectedValue(Object.assign(new Error("Requests paused"), {
       httpStatus: 429, retryAfterMs: 30000, quotaPaused,

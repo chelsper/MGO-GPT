@@ -132,6 +132,17 @@ describe("scheduled summary continuation authorization", () => {
       connectionRetryable: true, retryAfterMs: 600000, quotaPaused: false });
     expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
   });
+
+  it("returns a verified giving-read timeout without replacing saved data", async () => {
+    blackbaudApiFetch.mockRejectedValue(Object.assign(new Error("Blackbaud request timed out"), {
+      code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+    }));
+    const response = await read();
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({ code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+      failureStage: "blackbaud_retrieval", providerStatus: null, quotaPaused: false });
+    expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
+  });
 });
 
 function entry(label, dates = {}) {
@@ -753,6 +764,17 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect(await response.json()).toMatchObject({ failureStage: "blackbaud_auth", providerStatus: 503,
       connectionRetryable: true, retryAfterMs: 900000 });
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(false);
+  });
+
+  it("preserves a nested FY read timeout without treating the app's 504 as a provider response", async () => {
+    listBlackbaudGifts.mockRejectedValue(Object.assign(new Error("Blackbaud request timed out"), {
+      code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+    }));
+    const response = await summary("giving_only=1&refresh=1");
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({ code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+      failureStage: "blackbaud_retrieval", providerStatus: null });
+    expect(sql.mock.calls.some(([s]) => /INSERT INTO portfolio_(giving|constituent)_snapshots/.test(s.join(" ")))).toBe(false);
   });
 
   it("also lets badge loading reuse data fetched first by a summary", async () => {

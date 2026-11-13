@@ -80,6 +80,72 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("nightly portfolio batches", () => {
+  const readTimeout = { error: "Blackbaud request timed out", code: "BLACKBAUD_READ_TIMEOUT",
+    readRetryable: true, failureStage: "blackbaud_retrieval", providerStatus: null };
+
+  it.each(["blackbaud_retrieval", "constituent_retrieval"])("defers a verified %s timeout twice, then holds it without an immediate retry", async failureStage => {
+    fetch.mockImplementation(async () => Response.json({ ...readTimeout, failureStage }, { status: 504 }));
+    for (retryCount = 0; retryCount < 3; retryCount++) {
+      sql.mockClear(); fetch.mockClear();
+      await POST(request());
+      const failure = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+      expect(failure).toContain(retryCount < 2 ? "pending" : "failed");
+      expect(failure).toContain(failureStage);
+      if (retryCount < 2) expect(failure).toContain(600000);
+      const queries = sql.mock.calls.map(([s]) => s.join(" ")).join(" ");
+      expect(queries.includes("SET status = 'paused'")).toBe(retryCount < 2);
+      expect(queries).not.toMatch(/UPDATE portfolio_constituent_snapshots|summary_payload =|normalized_payload =|SET payload =/);
+      expect(fetch).toHaveBeenCalledOnce();
+    }
+  });
+
+  it.each([
+    { code: undefined }, { readRetryable: undefined }, { readRetryable: "true" },
+    { failureStage: "summary_processing" }, { failureStage: "blackbaud_auth" },
+    { failureStage: "constituent_identity" }, { providerStatus: 401 }, { providerStatus: 403 },
+    { providerStatus: 404 }, { providerStatus: 500 },
+  ])("does not defer an ambiguous, rejected, or differently classified failure: %j", async overrides => {
+    fetch.mockResolvedValue(Response.json({ ...readTimeout, ...overrides }, { status: 504 }));
+    await POST(request());
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"))).toContain("failed");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(false);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(["full", "stale"])("does not automatically defer a manually requested %s read", async mode => {
+    job.mode = mode;
+    snapshot.stale_after = "2020-01-01";
+    fetch.mockResolvedValue(Response.json(readTimeout, { status: 504 }));
+    await POST(request());
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"))).toContain("failed");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(false);
+  });
+
+  it("does not defer an unverified HTTP 500 merely because its payload resembles a timeout", async () => {
+    fetch.mockResolvedValue(Response.json(readTimeout, { status: 500 }));
+    await POST(request());
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"))).toContain("failed");
+  });
+
+  it("uses the existing later turn to finish a recovered read without rebuilding a current summary", async () => {
+    retryCount = 1;
+    await POST(request());
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(sql.mock.calls.some(call => call.includes("giving_refreshed_summary_current"))).toBe(true);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(false);
+  });
+
+  it("retains good summary data if the timeout occurs after the giving phase", async () => {
+    snapshot.stale_after = "2020-01-01";
+    fetch.mockResolvedValueOnce(Response.json({ constituentId: "123", mapped, currentFyGiving: { recognizedReceived: 100 } }))
+      .mockResolvedValueOnce(Response.json(readTimeout, { status: 504 }));
+    await POST(request());
+    const queries = sql.mock.calls.map(([s]) => s.join(" ")).join(" ");
+    expect(queries).toContain("SET status = 'paused'");
+    expect(queries).not.toMatch(/UPDATE portfolio_constituent_snapshots|summary_payload =|normalized_payload =|SET payload =/);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ["constituent_identity", 409, null],
     ["constituent_retrieval", 404, 404],

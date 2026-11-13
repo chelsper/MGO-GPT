@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import sql from "@/app/api/utils/sql";
 import { hasBlackbaudReadBudget, reserveBlackbaudRead } from "./blackbaudReadBudget";
+import { BLACKBAUD_READ_TIMEOUT } from "./blackbaudReadTimeout";
 
 const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization";
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
@@ -662,9 +663,9 @@ export async function blackbaudApiFetch(
         requestMetrics.totalDurationMs += Date.now() - requestStartedAt;
       }
       const timedOut =
-        error instanceof Error &&
+        controller.signal.aborted || (error instanceof Error &&
         (error.name === "AbortError" ||
-          /aborted|timeout/i.test(error.message || ""));
+          /aborted|timeout/i.test(error.message || "")));
 
       if (timedOut && attempt < requestMaxRetries) {
         await sleep(getRetryDelayMs(new Response(null, { status: 504 }), attempt));
@@ -672,7 +673,11 @@ export async function blackbaudApiFetch(
       }
 
       if (timedOut) {
-        throw new Error("Blackbaud request timed out");
+        // Only our own GET deadline proves a safe read timeout. A write may
+        // already have committed, and a timeout-like message alone is not proof.
+        throw Object.assign(new Error("Blackbaud request timed out"),
+          controller.signal.aborted && String(method).toUpperCase() === "GET"
+            ? { code: BLACKBAUD_READ_TIMEOUT, readRetryable: true } : {});
       }
 
       throw error;

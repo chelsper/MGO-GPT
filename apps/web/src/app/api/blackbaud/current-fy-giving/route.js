@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isBlackbaudReadTimeout, readTimeoutMetadata } from "@/app/api/utils/blackbaudReadTimeout";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -531,12 +532,14 @@ export async function GET(request) {
             ? error.message
             : "Failed to fetch current fiscal year giving",
         providerStatus: Number(error?.httpStatus) || null,
-        failureStage: error?.stage === "blackbaud_auth" ? "blackbaud_auth" : undefined,
+        failureStage: error?.stage === "blackbaud_auth" ? "blackbaud_auth"
+          : isBlackbaudReadTimeout(error) ? "blackbaud_retrieval" : undefined,
+        ...readTimeoutMetadata(error),
         connectionRetryable: error?.connectionRetryable === true,
         retryAfterMs: Number(error?.retryAfterMs) || null,
         quotaPaused: isBlackbaudQuotaExceededError(error),
       },
-      { status: isBlackbaudQuotaExceededError(error) ? 503 : Number(error?.httpStatus) === 429 ? 429 : 500,
+      { status: isBlackbaudQuotaExceededError(error) ? 503 : Number(error?.httpStatus) === 429 ? 429 : isBlackbaudReadTimeout(error) ? 504 : 500,
         headers: error?.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined },
     );
   }
