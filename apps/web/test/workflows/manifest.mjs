@@ -102,6 +102,8 @@ export const workflowGroups = {
   "Constituent imports": [
     "src/app/constituency-import/page.test.jsx",
     "src/components/ImportColumnMapping.test.jsx",
+    "src/components/ImportSetupPlan.test.jsx",
+    "src/utils/importSetupPlan.test.js",
     "src/components/ImportContactPreflight.test.jsx",
     "src/utils/importFieldDefinitions.test.js",
     "src/utils/importFieldResults.test.js",

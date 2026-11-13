@@ -1,5 +1,27 @@
 # Quick New Constituent Creation
 
+## File-First Setup
+
+Upload the CSV before configuring fields. Only detected or selected fields appear
+under **Match your columns**, with sample values. **Add more fields** expands the
+field picker for unrecognized/custom headers. The full field catalog and optional
+template remain available but start closed. Missing saved mappings remain visible
+for explicit repair; unused columns are listed as **Not included**, not as failures.
+
+**Your import plan** gathers email/phone inclusion, contact-type defaults, primary
+flag counts, and matched name/profile/address choices. It distinguishes values
+eligible for new individuals from changes requested for existing records. It shows
+code and relationship behavior, skipped groups, and enabled name builders.
+**Options for...** opens and focuses the relevant advanced field group. Saved runs
+remain accessible without uploading a file and do not display fresh-file choices.
+
+The plan is a local description, not a claim that records matched or were written.
+Setup confirmation still expires after edits or a replacement upload. Blocking
+choices are listed before **Review uploaded CSV**; advisory contact issues remain
+reviewable without adding new global barriers. All existing server validation,
+duplicate checks, explicit write approvals, recovery, and verification remain intact.
+This presentation change adds no NXT requests or database schema changes.
+
 ## Reusable Import Setups
 
 Choose **Use a saved import setup** above the upload area, or configure a file once and expand **Save or manage a setup** to name it. Setups are private to the signed-in reviewer in this app instance, not the acting fundraiser's workspace. They persist across sessions and devices. Admin and Advancement Services accounts can save, rename/update, or remove their own setups; removal does not delete import history or change NXT.
@@ -7,7 +29,7 @@ Choose **Use a saved import setup** above the upload area, or configure a file o
 A setup remembers selected CSV column names, New/Updates/Mixed purpose, supported import operations, contact types for blank values, email/phone inclusion or intentional omission, and configured name-format defaults. Primary choices are column mappings, not blanket authorization: each file supplies its own primary flags. No CSV rows, recipient IDs, matches, replacement targets, prior approvals, or write plans are stored in a setup. Saving a setup never calls NXT.
 
 1. Select a setup and upload a CSV. Nothing is selected automatically when returning to the page.
-2. Under **Review import**, expand **Review columns** to inspect or repair mappings. Missing/renamed setup columns are not guessed. Unmapped extra columns are listed as not included. Add/remove fields using **Choose import fields** above; field groups start collapsed when using a setup. CSV format warnings, duplicate headers, reused column mappings, or missing selected columns block setup-based preparation until corrected. Manually remapped files use the same confirmation and validation guards.
+2. Under **Match your columns**, inspect or repair mappings. Missing/renamed setup columns are not guessed. Unmapped extra columns are listed as not included. Use **Add more fields** or each mapped field's **Remove** button; the full catalog stays under **More fields and update options**. CSV format warnings, duplicate headers, reused column mappings, or missing selected columns block setup-based preparation until corrected. Manually remapped files use the same confirmation and validation guards.
 3. Check the contact plan and confirm this file's columns, purpose, included contacts, and primary flags once. A new upload, mapping change, type/default change, purpose change, or changed source rows requires fresh confirmation. Conflicting primary flags still block preparation. Update-only setups require an NXT System ID or Lookup ID on every row; names/email alone cannot silently select a target.
 4. Prepare the import, then use the existing separate creation/update review and approval controls. This confirmation approves preparation only, not NXT writes. The existing duplicate, current-record identity, checkpoint, recovery, and verification safeguards remain unchanged.
 
@@ -15,7 +37,7 @@ Setups use an additive `constituency_import_setups` table, scoped by authenticat
 
 ## Reviewer Workflow
 
-1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. Under **Review import**, use the contact plan to include emails/phones or explicitly leave them out of contact updates. **Include all mapped emails and phones** selects both kinds in one click. The existing 100-row file limit is unchanged.
+1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. Under **Your import plan**, use the contact plan to include emails/phones or explicitly leave them out of contact updates. **Include all mapped emails and phones** selects both kinds in one click. The existing 100-row file limit is unchanged.
 2. Load NXT table formats and optionally select a default addressee and salutation for new records. Selections are saved with the preview. Do not also enable custom text for the same format.
 3. Prepare and save the import, then select **Check and import new records**. The confirmation describes the approved scope. Merely uploading, previewing, or opening the page does not write to NXT.
 4. **Complete safe additions and verify automatically** is enabled by default. It creates only clear new records, loads current NXT details, adds eligible contacts/constituencies/education, and verifies the results in separate saved steps. It does not auto-update existing matched constituents. Uncheck it to retain the older identity-and-single-contact creation flow with separate review/send.

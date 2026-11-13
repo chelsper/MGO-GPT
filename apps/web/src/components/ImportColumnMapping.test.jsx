@@ -16,6 +16,8 @@ it("shows sample values and unused columns without requiring template headers", 
 });
 it("adds, removes and remaps in place without changing records", () => {
   const p = props(); render(<ImportColumnMapping {...p} />);
+  expect(screen.getByText("Add more fields").closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByText("Add more fields"));
   expect(screen.getByRole("button", { name: "Add field" })).toBeDisabled();
   fireEvent.change(screen.getByLabelText("Add another field"), { target: { value: "email" } });
   fireEvent.click(screen.getByRole("button", { name: "Add field" }));

@@ -29,7 +29,9 @@ export default function ImportColumnMapping({ fields, availableFields = fields, 
         </div>;
       })}
     </div>
-    {onToggle && unselected.length > 0 && <div className="mt-4 flex flex-wrap items-end gap-2">
+    {onToggle && unselected.length > 0 && <details className="mt-4">
+      <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold text-emerald-800">Add more fields</summary>
+      <div className="flex flex-wrap items-end gap-2">
       <label className="grid min-w-0 flex-1 gap-1 text-sm font-semibold text-slate-700">Add another field
         <select value={fieldToAdd} disabled={disabled} onChange={(event) => setFieldToAdd(event.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2">
           <option value="">Choose an import field</option>
@@ -40,8 +42,9 @@ export default function ImportColumnMapping({ fields, availableFields = fields, 
       </label>
       <button type="button" disabled={disabled || !unselected.some((field) => field.key === fieldToAdd)} onClick={() => { onToggle(fieldToAdd); setFieldToAdd(""); }}
         className="min-h-11 rounded-full border border-emerald-700 bg-white px-4 text-sm font-semibold text-emerald-800 disabled:opacity-50">Add field</button>
-    </div>}
+      </div>
+    </details>}
     <p className="mt-3 text-xs text-slate-600">NXT System ID identifies the record. NXT Lookup ID is its lookup code. External Constituent ID is a source reference only, not an NXT match.</p>
-    {unused.length > 0 && <p className="mt-3 break-words text-sm text-amber-900">Not included: {unused.join(", ")}. These columns will not be imported.</p>}
+    {unused.length > 0 && <p className="mt-3 break-words text-sm text-slate-600">Not included: {unused.join(", ")}. These columns will not be imported.</p>}
   </section>;
 }
