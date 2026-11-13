@@ -20,17 +20,20 @@ export async function runPortfolioRefreshBatch({
   concurrency = 2,
   processItem,
   releaseItem = async () => {},
+  canStartItem = async () => true,
 }) {
   const results = new Array(items.length);
   let nextIndex = 0;
   let paused = false;
+  let yielded = false;
 
   async function worker() {
     while (nextIndex < items.length) {
       const index = nextIndex;
       nextIndex += 1;
       const item = items[index];
-      if (paused) {
+      if (!paused && !yielded && !(await canStartItem(item))) yielded = true;
+      if (paused || yielded) {
         await releaseItem(item);
         results[index] = { status: "deferred" };
         continue;
@@ -49,5 +52,5 @@ export async function runPortfolioRefreshBatch({
     ),
   );
 
-  return { paused, results };
+  return { paused, yielded, results };
 }

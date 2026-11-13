@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import sql from "./sql";
-import { claimMaintenanceGate, reserveMaintenanceCall, releaseMaintenanceGate } from "./portfolioMaintenanceStore";
+import { claimMaintenanceGate, canStartMaintenanceItem, reserveMaintenanceCall, releaseMaintenanceGate } from "./portfolioMaintenanceStore";
 vi.mock("./sql", () => ({ default: vi.fn() }));
 beforeEach(() => sql.mockReset().mockResolvedValue([]));
 it("creates an additive serialized gate without altering snapshots or jobs", async () => {
@@ -32,4 +32,18 @@ it("releases only its own lease without resetting usage", async () => {
   expect(query).toContain("lease_token =");
   expect(query).toContain("origin =");
   expect(query).not.toMatch(/call_count|call_day|DELETE/);
+});
+it("checks overnight item headroom without spending calls or changing job state", async () => {
+  const gate = { origin: "https://example.org", token: "owner", jobId: "1" };
+  expect(await canStartMaintenanceItem(gate, 7)).toBe(false);
+  const [parts, ...values] = sql.mock.calls[0];
+  const query = parts.join(" ");
+  expect(values).toEqual([gate.origin, gate.token, gate.jobId, 7, 15, 60, 2160]);
+  for (const required of ["g.lease_until > NOW()", "g.work_until > NOW() +", "g.budget_window = 'night'",
+    "America/New_York", "g.call_day", "g.night_call_count", "u.active = TRUE", "j.mode = 'nightly'",
+    "j.status = 'processing'", "NOT j.cancel_requested", "j.paused_until <= NOW()", "blocked_until > NOW()"])
+    expect(query).toContain(required);
+  expect(query).not.toMatch(/\b(UPDATE|INSERT|DELETE|CREATE|ALTER)\b/);
+  sql.mockResolvedValueOnce([{ "?column?": 1 }]);
+  expect(await canStartMaintenanceItem(gate, 7)).toBe(true);
 });

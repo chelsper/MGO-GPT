@@ -272,6 +272,25 @@ it("shows unknown capacity when the section is unavailable", async () => {
   expect(within(section).queryByText("Known assignment slots")).not.toBeInTheDocument();
 });
 
+it("describes adaptive ceilings without promising throughput or combining workspace scopes", async () => {
+  const data = snapshot();
+  data.sections.capacity = { available: true, workspaces: 9, unknownWorkspaces: 0, slots: 912,
+    uniqueConstituents: 800, due: 500, givingDue: 500, summaryDue: 10, neverChecked: 0,
+    givingOver48Hours: 100, givingChecked24Hours: 412, itemsPerNight: 1080, itemsPerTurn: 30,
+    adaptiveOvernight: true, batchCallLimit: 60, nightCallLimit: 2160,
+    minimumSweepNights: 1, minimumBacklogNights: 1, exceedsNight: false, assignmentsDue: 0 };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  const section = await screen.findByRole("region", { name: "Refresh capacity" });
+  expect(within(section).getByText("Capacity arithmetic only; not a freshness guarantee")).toBeVisible();
+  expect(within(section).getByText(/9 active workspaces considered/)).toHaveTextContent(/more workspaces than the active, mapped MGOs/);
+  fireEvent.click(within(section).getByText("Saved check details"));
+  expect(within(section).getByText(/up to 30 records per turn/)).toBeVisible();
+  expect(within(section).getByText(/60 API calls per turn and 2160 overnight/)).toHaveTextContent(/not a throughput promise/);
+  expect(within(section).getByText(/Daytime continuation stays at one record/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
 it("explains enabled catch-up without offering controls to start or increase it", async () => {
   const data = snapshot();
   data.sections.activity = { available: true, enabled: true, dailyBudget: 360, callsToday: 304,

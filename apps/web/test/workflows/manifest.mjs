@@ -42,6 +42,12 @@ export const workflowGroups = {
     "src/app/api/utils/portfolioFreshnessStatus.test.js",
   ],
   "Portfolios and work queues": [
+    "src/app/api/blackbaud/portfolio-refresh/continuation.test.js",
+    "src/app/api/utils/portfolioMaintenanceStore.test.js",
+    "src/app/api/utils/portfolioMaintenanceContinuation.test.js",
+    "src/app/api/utils/portfolioRefreshPipeline.test.js",
+    "src/app/api/utils/portfolioRefreshCapacity.test.js",
+    "src/app/api/utils/blackbaudReadBudget.test.js",
     "src/app/api/utils/blackbaudCreateRetry.test.js",
     "src/app/api/blackbaud/constituents/[constituentId]/summary/identity.test.js",
     "src/app/api/blackbaud/constituents/[constituentId]/summary/route.test.js",

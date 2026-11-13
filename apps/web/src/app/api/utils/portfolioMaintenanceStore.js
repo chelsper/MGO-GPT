@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import sql from "./sql";
+import { PORTFOLIO_ITEM_START_BUFFER_SECONDS } from "./portfolioMaintenancePolicy";
 import { MAINTENANCE_DAYTIME_CALLS, MAINTENANCE_NIGHT_CALLS, MAINTENANCE_BATCH_CALLS, MAINTENANCE_LEASE_SECONDS } from "./portfolioMaintenanceContinuation";
 
 export async function ensureMaintenanceGate() {
@@ -57,6 +58,28 @@ export async function claimMaintenanceGate(origin, jobId, { workspaceUserId = nu
     RETURNING lease_token
   `;
   return rows.length ? { origin, jobId: jobId == null ? null : String(jobId), workspaceUserId, token } : null;
+}
+
+export async function canStartMaintenanceItem(gate, workspaceUserId) {
+  // This only checks headroom. Every actual NXT read must still reserve its own call atomically.
+  const rows = await sql`
+    SELECT 1 FROM portfolio_maintenance_gate g
+    JOIN portfolio_refresh_jobs j ON j.id = g.job_id
+    JOIN users u ON u.id = j.workspace_user_id
+    WHERE g.id = 1 AND g.origin = ${gate.origin} AND g.lease_token = ${gate.token}
+      AND g.job_id = ${gate.jobId} AND j.workspace_user_id = ${workspaceUserId}
+      AND g.lease_until > NOW()
+      AND g.work_until > NOW() + (${PORTFOLIO_ITEM_START_BUFFER_SECONDS} * INTERVAL '1 second')
+      AND g.budget_window = 'night'
+      AND EXTRACT(HOUR FROM NOW() AT TIME ZONE 'America/New_York') IN (1,2,3,4,5,6)
+      AND g.batch_calls < ${MAINTENANCE_BATCH_CALLS}
+      AND (g.call_day <> (NOW() AT TIME ZONE 'America/New_York')::date
+        OR g.night_call_count < ${MAINTENANCE_NIGHT_CALLS})
+      AND u.active = TRUE AND j.mode = 'nightly' AND j.status = 'processing'
+      AND NOT j.cancel_requested AND (j.paused_until IS NULL OR j.paused_until <= NOW())
+      AND NOT EXISTS (SELECT 1 FROM blackbaud_api_limit_state WHERE state_key = 'subscription' AND blocked_until > NOW())
+  `;
+  return rows.length > 0;
 }
 
 export async function reserveMaintenanceCall({ origin, token, workspaceUserId, constituentId }) {
