@@ -66,6 +66,7 @@ const ROUTE_LABELS = {
   "/action-opportunity-update": "Log Update",
   "/blackbaud-mapping": "Field Settings",
   "/constituency-import": "Constituency Import",
+  "/constituency-import/practice": "Import Practice",
   "/constituent-lookup": "Find a Constituent",
   "/data-requests": "Data Requests",
   "/family-import": "Family Import",
