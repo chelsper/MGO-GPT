@@ -435,6 +435,9 @@ export const IMPORT_FIELDS = [
     group: "Organization relationship fields",
     description: "Optional yes/no flag for whether this organization relationship should be primary.",
   },
+  { key: "customFieldValue", header: "Custom Field Value", label: "Custom Field Value / Description", group: "Custom field additions", description: "Value for the existing NXT category selected in Your import plan. Additions only; conflicting existing values are held." },
+  { key: "customFieldDate", header: "Custom Field Date", label: "Custom Field Date", group: "Custom field additions", description: "Optional date on the custom field, distinct from a Date-type value. Use MM/DD/YYYY or YYYY-MM-DD." },
+  { key: "customFieldComment", header: "Custom Field Comment", label: "Custom Field Comment", group: "Custom field additions", description: "Optional NXT comment, up to 50 characters. Nothing is truncated." },
 ];
 
 export const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
@@ -443,6 +446,8 @@ export const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
 }, {});
 
 const IMPORT_HEADER_ALIASES = {
+  customFieldValue: ["Custom Field Description", "Custom Field Value / Description"],
+  customFieldComment: ["Custom Field Comments"],
   firstName: ["Given Name"],
   middleName: ["Middle", "Middle Initial"],
   maidenName: ["Former Name", "Maiden/Former Name", "Maiden Surname"],

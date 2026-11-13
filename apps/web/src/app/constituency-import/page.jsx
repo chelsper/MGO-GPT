@@ -25,6 +25,8 @@ import ImportContactPreflight from "@/components/ImportContactPreflight";
 import ImportSetupLibrary from "@/components/ImportSetupLibrary";
 import ImportColumnMapping from "@/components/ImportColumnMapping";
 import ImportSetupPlan from "@/components/ImportSetupPlan";
+import ImportCustomFieldOptions from "@/components/ImportCustomFieldOptions";
+import { customFieldInput, customFieldInputError, describeCustomField } from "@/utils/importCustomFields";
 import { importSetupPlan } from "@/utils/importSetupPlan";
 import { importSetupActiveFields, importSetupFileBlockers } from "@/utils/importSetups";
 import ImportReviewOverview from "@/components/ImportReviewOverview";
@@ -114,6 +116,7 @@ const FIELD_GROUP_ORDER = [
   "Match fields",
   "Name fields",
   "Individual profile fields",
+  "Custom field additions",
   "Addressee and salutation fields",
   "Email fields",
   "Phone fields",
@@ -124,6 +127,7 @@ const FIELD_GROUP_ORDER = [
 ];
 
 const FIELD_GROUP_HELP = {
+  "Custom field additions": "Add a value to one existing NXT category per file. Conflicting existing values are never replaced.",
   "Match fields": "Use one or more strong identifiers to avoid duplicate records.",
   "Name fields": "Name columns can match records and, when selected, update the matched NXT name fields.",
   "Individual profile fields": "Optional title, gender, ethnicity, birth date, and suffix values for individual constituents.",
@@ -702,6 +706,8 @@ function formatWritePlanItem(write) {
     const target = write.targetEducationId ? ` (NXT education ID ${write.targetEducationId})` : "";
     return `${action}${target}: ${details || "details supplied in row"}`;
   }
+
+  if (write.type === "constituent_custom_field") return describeCustomField(write);
 
   if (write.type === "organization_relationship") {
     const details = [write.name, write.relationshipType, write.title].filter(Boolean).join(" / ");
@@ -3017,6 +3023,7 @@ export default function ConstituencyImportPage() {
   const [useHierarchy, setUseHierarchy] = useState(false);
   const [updateNameFields, setUpdateNameFields] = useState(false);
   const [updateIndividualProfileFields, setUpdateIndividualProfileFields] = useState(false);
+  const [customFieldCategory, setCustomFieldCategory] = useState("");
   const [updateNameFormatFields, setUpdateNameFormatFields] = useState(false);
   const [buildNameFormats, setBuildNameFormats] = useState(false);
   const [newRecordNameFormats, setNewRecordNameFormats] = useState({ addressee: "", salutation: "" });
@@ -3203,6 +3210,7 @@ export default function ConstituencyImportPage() {
     ...contactImportDefaults, updateEmailFields, updatePhoneFields,
   });
   const importDefaults = {
+    customFieldCategory,
     ...contactImportDefaults, importIntent, defaultAction: constituencyAction, educationRelationshipAction,
     useHierarchy, updateNameFields, updateIndividualProfileFields, updateNameFormatFields, buildNameFormats,
     addresseeFormat, salutationFormat, newRecordNameFormats, updateEmailFields, updatePhoneFields, updateAddressFields,
@@ -3211,12 +3219,23 @@ export default function ConstituencyImportPage() {
   const displayedSetupPlan = importSetupPlan({ rows, headers, mappings, defaults: importDefaults });
   const setupConfirmed = setupConfirmation === setupPlanKey;
   const setupBlockers = importSetupFileBlockers(rows, mappings, { ...importDefaults, reusableSetup: setupInUse });
+  rows.forEach((row, index) => {
+    const input = customFieldInput(row, mappings, importDefaults);
+    if (input && !customFieldCategory.trim()) {
+      const message = "Choose an existing NXT custom-field category for this file in Your import plan.";
+      if (!setupBlockers.includes(message)) setupBlockers.push(message);
+      return;
+    }
+    const error = input && customFieldInputError(input);
+    if (error) setupBlockers.push(`Row ${index + 1}: ${error}`);
+  });
   if (setupInUse && csvWarningCount) setupBlockers.push("Correct the CSV formatting warnings or duplicate column names, then upload the file again.");
   if (setupInUse && !setupConfirmed) setupBlockers.push("Confirm this file's setup and primary-field plan below.");
   const mappedAddressUpdate = Boolean(
     updateAddressFields && hasUploadedHeader("addressLine1"),
   );
   const hasImportOperation = Boolean(
+    activeFields.customFieldValue ||
     activeFields.targetConstituency ||
       educationRelationshipFieldsActive ||
       organizationRelationshipFieldsActive ||
@@ -3238,6 +3257,7 @@ export default function ConstituencyImportPage() {
     hasUploadedHeader("firstName") && hasUploadedHeader("lastName"),
   );
   const mappedImportOperation = Boolean(
+    hasUploadedHeader("customFieldValue") ||
     hasUploadedHeader("targetConstituency") ||
       hasUploadedHeader("educationInstitution") ||
       hasUploadedHeader("educationDegree") ||
@@ -3379,6 +3399,7 @@ export default function ConstituencyImportPage() {
     setRows(parsed.rows);
     setHeaders(parsed.headers);
     setContactImportDefaults({ contactMatchingOnly: {} });
+    setCustomFieldCategory("");
     // Start each file with only its recognized columns. A selected saved setup
     // takes the separate path above and retains its explicit missing mappings.
     setActiveFields(Object.fromEntries(IMPORT_FIELDS.map((field) => [field.key, Boolean(getUploadedHeaderForField(field.key, parsed.headers))])));
@@ -3480,6 +3501,7 @@ export default function ConstituencyImportPage() {
     setImportIntent(defaults.importIntent);
     setConstituencyAction(defaults.defaultAction);
     setEducationRelationshipAction(defaults.educationRelationshipAction);
+    setCustomFieldCategory(defaults.customFieldCategory || "");
     setUseHierarchy(defaults.useHierarchy);
     setUpdateNameFields(defaults.updateNameFields);
     setUpdateIndividualProfileFields(defaults.updateIndividualProfileFields);
@@ -4289,6 +4311,7 @@ export default function ConstituencyImportPage() {
     // profile, contacts, education, and constituency data. Keeping each read bounded
     // means a slow provider response cannot discard the sections that already succeeded.
     const scopeChecks = [
+      ["customFields", (row) => Boolean(getImportMatchedConstituentId(row) && (row.deferredHydration?.customFields || row.writePlan?.some((write) => write.type === "constituent_custom_field" && write.deferredHydration)))],
       ["profile", needsProfileDetailHydration],
       ["contacts", needsCurrentContactDetails],
       ["nameFormats", needsNameFormatDetailHydration],
@@ -6871,6 +6894,10 @@ export default function ConstituencyImportPage() {
           >
             <ImportSetupPlan plan={displayedSetupPlan} saved={Boolean(preview?.savedRun)} disabled={importBusy}
               onChoice={chooseSetupUpdate} onOptions={showFieldOptions}>
+              {["customFieldValue", "customFieldDate", "customFieldComment"].some((key) => activeFields[key]) && <ImportCustomFieldOptions category={customFieldCategory} disabled={importBusy} onChange={(value) => {
+                if (importBusy) return;
+                setCustomFieldCategory(value); setSetupConfirmation(""); setPreview(null); setSaveMessage("");
+              }} />}
               <ImportContactPreflight summary={contactPlan} intent={importIntent} defaults={contactImportDefaults}
                 disabled={importBusy} onChoice={chooseContactImport}
                 onDefaultType={(key, value) => {
@@ -7860,6 +7887,12 @@ export default function ConstituencyImportPage() {
                       />
                       </details>
                     ) : null}
+
+                    {!hasAttemptedWrites && preview?.savedRun && row.input?.customField && getImportMatchedConstituentId(row) && <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                      <p>{row.writePlan?.find((write) => write.type === "constituent_custom_field")?.validationMessage || "Custom fields are add-only. Existing values will not be overwritten."}</p>
+                      <button type="button" disabled={reviewControlsBusy || reviewEditsPending || isHydratingRowScope(row, "customFields")} onClick={() => hydrateImportRowDetails(row, ["customFields"], null, { force: true })}
+                        className="mt-2 min-h-11 font-semibold text-emerald-800 underline disabled:opacity-50">{isHydratingRowScope(row, "customFields") ? "Checking custom field..." : "Recheck custom field in NXT"}</button>
+                    </div>}
 
                     {isEditingThisRow ? (
                       <CsvRowEditor

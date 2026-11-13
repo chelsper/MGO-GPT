@@ -26,6 +26,37 @@ function makeRequest(body) {
 }
 
 describe("constituency import reconciliation route", () => {
+  it.each([true, false])("recovers an uncertain custom-field POST by reading only, never resending: %s", async (present) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "constituent_custom_field", action: "add", category: "Interest", value: "Science", date: "", comment: "", dataType: "text", payload: { category: "Interest", text_value: "Science" } };
+    const row = { id: "9", run_id: "42", status: "Failed", matched_blackbaud_constituent_id: "123", requested_writes: [write],
+      preview: { input: { blackbaudConstituentId: "123", customField: { category: "Interest", value: "Science", date: "", comment: "" } }, match: { blackbaudConstituentId: "123", name: "Avery Example", firstName: "Avery", lastName: "Example" } },
+      blackbaud_result: { results: [{ status: "unconfirmed", retrySafe: false, writeIndex: 0 }] } };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValue([]);
+    blackbaudApiFetchMock.mockImplementation(async (path) => path.endsWith("/customfields") ? { value: present ? [{ id: "88", category: "Interest", value: "Science", parent_id: "123" }] : [] } : { id: "123", first: "Avery", last: "Example" });
+    const response = await POST(makeRequest({ rowIds: ["9"], completeIfMatches: true }), { params: { id: "42" } });
+    expect((await response.json()).reconciliationSummary.completedRows).toBe(present ? 1 : 0);
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+    expect(sqlMock.mock.calls.filter(([strings]) => strings.join("").includes("DELETE FROM constituency_import_custom_field_claims"))).toHaveLength(present ? 1 : 0);
+  });
+  it.each(["match", "wrong-value", "wrong-comment", "wrong-date", "duplicate", "missing", "incomplete", "wrong-parent"])("verifies a custom field and releases only confirmed row claims: %s", async (scenario) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "constituent_custom_field", action: "add", category: "Interest", value: "Science", date: "2026-11-13", comment: "Reviewed", dataType: "text", payload: { category: "Interest", text_value: "Science", date: "2026-11-13", comment: "Reviewed" } };
+    const row = { id: "9", run_id: "42", status: "Applied", applied_at: "2026-11-13", matched_blackbaud_constituent_id: "123", requested_writes: [write], blackbaud_result: { results: [{ status: "applied", writeIndex: 0, customFieldId: "88" }] } };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValue([]);
+    const record = { id: "88", category: "Interest", value: "Science", date: "2026-11-13", comment: "Reviewed", parent_id: "123" };
+    if (scenario === "wrong-value") record.value = "Other";
+    if (scenario === "wrong-comment") record.comment = "Other";
+    if (scenario === "wrong-date") record.date = "2026-11-12";
+    if (scenario === "wrong-parent") record.parent_id = "999";
+    blackbaudApiFetchMock.mockResolvedValue(scenario === "incomplete" ? { count: 2, value: [record] } : { value: scenario === "missing" ? [] : scenario === "duplicate" ? [record, { ...record, id: "89" }] : [record] });
+    const response = await POST(makeRequest({ rowIds: ["9"] }), { params: { id: "42" } });
+    expect((await response.json()).reconciliationSummary.confirmed).toBe(scenario === "match" ? 1 : 0);
+    const deletes = sqlMock.mock.calls.filter(([strings]) => strings.join("").includes("DELETE FROM constituency_import_custom_field_claims"));
+    expect(deletes).toHaveLength(scenario === "match" ? 1 : 0);
+    if (scenario === "match") expect(deletes[0].slice(1)).toEqual(["9", "123", "interest"]);
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method)).toBe(true);
+  });
   it.each([true, false])("checks creation names on manual recovery even when the other write matches: %s", async (matches) => {
     const { POST } = await import("./route.js");
     const write = { type: "constituent_name", action: "update", preferredName: "Ave" };

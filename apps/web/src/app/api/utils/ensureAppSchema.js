@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import importCustomFieldSchema from "./importCustomFieldSchema";
 import stewardshipAssistanceSchema from "./stewardshipAssistanceSchema";
 import stewardshipInventorySchema from "./stewardshipInventorySchema";
 import stewardshipGiftRequestsSchema from "./stewardshipGiftRequestsSchema";
@@ -2211,6 +2212,7 @@ export default async function ensureAppSchema() {
       ADD COLUMN IF NOT EXISTS quick_create_status TEXT,
       ADD COLUMN IF NOT EXISTS create_request_started_at TIMESTAMPTZ
     `;
+    await importCustomFieldSchema(sql);
     await sql`
       CREATE TABLE IF NOT EXISTS constituency_import_create_lock (
         id INTEGER PRIMARY KEY CHECK (id = 1),

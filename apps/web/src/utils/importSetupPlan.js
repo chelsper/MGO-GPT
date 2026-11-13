@@ -49,6 +49,9 @@ export function importSetupPlan({ rows = [], headers = [], mappings = {}, defaul
           item.status = "Needs a new code column";
           item.description = "Map New Constituent Code to request a code change; dates and current codes alone do not add a code.";
         }
+      } else if (group === "Custom field additions") {
+        item.status = defaults.customFieldCategory ? "Additions only" : "Choose a category";
+        item.description = `${defaults.customFieldCategory || "Select an existing NXT category"}. Exact duplicates are skipped; different existing values require review. No overwrites or new table entries.`;
       } else if (group === "Education relationship fields") {
         item.description = defaults.educationRelationshipAction === "review-update"
           ? "Choose the exact existing NXT education row during review. No relationship is matched for update automatically."

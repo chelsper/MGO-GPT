@@ -11,6 +11,7 @@ vi.mock("@/app/api/utils/importTargetIdentity", () => ({ verifyImportTargetIdent
 import { POST } from "./route";
 import { importWritePlanKey } from "@/utils/importWriteResults";
 import { quickImportInputKey } from "@/utils/quickImportWorkflow";
+import { customFieldWrite } from "@/utils/importCustomFields";
 
 const add = { type: "address", action: "add", addressLine1: "100 Oak St", city: "Jacksonville", state: "FL", postalCode: "32211", country: "US", addressType: "Home", makePrimary: false };
 const previous = { type: "address", action: "mark_previous", targetId: "old", addressType: "Previous Address", validTo: "2026-09-10", requiresSuccessfulAddressAdd: true };
@@ -28,6 +29,8 @@ beforeEach(() => {
   mock.identity.mockReset().mockResolvedValue({ ok: true });
   mock.sql.mockReset().mockImplementation(async (strings, ...values) => {
     const query = strings.join(" ");
+    if (query.includes("INSERT INTO constituency_import_custom_field_claims")) return [{ row_id: row.id }];
+    if (query.includes("DELETE FROM constituency_import_custom_field_claims")) return [];
     if (query.includes("UPDATE constituency_import_rows") && query.includes("RETURNING id")) {
       if (failCheckpoint) throw new Error("Checkpoint unavailable");
       row.blackbaud_result = JSON.parse(values[0]);
@@ -47,6 +50,32 @@ beforeEach(() => {
 });
 
 describe("standard import failure recovery", () => {
+  it.each([false, true])("saves a checkpoint before adding a custom field and holds uncertain results: %s", async (uncertain) => {
+    const input = { category: "Interest", value: "Science", date: "", comment: "" };
+    row.preview.input.customField = input;
+    setWrites([customFieldWrite(input, { name: "Interest", dataType: "Text" }, [], [])]);
+    let added = false;
+    mock.nxt.mockImplementation(async (path, options) => {
+      if (options.method === "POST") {
+        expect(checkpoints.at(-1).results[0].status).toBe("started");
+        expect(options.maxRetries).toBe(0);
+        added = true;
+        if (uncertain) throw new Error("Connection interrupted");
+        return { id: "88" };
+      }
+      return path.endsWith("categories/details") ? [{ category: "Interest", type: "Text" }] : { value: added ? [{ id: "88", category: "Interest", value: "Science" }] : [] };
+    });
+    await send();
+    expect(mock.nxt.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
+    if (!uncertain) expect(row.status).toBe("Applied");
+    else {
+      expect(row.status).not.toBe("Applied");
+      expect(row.blackbaud_result.results[0]).toMatchObject({ retrySafe: false });
+      mock.nxt.mockClear();
+      await send(true);
+      expect(mock.nxt.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(0);
+    }
+  });
   it.each([{}, { value: [], count: 1 }, { value: [], next_link: "/next" }])("does not add recovered contacts after an incomplete contact read: %j", async (payload) => {
     row.preview.contactRecovery = { targetId: "123", sourceRunId: "40", sourceRowId: "8" };
     setWrites([{ type: "email_address", action: "add", address: "new@example.test", emailType: "Personal", makePrimary: true }]);

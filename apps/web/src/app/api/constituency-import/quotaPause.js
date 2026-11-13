@@ -1,3 +1,5 @@
+import { deferredCustomFieldWrite } from "@/utils/importCustomFields";
+
 const QUOTA_PAUSED_MATCH_METHOD = "NXT checks paused";
 const QUOTA_RECOVERY_MATCH_METHOD = "Saved match needs refresh";
 const QUOTA_PAUSED_PATTERN =
@@ -69,7 +71,7 @@ function getDeferredContactKinds(input, contactDecisions) {
 }
 
 function buildRecoveryWritePlan(input, preview) {
-  const writes = [];
+  const writes = [deferredCustomFieldWrite(input)].filter(Boolean);
   const fieldDecisions =
     preview?.fieldReviewDecisions && typeof preview.fieldReviewDecisions === "object"
       ? preview.fieldReviewDecisions
@@ -171,6 +173,7 @@ function buildRecoveryWritePlan(input, preview) {
 function buildRecoveryDeferredHydration(input, contactDecisions) {
   const contactKinds = getDeferredContactKinds(input, contactDecisions);
   return {
+    ...(input?.customField ? { customFields: true } : {}),
     detail: Boolean(input?.nameUpdate || input?.individualProfileUpdate || input?.educationRelationship),
     contacts: contactKinds.length > 0,
     nameFormats: Boolean(input?.nameFormatUpdate),

@@ -20,6 +20,7 @@ export function quickImportScopes(input) {
     (input.emailUpdates?.length || input.phoneUpdates?.length || input.addressUpdates?.length) && "contacts",
     input.nameFormatUpdate && "nameFormats",
     input.educationRelationship && "educations",
+    input.customField && "customFields",
     (input.sourceConstituency || input.targetConstituency) && "codes",
   ].filter(Boolean);
 }
@@ -51,8 +52,8 @@ export function quickImportApplyBlocker(row) {
   const writes = row.requested_writes || row.preview?.writePlan || [];
   for (const write of writes) {
     if (write.requiresReview || write.deferredHydration) return write.validationMessage || "A staged value needs individual review.";
-    if (!["email_address", "phone", "address", "constituent_code", "education_relationship"].includes(write.type) ||
-      write.action !== "add" || write.targetId || write.sourceCodeId || write.demoteExistingPrimary || write.existingPrimaryId || write.requiresSuccessfulAddressAdd) {
+    if (!["email_address", "phone", "address", "constituent_code", "education_relationship", "constituent_custom_field"].includes(write.type) ||
+      (write.action !== "add" && !(write.type === "constituent_custom_field" && write.action === "skip_existing")) || write.targetId || write.sourceCodeId || write.demoteExistingPrimary || write.existingPrimaryId || write.requiresSuccessfulAddressAdd) {
       return "Only safe additions are completed automatically. Replacements, primary changes to existing contacts, and other changes need individual review.";
     }
   }

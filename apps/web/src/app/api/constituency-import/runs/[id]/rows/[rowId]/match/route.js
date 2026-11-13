@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { deferredCustomFieldWrite } from "@/utils/importCustomFields";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -228,6 +229,7 @@ function buildDeferredHydration(input, existing = {}) {
   const current = existing && typeof existing === "object" ? existing : {};
   return {
     ...current,
+    ...(input?.customField ? { customFields: true } : {}),
     detail: Boolean(input?.nameUpdate || input?.individualProfileUpdate),
     contacts: hasContactInput(input),
     nameFormats: Boolean(input?.nameFormatUpdate),
@@ -441,6 +443,7 @@ export async function POST(request, { params }) {
     const targetChanged = getSelectedImportMatchId(row) !== verifiedMatch.blackbaudConstituentId ||
       cleanText(preview.match?.lookupId) !== verifiedMatch.lookupId || Boolean(preview.identityVerification);
     let writePlan = targetChanged ? [] : getWritePlan(row);
+    if (input.customField) writePlan = replaceWriteTypes(writePlan, new Set(["constituent_custom_field"]), [deferredCustomFieldWrite(input)]);
     const profileWrites = profileLoaded
       ? buildProfileDetailWrites(input, detailedMatch, targetChanged ? {} : getFieldReviewDecisions(preview, writePlan))
       : writePlan.filter((write) => PROFILE_WRITE_TYPES.has(write?.type));

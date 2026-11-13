@@ -1,4 +1,5 @@
 import { IMPORT_FIELDS, FIELD_BY_KEY } from "./importFieldDefinitions";
+import { protectedImportCategory } from "./importCustomFields";
 import { IMPORT_CONTACT_GROUPS, importContactMappingKey } from "./importContactPreflight";
 
 const FLAGS = ["useHierarchy", "updateNameFields", "updateIndividualProfileFields", "updateNameFormatFields", "buildNameFormats", "updateEmailFields", "updatePhoneFields", "updateAddressFields"];
@@ -41,6 +42,8 @@ export function normalizeImportSetup(value) {
     defaults[key] = source[key] === true;
   }
   for (const key of ["defaultEmailType", "defaultPhoneType"]) defaults[key] = boundedText(source[key], "Contact type", 100, true);
+  defaults.customFieldCategory = boundedText(source.customFieldCategory, "Custom-field category", 100, true);
+  if (protectedImportCategory(defaults.customFieldCategory)) throw new Error("Use the existing Relationship Originator or MGOGPT workflow for this category.");
   defaults.newRecordNameFormats = {};
   for (const key of ["addressee", "salutation"]) {
     const id = boundedText(source.newRecordNameFormats?.[key], "NXT name format ID", 40, true);

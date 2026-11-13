@@ -22,6 +22,52 @@ reviewable without adding new global barriers. All existing server validation,
 duplicate checks, explicit write approvals, recovery, and verification remain intact.
 This presentation change adds no NXT requests or database schema changes.
 
+## Constituent Custom-Field Additions
+
+Upload `Custom Field Value` (or `Custom Field Description`), plus optional
+`Custom Field Date` and `Custom Field Comment` columns. In **Your import plan**,
+choose **Load NXT categories**, then select one existing category for this file.
+Use the ordinary identity matching, review, save, and explicit send controls.
+Uploading or loading categories does not write to NXT. The 100-row limit remains.
+
+- Supports text, existing table values, Yes/No, full dates, integers and currency.
+  New categories, new table values, constituent references and fuzzy dates are not
+  supported. Relationship Originator and MGOGPT remain in their dedicated workflows.
+- All three cells blank means no operation, never deletion. Date/comment without a
+  value is held. Use MM/DD/YYYY or YYYY-MM-DD dates; numbers must have no commas or
+  currency symbols. Currency accepts at most two decimal places. Comments have a
+  50-character limit; this import version caps text values at 250 without truncation.
+- The category's description/value, attribute date and comment are checked together.
+  Exactly one identical record is skipped. Any differing or repeated record in that
+  category remains for review, even if NXT permits multiple values. Resolve that
+  category in NXT or skip the import row; this version never overwrites a field.
+- Category/type/table values and current constituent fields are rechecked before
+  sending. Incomplete reads hold the row. New-record creation checks custom-field
+  configuration first; approved fields are then added to the created identity via
+  the existing saved completion steps, not embedded in the identity request.
+- Saved setups retain category and column names, not values or prior approval.
+  Replacement files clear the category unless an explicit saved setup is used.
+  Selecting another match or resuming after a quota pause requires fresh field checks.
+
+Each addition has the existing durable write checkpoint plus a new
+`constituency_import_custom_field_claims` constituent/category claim. Its additive
+schema is serialized across concurrent cold starts. Only one app import may own
+a constituent/category at once. Claims have no automatic timeout and deliberately
+do not cascade with history deletion: a lost response must not enable a duplicate
+POST. Confirmed rejection or verified exact success releases the owning claim.
+An accepted POST followed by failed verification remains uncertain, even if the
+verification read returns 403. **Verify in NXT and finish** is read-only and clears
+the claim only after an exact, unique match. If verification finds nothing, stop
+and have an administrator investigate the original request; do not start a second
+import or delete the claim to force a resend. This lock does not control writes
+made outside this app's import workflow.
+
+Tests use fictional records and mocked NXT. For the additional database check, use
+an isolated PostgreSQL socket matching `/private/tmp/import-fields-pg.*` on port
+55449 and run `IMPORT_FIELDS_TEST_PGHOST=<socket> node scripts/check-import-custom-fields-postgres.mjs`
+from `apps/web`. The script refuses non-disposable paths and never reads
+`DATABASE_URL` or contacts NXT.
+
 ## Reusable Import Setups
 
 Choose **Use a saved import setup** above the upload area, or configure a file once and expand **Save or manage a setup** to name it. Setups are private to the signed-in reviewer in this app instance, not the acting fundraiser's workspace. They persist across sessions and devices. Admin and Advancement Services accounts can save, rename/update, or remove their own setups; removal does not delete import history or change NXT.

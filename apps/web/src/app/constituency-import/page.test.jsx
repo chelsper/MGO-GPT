@@ -270,6 +270,29 @@ describe("filterable import review", () => {
 });
 
 describe("contact preparation from an uploaded file", () => {
+  it("maps custom-field columns, requires a category, and clears the category on a replacement file", async () => {
+    const baseFetch = fetch.getMockImplementation();
+    fetch.mockImplementation(async (url, options) => url === "/api/constituency-import/custom-field-categories" ? json({ categories: [{ name: "Interest", dataType: "Text" }] }) : baseFetch(url, options));
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("button", { name: /Run #42/ });
+    const input = document.getElementById("constituency-import-file");
+    const text = async () => "NXT System ID,Custom Field Description,Custom Field Date,Custom Field Comments\n123,Science,11/13/2026,Reviewed";
+    fireEvent.change(input, { target: { files: [{ name: "fields.csv", text }] } });
+    await screen.findByText("Loaded fields.csv.");
+    expect(screen.getByLabelText("Custom Field Value / Description column")).toHaveValue("Custom Field Description");
+    expect(screen.getByLabelText("Custom Field Date column")).toHaveValue("Custom Field Date");
+    expect(screen.getAllByText("Choose an existing NXT custom-field category for this file in Your import plan.")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load NXT categories" }));
+    await screen.findByRole("option", { name: "Interest (Text)" });
+    fireEvent.change(screen.getByLabelText("NXT custom-field category"), { target: { value: "Interest" } });
+    expect(screen.getByRole("button", { name: "Review uploaded CSV" })).toBeEnabled();
+    fireEvent.change(input, { target: { files: [{ name: "next-fields.csv", text }] } });
+    await screen.findByText("Loaded next-fields.csv.");
+    expect(screen.getByLabelText("NXT custom-field category")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  });
   it("keeps the catalog and template closed before upload and retains access to saved runs", async () => {
     render(<ConstituencyImportPage />);
     await screen.findByRole("button", { name: /Run #42/ });
