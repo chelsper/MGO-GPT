@@ -1,11 +1,12 @@
 import { blackbaudApiFetch } from "./blackbaud";
+import { extendedNamesMatch } from "@/utils/importExtendedNames";
 import { importMatchEvidence, normalizeImportMatchCandidate, normalizeMatchName } from "@/utils/importMatchEvidence";
 
 const text = (value) => typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
 
 // Saved match IDs are routing hints, never authorization to update a person.
 // Read the exact target again after claiming the row and before the first write.
-export async function verifyImportTargetIdentity({ request, user, row }) {
+export async function verifyImportTargetIdentity({ request, user, row, verifyCreatedNameFields = false }) {
   const preview = row.preview || {};
   const saved = normalizeImportMatchCandidate(preview.match);
   const targetId = text(row.matched_blackbaud_constituent_id || saved?.blackbaudConstituentId);
@@ -44,6 +45,7 @@ export async function verifyImportTargetIdentity({ request, user, row }) {
     return hold("lookup_id_changed", 200);
   }
   const created = text(row.created_blackbaud_constituent_id) === targetId;
+  if (verifyCreatedNameFields && !created) return hold("created_target_changed", 200);
   const selected = preview.matchReview?.decision === "selected" && text(preview.matchReview.constituentId) === targetId;
   // A deliberate manual selection or audited creation may override CSV IDs,
   // but never a change to the identity the reviewer actually selected.
@@ -60,6 +62,9 @@ export async function verifyImportTargetIdentity({ request, user, row }) {
       (saved.lastName && normalizeMatchName(saved.lastName) !== normalizeMatchName(live.lastName)) ||
       (!saved.firstName && !saved.lastName && saved.name !== "Unnamed constituent" && normalizeMatchName(saved.name) !== normalizeMatchName(live.name))) {
     return hold("reviewed_name_changed", 200);
+  }
+  if (verifyCreatedNameFields && created && !extendedNamesMatch(preview.input, payload)) {
+    return { ...hold("created_name_fields_differ", 200), message: "NXT middle or maiden/former name does not match the approved import. Review the saved record; do not create it again." };
   }
   return { ok: true };
 }

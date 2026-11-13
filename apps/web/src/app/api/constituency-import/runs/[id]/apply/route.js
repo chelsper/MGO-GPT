@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { EXTENDED_IMPORT_NAMES, extendedNamePayload, extendedNameValidation } from "@/utils/importExtendedNames";
 import { parseImportDate as parseBirthDate } from "@/utils/importDate";
 import { completeImportContactCollection } from "@/utils/importContactCollection";
 import { claimImportRowForApply } from "@/app/api/utils/importRowApplyClaim";
@@ -349,7 +350,9 @@ async function deleteConstituentCode({ request, user, codeId }) {
 async function applyConstituentNameUpdate({ request, user, row, write }) {
   const constituentId = getMatchedConstituentId(row);
   const recordType = normalizeText(write?.recordType);
-  const payload = {};
+  const validationMessage = extendedNameValidation(write);
+  if (validationMessage) return { status: "manual_required", type: "constituent_name", action: "update", message: validationMessage };
+  const payload = extendedNamePayload(write);
   const firstName = cleanText(write?.firstName);
   const lastName = cleanText(write?.lastName);
   const preferredName = cleanText(write?.preferredName);
@@ -392,6 +395,7 @@ async function applyConstituentNameUpdate({ request, user, row, write }) {
     firstName && "first name",
     lastName && "last name",
     preferredName && "preferred name",
+    ...EXTENDED_IMPORT_NAMES.filter(({ key }) => cleanText(write[key])).map(({ label }) => label.toLowerCase()),
   ]
     .filter(Boolean)
     .join(", ");

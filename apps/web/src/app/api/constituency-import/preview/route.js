@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { EXTENDED_IMPORT_NAMES, extendedNameValidation } from "@/utils/importExtendedNames";
 import { parseImportDate as parseBirthDate } from "@/utils/importDate";
 import { importSetupFileBlockers } from "@/utils/importSetups";
 import { IMPORT_CONTACT_GROUPS, importContactPreflight, mappedImportContacts } from "@/utils/importContactPreflight";
@@ -233,6 +234,8 @@ function getRowInput(row, mappings, defaults = {}) {
   const firstName = getMappedValue(row, mappings, "firstName");
   const lastName = getMappedValue(row, mappings, "lastName");
   const preferredName = getMappedValue(row, mappings, "preferredName");
+  const extraNames = Object.fromEntries(EXTENDED_IMPORT_NAMES
+    .map(({ key }) => [key, getMappedValue(row, mappings, key)]).filter(([, value]) => value));
   const title = getMappedValue(row, mappings, "title");
   const gender = getMappedValue(row, mappings, "gender");
   const ethnicity = getMappedValue(row, mappings, "ethnicity");
@@ -245,6 +248,7 @@ function getRowInput(row, mappings, defaults = {}) {
     [firstName, lastName].filter(Boolean).join(" ").trim();
 
   const input = {
+    ...extraNames,
     firstName,
     lastName,
     preferredName,
@@ -325,9 +329,10 @@ function getRowInput(row, mappings, defaults = {}) {
   }
   if (
     defaults.updateNameFields === true &&
-    [firstName, lastName, preferredName].some(Boolean)
+    [firstName, lastName, preferredName, ...Object.values(extraNames)].some(Boolean)
   ) {
     input.nameUpdate = {
+      ...extraNames,
       firstName,
       lastName,
       preferredName,
@@ -634,6 +639,9 @@ function buildNameUpdateWrite(input, match, fieldDecisions = {}) {
   if (!input.nameUpdate || !match) return null;
 
   const current = getMatchedNameValues(match);
+  for (const { key, nxt } of EXTENDED_IMPORT_NAMES) {
+    if (cleanText(input.nameUpdate[key])) current[key] = getMatchedProfileValue(match, [nxt]);
+  }
   const changes = {
     firstName:
       !shouldSkipField(fieldDecisions, "constituent_name", "firstName") &&
@@ -655,7 +663,16 @@ function buildNameUpdateWrite(input, match, fieldDecisions = {}) {
         : "",
   };
 
+  for (const { key } of EXTENDED_IMPORT_NAMES) {
+    if (!shouldSkipField(fieldDecisions, "constituent_name", key) &&
+      cleanText(input.nameUpdate[key]) && cleanText(input.nameUpdate[key]).toLowerCase() !== cleanText(current[key]).toLowerCase()) {
+      changes[key] = cleanText(input.nameUpdate[key]);
+    }
+  }
+
   if (!Object.values(changes).some(Boolean)) return null;
+
+  const validationMessage = extendedNameValidation(changes);
 
   return {
     type: "constituent_name",
@@ -664,6 +681,8 @@ function buildNameUpdateWrite(input, match, fieldDecisions = {}) {
     firstName: changes.firstName,
     lastName: changes.lastName,
     preferredName: changes.preferredName,
+    ...Object.fromEntries(EXTENDED_IMPORT_NAMES.filter(({ key }) => changes[key]).map(({ key }) => [key, changes[key]])),
+    ...(validationMessage ? { requiresReview: true, validationMessage } : {}),
     current,
     blankValuePolicy: "leave_unchanged",
   };
@@ -3108,6 +3127,10 @@ export async function POST(request) {
     const authUserId = user.id;
     const previewCache = createPreviewRequestCache();
     const rowInputs = rowsToPreview.map((row) => getRowInput(row, mappings, defaults));
+    for (const [index, input] of rowInputs.entries()) {
+      const message = extendedNameValidation(input);
+      if (message) return Response.json({ error: `Row ${rowNumberOffset + index + 1}: ${message}` }, { status: 400 });
+    }
     // Lookup IDs can be reassigned. Never reuse cross-request identity matches;
     // only deduplicate identical live lookups within this preview request.
     const rowConcurrency =

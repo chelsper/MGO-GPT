@@ -14,6 +14,20 @@ const live = { id: "100", lookup_id: "629381", first: "Test", last: "Person", na
 const verify = (value = row()) => verifyImportTargetIdentity({ request, user, row: value });
 
 describe("live import identity verification", () => {
+  it("cannot verify created names against a different saved target", async () => {
+    const value = row(); value.created_blackbaud_constituent_id = "999";
+    expect(await verifyImportTargetIdentity({ request, user, row: value, verifyCreatedNameFields: true })).toMatchObject({ ok: false, diagnostic: { code: "created_target_changed" } });
+  });
+  it.each([true, false])("checks created names without extra requests before completion: %s", async (matches) => {
+    const value = row();
+    value.created_blackbaud_constituent_id = "100";
+    value.preview.match.firstName = "Test";
+    value.preview.match.lastName = "Person";
+    Object.assign(value.preview.input, { middleName: "Alex", maidenName: "Harbor" });
+    blackbaudApiFetchMock.mockResolvedValue({ ...live, name: "Test Alex Person", middle: "Alex", ...(matches ? { former_name: "Harbor" } : {}) });
+    expect(await verifyImportTargetIdentity({ request, user, row: value, verifyCreatedNameFields: true })).toMatchObject(matches ? { ok: true } : { ok: false, diagnostic: { code: "created_name_fields_differ" } });
+    expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
+  });
   beforeEach(() => { blackbaudApiFetchMock.mockReset().mockResolvedValue(live); });
 
   it("rereads the exact system record on every apply, without cached matching", async () => {

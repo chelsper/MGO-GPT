@@ -60,6 +60,35 @@ const mappings = {
 };
 
 describe("constituency import preview route", () => {
+  it.each([true, false])("maps middle/former names and only stages approved updates: %s", async (enabled) => {
+    const { POST } = await import("./route.js");
+    const match = { blackbaudConstituentId: "123", lookupId: "A123", name: "Avery Example", raw: { type: "Individual", first: "Avery", last: "Example", middle: "Old", former_name: "Previous" } };
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue(match);
+    getBlackbaudConstituentByIdMock.mockResolvedValue(match);
+    const response = await POST(makeRequest({ rows: [{ ID: "A123", Middle: "Alex", Former: "Harbor" }], mappings: { lookupId: "ID", middleName: "Middle", maidenName: "Former" }, defaults: { updateNameFields: enabled } }));
+    expect(response.status).toBe(200);
+    const row = (await response.json()).rows[0];
+    expect(row.input).toMatchObject({ middleName: "Alex", maidenName: "Harbor" });
+    const writes = row.writePlan.filter((write) => write.type === "constituent_name");
+    expect(writes).toHaveLength(enabled ? 1 : 0);
+    if (enabled) expect(writes[0]).toMatchObject({ middleName: "Alex", maidenName: "Harbor", current: { middleName: "Old", maidenName: "Previous" }, blankValuePolicy: "leave_unchanged" });
+  });
+  it("leaves matching, blank, and explicitly kept name fields unchanged", async () => {
+    const { buildProfileDetailWrites } = await import("./route.js");
+    const match = { raw: { type: "Individual", first: "Avery", middle: "Alex", former_name: "Harbor" } };
+    expect(buildProfileDetailWrites({ nameUpdate: { middleName: "Alex", maidenName: " " } }, match)).toEqual([]);
+    expect(buildProfileDetailWrites({ nameUpdate: { middleName: "Taylor", maidenName: "Other" } }, match, { constituent_name: { middleName: { mode: "skip" }, maidenName: { mode: "skip" } } })).toEqual([]);
+    expect(buildProfileDetailWrites({ nameUpdate: { middleName: "a".repeat(51) } }, match)[0]).toMatchObject({ requiresReview: true });
+    expect(buildProfileDetailWrites({ nameUpdate: { middleName: "Ann-Marie" } }, { raw: { middle: "Ann Marie", type: "Individual" } })[0]).toMatchObject({ middleName: "Ann-Marie" });
+  });
+  it.each([["middleName", 51], ["maidenName", 101]])("rejects oversized %s before any NXT reads", async (key, size) => {
+    const { POST } = await import("./route.js");
+    const response = await POST(makeRequest({ rows: [{ ID: "123", Name: "a".repeat(size) }], mappings: { blackbaudConstituentId: "ID", [key]: "Name" }, defaults: { updateNameFields: true } }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/Row 1.*will not be truncated/);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();

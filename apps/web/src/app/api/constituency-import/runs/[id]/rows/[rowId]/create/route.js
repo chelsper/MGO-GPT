@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { extendedNamePayload, extendedNameValidation } from "@/utils/importExtendedNames";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -241,6 +242,8 @@ export async function POST(request, { params }) {
       return Response.json({ error: message, held: quick }, { status: 400 });
     }
     const firstName = cleanText(input.firstName);
+    const nameValidation = extendedNameValidation(input);
+    if (nameValidation) return invalidInput(nameValidation);
     const lastName = cleanText(input.lastName);
     if (!firstName || !lastName) {
       return invalidInput("First Name and Last Name are required before a new individual NXT record can be created.");
@@ -336,6 +339,7 @@ export async function POST(request, { params }) {
       return Response.json({ error: message, held: !paused, paused, retryAfterMs: error.retryAfterMs || null }, { status: paused ? 429 : 409 });
     }
     const createPayload = {
+      ...extendedNamePayload(input),
       type: "Individual",
       first: firstName,
       last: lastName,
@@ -448,6 +452,8 @@ export async function POST(request, { params }) {
         blackbaudConstituentId: createdConstituentId,
         lookupId: resolvedCreatedLookupId || null,
         name: [firstName, lastName].join(" "),
+        firstName,
+        lastName,
         email: cleanText(input.email) || null,
         raw: { id: createdConstituentId, type: "Individual" },
       },

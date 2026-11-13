@@ -41,6 +41,20 @@ export const IMPORT_FIELDS = [
     recommended: true,
   },
   {
+    key: "middleName",
+    header: "Middle Name",
+    label: "Middle Name",
+    group: "Name fields",
+    description: "Optional individual middle name (up to 50 characters). Blank values leave NXT unchanged.",
+  },
+  {
+    key: "maidenName",
+    header: "Maiden Name",
+    label: "Maiden/Former Name",
+    group: "Name fields",
+    description: "Maps to NXT Former name (up to 100 characters). This does not change the current last name or add an alias. Blank values leave NXT unchanged.",
+  },
+  {
     key: "preferredName",
     header: "Preferred Name",
     label: "Preferred Name",
@@ -430,6 +444,8 @@ export const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
 
 const IMPORT_HEADER_ALIASES = {
   firstName: ["Given Name"],
+  middleName: ["Middle", "Middle Initial"],
+  maidenName: ["Former Name", "Maiden/Former Name", "Maiden Surname"],
   lastName: ["Family Name", "Surname"],
   email: ["Email", "E-mail"],
   phoneNumber: ["Phone", "Telephone"],

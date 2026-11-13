@@ -6,7 +6,7 @@ import { quickImportInputKey, quickImportResumeCandidate } from "./quickImportWo
 const text = (value) => String(value ?? "").trim();
 const list = (value) => Array.isArray(value) ? value : [];
 const labels = {
-  firstName: "First name", lastName: "Last name", preferredName: "Preferred name",
+  firstName: "First name", lastName: "Last name", preferredName: "Preferred name", middleName: "Middle name", maidenName: "Maiden/former name",
   title: "Title", gender: "Gender", ethnicity: "Ethnicity", birthDate: "Birth date", suffix: "Suffix",
   addressee: "Addressee", salutation: "Salutation",
 };
@@ -42,7 +42,7 @@ export function savedImportContactContext(row, run) {
 
 function describeWrite(write) {
   if (["constituent_name", "constituent_profile"].includes(write.type)) {
-    const keys = write.type === "constituent_name" ? ["firstName", "lastName", "preferredName"] : ["title", "gender", "ethnicity", "birthDate", "suffix"];
+    const keys = write.type === "constituent_name" ? ["firstName", "lastName", "preferredName", "middleName", "maidenName"] : ["title", "gender", "ethnicity", "birthDate", "suffix"];
     return keys.filter((key) => text(write[key])).map((key) => ({ field: labels[key], value: text(write[key]), fieldKey: key }));
   }
   if (write.type === "constituent_name_format") return [{ field: labels[write.kind] || "Name format", value: text(write.value), fieldKey: write.kind }];
@@ -92,6 +92,9 @@ export function importFieldResults(row) {
     });
   const identityVerified = evidenceUsable && !processing && createdId && createdId === targetId && (quickIdentityVerified || standardIdentityVerified);
   const identityCheckedAt = standardIdentityVerified ? reconciliation.verifiedAt : workflow.identityConfirmedAt;
+  const createdNamesConfirmed = evidenceUsable && !processing && verificationCurrent && createdId && createdId === targetId &&
+    reconciliation.createdNames?.status === "confirmed" && reconciliation.createdNames.constituentId === createdId &&
+    reconciliation.createdNames.inputKey === quickImportInputKey(input);
   const fields = [];
   const add = (field, value, state, detail, extra = {}) => fields.push({ key: `${fields.length}`, field, value, state, status: IMPORT_FIELD_RESULT_LABELS[state], detail, ...extra });
 
@@ -134,6 +137,10 @@ export function importFieldResults(row) {
       } else if (field.setting && state === "verified" && !fullCheck) {
         fieldState = "awaiting"; fieldDetail = "The saved check confirms the contact value, but does not record a full check of this setting.";
       }
+      if (createdId && ["middleName", "maidenName"].includes(field.fieldKey) && reconciliation.createdNames?.status === "needs_review") {
+        fieldState = "attention";
+        fieldDetail = reconciliation.createdNames.message || "The latest saved new-record name check needs review. Verify the existing record; do not create it again.";
+      }
       add(field.field, field.value, fieldState, fieldDetail, { writeIndex: index, checkedAt: fieldState === "verified" ? reconciliation.verifiedAt : null });
     }
   }
@@ -144,15 +151,25 @@ export function importFieldResults(row) {
     for (const [key, value] of Object.entries(values || {})) {
       if (!labels[key] || !text(value) || writes.some((write) => write.type === type && (type === "constituent_name_format" ? write.kind === key : text(write[key])))) continue;
       const skipped = row.fieldReviewDecisions?.[type]?.[key]?.mode === "skip";
+      if (!skipped && ["middleName", "maidenName"].includes(key) && createdNamesConfirmed) {
+        add(labels[key], text(value), "verified", "Confirmed by the saved new-record NXT name check.", { checkedAt: reconciliation.verifiedAt });
+        continue;
+      }
+      if (!skipped && ["middleName", "maidenName"].includes(key) && createdId && reconciliation.createdNames?.status === "needs_review") {
+        add(labels[key], text(value), "attention", reconciliation.createdNames.message);
+        continue;
+      }
       add(labels[key], text(value), skipped ? "skipped" : "unchanged", skipped ? "You chose to keep the existing NXT value." : "No separate change was saved for this field. This is not a field-level verification.");
     }
   }
-  if (createdId) for (const key of ["firstName", "lastName", "preferredName"]) {
+  if (createdId) for (const key of ["firstName", "lastName", "preferredName", "middleName", "maidenName"]) {
     if (!text(input[key]) || text(input.nameUpdate?.[key]) || writes.some((write) => write.type === "constituent_name" && text(write[key]))) continue;
-    const confirmed = identityVerified && key !== "preferredName" && text(row.match?.[key]).toLowerCase() === text(input[key]).toLowerCase();
-    add(labels[key], text(input[key]), confirmed ? "verified" : "awaiting", confirmed
+    const confirmed = ["middleName", "maidenName"].includes(key) ? createdNamesConfirmed :
+      identityVerified && key !== "preferredName" && text(row.match?.[key]).toLowerCase() === text(input[key]).toLowerCase();
+    const nameCheckFailed = ["middleName", "maidenName"].includes(key) && reconciliation.createdNames?.status === "needs_review";
+    add(labels[key], text(input[key]), confirmed ? "verified" : nameCheckFailed ? "attention" : "awaiting", confirmed
       ? "This name matches the saved identity check." : "Requested at creation; a created ID alone does not verify this name field.",
-    { checkedAt: confirmed ? identityCheckedAt : null });
+    { checkedAt: confirmed ? (["middleName", "maidenName"].includes(key) ? reconciliation.verifiedAt : identityCheckedAt) : null });
   }
   for (const kind of contactKinds) {
     for (const [index, value] of list(input[kind.input]).entries()) {

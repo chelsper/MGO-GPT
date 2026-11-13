@@ -46,6 +46,14 @@ beforeEach(() => {
 });
 
 describe("checkpointed new-record processing", () => {
+  it("holds missing created names without replaying the creation or other writes", async () => {
+    row.preview.quickImportWorkflow.phase = "verify";
+    reconcileMock.mockResolvedValue(Response.json({ rows: [{ reconciliation: { verifiedAt: "2026-11-13", createdNames: { status: "needs_review" } } }], reconciliationSummary: { verifiedRows: 1, needsReview: 1, completedRows: 0 } }));
+    expect(await (await run()).json()).toMatchObject({ held: true });
+    expect(createMock).not.toHaveBeenCalled();
+    expect(applyMock).not.toHaveBeenCalled();
+    expect(reconcileMock).toHaveBeenCalledOnce();
+  });
   it("loads, applies and verifies in separate steps using the existing guarded handlers", async () => {
     expect(await (await run()).json()).toMatchObject({ next: "apply" });
     expect(detailsMock).toHaveBeenCalledOnce();
