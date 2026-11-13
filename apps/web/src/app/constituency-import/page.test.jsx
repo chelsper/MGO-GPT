@@ -422,6 +422,168 @@ describe("contact preparation from an uploaded file", () => {
   });
 });
 
+describe("guided starter presets in the real import page", () => {
+  const planConfirmation = () => screen.getByRole("checkbox", { name: /I checked the columns, import purpose/ });
+  async function start() {
+    const baseFetch = fetch.getMockImplementation();
+    fetch.mockImplementation(async (url, options) => {
+      if (url === "/api/constituency-import/preview") return json({ previewOnly: true, rows: [], summary: {}, warnings: [] });
+      if (url === "/api/constituency-import/custom-field-categories") return json({ categories: [{ name: "Interest", dataType: "Text" }] });
+      return baseFetch(url, options);
+    });
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("region", { name: "Import starting points" });
+  }
+  const choose = (label) => fireEvent.click(within(screen.getByRole("region", { name: "Import starting points" })).getByRole("button", { name: new RegExp(`^${label}`) }));
+  async function upload(csv, name = "preset.csv") {
+    fireEvent.change(document.getElementById("constituency-import-file"), { target: { files: [{ name, text: async () => csv }] } });
+    await screen.findByText(`Loaded ${name}.`);
+  }
+  const contactsCsv = "First Name,Last Name,Email Address,Email Type,Email Make Primary?,Phone Number,Phone Type,Phone Make Primary?,New Constituent Code\nAvery,Example,avery@example.test,Personal,Yes,9045550100,Mobile,Yes,Friend";
+  it("starts unselected, includes new-person contacts explicitly through the preset, and sends only a confirmed preview", async () => {
+    await start();
+    const picker = within(screen.getByRole("region", { name: "Import starting points" }));
+    expect(picker.getAllByRole("button").every((button) => button.getAttribute("aria-pressed") === "false")).toBe(true);
+    choose("Add new people");
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+    await upload(contactsCsv);
+    expect(screen.getByLabelText("Import email addresses")).toBeChecked();
+    expect(screen.getByLabelText("Import phone numbers")).toBeChecked();
+    expect(planConfirmation()).not.toBeChecked();
+    expect(screen.getByRole("region", { name: "Confirm saved setup" })).toHaveTextContent("Email: 1 row marked primary");
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    fireEvent.click(planConfirmation());
+    fireEvent.click(screen.getByRole("button", { name: "Review uploaded CSV" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/preview")).toBe(true));
+    const body = JSON.parse(fetch.mock.calls.find(([url]) => url === "/api/constituency-import/preview")[1].body);
+    expect(body.defaults).toMatchObject({ reusableSetup: true, importSetupConfirmed: true, importIntent: "new", updateEmailFields: true, updatePhoneFields: true, updateNameFields: false, defaultAction: "add" });
+    expect(body.contactDecisions).toEqual({});
+    expect(body.fieldDecisions).toEqual({});
+    expect(fetch.mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => url)).toEqual(["/api/constituency-import/preview"]);
+  });
+  it("allows an identity-only new-person review without inventing an update operation", async () => {
+    await start(); choose("Add new people");
+    await upload("First Name,Last Name\nAvery,Example");
+    fireEvent.click(planConfirmation());
+    expect(screen.getByRole("button", { name: "Review uploaded CSV" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Review uploaded CSV" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/preview")).toBe(true));
+    const body = JSON.parse(fetch.mock.calls.find(([url]) => url === "/api/constituency-import/preview")[1].body);
+    expect(body.mappings).toEqual({ firstName: "First Name", lastName: "Last Name" });
+    expect(body.defaults).toMatchObject({ importIntent: "new", updateEmailFields: false, updatePhoneFields: false, updateNameFields: false });
+  });
+  it("names unmapped required fields instead of showing empty missing-column warnings", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await start(); choose("Add new people");
+    await upload("Given,Family\nAvery,Example");
+    expect(screen.getByText(/Selected fields have no available column/)).toHaveTextContent("First Name (choose a column), Last Name (choose a column)");
+    expect(screen.getByLabelText("First Name column")).toHaveValue("");
+    expect(screen.getByLabelText("Last Name column")).toHaveValue("");
+    fireEvent.click(planConfirmation());
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    expect(consoleError.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    consoleError.mockRestore();
+  });
+  it("can apply a preset after upload, preserves the file on cancellation, and requires new confirmation after switching", async () => {
+    await start(); await upload(contactsCsv);
+    choose("Add new people");
+    fireEvent.click(planConfirmation());
+    window.confirm.mockReturnValue(false);
+    choose("Update existing people");
+    expect(planConfirmation()).toBeChecked();
+    expect(screen.getByText("preset.csv")).toBeInTheDocument();
+    window.confirm.mockReturnValue(true);
+    choose("Update existing people");
+    expect(planConfirmation()).not.toBeChecked();
+    expect(screen.getByLabelText("NXT System ID column")).toHaveValue("");
+    expect(screen.getByText(/Row 1: update-only setups require/)).toBeInTheDocument();
+    fireEvent.click(planConfirmation());
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+  });
+  it("uses existing IDs for updates without enabling name changes or creating constituents", async () => {
+    await start(); choose("Update existing people");
+    await upload(`NXT System ID,${contactsCsv.split("\n")[0]}\n123,${contactsCsv.split("\n")[1]}`);
+    expect(screen.getByRole("checkbox", { name: "Update matched NXT name fields" })).not.toBeChecked();
+    fireEvent.click(planConfirmation());
+    fireEvent.click(screen.getByRole("button", { name: "Review uploaded CSV" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/preview")).toBe(true));
+    const body = JSON.parse(fetch.mock.calls.find(([url]) => url === "/api/constituency-import/preview")[1].body);
+    expect(body.defaults).toMatchObject({ importIntent: "updates", updateNameFields: false, updateEmailFields: true, updatePhoneFields: true });
+    expect(body.mappings.blackbaudConstituentId).toBe("NXT System ID");
+    expect(fetch.mock.calls.some(([url]) => /\/(create|apply|process)$/.test(url))).toBe(false);
+  });
+  it("excludes unrelated custom-import columns, requires a category, and clears it on replacement upload", async () => {
+    await start(); choose("Add custom fields");
+    const csv = "NXT System ID,First Name,Last Name,Custom Field Description,Email Address,New Constituent Code\n123,Avery,Example,Campus events,avery@example.test,Friend";
+    await upload(csv);
+    expect(screen.getByLabelText("Custom Field Value / Description column")).toHaveValue("Custom Field Description");
+    expect(screen.queryByLabelText("Email Address column")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("New Constituent Code column")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Column mapping" })).toHaveTextContent("Not included: Email Address, New Constituent Code");
+    expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/custom-field-categories")).toBe(false);
+    fireEvent.click(planConfirmation());
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load NXT categories" }));
+    await screen.findByRole("option", { name: "Interest (Text)" });
+    fireEvent.change(screen.getByLabelText("NXT custom-field category"), { target: { value: "Interest" } });
+    expect(planConfirmation()).not.toBeChecked();
+    fireEvent.click(planConfirmation());
+    expect(screen.getByRole("button", { name: "Review uploaded CSV" })).toBeEnabled();
+    await upload(csv, "replacement.csv");
+    expect(screen.getByLabelText("NXT custom-field category")).toHaveValue("");
+    expect(planConfirmation()).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Review uploaded CSV" })).not.toBeInTheDocument();
+  });
+  it("clears preset-specific choices on replacement files and preserves approval invalidation for changed mappings", async () => {
+    await start(); choose("Add new people"); await upload(contactsCsv);
+    fireEvent.click(planConfirmation());
+    fireEvent.change(screen.getByLabelText("Email Address column"), { target: { value: "" } });
+    expect(planConfirmation()).not.toBeChecked();
+    await upload("First Name,Last Name,Phone,Phone Type\nAvery,Example,9045550100,Mobile", "phone.csv");
+    expect(screen.queryByLabelText("Email Address column")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Email Make Primary? column")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Phone Number column")).toHaveValue("Phone");
+    expect(planConfirmation()).not.toBeChecked();
+    expect(screen.getByLabelText("Import phone numbers")).toBeChecked();
+  });
+  it("does not offer presets that can replace a saved run", async () => {
+    await start(); choose("Add new people");
+    fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
+    await screen.findByText("Saved import run #42");
+    expect(screen.queryByRole("region", { name: "Import starting points" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Updates to existing NXT records/ })).toBeDisabled();
+    expect(screen.queryByRole("region", { name: "Confirm saved setup" })).not.toBeInTheDocument();
+  });
+  it("keeps presets disabled while the file is being read", async () => {
+    await start();
+    let finish;
+    const text = new Promise((resolve) => { finish = resolve; });
+    fireEvent.change(document.getElementById("constituency-import-file"), { target: { files: [{ name: "slow.csv", text: () => text }] } });
+    const buttons = within(screen.getByRole("region", { name: "Import starting points" })).getAllByRole("button");
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    finish(contactsCsv);
+    await screen.findByText("Loaded slow.csv.");
+    expect(buttons.every((button) => !button.disabled)).toBe(true);
+  });
+  it("allows a saved setup to replace a preset without the preset winning on the next upload", async () => {
+    const baseFetch = fetch.getMockImplementation();
+    const setup = { id: "4", revision: 1, configuration: normalizeImportSetup({ name: "Saved custom columns", mappings: { lookupId: "Exact ID", email: "Contact" }, defaults: { importIntent: "updates", updateEmailFields: true, defaultEmailType: "Personal" } }) };
+    fetch.mockImplementation(async (url, options) => url === "/api/constituency-import/setups" ? json({ setups: [setup] }) : baseFetch(url, options));
+    await start(); choose("Add new people");
+    const select = await screen.findByLabelText("Your saved setups");
+    await waitFor(() => expect(select).toBeEnabled());
+    fireEvent.change(select, { target: { value: "4" } });
+    await upload("Exact ID,Contact\n123,avery@example.test");
+    expect(screen.getByLabelText("NXT Lookup ID column")).toHaveValue("Exact ID");
+    expect(within(screen.getByRole("region", { name: "Import starting points" })).getAllByRole("button").every((button) => button.getAttribute("aria-pressed") === "false")).toBe(true);
+    choose("Add custom fields");
+    expect(select).toHaveValue("");
+    expect(screen.queryByLabelText("Email Address column")).not.toBeInTheDocument();
+    expect(planConfirmation()).not.toBeChecked();
+  });
+});
+
 describe("saved import setups in the full import workflow", () => {
   const setup = (patch = {}) => ({ id: "4", revision: 1, configuration: normalizeImportSetup({ name: "New people with email",
     mappings: { firstName: "Given", lastName: "Family", email: "Email", emailMakePrimary: "Primary" },
