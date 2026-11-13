@@ -52,6 +52,8 @@ const DEFAULT_ACTIVE_FIELDS = {
   firstName: false,
   lastName: false,
   preferredName: false,
+  middleName: false,
+  maidenName: false,
   title: false,
   gender: false,
   ethnicity: false,
@@ -220,6 +222,10 @@ function makeTemplateRows(fields) {
         return "Dolphin";
       case "preferredName":
         return "Jane";
+      case "middleName":
+        return "Alex";
+      case "maidenName":
+        return "Harbor";
       case "email":
         return "jane@example.com";
       case "emailType":
@@ -327,6 +333,10 @@ function makeTemplateRows(fields) {
       case "lastName":
         return "Dolphin";
       case "preferredName":
+        return "";
+      case "middleName":
+        return "Taylor";
+      case "maidenName":
         return "";
       case "email":
         return "sam@example.com";
@@ -635,6 +645,8 @@ function formatWritePlanItem(write) {
       write.firstName && `first name to ${write.firstName}`,
       write.lastName && `last name to ${write.lastName}`,
       write.preferredName && `preferred name to ${write.preferredName}`,
+      write.middleName && `middle name to ${write.middleName}`,
+      write.maidenName && `maiden/former name to ${write.maidenName}`,
     ]
       .filter(Boolean)
       .join(", ");
@@ -2950,7 +2962,7 @@ function getRowReviewTargetKey(requirements) {
   if (requirementText.includes("education class year")) return "education-class-year";
   if (requirementText.includes("education")) return "education-target";
   if (/email|phone|address/.test(requirementText)) return "contact-review";
-  if (/first name|last name|preferred name|title|gender|ethnicity|birth date|suffix|addressee|salutation/.test(requirementText)) {
+  if (/first name|last name|preferred name|middle name|maiden|former name|title|gender|ethnicity|birth date|suffix|addressee|salutation/.test(requirementText)) {
     return "profile-review";
   }
   return "review-summary";
@@ -3146,7 +3158,7 @@ export default function ConstituencyImportPage() {
       activeFields.organizationTitle,
   );
   const nameFieldsActive = Boolean(
-    activeFields.firstName || activeFields.lastName || activeFields.preferredName,
+    activeFields.firstName || activeFields.lastName || activeFields.preferredName || activeFields.middleName || activeFields.maidenName,
   );
   const individualProfileFieldsActive = Boolean(
     activeFields.title || activeFields.gender || activeFields.ethnicity || activeFields.birthDate || activeFields.suffix,
@@ -3158,7 +3170,7 @@ export default function ConstituencyImportPage() {
     updateNameFields &&
       (hasUploadedHeader("firstName") ||
         hasUploadedHeader("lastName") ||
-        hasUploadedHeader("preferredName")),
+        hasUploadedHeader("preferredName") || hasUploadedHeader("middleName") || hasUploadedHeader("maidenName")),
   );
   const mappedIndividualProfileUpdate = Boolean(
     updateIndividualProfileFields &&
@@ -3382,9 +3394,10 @@ export default function ConstituencyImportPage() {
       setUpdateAddressFields(true);
       detectedOperations.push("address updates");
     }
-    if (hasDirectNxtIdentifier && parsedHeaderSet.has(FIELD_BY_KEY.preferredName.header)) {
-      setUpdateNameFields(true);
-      detectedOperations.push("preferred-name updates");
+    const detectedNameUpdates = hasDirectNxtIdentifier && ["preferredName", "middleName", "maidenName"].some((key) => getUploadedHeaderForField(key, parsed.headers));
+    setUpdateNameFields(detectedNameUpdates);
+    if (detectedNameUpdates) {
+      detectedOperations.push("name-field updates");
     }
     setPreview(null);
     setSaveMessage("");
@@ -5676,6 +5689,8 @@ export default function ConstituencyImportPage() {
         firstName: row.input?.firstName || "",
         lastName: row.input?.lastName || "",
         preferredName: row.input?.preferredName || "",
+        middleName: row.input?.middleName || "",
+        maidenName: row.input?.maidenName || "",
         title: row.input?.title || "",
         gender: row.input?.gender || "",
         ethnicity: row.input?.ethnicity || "",
@@ -6478,7 +6493,7 @@ export default function ConstituencyImportPage() {
                                 }}
                               >
                                 Use this for corrections to individual constituents, such as a
-                                preferred name that differs from the current NXT record. Only
+                                preferred, middle, or maiden/former name that differs from the current NXT record. Maiden/former name updates NXT Former name, not the current last name. Only
                                 populated CSV cells are updated; blank name cells never clear an
                                 existing NXT value.
                               </span>
@@ -8067,6 +8082,8 @@ export default function ConstituencyImportPage() {
                               ["firstName", "First Name", write.current?.firstName, write.firstName],
                               ["lastName", "Last Name", write.current?.lastName, write.lastName],
                               ["preferredName", "Preferred Name", write.current?.preferredName, write.preferredName],
+                              ["middleName", "Middle Name", write.current?.middleName, write.middleName],
+                              ["maidenName", "Maiden/Former Name", write.current?.maidenName, write.maidenName],
                             ]
                               .filter(([, , , proposed]) => proposed)
                               .map(([field, label, current, proposed]) => (

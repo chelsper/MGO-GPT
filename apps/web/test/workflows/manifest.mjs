@@ -104,6 +104,9 @@ export const workflowGroups = {
     "src/components/ImportColumnMapping.test.jsx",
     "src/components/ImportContactPreflight.test.jsx",
     "src/utils/importFieldDefinitions.test.js",
+    "src/utils/importFieldResults.test.js",
+    "src/utils/importCompletion.test.js",
+    "src/app/api/utils/importTargetIdentity.test.js",
     "src/utils/importContactPreflight.test.js",
     "src/utils/importDate.test.js",
     "src/app/api/constituency-import/preview/route.test.js",
@@ -116,6 +119,8 @@ export const workflowGroups = {
     "src/app/api/constituency-import/runs/[id]/apply/safety.test.js",
     "src/app/api/constituency-import/runs/[id]/contact-recovery/route.test.js",
     "src/app/api/constituency-import/runs/[id]/rows/[rowId]/create/route.test.js",
+    "src/app/api/constituency-import/runs/[id]/rows/[rowId]/process/route.test.js",
+    "src/app/api/constituency-import/runs/[id]/reconcile/route.test.js",
   ],
   "Stewardship assistance": [
     "src/components/StewardshipAssistanceDialog.test.jsx",

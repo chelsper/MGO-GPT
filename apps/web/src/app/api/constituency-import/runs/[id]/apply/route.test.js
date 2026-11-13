@@ -74,6 +74,17 @@ function getSavedApplyAudit() {
 }
 
 describe("constituency import run apply route", () => {
+  it.each(["Individual", "Organization", "too_long"])("guards middle/former name PATCH for %s", async (kind) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "constituent_name", action: "update", recordType: kind === "Organization" ? kind : "Individual", middleName: kind === "too_long" ? "a".repeat(51) : "Alex", maidenName: "Harbor", firstName: "", lastName: "" };
+    const row = { id: "9", run_id: "42", status: "Ready", matched_blackbaud_constituent_id: "123", requested_writes: [write], preview: { input: {}, match: { blackbaudConstituentId: "123" }, writePlan: [write] } };
+    sqlMock.mockResolvedValueOnce([makeRun()]).mockResolvedValueOnce([row]).mockResolvedValueOnce([]).mockResolvedValueOnce([row]).mockResolvedValueOnce([]).mockResolvedValueOnce([makeRun()]).mockResolvedValueOnce([row]);
+    blackbaudApiFetchMock.mockResolvedValue({});
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    expect(response.status).toBe(200);
+    if (kind === "Individual") expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents/123", expect.objectContaining({ method: "PATCH", maxRetries: 0, body: { middle: "Alex", former_name: "Harbor" } }));
+    else expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();

@@ -270,6 +270,22 @@ describe("filterable import review", () => {
 });
 
 describe("contact preparation from an uploaded file", () => {
+  it("maps middle/former names in place without submitting an import and clears them on a new file", async () => {
+    render(<ConstituencyImportPage />);
+    await screen.findByRole("button", { name: /Run #42/ });
+    const input = document.getElementById("constituency-import-file");
+    fireEvent.change(input, { target: { files: [{ name: "names.csv", text: async () => "NXT System ID,Middle Name,Former Name\n123,Alex,Harbor" }] } });
+    await screen.findByText("Loaded names.csv.");
+    expect(screen.getByLabelText("Middle Name column")).toHaveValue("Middle Name");
+    expect(screen.getByLabelText("Maiden/Former Name column")).toHaveValue("Former Name");
+    expect(screen.getByRole("checkbox", { name: /Update matched NXT name fields/ })).toBeChecked();
+    fireEvent.change(input, { target: { files: [{ name: "next.csv", text: async () => "NXT System ID,First Name,Last Name\n123,Avery,Example" }] } });
+    await screen.findByText("Loaded next.csv.");
+    expect(screen.queryByLabelText("Middle Name column")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Maiden/Former Name column")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Update matched NXT name fields/ })).not.toBeChecked();
+    expect(fetch.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  });
   it("maps common headers, adds a custom column in place, and resets fields for a replacement file", async () => {
     render(<ConstituencyImportPage />);
     await screen.findByRole("button", { name: /Run #42/ });

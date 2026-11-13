@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { EXTENDED_IMPORT_NAMES } from "@/utils/importExtendedNames";
+import { quickImportInputKey } from "@/utils/quickImportWorkflow";
 import { getImportWriteResults } from "@/utils/importWriteResults";
 import { importAddressMatches } from "@/utils/importAddressVerification";
 import { importPhonesMatch } from "@/utils/importPhoneMatching";
@@ -333,13 +335,17 @@ async function reconcileWrite({ write, applyResult, reader, verifyExisting = fal
       ["first", write.firstName],
       ["last", write.lastName],
       ["preferred name", write.preferredName],
+      ...EXTENDED_IMPORT_NAMES.map(({ key, label }) => [label.toLowerCase(), write[key]]),
     ].filter(([, value]) => cleanText(value));
     const actual = {
       first: constituent?.first || constituent?.first_name,
       last: constituent?.last || constituent?.last_name,
       "preferred name": constituent?.preferred_name || constituent?.preferredName,
+      ...Object.fromEntries(EXTENDED_IMPORT_NAMES.map(({ label, nxt }) => [label.toLowerCase(), constituent?.[nxt]])),
     };
-    const mismatches = expected.filter(([label, value]) => normalizeText(actual[label]) !== normalizeText(value));
+    const mismatches = expected.filter(([label, value]) => EXTENDED_IMPORT_NAMES.some((field) => field.label.toLowerCase() === label)
+      ? cleanText(actual[label]).toLowerCase() !== cleanText(value).toLowerCase()
+      : normalizeText(actual[label]) !== normalizeText(value));
     if (!expected.length) return needsReview(write, "No name fields were supplied to verify.");
     return mismatches.length
       ? needsReview(write, `NXT currently differs for ${mismatches.map(([label]) => label).join(", ")}.`)
@@ -610,8 +616,21 @@ export async function POST(request, { params }) {
       const results = await reconcileRow({ request, user: authResult.user, row,
         verifyExisting });
       const audit = buildReconciliationAudit({ row, user: authResult.user, results, verifyExisting });
+      const input = row.preview?.input || {};
+      if (row.created_blackbaud_constituent_id && EXTENDED_IMPORT_NAMES.some(({ key }) => cleanText(input[key]))) {
+        // Creation can have succeeded without a separate name PATCH. Verify its
+        // fields independently so manual recovery has the same proof as a batch.
+        const identity = await verifyImportTargetIdentity({ request, user: authResult.user, row, verifyCreatedNameFields: true });
+        audit.reconciliation.createdNames = {
+          status: identity.ok ? "confirmed" : "needs_review",
+          constituentId: String(row.created_blackbaud_constituent_id),
+          inputKey: quickImportInputKey(input),
+          message: identity.ok ? "Created middle and maiden/former names match NXT." : "Created middle or maiden/former name could not be verified. Review the saved record; do not create it again.",
+        };
+        if (!identity.ok) audit.reconciliation.needsReviewCount += 1;
+      }
       const completed = completeIfMatches && results.length === getWritePlan(row).length &&
-        results.length > 0 && results.every((result) => result.status === "confirmed");
+        results.length > 0 && results.every((result) => result.status === "confirmed") && audit.reconciliation.needsReviewCount === 0;
       if (completed) audit.completion = {
         method: "verified_existing_nxt", completedAt: audit.reconciliation.verifiedAt,
         completedByUserId: authResult.user.id, completedByEmail: authResult.user.email,

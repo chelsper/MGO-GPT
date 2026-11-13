@@ -102,6 +102,17 @@ function makeRow(overrides = {}) {
 }
 
 describe("constituency import new-record create route", () => {
+  it.each([false, true])("sends extended names on creation or holds invalid values: %s", async (invalid) => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    Object.assign(row.preview.input, { middleName: invalid ? "a".repeat(51) : "Alex", maidenName: "Harbor" });
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValueOnce([{ ...row, status: "Creating" }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ status: "Ready" }]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456" });
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(invalid ? 400 : 200);
+    if (invalid) expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    else expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents", expect.objectContaining({ method: "POST", maxRetries: 0, body: expect.objectContaining({ middle: "Alex", former_name: "Harbor", last: "Dolphin" }) }));
+  });
   beforeEach(() => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();

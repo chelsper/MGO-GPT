@@ -170,6 +170,8 @@ export function newRecordRequestedChanges(row) {
     ["firstName", "First name"],
     ["lastName", "Last name"],
     ["preferredName", "Preferred name"],
+    ["middleName", "Middle name"],
+    ["maidenName", "Maiden/former name"],
   ]);
   if (name) lines.push(name);
   for (const [key, label, valueKey] of [

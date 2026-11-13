@@ -12,6 +12,33 @@ const verify = (row, status = "confirmed") => ({ ...row, blackbaudResult: { ...r
 } } });
 
 describe("saved field result evidence", () => {
+  it("does not hide a later created-name mismatch behind a confirmed name PATCH", () => {
+    const row = { ...base(), createdBlackbaudConstituentId: "123", input: { middleName: "Alex", maidenName: "Harbor" },
+      writePlan: [{ type: "constituent_name", middleName: "Alex", maidenName: "Harbor" }] };
+    row.blackbaudResult = { writePlanKey: importWritePlanKey(row.writePlan) };
+    const checked = verify(row);
+    checked.blackbaudResult.reconciliation.createdNames = { status: "needs_review", message: "Created names could not be verified." };
+    const fields = importFieldResults(checked).fields.filter((field) => ["Middle name", "Maiden/former name"].includes(field.field));
+    expect(fields).toHaveLength(2);
+    expect(fields.every((field) => field.state === "attention" && field.checkedAt === null)).toBe(true);
+  });
+  it.each([false, true])("does not infer created middle/former-name verification from identity alone: %s", (verified) => {
+    const row = { ...base(), createdBlackbaudConstituentId: "123", input: { middleName: "Alex", maidenName: "Harbor" } };
+    row.quickImportWorkflow = { phase: "complete", constituentId: "123", identityConfirmedAt: "2026-11-13", inputKey: quickImportInputKey(row.input), extendedNamesVerified: verified };
+    row.blackbaudResult.reconciliation = { verifiedAt: "2026-11-13", ...(verified ? { createdNames: { status: "confirmed", constituentId: "123", inputKey: quickImportInputKey(row.input) } } : {}) };
+    const fields = importFieldResults(row).fields.filter((field) => ["Middle name", "Maiden/former name"].includes(field.field));
+    expect(fields).toHaveLength(2);
+    expect(fields.every((field) => field.state === (verified ? "verified" : "awaiting"))).toBe(true);
+    row.input.middleName = "Changed";
+    expect(importFieldResults(row).fields.find((field) => field.field === "Middle name").state).not.toBe("verified");
+  });
+  it("includes both name fields in per-field outcomes and review exports", () => {
+    const row = base();
+    row.writePlan = [{ type: "constituent_name", middleName: "Alex", maidenName: "Harbor" }];
+    row.blackbaudResult = { writePlanKey: importWritePlanKey(row.writePlan) };
+    expect(importFieldResults(verify(row)).fields.map(({ field, state }) => [field, state])).toEqual([["Middle name", "verified"], ["Maiden/former name", "verified"]]);
+    expect(JSON.stringify(importFieldResultExport(verify(row)))).toContain("Maiden/former name");
+  });
   it("does not equate Applied with verified, and includes primary as its own outcome", () => {
     const result = importFieldResults(base());
     expect(result.fields.map(({ field, status }) => ({ field, status }))).toEqual([

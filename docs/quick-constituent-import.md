@@ -122,6 +122,27 @@ NXT configured name formats use `primary_addressee` / `primary_salutation` with 
 
 These safeguards apply to the standard constituency import. Family Import is deferred and unchanged.
 
+### Middle And Maiden/Former Names
+
+CSV mapping supports **Middle Name** and **Maiden/Former Name** for individual
+constituents. The template header is **Maiden Name**; **Former Name** is also
+recognized. NXT uses `middle` (50 characters) and `former_name` (100 characters)
+for both creation and updates. Former name is not the current last name and this
+import does not add an alias. See the Blackbaud-published [constituent field
+reference](https://learn.microsoft.com/en-us/connectors/blackbaudconstituent/).
+
+New records include populated values in the duplicate-checked creation request.
+Updates require **Update matched NXT name fields** and the existing review/send
+approval; the review shows old and proposed values with **Keep NXT value**.
+Blanks never clear names. Equal values need no write. Overlong values are held,
+not truncated. Templates, saved mappings, review summaries and result exports
+include both fields. Existing addressee/salutation formatting is unchanged.
+
+New-record verification checks these fields against the exact live identity,
+including manual recovery. Missing/different values stop completion without
+replaying creation or previous writes. Saved outcomes require explicit name-check
+evidence, not just a created ID. Old imports without that evidence stay unverified.
+
 ### Field-Level Import Results
 
 Open an attempted or created record in a saved import to see **What finished and what remains**. Constituent creation, individual name/profile fields, contact values, contact types, primary settings, and previous-primary changes have separate outcomes. A created system ID or an accepted send is not proof that all requested fields succeeded. The original import plan stays available in a collapsed history section.

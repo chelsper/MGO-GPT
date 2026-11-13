@@ -26,6 +26,31 @@ function makeRequest(body) {
 }
 
 describe("constituency import reconciliation route", () => {
+  it.each([true, false])("checks creation names on manual recovery even when the other write matches: %s", async (matches) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "constituent_name", action: "update", preferredName: "Ave" };
+    const row = { id: "9", run_id: "42", status: "Applied", applied_at: "2026-11-13", created_blackbaud_constituent_id: "123", matched_blackbaud_constituent_id: "123", requested_writes: [write],
+      preview: { input: { middleName: "Alex", maidenName: "Harbor" }, match: { blackbaudConstituentId: "123", firstName: "Avery", lastName: "Example" } },
+      blackbaud_result: { results: [{ status: "applied", writeIndex: 0 }] } };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "123", first: "Avery", last: "Example", preferred_name: "Ave", middle: "Alex", ...(matches ? { former_name: "Harbor" } : {}) });
+    const response = await POST(makeRequest({ rowIds: ["9"], completeIfMatches: true }), { params: { id: "42" } });
+    const payload = await response.json();
+    expect(payload.reconciliationSummary.completedRows).toBe(matches ? 1 : 0);
+    expect(payload.reconciliationSummary.needsReview).toBe(matches ? 0 : 1);
+    expect(payload.rows[0].reconciliation.createdNames.status).toBe(matches ? "confirmed" : "needs_review");
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
+  it.each([{ middle: "Alex", former_name: "Harbor" }, { middle: "Alex" }, { former_name: "Harbor" }, { middle: "Wrong", former_name: "Harbor" }, { middle: "Alex!", former_name: "Harbor" }])("verifies both imported names from actual NXT fields: %j", async (names) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "constituent_name", action: "update", middleName: "Alex", maidenName: "Harbor" };
+    const row = { id: "9", run_id: "42", status: "Applied", applied_at: "2026-11-13", matched_blackbaud_constituent_id: "123", requested_writes: [write], blackbaud_result: { results: [{ status: "applied", writeIndex: 0 }] } };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "123", first: "Avery", last: "Example", ...names });
+    const response = await POST(makeRequest({ rowIds: ["9"] }), { params: { id: "42" } });
+    expect((await response.json()).reconciliationSummary.confirmed).toBe(names.middle === "Alex" && names.former_name === "Harbor" ? 1 : 0);
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
   beforeEach(() => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();
