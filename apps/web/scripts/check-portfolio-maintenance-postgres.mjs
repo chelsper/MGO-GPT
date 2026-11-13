@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { hasPortfolioSummaryChanges } from "../src/app/api/utils/portfolioSummaryFreshness.js";
+import { PORTFOLIO_ITEM_START_BUFFER_SECONDS } from "../src/app/api/utils/portfolioMaintenancePolicy.js";
 
 const host = process.env.MAINTENANCE_TEST_PGHOST;
 if (!host?.startsWith("/private/tmp/") && !host?.startsWith("/tmp/")) throw Error("Use a disposable local PostgreSQL socket under /tmp.");
@@ -24,13 +25,13 @@ let now = "2026-09-30T16:00:00Z";
 const sql = async (parts, ...values) => {
   let query = parts.reduce((text, part, i) => text + part + (i < values.length ? quote(values[i]) : ""), "");
   query = query.replaceAll("NOW()", `${quote(now)}::timestamptz`);
-  if (query.includes("RETURNING")) return JSON.parse(await run(`WITH t AS (${query}) SELECT COALESCE(json_agg(t), '[]'::json) FROM t`));
+  if (query.includes("RETURNING") || query.trimStart().startsWith("SELECT")) return JSON.parse(await run(`WITH t AS (${query}) SELECT COALESCE(json_agg(t), '[]'::json) FROM t`));
   await run(query); return [];
 };
 const source = readFileSync(new URL("../src/app/api/utils/portfolioMaintenanceStore.js", import.meta.url), "utf8")
   .replace(/^import[\s\S]*?;\n/gm, "").replaceAll("export async function", "async function");
-const store = new Function("sql", "randomUUID", "MAINTENANCE_DAYTIME_CALLS", "MAINTENANCE_NIGHT_CALLS", "MAINTENANCE_BATCH_CALLS", "MAINTENANCE_LEASE_SECONDS",
-  `${source}\nreturn { ensureMaintenanceGate, claimMaintenanceGate, reserveMaintenanceCall, releaseMaintenanceGate };`)(sql, randomUUID, 360, 2160, 60, 240);
+const store = new Function("sql", "randomUUID", "MAINTENANCE_DAYTIME_CALLS", "MAINTENANCE_NIGHT_CALLS", "MAINTENANCE_BATCH_CALLS", "MAINTENANCE_LEASE_SECONDS", "PORTFOLIO_ITEM_START_BUFFER_SECONDS",
+  `${source}\nreturn { ensureMaintenanceGate, claimMaintenanceGate, canStartMaintenanceItem, reserveMaintenanceCall, releaseMaintenanceGate };`)(sql, randomUUID, 360, 2160, 60, 240, PORTFOLIO_ITEM_START_BUFFER_SECONDS);
 const schedulerSource = readFileSync(new URL("../src/app/api/utils/portfolioMaintenanceScheduler.js", import.meta.url), "utf8")
   .replace(/^import[\s\S]*?;\n/gm, "").replaceAll("export async function", "async function");
 const scheduler = new Function("sql", "randomUUID", `${schedulerSource}\nreturn { claimPortfolioTurn, finishPortfolioTurn };`)(sql, randomUUID);
@@ -145,6 +146,55 @@ try {
   await run("UPDATE portfolio_maintenance_gate SET lease_until=NULL,next_allowed_at='2026-01-01';");
   assert.equal(await store.claimMaintenanceGate(origin, null, { workspaceUserId: "7" }), null);
   console.log("PASS independent night/day ceilings and night-only scoped membership reads.");
+
+  now = "2026-11-03T06:00:00Z";
+  await run("UPDATE portfolio_maintenance_gate SET lease_until=NULL,next_allowed_at='2026-01-01'; UPDATE portfolio_refresh_jobs SET status='queued' WHERE id=1; UPDATE portfolio_refresh_items SET status='pending';");
+  const adaptiveGate = await store.claimMaintenanceGate(origin, "1");
+  assert(adaptiveGate);
+  await run("UPDATE portfolio_refresh_jobs SET status='processing' WHERE id=1; UPDATE portfolio_refresh_items SET status='processing';");
+  const counters = await run("SELECT batch_calls || ':' || night_call_count || ':' || call_count FROM portfolio_maintenance_gate");
+  assert.equal(await store.canStartMaintenanceItem(adaptiveGate, 7), true);
+  assert.equal(await run("SELECT batch_calls || ':' || night_call_count || ':' || call_count FROM portfolio_maintenance_gate"), counters);
+  for (const changed of [{ token: "wrong" }, { origin: "https://other.example.org" }, { jobId: "2" }]) {
+    assert.equal(await store.canStartMaintenanceItem({ ...adaptiveGate, ...changed }, 7), false);
+  }
+  assert.equal(await store.canStartMaintenanceItem(adaptiveGate, 8), false);
+  for (const [change, restore] of [
+    ["UPDATE portfolio_maintenance_gate SET batch_calls=60", "UPDATE portfolio_maintenance_gate SET batch_calls=0"],
+    ["UPDATE portfolio_maintenance_gate SET call_day='2026-11-03',night_call_count=2160", "UPDATE portfolio_maintenance_gate SET night_call_count=0"],
+    ["UPDATE portfolio_maintenance_gate SET lease_until='2026-01-01'", "UPDATE portfolio_maintenance_gate SET lease_until='2026-11-03T06:04:00Z'"],
+    ["UPDATE portfolio_maintenance_gate SET budget_window='day'", "UPDATE portfolio_maintenance_gate SET budget_window='night'"],
+    ["UPDATE portfolio_refresh_jobs SET cancel_requested=TRUE WHERE id=1", "UPDATE portfolio_refresh_jobs SET cancel_requested=FALSE WHERE id=1"],
+    ["UPDATE portfolio_refresh_jobs SET paused_until='2026-11-04' WHERE id=1", "UPDATE portfolio_refresh_jobs SET paused_until=NULL WHERE id=1"],
+    ["UPDATE portfolio_refresh_jobs SET status='paused' WHERE id=1", "UPDATE portfolio_refresh_jobs SET status='processing' WHERE id=1"],
+    ["UPDATE portfolio_refresh_jobs SET mode='full' WHERE id=1", "UPDATE portfolio_refresh_jobs SET mode='nightly' WHERE id=1"],
+    ["UPDATE users SET active=FALSE WHERE id=7", "UPDATE users SET active=TRUE WHERE id=7"],
+    ["INSERT INTO blackbaud_api_limit_state VALUES ('subscription','2026-11-04')", "DELETE FROM blackbaud_api_limit_state"],
+  ]) {
+    await run(change);
+    assert.equal(await store.canStartMaintenanceItem(adaptiveGate, 7), false, change);
+    await run(restore);
+    assert.equal(await store.canStartMaintenanceItem(adaptiveGate, 7), true, restore);
+  }
+  now = "2026-11-03T06:02:24Z";
+  assert.equal(await store.canStartMaintenanceItem(adaptiveGate, 7), true);
+  now = "2026-11-03T06:02:25Z";
+  assert.equal(await store.canStartMaintenanceItem(adaptiveGate, 7), false);
+  // The headroom check stops new records before the existing atomic read deadline.
+  assert.equal(await store.reserveMaintenanceCall({ ...adaptiveGate, workspaceUserId: "7", constituentId: "123" }), true);
+  now = "2026-11-03T06:02:41Z";
+  assert.equal(await store.reserveMaintenanceCall({ ...adaptiveGate, workspaceUserId: "7", constituentId: "123" }), false);
+  for (const [before, after] of [["2026-11-03T11:59:59Z", "2026-11-03T12:00:00Z"],
+    ["2026-09-30T10:59:59Z", "2026-09-30T11:00:00Z"]]) {
+    now = before;
+    await run("UPDATE portfolio_maintenance_gate SET lease_until=NULL,next_allowed_at='2026-01-01'; UPDATE portfolio_refresh_items SET status='pending';");
+    const boundaryGate = await store.claimMaintenanceGate(origin, "1");
+    assert(boundaryGate);
+    assert.equal(await store.canStartMaintenanceItem(boundaryGate, 7), true);
+    now = after;
+    assert.equal(await store.canStartMaintenanceItem(boundaryGate, 7), false);
+  }
+  console.log("PASS adaptive headroom is read-only, owner-scoped, cancellable, cooldown-aware and bounded by calls, time and Eastern night/day transitions.");
 
   now = "2026-11-03T06:00:00Z";
   await run(`DELETE FROM portfolio_refresh_items; DELETE FROM portfolio_refresh_jobs; DELETE FROM users;

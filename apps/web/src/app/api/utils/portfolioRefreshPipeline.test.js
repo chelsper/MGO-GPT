@@ -101,6 +101,42 @@ describe("resumable portfolio refresh pipeline", () => {
     ]);
   });
 
+  it.each([2, 10])("adapts to %i-call records within the same 60-call allowance", async callsPerItem => {
+    let calls = 0;
+    const processItem = vi.fn(async () => { calls += callsPerItem; return { status: "success" }; });
+    const releaseItem = vi.fn();
+    const result = await runPortfolioRefreshBatch({ items: items(30), concurrency: 1, processItem, releaseItem,
+      canStartItem: async () => calls < 60 });
+    expect(calls).toBe(60);
+    expect(processItem).toHaveBeenCalledTimes(60 / callsPerItem);
+    expect(releaseItem).toHaveBeenCalledTimes(30 - 60 / callsPerItem);
+    expect(result.paused).toBe(false);
+    expect(result.results.filter(item => item.status === "failed")).toHaveLength(0);
+  });
+
+  it("yields once and releases all unstarted items without retrying the gate", async () => {
+    const canStartItem = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(true).mockResolvedValue(false);
+    const processItem = vi.fn(async () => ({ status: "success" }));
+    const releaseItem = vi.fn();
+    const result = await runPortfolioRefreshBatch({ items: items(30), concurrency: 1, canStartItem, processItem, releaseItem });
+    expect(result).toMatchObject({ paused: false, yielded: true });
+    expect(processItem).toHaveBeenCalledTimes(2);
+    expect(canStartItem).toHaveBeenCalledTimes(3);
+    expect(releaseItem).toHaveBeenCalledTimes(28);
+    expect(result.results.slice(2).every(item => item.status === "deferred")).toBe(true);
+  });
+
+  it("does not check capacity again after a provider pause", async () => {
+    const canStartItem = vi.fn(async () => true);
+    const processItem = vi.fn(async () => ({ status: "paused" }));
+    const releaseItem = vi.fn();
+    const result = await runPortfolioRefreshBatch({ items: items(30), concurrency: 1, canStartItem, processItem, releaseItem });
+    expect(result).toMatchObject({ paused: true, yielded: false });
+    expect(canStartItem).toHaveBeenCalledOnce();
+    expect(processItem).toHaveBeenCalledOnce();
+    expect(releaseItem).toHaveBeenCalledTimes(29);
+  });
+
   it("records summary failure after normalized data was saved", async () => {
     const result = await runPortfolioRefreshBatch({
       items: items(1),

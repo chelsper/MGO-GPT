@@ -11,9 +11,9 @@ import {
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import { isAdminRole } from "@/utils/workspaceRoles";
-import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE } from "@/app/api/utils/portfolioMaintenancePolicy";
+import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE, PORTFOLIO_OVERNIGHT_MAX_ITEMS } from "@/app/api/utils/portfolioMaintenancePolicy";
 import { maintenanceContinuationEnabled, maintenanceOrigin, isPortfolioOvernight, MAINTENANCE_DAYTIME_ITEMS, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
-import { claimMaintenanceGate, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
+import { claimMaintenanceGate, canStartMaintenanceItem, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
 import { portfolioFreshnessStatus } from "@/app/api/utils/portfolioFreshnessStatus";
 import { isBlackbaudReadTimeout } from "@/app/api/utils/blackbaudReadTimeout";
 
@@ -49,6 +49,13 @@ function numeric(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function executionLimits(job, daytime = !isPortfolioOvernight()) {
+  if (job.mode === "nightly" && maintenanceContinuationEnabled()) {
+    return { batchSize: daytime ? MAINTENANCE_DAYTIME_ITEMS : PORTFOLIO_OVERNIGHT_MAX_ITEMS, concurrency: 1 };
+  }
+  return { batchSize: numeric(job.batch_size, DEFAULT_BATCH_SIZE), concurrency: numeric(job.concurrency, DEFAULT_CONCURRENCY) };
+}
+
 function serializeJob(job, failedItems = []) {
   if (!job) return null;
   return {
@@ -60,8 +67,7 @@ function serializeJob(job, failedItems = []) {
     successCount: numeric(job.success_count),
     failedCount: numeric(job.failed_count),
     currentCursor: numeric(job.current_cursor),
-    batchSize: numeric(job.batch_size, DEFAULT_BATCH_SIZE),
-    concurrency: numeric(job.concurrency, DEFAULT_CONCURRENCY),
+    ...executionLimits(job),
     mode: job.mode || "stale",
     status: job.status || "queued",
     lastSuccessfulConstituentId: job.last_successful_constituent_id || null,
@@ -770,13 +776,15 @@ export async function POST(request) {
         AND status = 'processing'
         AND updated_at < NOW() - (${PROCESSING_LEASE_MINUTES} * INTERVAL '1 minute')
     `;
+    const adaptiveOvernight = gate && !daytime;
+    const { batchSize, concurrency } = executionLimits(job, daytime);
     const claimed = await sql`
       WITH next_items AS (
         SELECT id
         FROM portfolio_refresh_items
         WHERE job_id = ${job.id} AND status = 'pending'
         ORDER BY position ASC
-        LIMIT ${daytime ? MAINTENANCE_DAYTIME_ITEMS : numeric(job.batch_size, DEFAULT_BATCH_SIZE)}
+        LIMIT ${batchSize}
         FOR UPDATE SKIP LOCKED
       )
       UPDATE portfolio_refresh_items AS item
@@ -792,8 +800,10 @@ export async function POST(request) {
     `;
 
     const batchResult = await runPortfolioRefreshBatch({
-      items: claimed,
-      concurrency: gate ? 1 : numeric(job.concurrency, DEFAULT_CONCURRENCY),
+      // UPDATE RETURNING has no ordering guarantee; keep the manifest's missing/oldest priority.
+      items: claimed.sort((left, right) => numeric(left.position, 0) - numeric(right.position, 0)),
+      concurrency,
+      canStartItem: adaptiveOvernight ? () => canStartMaintenanceItem(gate, workspaceUserId) : undefined,
       processItem: (item) =>
         processItem({
           request,

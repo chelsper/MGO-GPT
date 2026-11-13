@@ -1,6 +1,7 @@
 import sql from "./sql";
 import { ACTIVITY_BATCH_CALLS, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
-import { PORTFOLIO_BATCH_SIZE, PORTFOLIO_CRON_MINUTES, ACTIVITY_CRON_MINUTES, normalNightSlots } from "./portfolioMaintenancePolicy";
+import { PORTFOLIO_BATCH_SIZE, PORTFOLIO_OVERNIGHT_MAX_ITEMS, PORTFOLIO_CRON_MINUTES, ACTIVITY_CRON_MINUTES, normalNightSlots } from "./portfolioMaintenancePolicy";
+import { maintenanceContinuationEnabled, MAINTENANCE_BATCH_CALLS, MAINTENANCE_NIGHT_CALLS } from "./portfolioMaintenanceContinuation";
 import { ACTIVITY_CATCHUP_DAILY_CALLS, ACTIVITY_CATCHUP_START_HOUR, ACTIVITY_CATCHUP_END_HOUR } from "./portfolioActivityCatchup";
 
 const count = value => {
@@ -19,16 +20,18 @@ export function activityCapacity(total, catchupEnabled = false) {
     exceedsNight: checks > callsPerNight };
 }
 
-export function portfolioCapacity(row) {
+export function portfolioCapacity(row, adaptiveOvernight = false) {
   const slots = count(row.assignment_slots);
   const due = count(row.due_slots);
-  const itemsPerNight = normalNightSlots(PORTFOLIO_CRON_MINUTES) * PORTFOLIO_BATCH_SIZE;
+  const itemsPerTurn = adaptiveOvernight ? PORTFOLIO_OVERNIGHT_MAX_ITEMS : PORTFOLIO_BATCH_SIZE;
+  const itemsPerNight = normalNightSlots(PORTFOLIO_CRON_MINUTES) * itemsPerTurn;
   return {
     workspaces: count(row.workspace_count), unknownWorkspaces: count(row.unknown_workspaces),
     assignmentsDue: count(row.assignments_due), slots, uniqueConstituents: count(row.unique_constituents),
     due, givingDue: count(row.giving_due), summaryDue: count(row.summary_due),
     neverChecked: count(row.never_checked), givingOver48Hours: count(row.giving_over_48_hours),
     givingChecked24Hours: count(row.giving_checked_24_hours), oldestGivingCheck: date(row.oldest_giving_check),
+    adaptiveOvernight, itemsPerTurn, batchCallLimit: MAINTENANCE_BATCH_CALLS, nightCallLimit: MAINTENANCE_NIGHT_CALLS,
     itemsPerNight, minimumSweepNights: Math.ceil(slots / itemsPerNight),
     minimumBacklogNights: Math.ceil(due / itemsPerNight), exceedsNight: slots > itemsPerNight,
   };
@@ -80,5 +83,5 @@ export async function readPortfolioRefreshCapacity() {
     FROM freshness
   `;
   if (!row) throw new Error("Capacity data unavailable");
-  return portfolioCapacity(row);
+  return portfolioCapacity(row, maintenanceContinuationEnabled());
 }

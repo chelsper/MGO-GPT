@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import manifest from "../../../../vercel.json";
 import { ACTIVITY_CRON_MINUTES, PORTFOLIO_CRON_MINUTES, PORTFOLIO_REFRESH_HOURS } from "./portfolioMaintenancePolicy";
 
@@ -10,6 +10,19 @@ const row = { workspace_count: 5, unknown_workspaces: 0, assignments_due: 0, ass
   unique_constituents: 800, due_slots: 578, giving_due: 578, summary_due: 10, never_checked: 0,
   giving_over_48_hours: 100, giving_checked_24_hours: 330, oldest_giving_check: "2026-09-18T12:00:00Z" };
 beforeEach(() => { vi.clearAllMocks(); sql.mockResolvedValue([row]); });
+afterEach(() => vi.unstubAllEnvs());
+
+it("reports the adaptive record ceiling separately from unchanged call budgets", async () => {
+  expect(portfolioCapacity(row, true)).toMatchObject({ adaptiveOvernight: true, itemsPerTurn: 30,
+    itemsPerNight: 1080, batchCallLimit: 60, nightCallLimit: 2160,
+    minimumSweepNights: 1, minimumBacklogNights: 1, exceedsNight: false });
+  vi.stubEnv("VERCEL_ENV", "production");
+  vi.stubEnv("PORTFOLIO_MAINTENANCE_CONTINUATION_ENABLED", "true");
+  vi.stubEnv("PORTFOLIO_MAINTENANCE_ORIGIN", "https://example.org");
+  expect(await readPortfolioRefreshCapacity()).toMatchObject({ adaptiveOvernight: true, itemsPerNight: 1080 });
+  vi.stubEnv("VERCEL_ENV", "preview");
+  expect(await readPortfolioRefreshCapacity()).toMatchObject({ adaptiveOvernight: false, itemsPerNight: 360 });
+});
 
 it("keeps normal-night ceilings aligned with effective cron definitions and worker limits", () => {
   expect(PORTFOLIO_REFRESH_HOURS).toEqual([1, 2, 3, 4, 5, 6]);
