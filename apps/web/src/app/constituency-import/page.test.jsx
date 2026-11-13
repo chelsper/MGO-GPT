@@ -45,6 +45,13 @@ async function openRun() {
 }
 
 describe("standard import completion flow", () => {
+  it("opens isolated practice without navigating away from a live draft or transferring data", async () => {
+    render(<ConstituencyImportPage />);
+    const link = await screen.findByRole("link", { name: "Practice with fictional data (new tab)" });
+    expect(link).toHaveAttribute("href", "/constituency-import/practice");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
   it("opens a contact correction from saved history without re-uploading, creating constituents, or sending updates", async () => {
     const baseFetch = fetch.getMockImplementation();
     fetch.mockImplementation(async (url, options) => {

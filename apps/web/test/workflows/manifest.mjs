@@ -100,6 +100,9 @@ export const workflowGroups = {
     "src/app/api/utils/pipelineOpportunityChange.test.js",
   ],
   "Constituent imports": [
+    "src/utils/importPractice.test.js",
+    "src/components/ImportPractice.test.jsx",
+    "src/app/constituency-import/practice/page.test.jsx",
     "src/utils/importCustomFields.test.js",
     "src/app/api/utils/importCustomFields.test.js",
     "src/app/api/constituency-import/custom-field-categories/route.test.js",

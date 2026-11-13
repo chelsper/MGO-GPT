@@ -1,5 +1,30 @@
 # Quick New Constituent Creation
 
+## Fictional Practice
+
+Use **Practice with fictional data (new tab)** from Constituency Import. The
+separate `/constituency-import/practice` page offers three guided examples: new
+people with contacts, updates to existing contacts, and custom-field additions.
+The new tab preserves any real import draft. Practice uses the same active
+Admin/Advancement Services account check, not the selected workspace role.
+
+Examples use only built-in fictional names, `example.test` emails, and non-NXT
+`PRACTICE-` identifiers. There is no upload, real constituent lookup, category
+lookup, import history, saved setup, or import API request in the practice flow.
+Ordinary app-shell/session/profile reads still occur; the practice component has
+no network or storage calls. Nothing can be transferred from practice to a real
+import. Practice state stays in component memory and resets on leaving/reload,
+restart, or changing examples. No database schema or permission change is needed.
+
+Review starts with no selection. Only ready examples can be selected, with a
+separate explicit simulation confirmation. Duplicate/conflict examples stay held.
+The update example simulates a lost save response and read-only verification;
+there is no resend control. Actual missing or conflicting verification evidence
+would stay held. Shared column-mapping UI and pure custom-field rules are reused,
+but simulated matching, writes, and outcomes are guided fixtures, not a live
+end-to-end import test or proof of NXT access. No real import behavior is bypassed
+or changed by visiting this page.
+
 ## File-First Setup
 
 Upload the CSV before configuring fields. Only detected or selected fields appear

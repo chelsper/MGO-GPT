@@ -5828,9 +5828,15 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
-          <Pill tone="blue">
-            {preview?.savedRun ? `Saved import run #${preview.savedRun.id}` : "Import review: no NXT writes"}
-          </Pill>
+          <div className="flex flex-wrap items-center gap-3">
+            <a href="/constituency-import/practice" target="_blank" rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800">
+              Practice with fictional data (new tab)
+            </a>
+            <Pill tone="blue">
+              {preview?.savedRun ? `Saved import run #${preview.savedRun.id}` : "Import review: no NXT writes"}
+            </Pill>
+          </div>
         </header>
 
         <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loadedRowId={focusedRowId} loading={Boolean(loadingRunId)} />
