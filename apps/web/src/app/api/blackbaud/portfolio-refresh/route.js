@@ -15,6 +15,7 @@ import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE } from "@/app/api/utils/port
 import { maintenanceContinuationEnabled, maintenanceOrigin, isPortfolioOvernight, MAINTENANCE_DAYTIME_ITEMS, MAINTENANCE_REQUEST_MS } from "@/app/api/utils/portfolioMaintenanceContinuation";
 import { claimMaintenanceGate, releaseMaintenanceGate } from "@/app/api/utils/portfolioMaintenanceStore";
 import { portfolioFreshnessStatus } from "@/app/api/utils/portfolioFreshnessStatus";
+import { isBlackbaudReadTimeout } from "@/app/api/utils/blackbaudReadTimeout";
 
 const DEFAULT_CONCURRENCY = 2;
 const PROCESSING_LEASE_MINUTES = 5;
@@ -305,6 +306,8 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
     const failureStage = ["proposal_summary", "summary_processing", "blackbaud_retrieval", "blackbaud_auth", "constituent_identity", "constituent_retrieval"].includes(payload?.failureStage)
       ? payload.failureStage : providerFailure ? "blackbaud_retrieval" : "summary_processing";
     const connectionFailure = failureStage === "blackbaud_auth";
+    const readTimeout = response.status === 504 && !providerFailure && isBlackbaudReadTimeout(payload) &&
+      ["blackbaud_retrieval", "constituent_retrieval"].includes(failureStage);
     const error = new Error(payload?.error || `Portfolio refresh returned ${response.status}`);
     Object.assign(error, {
       stage: failureStage, httpStatus: providerFailure || response.status,
@@ -313,6 +316,7 @@ async function requestPortfolioSummary({ request, item, workspaceUserId, givingO
       apiCallCount: info.apiCallCount, requestDurationMs: info.requestDurationMs,
       connectionRetryable: connectionFailure && payload?.connectionRetryable === true &&
         (providerFailure === 429 || providerFailure >= 500),
+      readRetryable: readTimeout,
       paused: !connectionFailure && (response.status === 429 || payload?.quotaPaused === true),
     });
     throw error;
@@ -512,8 +516,10 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     // retry an invalid grant, an unknown response, or any NXT write here.
     const deferConnection = job.mode === "nightly" && error?.connectionRetryable === true &&
       numeric(item.retry_count) < 2;
-    const paused = error?.paused === true || deferConnection;
-    const retryAfterMs = Math.max(deferConnection ? 10 * 60_000 : 0, numeric(error?.retryAfterMs));
+    const deferRead = job.mode === "nightly" && error?.readRetryable === true &&
+      numeric(item.retry_count) < 2;
+    const paused = error?.paused === true || deferConnection || deferRead;
+    const retryAfterMs = Math.max(deferConnection || deferRead ? 10 * 60_000 : 0, numeric(error?.retryAfterMs));
     await sql`
       UPDATE portfolio_refresh_items
       SET

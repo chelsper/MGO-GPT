@@ -102,6 +102,18 @@ describe("current fiscal year giving route", () => {
     expect(await response.json()).toMatchObject({ providerStatus: httpStatus, retryAfterMs: 30000 });
   });
 
+  it("preserves an explicit read-timeout signal without inventing a provider HTTP response", async () => {
+    listBlackbaudGiftsMock.mockRejectedValue(Object.assign(new Error("Blackbaud request timed out"), {
+      code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+    }));
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=timeout&portfolio_refresh=1"));
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({ code: "BLACKBAUD_READ_TIMEOUT", readRetryable: true,
+      failureStage: "blackbaud_retrieval", providerStatus: null, quotaPaused: false });
+    expect(sqlMock.mock.calls.some(([s]) => /INSERT|UPDATE|DELETE/.test(s.join(" ")))).toBe(false);
+  });
+
   it("preserves temporary OAuth failure metadata through the fiscal-year route", async () => {
     listBlackbaudGiftsMock.mockRejectedValue(Object.assign(new Error("Renewal unavailable"), {
       httpStatus: 503, stage: "blackbaud_auth", connectionRetryable: true, retryAfterMs: 600000,
