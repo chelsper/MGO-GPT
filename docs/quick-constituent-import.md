@@ -25,6 +25,40 @@ but simulated matching, writes, and outcomes are guided fixtures, not a live
 end-to-end import test or proof of NXT access. No real import behavior is bypassed
 or changed by visiting this page.
 
+## Guided Starting Points
+
+At the top of Constituency Import, choose **Add new people**, **Update existing
+people**, or **Add custom fields**, before or after uploading. No choice is
+selected automatically. Saved setups and manual/mixed imports remain available.
+The preset is a starting configuration, not an import approval or a restriction
+on the full field catalog. Advanced purpose options collapse while a preset is
+selected; **Add more fields** and **Your import plan** remain available.
+
+- New people: recognizes names, emails, phones, and additional constituent codes.
+  Address columns remain available for duplicate matching, not automatic address
+  writes. Existing name updates are off. Names-only files can reach the existing
+  duplicate-checked new-record review without inventing an update operation.
+- Existing people: requires an NXT System ID or Lookup ID on every row and includes
+  mapped contacts, addresses, and additional codes for review. Names are identity
+  context, not automatic name updates. This mode cannot create constituents.
+- Custom fields: requires an NXT ID per row and selects identity/custom-field
+  columns only. An existing NXT category must still be chosen explicitly. Contact,
+  code, and relationship columns appear as not included unless manually added.
+
+Presets use the existing setup confirmation and server-side setup validation.
+Emails/phones are included for review, but types are never invented, primary flags
+come only from the CSV, conflicts remain blocked, and final writes still need
+separate approval. Missing or ambiguous required columns need an explicit mapping.
+An ambiguous `Constituent ID` remains an external reference, not an NXT system ID.
+
+Switching presets after upload asks before replacing configuration or unsaved
+review choices; the uploaded file and saved imports remain intact. Confirmation
+is cleared. Replacement files rebuild suggestions from their own headers and
+clear prior category, contact types, mappings, and approval. Save a customized
+setup to reuse those choices explicitly. Presets and saved setups are mutually
+exclusive; neither can replace a saved run or change configuration during work.
+This adds no backend write path, schema, permissions, or NXT requests on selection.
+
 ## File-First Setup
 
 Upload the CSV before configuring fields. Only detected or selected fields appear

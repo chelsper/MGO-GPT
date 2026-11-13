@@ -23,6 +23,8 @@ import { importFieldResultExport } from "@/utils/importFieldResults";
 import ImportContactRecovery from "@/components/ImportContactRecovery";
 import ImportContactPreflight from "@/components/ImportContactPreflight";
 import ImportSetupLibrary from "@/components/ImportSetupLibrary";
+import ImportPresetPicker from "@/components/ImportPresetPicker";
+import { importPresetConfiguration } from "@/utils/importPresets";
 import ImportColumnMapping from "@/components/ImportColumnMapping";
 import ImportSetupPlan from "@/components/ImportSetupPlan";
 import ImportCustomFieldOptions from "@/components/ImportCustomFieldOptions";
@@ -3013,6 +3015,7 @@ export default function ConstituencyImportPage() {
   const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
   const [importIntent, setImportIntent] = useState("updates");
   const [selectedSetup, setSelectedSetup] = useState(null);
+  const [starterPreset, setStarterPreset] = useState("");
   const [setupInUse, setSetupInUse] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
   const [setupConfirmation, setSetupConfirmation] = useState("");
@@ -3144,7 +3147,9 @@ export default function ConstituencyImportPage() {
       }, {}),
     [selectedFields, uploadedHeadersByField, mappingOverrides],
   );
-  const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
+  const missingHeaders = expectedHeaders.flatMap((header, index) =>
+    headers.includes(header) ? [] : [header || `${selectedFields[index].label} (choose a column)`],
+  );
   const hasUploadedHeader = (key) => Boolean(activeFields[key] && uploadedHeadersByField[key]);
   const educationRelationshipFieldsActive = Boolean(
     activeFields.educationInstitution ||
@@ -3290,21 +3295,21 @@ export default function ConstituencyImportPage() {
       : importIntent === "mixed"
         ? "Include an active matching column for existing records or First Name + Last Name for potential new individuals."
         : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, Address Line 1, or First Name + Last Name.";
+  const identityOnlyCreation = importIntent === "new" && mappedNewRecordIdentity;
   const canPreview =
     rows.length > 0 &&
     identityRequirementMet &&
-    hasImportOperation &&
-    mappedImportOperation &&
+    (identityOnlyCreation || (hasImportOperation && mappedImportOperation)) &&
     contactPlan.blockers.length === 0 && setupBlockers.length === 0;
   const previewBlockers = [
     ...setupBlockers.slice(0, 5),
     ...contactPlan.blockers.slice(0, 5),
     rows.length === 0 ? "Add at least one CSV data row." : "",
     identityRequirementMet ? "" : identityRequirementCopy,
-    hasImportOperation
+    (identityOnlyCreation || hasImportOperation)
       ? ""
       : "Select at least one import operation, such as a constituent code, relationship, individual update, name-format update, or contact update.",
-    mappedImportOperation
+    (identityOnlyCreation || mappedImportOperation)
       ? ""
       : "Include at least one active change column in the CSV, such as Title, Email Address, Addressee, Phone Number, Address Line 1, New Constituent Code, Education Institution, or Organization Name.",
   ].filter(Boolean);
@@ -3381,6 +3386,13 @@ export default function ConstituencyImportPage() {
       setRows(parsed.rows);
       setHeaders(parsed.headers);
       setParseMessage(`Parsed ${parsed.rows.length} rows using ${selectedSetup.configuration.name}. Review columns and confirm this file's plan below.${parsed.errors.length ? " The CSV has formatting warnings; correct the file before continuing." : ""}`);
+      return;
+    }
+    if (starterPreset) {
+      applySetupConfiguration(importPresetConfiguration(starterPreset, parsed.headers));
+      setRows(parsed.rows);
+      setHeaders(parsed.headers);
+      setParseMessage(`Parsed ${parsed.rows.length} rows. Starting-point suggestions are ready; review included and omitted columns, then confirm this file's plan.${parsed.errors.length ? " Correct the CSV formatting warnings before continuing." : ""}`);
       return;
     }
     setMappingOverrides({});
@@ -3482,6 +3494,9 @@ export default function ConstituencyImportPage() {
   }, []);
 
   function selectImportIntent(nextIntent) {
+    if (importBusy || preview?.savedRun) return;
+    setStarterPreset("");
+    setSetupConfirmation("");
     setImportIntent(nextIntent);
     setPreview(null);
     setContactDecisions({});
@@ -3530,8 +3545,21 @@ export default function ConstituencyImportPage() {
       return;
     }
     if (rows.length && !window.confirm("Replace the current file's configuration with this setup? Unsaved review choices will be cleared. Nothing will be sent to NXT.")) return;
+    setStarterPreset("");
     setSelectedSetup(setup);
     applySetupConfiguration(setup.configuration);
+  }
+
+  function selectStarterPreset(id) {
+    if (importBusy || preview?.savedRun) return;
+    if (rows.length && !window.confirm("Use this starting point for the current CSV? Column choices, defaults, and unsaved review decisions will reset. The file and saved imports are kept; nothing will be sent to NXT.")) return;
+    setSelectedSetup(null);
+    setStarterPreset(id);
+    applySetupConfiguration(importPresetConfiguration(id, headers));
+    setEditingPreviewRowNumber(null);
+    setEditingRowDraft({});
+    setError("");
+    if (fieldOptionsRef.current) fieldOptionsRef.current.open = false;
   }
 
   function toggleField(key) {
@@ -3808,6 +3836,8 @@ export default function ConstituencyImportPage() {
     setHydratingDetailRows({});
     if (resetFieldConfiguration) {
       setSelectedSetup(null);
+      setStarterPreset("");
+      setCustomFieldCategory("");
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
       setOpenFieldGroups(DEFAULT_OPEN_FIELD_GROUPS);
       setImportIntent("updates");
@@ -3914,6 +3944,7 @@ export default function ConstituencyImportPage() {
       );
       const restoredDecisions = getSavedReviewDecisionState(payload);
       setSelectedSetup(null);
+      setStarterPreset("");
       setSetupInUse(false);
       setSetupConfirmation("");
       setPreview(payload);
@@ -5850,11 +5881,13 @@ export default function ConstituencyImportPage() {
           </div>
         ) : null}
 
+        {!preview?.savedRun && <ImportPresetPicker value={starterPreset} disabled={importBusy} onSelect={selectStarterPreset} />}
+
         <ImportSetupLibrary selected={selectedSetup} configuration={{ mappings, defaults: importDefaults }}
           disabled={importBusy || reviewEditsPending || Boolean(preview?.savedRun)}
           canSave={rows.length > 0 && selectedFields.length > 0 && !preview?.savedRun}
           onSelect={selectSavedSetup} onBusyChange={setSetupBusy}
-          onSaved={(setup) => { setSelectedSetup(setup); setSetupConfirmation(""); if (setup) setSetupInUse(true); }} />
+          onSaved={(setup) => { setSelectedSetup(setup); setSetupConfirmation(""); if (setup) { setStarterPreset(""); setSetupInUse(true); } }} />
 
         <section
           style={{
@@ -5889,7 +5922,7 @@ export default function ConstituencyImportPage() {
                 1. Upload CSV
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                Choose a saved setup above or start with the file. Review its columns and purpose before preparing the import.
+                Choose a starting point or saved setup above, or start with the file. Review its columns and purpose before preparing the import.
               </p>
             </div>
             <label
@@ -6032,9 +6065,11 @@ export default function ConstituencyImportPage() {
             gap: "14px",
           }}
         >
+          <details open={!starterPreset}>
+          <summary className="min-h-11 cursor-pointer py-2 text-lg font-bold text-slate-900">{starterPreset ? "2. Import purpose and advanced options" : "2. What does this file contain?"}</summary>
           <div>
             <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-              2. What does this file contain?
+              Import purpose
             </h2>
             <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
               Previewing never writes to NXT. Save a New or Mixed import, then approve Create clear
@@ -6055,6 +6090,7 @@ export default function ConstituencyImportPage() {
                   key={intent.value}
                   type="button"
                   onClick={() => selectImportIntent(intent.value)}
+                  disabled={importBusy || Boolean(preview?.savedRun)}
                   aria-pressed={selected}
                   style={{
                     border: selected ? "2px solid #6D5DFB" : "1px solid #E5E7EB",
@@ -6092,7 +6128,8 @@ export default function ConstituencyImportPage() {
             address results are shown for human review. If NXT identifiers disagree, the row must
             be resolved before any NXT update.
           </div>
-          {["new", "mixed"].includes(importIntent) && <ImportNameFormatDefaults value={newRecordNameFormats} onChange={(value) => { setNewRecordNameFormats(value); setPreview(null); }} disabled={quickCreating || previewing || savingRun} />}
+          {["new", "mixed"].includes(importIntent) && <ImportNameFormatDefaults value={newRecordNameFormats} onChange={(value) => { setNewRecordNameFormats(value); setPreview(null); }} disabled={importBusy || Boolean(preview?.savedRun)} />}
+          </details>
         </section>
 
         <section
@@ -6864,8 +6901,8 @@ export default function ConstituencyImportPage() {
               <summary className="min-h-11 cursor-pointer py-3 font-semibold text-slate-700">Template and selected CSV headers</summary>
               <p className="my-3 text-sm text-slate-600">Optional: download a template using the selected fields. You can use your own CSV instead.</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {expectedHeaders.map((header) => (
-                  <CopyableHeaderCode key={header}>{header}</CopyableHeaderCode>
+                {expectedHeaders.map((header, index) => (
+                  <CopyableHeaderCode key={selectedFields[index].key}>{header || selectedFields[index].header}</CopyableHeaderCode>
                 ))}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
