@@ -4,12 +4,50 @@ vi.mock("./sql", () => ({ default: vi.fn() }));
 vi.mock("./reportRefresh", () => ({ getReportRefreshUser: vi.fn() }));
 vi.mock("./blackbaud", () => ({ blackbaudApiFetch: vi.fn(), getBlackbaudConnection: vi.fn() }));
 vi.mock("./savedQueryExecution", () => ({ executeSavedQueryResults: vi.fn() }));
-import { inspectLifetimeQuery, publicLifetimeState, refreshLifetimeHistory, lifetimeTransport } from "./lifetimeSocieties";
+vi.mock("./givingSocietyConfigurations", () => ({ listGivingSocietyConfigurations: vi.fn() }));
+import { inspectLifetimeQuery, publicLifetimeState, readLifetimeRules, refreshLifetimeHistory, lifetimeTransport } from "./lifetimeSocieties";
+import { listGivingSocietyConfigurations } from "./givingSocietyConfigurations";
 import { getReportRefreshUser } from "./reportRefresh";
 import { blackbaudApiFetch, getBlackbaudConnection } from "./blackbaud";
 import { executeSavedQueryResults } from "./savedQueryExecution";
 import { lifetimeQueryFixture, lifetimeRules, lifetimeCsvFixture } from "../../../../test/lifetimeQueryFixture";
 beforeEach(() => vi.clearAllMocks());
+it("adds recognition credit to the 1934 report rule without mutating shared configuration", async () => {
+  const definitions = lifetimeRules.map(row => ({ ...row, active: true, basis: "lifetime", countSources: row.key === "1934_club" ? ["committed"] : [...row.countSources] }));
+  listGivingSocietyConfigurations.mockResolvedValue(definitions);
+  const rules = await readLifetimeRules(vi.fn());
+  expect(rules[0].countSources).toEqual(["committed", "recognition_credit"]);
+  expect(definitions[0].countSources).toEqual(["committed"]);
+  expect(rules[1].countSources).toEqual(definitions[1].countSources);
+});
+it("matches the native Key Indicator path, never a similar alias or a spouse's type", () => {
+  const query = lifetimeQueryFixture();
+  const field = query.select_fields.find(entry => entry.query_field.selected_field_name === "Key Indicator");
+  field.user_alias = "Person or organization";
+  expect(inspectLifetimeQuery(query).columns.constituentType).toBe("Person or organization");
+  field.query_field.node_path = [{ name: "Spouse" }];
+  expect(inspectLifetimeQuery(query).columns.constituentType).toBe("");
+  field.query_field.node_path = [{ name: "Constituent" }]; field.query_field.selected_field_name = "Name";
+  field.user_alias = "Key Indicator";
+  expect(inspectLifetimeQuery(query).columns.constituentType).toBe("");
+});
+it("allows missing type outputs with an actionable note but rejects ambiguous type outputs", () => {
+  expect(inspectLifetimeQuery(lifetimeQueryFixture({ constituentType: false }))).toMatchObject({ ready: true, columns: { constituentType: "" }, warnings: expect.arrayContaining([expect.stringContaining("Key Indicator")]) });
+  const query = lifetimeQueryFixture();
+  query.select_fields.push({ ...query.select_fields.find(entry => entry.query_field.selected_field_name === "Key Indicator"), user_alias: "Other type" });
+  expect(inspectLifetimeQuery(query).ready).toBe(false);
+});
+it("invalidates old calculations after the recognized-giving rule change", () => {
+  expect(publicLifetimeState({ revision: "old", snapshot: { ruleVersion: 2 } }, lifetimeRules)).toMatchObject({ snapshot: null, staleRules: true });
+});
+it("respects constituent-only exclusions without treating them as truncated gift history", () => {
+  const query = lifetimeQueryFixture();
+  query.filter_fields.push({ query_field: { selected_field_name: "Constituency Code", node_path: [{ name: "Constituent" }, { name: "Constituency" }] },
+    operator: "NotOneOf", filter_values: [{ description: "Estate" }, { description: "Donor Advised Fund" }, { description: "Consortia" }] });
+  expect(inspectLifetimeQuery(query)).toMatchObject({ ready: true, restrictedHistory: false });
+  query.filter_fields.push({ query_field: { selected_field_name: "Gift Date", node_path: [{ name: "Gift Information" }] } });
+  expect(inspectLifetimeQuery(query).restrictedHistory).toBe(true);
+});
 function setup() {
   const db = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([{ report_key: "saved" }]);
   const transport = { metadata: vi.fn().mockResolvedValue(lifetimeQueryFixture()), execute: vi.fn().mockResolvedValue({

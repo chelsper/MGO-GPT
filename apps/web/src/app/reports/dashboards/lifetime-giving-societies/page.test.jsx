@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title }) => <h1>{title}</h1> }));
 import Page from "./page";
 import { lifetimeRules } from "../../../../../test/lifetimeQueryFixture";
 const inspection = { ready: true, checks: [{ key: "id", label: "Constituent system record ID", required: true, column: "Person ID" }], warnings: ["Calculated dates are provisional."] };
-const row = { id: '["system","1"]', systemId: "1", lookupId: "D-1", name: "Fictional Donor", societyKey: "1934_club", societyName: "1934 Club", thresholdCents: 10000000,
+const row = { id: '["system","1"]', systemId: "1", lookupId: "D-1", name: "Fictional Donor", constituentType: "individual", societyKey: "1934_club", societyName: "1934 Club", thresholdCents: 10000000,
   totalCents: 10000000, date: "2020-07-01", status: "provisional", reasons: [], crossingGiftIds: ["101"] };
 const snapshot = { refreshedAt: "2026-11-16T12:00:00Z", source: inspection, rows: [row, { ...row, id: "2", name: "Fictional Review Donor", date: null,
   totalCents: null, status: "review", reasons: ["Pledge history needs reconciliation."], crossingGiftIds: [] }], peopleCount: 2, rawRows: 3, repeatedRows: 1, provisionalCount: 1, reviewCount: 1 };
@@ -65,4 +65,59 @@ it("does not expose refresh actions to read-only viewers", async () => {
   fetch.mockResolvedValue(json({ ...saved, canManage: false })); render(<Page />); await screen.findByText("Fictional Donor");
   expect(screen.queryByRole("button", { name: "Check query outputs" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Refresh gift history" })).not.toBeInTheDocument();
+});
+it("switches society and constituent views locally with accurate distinct counts and a clear reset", async () => {
+  fetch.mockResolvedValue(json({ ...saved, snapshot: { ...snapshot, rows: [row,
+    { ...row, societyKey: lifetimeRules[1].key, societyName: lifetimeRules[1].name },
+    { ...row, id: "2", name: "Fictional Organization", constituentType: "organization" },
+    { ...row, id: "3", name: "Fictional Unclassified", constituentType: "unknown" }] } }));
+  render(<Page />); await screen.findByText("Fictional Organization");
+  expect(screen.getByRole("status")).toHaveTextContent("4 threshold checks for 3 constituents");
+  fireEvent.click(screen.getByRole("button", { name: /Frances Bartlett Kinne Society/ }));
+  expect(screen.getByRole("button", { name: /Frances Bartlett Kinne Society/ })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("status")).toHaveTextContent("1 threshold check for 1 constituent");
+  expect(screen.queryByText("Fictional Organization")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /1934 Club/ }));
+  fireEvent.change(screen.getByLabelText("Constituent type"), { target: { value: "organization" } });
+  expect(screen.getByText("Fictional Organization")).toBeVisible();
+  expect(screen.queryByText("Fictional Donor")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "View unclassified" }));
+  expect(screen.getByText("Fictional Unclassified")).toBeVisible();
+  expect(screen.queryByText("Fictional Organization")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.getByRole("status")).toHaveTextContent("4 threshold checks for 3 constituents");
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("shows missing type guidance without presenting unknowns as individuals", async () => {
+  fetch.mockResolvedValue(json({ ...saved, snapshot: { ...snapshot, rows: [{ ...row, constituentType: undefined }] } }));
+  render(<Page />); await screen.findByText("Fictional Donor");
+  expect(screen.getByText(/no confirmed type/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Constituent type"), { target: { value: "individual" } });
+  expect(screen.queryByText("Fictional Donor")).not.toBeInTheDocument();
+  expect(screen.getByText("No history matches these filters.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Export filtered history (CSV)" })).toBeDisabled();
+});
+it("resets pagination on filters and exports the entire selected view, not just the current page", async () => {
+  const rows = Array.from({ length: 65 }, (_, i) => ({ ...row, id: String(i), name: `Fictional Donor ${i}`, constituentType: i < 60 ? "individual" : "organization" }));
+  fetch.mockResolvedValue(json({ ...saved, snapshot: { ...snapshot, rows } }));
+  const create = vi.fn().mockReturnValue("blob:fictional"), revoke = vi.fn();
+  vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: revoke });
+  const contents = [];
+  vi.stubGlobal("Blob", class { constructor(parts) { contents.push(parts.join("")); } });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  try {
+    render(<Page />); await screen.findByText("Fictional Donor 0");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Fictional Donor 50")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Constituent type"), { target: { value: "individual" } });
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    const coverage = screen.getByRole("region", { name: "Filtered history coverage" });
+    expect(within(coverage).getAllByText("60")).toHaveLength(2);
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Export filtered history (CSV)" }));
+    vi.runAllTimers();
+    expect(contents[0].split("\r\n")).toHaveLength(61);
+    expect(contents[0]).toContain("Fictional Donor 59"); expect(contents[0]).not.toContain("Fictional Donor 60");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally { vi.useRealTimers(); click.mockRestore(); }
 });
