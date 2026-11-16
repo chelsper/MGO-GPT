@@ -29,9 +29,44 @@ it("does not award the same personal gift twice when soft credited to its donor"
   const result = run([{ amount: "600000" }, { amount: "600000", credit: "Soft Credit Recipient" }]);
   expect(result.rows[1].date).toBeNull(); expect(result.rows[1].totalCents).toBe(60000000);
 });
-it("includes recognition credit in both society rules without guessing recipient allocations", () => {
+it("honors the approved full-gift recognition rule in both societies", () => {
   const result = run([{}, { giftId: "102", amount: "950000", credit: "Soft Credit Recipient" }]);
-  expect(result.rows.every(row => row.date === null && row.totalCents === null && row.reasons.join().includes("allocation"))).toBe(true);
+  expect(result.rows.every(row => row.date === "2020-01-01" && row.totalCents === 105000000)).toBe(true);
+  const unsupported = run([{}, { giftId: "102", credit: "Soft Credit Recipient" }], { ...inspection, fullRecognition: false });
+  expect(unsupported.rows.every(row => row.date === null && row.reasons.join().includes("allocation"))).toBe(true);
+});
+it("suggests exact co-credit sets without combining a chain or double-counting group gifts", () => {
+  const a = { id: "1", name: "Fictional A", giftId: "101", amount: "60000" };
+  const b = { id: "2", name: "Fictional B", credit: "Soft Credit Recipient", giftId: "101", amount: "60000" };
+  const c = { id: "3", name: "Fictional Foundation", constituentType: "O", giftId: "102", amount: "50000" };
+  const result = run([a, b, { ...b, giftId: "102", amount: "50000" }, c, { ...a, giftId: "103", amount: "40000" }, b]);
+  expect(result.sharedGroups.map(group => group.members.map(member => member.systemId))).toEqual([["1", "2"], ["2", "3"]]);
+  const ab = result.sharedGroups[0];
+  expect(ab).toMatchObject({ sharedGiftCount: 1 });
+  expect(ab.rows[0]).toMatchObject({ totalCents: 15000000, date: "2020-01-01", members: expect.any(Array) });
+  expect(result.sharedGroups[1].rows[0].constituentType).toBe("mixed");
+  expect(result.confirmedGroupIds).toEqual([]);
+  expect(result.rows).toHaveLength(6);
+  expect(run([b, { ...a, giftId: "103", amount: "40000" }, c, { ...b, giftId: "102", amount: "50000" }, b, a]).sharedGroups.map(group => group.id))
+    .toEqual(result.sharedGroups.map(group => group.id));
+});
+it("does not suggest groups based on name, employee matching credit, or conflicting amounts", () => {
+  expect(run([{}, { id: "2", giftId: "102" }]).sharedGroups).toEqual([]);
+  expect(run([{}, { id: "2", name: "Fictional Employee", credit: "Constituent MG-Payment" }]).sharedGroups).toEqual([]);
+  const conflict = run([{}, { id: "2", name: "Fictional Recipient", credit: "Soft Credit Recipient", amount: "60000" }]);
+  expect(conflict.sharedGroups).toEqual([]);
+  expect(conflict.rows.every(row => row.date === null && row.totalCents === null && row.supportedCents === null)).toBe(true);
+});
+it("changes group evidence identity when members or credited gifts change", () => {
+  const a = {}, b = { id: "2", name: "Fictional B", credit: "Soft Credit Recipient" };
+  const original = run([a, b]).sharedGroups[0].id;
+  for (const rows of [[a, { ...b, name: "Different B" }], [a, { ...b, constituentType: "O" }],
+    [a, b, { giftId: "102" }, { ...b, giftId: "102" }]])
+    expect(run(rows).sharedGroups[0].id).not.toBe(original);
+});
+it("shows supported subtotals without pretending complex histories have complete totals or dates", () => {
+  const result = run([{ amount: "60000" }, { giftId: "102", type: "Pledge", amount: "500000" }]);
+  expect(result.rows[0]).toMatchObject({ supportedCents: 6000000, totalCents: null, date: null });
 });
 it("reads constituent types independently of names and gift types", () => {
   const result = run([{ name: "Fictional Company", constituentType: "Individual" },

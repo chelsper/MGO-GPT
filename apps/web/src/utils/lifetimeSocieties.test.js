@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { filterLifetimeRows, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeTypeLabel } from "./lifetimeSocieties";
+import { filterLifetimeRows, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeTypeLabel } from "./lifetimeSocieties";
 it("uses July-June fiscal years", () => {
   expect(lifetimeFiscalYear("2020-06-30")).toBe("FY20"); expect(lifetimeFiscalYear("2020-07-01")).toBe("FY21");
   expect(lifetimeFiscalYear(null)).toBe("");
@@ -43,4 +43,17 @@ it("exports constituent type and type-review notes with only the filtered rows",
   expect(csv).toContain('"Constituent type"'); expect(csv).toContain('"Organization"');
   expect(csv).not.toContain("Fictional Individual");
   expect(lifetimeCsv([{ ...base, constituentType: "unknown", constituentTypeNote: "Missing type" }])).toContain("Missing type");
+});
+it("only replaces members of confirmed groups and searches their IDs without inventing system IDs", () => {
+  const members = [{ id: "1", name: "Fictional A", lookupId: "A1" }, { id: "2", name: "Fictional B", lookupId: "B2" }];
+  const combined = { id: "group:demo", name: "Fictional A & Fictional B", members, constituentType: "mixed" };
+  const snapshot = { rows: [...members, { id: "3", name: "Separate" }], sharedGroups: [{ id: "demo", members, rows: [combined] }], confirmedGroupIds: [] };
+  expect(lifetimeHouseholdRows(snapshot)).toHaveLength(3);
+  snapshot.confirmedGroupIds = ["demo"];
+  const rows = lifetimeHouseholdRows(snapshot);
+  expect(rows).toHaveLength(2); expect(rows).toContainEqual(combined);
+  expect(filterLifetimeRows(rows, { search: "B2" })).toEqual([combined]);
+  expect(filterLifetimeRows([combined], { constituentType: "individual" })).toEqual([]);
+  expect(filterLifetimeRows([combined], { constituentType: "mixed" })).toEqual([combined]);
+  expect(lifetimeCoverage([combined]).unclassified).toBe(0);
 });
