@@ -11,11 +11,22 @@ import {
   isReportVisibilitySupported,
   PORTFOLIO_GIVING_REPORT_KEY,
   REPORT_TYPES,
+  STANDARD_REPORT_DEFINITIONS,
   supportsReportDataConfiguration,
   validateReportConfigurationPayload,
 } from "./reportRegistry";
 
 describe("report registry", () => {
+  it("keeps lifetime society and existing dashboard registrations distinct", () => {
+    const keys = STANDARD_REPORT_DEFINITIONS.map(report => report.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const key of ["lifetime-giving-societies", "board-of-trustees", "fy-revenue-goals", "future-made-campaign"]) {
+      const report = getReportDefinition(key);
+      expect(report).toMatchObject({ key, defaultVisibility: "specific_users", reportType: REPORT_TYPES.QUERY_BASED });
+      expect(Object.isFrozen(report)).toBe(true);
+      expect(getReportHref(report)).toBe(`/reports/dashboards/${key}`);
+    }
+  });
   it("registers trustee giving as a restricted shared dashboard", () => {
     const board = getReportDefinition("board-of-trustees");
     expect(board).toMatchObject({ title: "Board of Trustees", defaultVisibility: "specific_users", reportType: REPORT_TYPES.QUERY_BASED });
