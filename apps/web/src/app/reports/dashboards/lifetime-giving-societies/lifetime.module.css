@@ -51,5 +51,14 @@
 .pagination { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; font-size:13px; color:var(--muted); }
 .error { background:#fff2ed; color:#8c2e1e; border:1px solid #e7b9aa; border-radius:12px; padding:18px; margin:20px 0; }
 .error button { margin-left:12px; }
+.importSummary { background:#edf6f0; border-left:3px solid var(--green); padding:16px 20px; border-radius:0 10px 10px 0; }
+.importSummary p { margin:8px 0; }
+.group { padding:18px 0; border-bottom:1px solid var(--line); }
+.group h3 { font-size:16px; margin:0; }
+.group p,.group li { font-size:13px; line-height:1.6; }
+.group ul { padding-left:20px; }
+.groupConfirm { padding:16px; margin-top:12px; background:#edf6f0; border:1px solid var(--line); border-radius:10px; }
+.page .groupToggle { display:flex; align-items:center; gap:10px; }
+.groupToggle input { width:18px; min-height:18px; flex-shrink:0; }
 @media(max-width:900px) { .intro { align-items:start; flex-direction:column; } .intro .actions { flex-direction:row; } .filters { grid-template-columns:1fr 1fr; } .tableHeader { flex-wrap:wrap; } }
 @media(max-width:600px) { .page { padding:16px; } .intro,.panel { padding:18px; } .rules,.metrics,.checks,.filters { grid-template-columns:1fr; } .panel > summary > span { display:block; margin:8px 0; } .error button { margin:12px 0 0; } }

@@ -47,6 +47,7 @@ export function inspectLifetimeQuery(query) {
   const restrictedHistory = (query.filter_fields || []).some(field => field.query_field?.node_path?.[0]?.name !== "Constituent");
   if (restrictedHistory) warnings.push("Gift-level criteria may omit lifetime history. Dates will be withheld until these restrictions are removed.");
   return { queryId: LIFETIME_QUERY_ID, queryName: query.name, columns, fields, checks, warnings, restrictedHistory, identityMode,
+    fullRecognition: ["Both", "Recipient"].includes(query.gift_processing_options?.soft_credit_option) && query.gift_processing_options?.soft_credit_sub_option === "FullAmountToAll",
     ready: !!identityMode && checks.every(check => !check.required || check.column), fingerprint };
 }
 
@@ -68,7 +69,31 @@ export async function readLifetimeState(db = sql) {
 export function publicLifetimeState(state, societies) {
   const snapshot = state.snapshot;
   const current = !snapshot || (snapshot.ruleVersion === LIFETIME_RULE_VERSION && snapshot.rulesFingerprint === hash(societies));
-  return { revision: state.revision, societies, snapshot: current ? snapshot : null, staleRules: !current };
+  return { revision: state.revision, societies, snapshot: current ? snapshot : null, staleRules: !current,
+    previousImport: !current ? { refreshedAt: snapshot.refreshedAt, peopleCount: snapshot.peopleCount } : null };
+}
+
+export async function updateLifetimeGroup({ revision, groupId, operation, user, db = sql, rules = readLifetimeRules }) {
+  const before = await readLifetimeState(db), societies = await rules(db);
+  if (before.revision !== revision || !publicLifetimeState(before, societies).snapshot)
+    throw lifetimeError("Saved history changed. Reload the report before confirming a group.", 409);
+  const groups = before.snapshot.sharedGroups || [], candidate = groups.find(group => group.id === groupId);
+  if (!candidate || !["confirm-group", "remove-group"].includes(operation))
+    throw lifetimeError("Choose a shared-giving suggestion from the current report.", 422);
+  const confirmed = new Set(before.snapshot.confirmedGroupIds || []);
+  if (operation === "confirm-group") {
+    const members = new Set(candidate.members.map(member => member.id));
+    if (groups.some(group => group.id !== groupId && confirmed.has(group.id) && group.members.some(member => members.has(member.id))))
+      throw lifetimeError("A member already belongs to a confirmed group. Undo that group before choosing another; histories were not combined twice.", 409);
+    confirmed.add(groupId);
+  } else confirmed.delete(groupId);
+  const state = { ...before, revision: randomUUID(), updatedBy: user.id,
+    snapshot: { ...before.snapshot, confirmedGroupIds: [...confirmed] },
+    groupAudit: [...(before.groupAudit || []), { operation, groupId, userId: user.id, at: new Date().toISOString() }].slice(-100) };
+  const published = await db`UPDATE report_snapshots_cache SET payload=${JSON.stringify(state)}::jsonb,updated_at=NOW()
+    WHERE report_key=${CACHE_KEY} AND payload->>'revision'=${revision} RETURNING report_key`;
+  if (!published.length) throw lifetimeError("Saved history changed. Reload before confirming a group.", 409);
+  return { state, societies };
 }
 
 export async function lifetimeTransport(origin) {
@@ -95,6 +120,13 @@ export async function refreshLifetimeHistory({ revision, user, transport, db = s
     throw lifetimeError("The query or society rules changed during refresh. Previous results are unchanged; check the source and try again.", 409);
   const state = { revision: randomUUID(), updatedBy: user.id, snapshot: { ...history, societies, rulesFingerprint,
     source: checked, refreshedAt: new Date().toISOString() } };
+  // Lookup IDs are not canonical identities: carry a confirmation only when
+  // source, member identity and the exact shared-gift evidence remain identical.
+  const retained = before.snapshot?.ruleVersion === history.ruleVersion && before.snapshot?.rulesFingerprint === rulesFingerprint && before.snapshot?.source?.fingerprint === checked.fingerprint
+    ? (before.snapshot.confirmedGroupIds || []).filter(id => history.sharedGroups.some(group => group.id === id)) : [];
+  state.snapshot.confirmedGroupIds = retained;
+  state.snapshot.groupsToReconfirm = (before.snapshot?.confirmedGroupIds || []).length - retained.length;
+  state.groupAudit = before.groupAudit || [];
   const published = revision === null
     ? await db`INSERT INTO report_snapshots_cache (report_key,payload,updated_at) VALUES (${CACHE_KEY},${JSON.stringify(state)}::jsonb,NOW())
         ON CONFLICT (report_key) DO NOTHING RETURNING report_key`

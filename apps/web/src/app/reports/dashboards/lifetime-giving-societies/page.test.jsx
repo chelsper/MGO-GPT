@@ -19,10 +19,39 @@ it("opens saved history and filters without NXT execution", async () => {
   fireEvent.change(screen.getByLabelText("Review status"), { target: { value: "review" } });
   expect(screen.queryByText("Fictional Donor")).not.toBeInTheDocument(); expect(fetch).toHaveBeenCalledTimes(1);
 });
-it("does not mistake an unconfigured source for zero members", async () => {
+it("does not mistake an unconfigured source for zero members and offers one-step validated refresh", async () => {
   fetch.mockResolvedValue(json({ ...saved, snapshot: null })); render(<Page />); await screen.findByText("Not imported");
-  expect(screen.getByRole("button", { name: "Refresh gift history" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Refresh gift history" })).toBeEnabled();
   expect(screen.getByText(/No gift history imported yet/)).toBeVisible();
+});
+it("distinguishes imported history from unresolved dates and outdated calculations from an empty import", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, snapshot: null, staleRules: true, previousImport: { peopleCount: 2 } }));
+  render(<Page />);
+  expect(await screen.findByText(/Saved history is available/)).toBeVisible();
+  expect(screen.queryByText("No gift history imported yet.")).not.toBeInTheDocument();
+  cleanup(); fetch.mockResolvedValue(json(saved)); render(<Page />);
+  expect(await screen.findByText("History imported: 2 constituents")).toBeVisible();
+  expect(screen.getByText(/this is not an import failure/)).toBeVisible();
+});
+it("requires explicit group confirmation, can cancel without writing, and does not hide unconfirmed members", async () => {
+  const members = [{ id: row.id, name: row.name, lookupId: row.lookupId, constituentType: "individual" },
+    { id: "2", name: "Fictional Review Donor", lookupId: "D-2", constituentType: "individual" }];
+  const group = { id: "a".repeat(64), sharedGiftCount: 3, members, rows: [{ ...row, id: "group:demo", name: "Fictional household", members }] };
+  const withGroups = { ...saved, snapshot: { ...snapshot, sharedGroups: [group], confirmedGroupIds: [] } };
+  fetch.mockResolvedValueOnce(json(withGroups)).mockResolvedValueOnce(json({ ...withGroups, revision: "new", snapshot: { ...withGroups.snapshot, confirmedGroupIds: [group.id] } }));
+  render(<Page />); await screen.findByText("Fictional Donor");
+  fireEvent.click(screen.getByText("Shared-giving groups"));
+  fireEvent.click(screen.getByRole("button", { name: "Review and confirm group" }));
+  fireEvent.click(screen.getByRole("button", { name: "Keep separate" }));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Review and confirm group" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm household / giving group" }));
+  await screen.findByText("Fictional household");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "confirm-group", revision: "saved", groupId: group.id });
+  expect(screen.getByRole("status")).toHaveTextContent("1 recipients / groups");
+  fireEvent.click(screen.getByLabelText("Show confirmed households / giving groups instead of separate members"));
+  expect(screen.getByText("Fictional Donor")).toBeVisible();
+  expect(screen.queryByText("Fictional household")).not.toBeInTheDocument();
 });
 it("shows actionable missing outputs without enabling an unsafe import", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, snapshot: null })).mockResolvedValueOnce(json({ ...inspection, ready: false,

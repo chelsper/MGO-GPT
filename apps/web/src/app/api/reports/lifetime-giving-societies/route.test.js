@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata"].map(key => [key, vi.fn()])));
+const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group"].map(key => [key, vi.fn()])));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: m.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: m.access }));
-vi.mock("@/app/api/utils/lifetimeSocieties", async original => ({ ...await original(), readLifetimeState: m.read, readLifetimeRules: m.rules, refreshLifetimeHistory: m.refresh, lifetimeTransport: m.transport }));
+vi.mock("@/app/api/utils/lifetimeSocieties", async original => ({ ...await original(), readLifetimeState: m.read, readLifetimeRules: m.rules, refreshLifetimeHistory: m.refresh, lifetimeTransport: m.transport, updateLifetimeGroup: m.group }));
 import { GET, POST } from "./route";
 import { lifetimeQueryFixture, lifetimeRules } from "../../../../../test/lifetimeQueryFixture";
 const request = (body, headers) => new Request("https://app.example/api/reports/lifetime-giving-societies", { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -14,6 +14,7 @@ beforeEach(() => {
   m.user.mockResolvedValue({ id: 1, role: "admin", active: true }); m.access.mockResolvedValue({ canView: true });
   m.read.mockResolvedValue({ revision: null, snapshot: null }); m.rules.mockResolvedValue(lifetimeRules);
   m.refresh.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
+  m.group.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.transport.mockResolvedValue({ metadata: m.metadata }); m.metadata.mockResolvedValue(lifetimeQueryFixture());
 });
 it("requires login before database and NXT reads", async () => {
@@ -27,8 +28,8 @@ it("serves shared viewers saved data only with private no-store headers", async 
 });
 it.each(["mgo", "executive"])("does not let %s execute query jobs", async role => {
   m.user.mockResolvedValue({ id: 2, role, active: true });
-  for (const operation of ["fields", "refresh"]) expect((await POST(request({ operation, revision: null }))).status).toBe(403);
-  expect(m.transport).not.toHaveBeenCalled();
+  for (const operation of ["fields", "refresh", "confirm-group", "remove-group"]) expect((await POST(request({ operation, revision: null }))).status).toBe(403);
+  expect(m.transport).not.toHaveBeenCalled(); expect(m.group).not.toHaveBeenCalled();
 });
 it("rejects inactive or unshared viewers", async () => {
   m.user.mockResolvedValue({ id: 1, role: "admin", active: false }); expect((await GET()).status).toBe(403);
@@ -53,4 +54,14 @@ it("rejects cross-origin, malformed, oversized and arbitrary-query requests", as
 it("redacts provider/database errors", async () => {
   m.read.mockRejectedValue(new Error("secret donor URL")); const response = await GET();
   expect(response.status).toBe(503); expect(await response.text()).not.toContain("secret");
+});
+it("allows app-only grouping without NXT calls and rejects fabricated group payloads", async () => {
+  const body = { operation: "confirm-group", groupId: "a".repeat(64), revision: "a".repeat(36) };
+  expect((await POST(request(body))).status).toBe(200);
+  expect(m.group).toHaveBeenCalledWith(expect.objectContaining(body));
+  expect(m.transport).not.toHaveBeenCalled(); expect(m.refresh).not.toHaveBeenCalled();
+  expect((await POST(request({ ...body, members: ["1", "2"] }))).status).toBe(400);
+  expect((await POST(request({ ...body, groupId: "arbitrary" }))).status).toBe(400);
+  expect((await POST(request({ ...body, operation: "refresh" }))).status).toBe(400);
+  expect((await POST(request(body, { origin: "https://untrusted.example" }))).status).toBe(403);
 });
