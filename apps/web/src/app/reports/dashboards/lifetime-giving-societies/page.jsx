@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
-import { LIFETIME_QUERY_ID, LIFETIME_QUERY_NAME, LIFETIME_REPORT_KEY, filterLifetimeRows, lifetimeCoverage, lifetimeCsv, lifetimeDate, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeMoney, lifetimeTypeLabel } from "@/utils/lifetimeSocieties";
+import { LIFETIME_QUERY_ID, LIFETIME_QUERY_NAME, LIFETIME_REPORT_KEY, filterLifetimeRows, lifetimeActiveGroupIds, lifetimeCoverage, lifetimeCsv, lifetimeDate, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeMoney, lifetimeTypeLabel } from "@/utils/lifetimeSocieties";
 import styles from "./lifetime.module.css";
 
 const API = "/api/reports/lifetime-giving-societies";
@@ -43,7 +43,9 @@ export default function LifetimeSocietiesPage() {
     } finally { locked.current = false; if (!controller.signal.aborted) setBusy(""); }
   }
   const snapshot = data?.snapshot, source = inspection || snapshot?.source;
-  const confirmedIds = new Set(snapshot?.confirmedGroupIds || []);
+  const confirmedIds = lifetimeActiveGroupIds(snapshot);
+  const automaticCount = (snapshot?.sharedGroups || []).filter(group => group.automatic && confirmedIds.has(group.id)).length;
+  const householdReviews = [...new Map((snapshot?.rows || []).filter(row => row.householdNote).map(row => [row.id, row])).values()];
   const viewRows = households ? lifetimeHouseholdRows(snapshot) : snapshot?.rows || [];
   const rows = filterLifetimeRows(viewRows, filters);
   const coverage = lifetimeCoverage(rows);
@@ -77,7 +79,7 @@ export default function LifetimeSocietiesPage() {
       {data.staleRules && <p className={styles.notice}>Society rules changed. Refresh the history before using calculated dates; the previous calculations are not shown as current.</p>}
       {snapshot && <div className={styles.importSummary}><strong>History imported: {snapshot.peopleCount.toLocaleString()} constituents</strong>
         <p>{snapshot.provisionalCount} milestone dates calculated. {snapshot.reviewCount} threshold checks need more history or reconciliation; this is not an import failure.</p>
-        <small>{source?.fullRecognition ? "Full-gift recognition applies to each credited recipient." : "Recognition calculations follow the inspected query settings; unresolved allocations remain in review."} Confirmed groups count a shared gift once. Amounts marked as supported subtotals are not complete lifetime totals.</small></div>}
+        <small>{source?.fullRecognition ? "Full-gift recognition applies to each credited recipient." : "Recognition calculations follow the inspected query settings; unresolved allocations remain in review."} Households count each gift once. Companies stay separate; only gifts explicitly credited to a household member enter its history. Amounts marked as supported subtotals are not complete lifetime totals.</small></div>}
       <section className={styles.rules} aria-label="Society views">
         <button aria-pressed={!filters.society} onClick={() => filter("society", "")}><span>Both societies</span><strong>All milestones</strong><small>View each society's threshold separately.</small></button>
         {data.societies.map(society => <button key={society.key} aria-pressed={filters.society === society.key} onClick={() => filter("society", society.key)}>
@@ -91,6 +93,7 @@ export default function LifetimeSocietiesPage() {
         {source ? <>
           <p className={styles.notice}>{source.ready ? "Required identity and history fields are available. Importing will identify records that need further reconciliation." : "A source update is needed before gift history can be imported. Existing saved results are kept."}</p>
           {source.identityMode === "lookup" && <p>Using the existing <strong>Constituent ID</strong> to group this report. You do not need to add a constituent system record ID; this does not create NXT profile links or update records.</p>}
+          <p>{source.householdsReady ? "Spouse identifiers, marital status and individual/organization fields are available. Reciprocal married pairs will be grouped automatically on refresh." : "Automatic households need Spouse > Constituent ID and Constituent > Marital Status, together with Constituent ID and Key Indicator. You can still import individual giving history without these fields."}</p>
           <ul className={styles.checks}>{source.checks.map(check => <li key={check.key}><strong>{check.label}</strong>
             <span>{check.column || (check.required ? "Add to NXT query output" : "Optional")}</span>{!check.column && check.required && <small>{check.help}</small>}</li>)}</ul>
         </> : <p><strong>Refresh gift history</strong> validates the source automatically. Use <strong>Check query outputs</strong> if you want to inspect the field mapping first.</p>}
@@ -102,32 +105,33 @@ export default function LifetimeSocietiesPage() {
         <p>Direct gifts and full-gift recognition can produce provisional dates. Pledges, linked payments, write-offs and planned gifts still need reconciliation. Supported subtotals show only the uncomplicated gifts, not a complete lifetime total or a qualification date.</p>
       </details>}
       {snapshot && <details className={styles.panel}>
-        <summary>Shared-giving groups <span>{snapshot.sharedGroups?.length || 0} suggestions / {confirmedIds.size} confirmed</span></summary>
-        <p>Sharing a gift does not prove a household relationship. Review the listed members, then confirm only people and organizations that should share one giving history. No NXT records are merged or changed.</p>
-        <small>Only exact sets credited on the same gift are suggested. Overlapping groups cannot both be confirmed. Confirmations carry forward only while the query, identities and shared-gift evidence remain unchanged.</small>
-        {!!snapshot.groupsToReconfirm && <p className={styles.notice}>{snapshot.groupsToReconfirm} previous group confirmations need another review because their source or shared-gift evidence changed.</p>}
+        <summary>Households <span>{automaticCount} automatic / {confirmedIds.size - automaticCount} manually confirmed</span></summary>
+        <p>Individuals with reciprocal NXT spouse IDs and Married status on both records are grouped automatically. Companies, foundations and other organizations stay separate. A household includes its members' own gifts and gifts explicitly credited to either member, counting each gift once.</p>
+        <small>Sharing a gift alone does not prove a marriage. Other individual-only suggestions require confirmation. Spouses missing from the query or with conflicting links stay separate. No NXT records are merged or changed.</small>
+        {!!snapshot.groupsToReconfirm && <p className={styles.notice}>{snapshot.groupsToReconfirm} previous group confirmations were not carried forward because their rules, source or evidence changed. Company/person combinations are no longer available.</p>}
+        {!!householdReviews.length && <details><summary>{householdReviews.length} records need spouse-link review</summary><ul>{householdReviews.map(row => <li key={row.id}>{row.name}: {row.householdNote}</li>)}</ul></details>}
         {!!snapshot.omittedSharedGroups && <p className={styles.notice}>{snapshot.omittedSharedGroups} additional large or excess shared-gift sets are not suggested automatically. Their constituents remain separate and visible.</p>}
-        <label>Find a shared-giving group<input type="search" value={groupSearch} onChange={e => { setGroupSearch(e.target.value); setGroupPage(0); }} placeholder="Member name or constituent ID" /></label>
-        {!groupMatches.length && <p>No shared-giving suggestions match this view. Separate records remain unchanged.</p>}
+        <label>Find a household or suggestion<input type="search" value={groupSearch} onChange={e => { setGroupSearch(e.target.value); setGroupPage(0); }} placeholder="Member name or constituent ID" /></label>
+        {!groupMatches.length && <p>No households or suggestions match this view. Separate records remain unchanged.</p>}
         {groupMatches.slice(currentGroupPage * 10, (currentGroupPage + 1) * 10).map(group => {
           const confirmed = confirmedIds.has(group.id), overlap = !confirmed && group.members.some(member => confirmedMembers.has(member.id));
           return <article className={styles.group} key={group.id}>
             <h3>{group.members.map(member => member.name).join(" & ")}</h3>
-            <p>{group.sharedGiftCount} shared gift{group.sharedGiftCount === 1 ? "" : "s"} / {confirmed ? "Confirmed giving group" : "Suggested only; histories still separate"}</p>
+            <p>{group.sharedGiftCount} shared gift{group.sharedGiftCount === 1 ? "" : "s"} / {group.automatic ? confirmed ? "NXT-linked married spouses / automatically grouped" : "NXT-linked spouses / kept separate by staff" : confirmed ? "Manually confirmed household" : "Suggested only; histories still separate"}</p>
             <ul>{group.members.map(member => <li key={member.id}>{member.name} / {lifetimeTypeLabel(member.constituentType)} / Constituent ID {member.lookupId || member.systemId}</li>)}</ul>
             {data.canManage && <>
-              {confirmed ? <button disabled={!!busy} onClick={() => command("remove-group", group.id)}>Undo grouping</button> :
+              {confirmed ? <button disabled={!!busy} onClick={() => command("remove-group", group.id)}>{group.automatic ? "Keep spouses separate" : "Undo grouping"}</button> :
                 <button disabled={!!busy || overlap} onClick={() => setConfirmGroup(group.id)}>Review and confirm group</button>}
               {overlap && <small>A member is already in another confirmed group. Undo that grouping first.</small>}
               {!confirmed && confirmGroup === group.id && <div className={styles.groupConfirm}>
-                <p>Confirm these {group.members.length} records as one giving group? Their combined history will count each gift system ID once. Unresolved pledge and adjustment histories will still need reconciliation.</p>
-                <div className={styles.actions}><button className={styles.primary} disabled={!!busy} onClick={() => command("confirm-group", group.id)}>Confirm household / giving group</button>
+                <p>Confirm these {group.members.length} individuals as one household? This combines all gifts given by or explicitly credited to these individuals, counting each gift system ID once, not just the shared gifts listed above. No organization's unrelated giving is included. Unresolved pledge and adjustment histories still need reconciliation.</p>
+                <div className={styles.actions}><button className={styles.primary} disabled={!!busy} onClick={() => command("confirm-group", group.id)}>Confirm household</button>
                   <button disabled={!!busy} onClick={() => setConfirmGroup(null)}>Keep separate</button></div>
               </div>}
             </>}
           </article>;
         })}
-        <div className={styles.pagination}><p>{groupMatches.length} suggestions / Page {currentGroupPage + 1} of {Math.max(1, Math.ceil(groupMatches.length / 10))}</p>
+        <div className={styles.pagination}><p>{groupMatches.length} households / suggestions. Page {currentGroupPage + 1} of {Math.max(1, Math.ceil(groupMatches.length / 10))}</p>
           <div className={styles.actions}><button disabled={currentGroupPage === 0} onClick={() => setGroupPage(currentGroupPage - 1)}>Previous groups</button>
             <button disabled={(currentGroupPage + 1) * 10 >= groupMatches.length} onClick={() => setGroupPage(currentGroupPage + 1)}>Next groups</button></div></div>
       </details>}
@@ -144,7 +148,7 @@ export default function LifetimeSocietiesPage() {
           <label>Review status<select value={filters.status} onChange={e => filter("status", e.target.value)}><option value="">All history</option><option value="provisional">Provisional date available</option><option value="review">Needs review</option></select></label>
           <label>Calculated fiscal year<select value={filters.year} onChange={e => filter("year", e.target.value)}><option value="">All years / undated</option>{years.map(year => <option key={year}>{year}</option>)}</select></label>
         </div>
-        {!!confirmedIds.size && <label className={styles.groupToggle}><input type="checkbox" checked={households} onChange={e => { setHouseholds(e.target.checked); setPage(0); setFilters(defaultFilters); }} />Show confirmed households / giving groups instead of separate members</label>}
+        {!!confirmedIds.size && <label className={styles.groupToggle}><input type="checkbox" checked={households} onChange={e => { setHouseholds(e.target.checked); setPage(0); setFilters(defaultFilters); }} />Show households instead of separate individuals</label>}
         {!!unclassified && <p className={styles.typeNote}>{unclassified} constituent{unclassified === 1 ? " has" : "s have"} no confirmed type. They remain in the combined view, not the individuals-only or organizations-only views.
           {data.canManage && <> Add <strong>Constituent &gt; Key Indicator</strong> to query 31118's output, then refresh gift history. Conflicting values need source review.</>}
           {" "}<button onClick={() => { setFilters({ ...defaultFilters, society: filters.society, constituentType: "unknown" }); setPage(0); }}>View unclassified</button></p>}
@@ -158,12 +162,13 @@ export default function LifetimeSocietiesPage() {
         <div className={styles.tableScroll} tabIndex={0} role="region" aria-label="Lifetime society milestone history"><table>
           <thead><tr><th scope="col">Constituent</th><th scope="col">Society</th><th scope="col">Calculated qualification date</th><th scope="col">Imported qualifying history</th><th scope="col">Review notes</th></tr></thead>
           <tbody>{rows.slice(current * 50, (current + 1) * 50).map(row => <tr key={`${row.id}:${row.societyKey}`}>
-            <th scope="row">{row.name}<small>{row.members ? "Confirmed giving group / " : ""}{lifetimeTypeLabel(row.constituentType)}</small><small>{[row.systemId && `System ID ${row.systemId}`, row.lookupId && `Constituent ID ${row.lookupId}`].filter(Boolean).join(" / ")}</small>
+            <th scope="row">{row.name}<small>{row.groupBasis === "spouse" ? "NXT-linked married household / " : row.members ? "Confirmed household / " : ""}{lifetimeTypeLabel(row.constituentType)}</small><small>{[row.systemId && `System ID ${row.systemId}`, row.lookupId && `Constituent ID ${row.lookupId}`].filter(Boolean).join(" / ")}</small>
               {row.members && <details><summary>Group members</summary>{row.members.map(member => <small key={member.id}>{member.name} / Constituent ID {member.lookupId || member.systemId}</small>)}</details>}</th><td>{row.societyName}</td>
             <td>{lifetimeDate(row.date)}{row.date && <small>{lifetimeFiscalYear(row.date)} / Provisional</small>}</td><td>{lifetimeMoney(row.totalCents)}
               {row.totalCents === null && row.supportedCents != null && <small>Supported gifts subtotal: {lifetimeMoney(row.supportedCents)}. Excludes unresolved history; not a complete lifetime total.</small>}</td>
             <td>{row.reasons.length ? row.reasons.join(" ") : "Reconcile historical adjustments and recognition settings before using this date."}
               {row.constituentTypeNote && <small>{row.constituentTypeNote}</small>}
+              {row.householdNote && <small>{row.householdNote}</small>}
               {!!row.crossingGiftIds.length && <details><summary>Milestone gift reference</summary><small>Gift system IDs: {row.crossingGiftIds.join(", ")}</small></details>}</td>
           </tr>)}</tbody></table></div>
         {!rows.length && <p>No history matches these filters.</p>}

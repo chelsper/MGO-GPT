@@ -40,18 +40,44 @@ it("requires explicit group confirmation, can cancel without writing, and does n
   const withGroups = { ...saved, snapshot: { ...snapshot, sharedGroups: [group], confirmedGroupIds: [] } };
   fetch.mockResolvedValueOnce(json(withGroups)).mockResolvedValueOnce(json({ ...withGroups, revision: "new", snapshot: { ...withGroups.snapshot, confirmedGroupIds: [group.id] } }));
   render(<Page />); await screen.findByText("Fictional Donor");
-  fireEvent.click(screen.getByText("Shared-giving groups"));
+  fireEvent.click(screen.getByText("Households"));
   fireEvent.click(screen.getByRole("button", { name: "Review and confirm group" }));
   fireEvent.click(screen.getByRole("button", { name: "Keep separate" }));
   expect(fetch).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "Review and confirm group" }));
-  fireEvent.click(screen.getByRole("button", { name: "Confirm household / giving group" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm household" }));
   await screen.findByText("Fictional household");
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "confirm-group", revision: "saved", groupId: group.id });
   expect(screen.getByRole("status")).toHaveTextContent("1 recipients / groups");
-  fireEvent.click(screen.getByLabelText("Show confirmed households / giving groups instead of separate members"));
+  fireEvent.click(screen.getByLabelText("Show households instead of separate individuals"));
   expect(screen.getByText("Fictional Donor")).toBeVisible();
   expect(screen.queryByText("Fictional household")).not.toBeInTheDocument();
+});
+it("opens automatic spouses as a household without a write and supports an explicit keep-separate action", async () => {
+  const members = [{ id: row.id, name: row.name, lookupId: row.lookupId, constituentType: "individual" },
+    { id: "2", name: "Fictional Review Donor", lookupId: "D-2", constituentType: "individual" }];
+  const group = { id: "a".repeat(64), automatic: true, sharedGiftCount: 0, members,
+    rows: [{ ...row, id: "group:demo", name: "Fictional spouses", members, groupBasis: "spouse" }] };
+  const value = { ...saved, snapshot: { ...snapshot, sharedGroups: [group], confirmedGroupIds: [] } };
+  fetch.mockResolvedValueOnce(json(value)).mockResolvedValueOnce(json({ ...value, snapshot: { ...value.snapshot, separateGroupIds: [group.id] } }));
+  render(<Page />); await screen.findByText("Fictional spouses");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("NXT-linked married household / Individual")).toBeVisible();
+  fireEvent.click(screen.getByText("Households"));
+  expect(screen.getByText(/0 shared gifts \/ NXT-linked married spouses/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Review and confirm group" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Keep spouses separate" }));
+  await screen.findByText("Fictional Donor");
+  expect(screen.queryByText("Fictional spouses")).not.toBeInTheDocument();
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "remove-group", revision: "saved", groupId: group.id });
+});
+it("shows automatic grouping to viewers without offering write controls and keeps spouse-link issues distinct from gift errors", async () => {
+  fetch.mockResolvedValue(json({ ...saved, canManage: false, snapshot: { ...snapshot, rows: [{ ...row, householdNote: "Spouse missing from query; kept separate." }] } }));
+  render(<Page />); await screen.findByText("Fictional Donor");
+  fireEvent.click(screen.getByText("Households"));
+  expect(screen.getByText("1 records need spouse-link review")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Keep spouses separate" })).not.toBeInTheDocument();
+  expect(screen.getByText(/Companies, foundations and other organizations stay separate/)).toBeVisible();
 });
 it("shows actionable missing outputs without enabling an unsafe import", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, snapshot: null })).mockResolvedValueOnce(json({ ...inspection, ready: false,

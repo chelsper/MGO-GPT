@@ -7,7 +7,7 @@ import { decodeResult } from "./dashboardQueryResults";
 import { listGivingSocietyConfigurations } from "./givingSocietyConfigurations";
 import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHistory";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
-import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
+import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeActiveGroupIds, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
 
 const CACHE_KEY = "report:lifetime-giving-societies:v1";
 const hash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -22,8 +22,10 @@ export function inspectLifetimeQuery(query) {
   for (const [key, spec] of Object.entries(LIFETIME_FIELDS)) {
     const matches = entries.filter(entry => {
       const field = entry.query_field;
-      return spec.names.includes(field?.selected_field_name) && field.node_path?.length === 1 &&
-        field.node_path[0].name === spec.path && (!field.one_to_many || spec.many);
+      const path = field?.node_path?.map(node => node.name).join("/");
+      const expectedPath = path === spec.path || (spec.path === "Spouse" && path === "Spouse/Spouse Information");
+      return spec.names.includes(field?.available_field_name || field?.selected_field_name) && expectedPath &&
+        (!field.one_to_many || spec.many) && !(spec.path === "Spouse" && field.node_path.some(node => node.node_type === "OneToMany"));
     });
     columns[key] = matches.length === 1 ? fieldLabel(matches[0]) : "";
     checks.push({ key, label: spec.label, required: !!spec.required, column: columns[key], ambiguous: matches.length > 1,
@@ -31,6 +33,8 @@ export function inspectLifetimeQuery(query) {
         `Choose ${spec.path} > ${spec.names[0]} in NXT. Give repeated output labels unique aliases.` });
   }
   const identityMode = columns.constituentId ? "system" : columns.lookupId ? "lookup" : null;
+  const spouseIdentityMode = columns.spouseLookupId && columns.lookupId ? "lookup" : columns.spouseId && columns.constituentId ? "system" : null;
+  const householdsReady = !!(spouseIdentityMode && columns.maritalStatus && columns.constituentType);
   for (const check of checks) {
     if (check.key === "lookupId" && !columns.constituentId) check.required = true;
     if (check.ambiguous) {
@@ -41,12 +45,13 @@ export function inspectLifetimeQuery(query) {
   const fingerprint = hash(Object.fromEntries(["id", "name", "type", "select_fields", "filter_fields", "summary_fields", "gift_processing_options",
     "advanced_processing_options", "constituent_filters", "suppress_duplicates"].map(key => [key, query[key]])));
   const warnings = lifetimeSourceWarnings(query);
+  if (!householdsReady) warnings.push("For automatic married households, add Spouse > Constituent ID and Constituent > Marital Status, alongside Constituent ID and Key Indicator. Until available, spouses are not guessed; gift history can still be imported.");
   if (!columns.constituentType) warnings.push("Add Constituent > Key Indicator to the query output to separate individuals and organizations. Until refreshed with that field, unclassified records remain visible in the combined view.");
   if (identityMode === "lookup") warnings.push("Records are grouped by the exact Constituent ID within this query, not by name. NXT system IDs are not inferred; no profile links or cross-report identity matches are created.");
   // A date/fund/type criterion can hide the beginning of a lifetime history.
   const restrictedHistory = (query.filter_fields || []).some(field => field.query_field?.node_path?.[0]?.name !== "Constituent");
   if (restrictedHistory) warnings.push("Gift-level criteria may omit lifetime history. Dates will be withheld until these restrictions are removed.");
-  return { queryId: LIFETIME_QUERY_ID, queryName: query.name, columns, fields, checks, warnings, restrictedHistory, identityMode,
+  return { queryId: LIFETIME_QUERY_ID, queryName: query.name, columns, fields, checks, warnings, restrictedHistory, identityMode, spouseIdentityMode, householdsReady,
     fullRecognition: ["Both", "Recipient"].includes(query.gift_processing_options?.soft_credit_option) && query.gift_processing_options?.soft_credit_sub_option === "FullAmountToAll",
     ready: !!identityMode && checks.every(check => !check.required || check.column), fingerprint };
 }
@@ -81,14 +86,22 @@ export async function updateLifetimeGroup({ revision, groupId, operation, user, 
   if (!candidate || !["confirm-group", "remove-group"].includes(operation))
     throw lifetimeError("Choose a shared-giving suggestion from the current report.", 422);
   const confirmed = new Set(before.snapshot.confirmedGroupIds || []);
+  const separate = new Set(before.snapshot.separateGroupIds || []);
   if (operation === "confirm-group") {
+    if (candidate.members.some(member => member.constituentType !== "individual"))
+      throw lifetimeError("Organizations are separate credit sources, not household members. Refresh the report before continuing.", 409);
     const members = new Set(candidate.members.map(member => member.id));
-    if (groups.some(group => group.id !== groupId && confirmed.has(group.id) && group.members.some(member => members.has(member.id))))
+    const active = lifetimeActiveGroupIds(before.snapshot);
+    if (groups.some(group => group.id !== groupId && active.has(group.id) && group.members.some(member => members.has(member.id))))
       throw lifetimeError("A member already belongs to a confirmed group. Undo that group before choosing another; histories were not combined twice.", 409);
-    confirmed.add(groupId);
-  } else confirmed.delete(groupId);
+    if (candidate.automatic) separate.delete(groupId);
+    else confirmed.add(groupId);
+  } else {
+    confirmed.delete(groupId);
+    if (candidate.automatic) separate.add(groupId);
+  }
   const state = { ...before, revision: randomUUID(), updatedBy: user.id,
-    snapshot: { ...before.snapshot, confirmedGroupIds: [...confirmed] },
+    snapshot: { ...before.snapshot, confirmedGroupIds: [...confirmed], separateGroupIds: [...separate] },
     groupAudit: [...(before.groupAudit || []), { operation, groupId, userId: user.id, at: new Date().toISOString() }].slice(-100) };
   const published = await db`UPDATE report_snapshots_cache SET payload=${JSON.stringify(state)}::jsonb,updated_at=NOW()
     WHERE report_key=${CACHE_KEY} AND payload->>'revision'=${revision} RETURNING report_key`;
@@ -122,9 +135,10 @@ export async function refreshLifetimeHistory({ revision, user, transport, db = s
     source: checked, refreshedAt: new Date().toISOString() } };
   // Lookup IDs are not canonical identities: carry a confirmation only when
   // source, member identity and the exact shared-gift evidence remain identical.
-  const retained = before.snapshot?.ruleVersion === history.ruleVersion && before.snapshot?.rulesFingerprint === rulesFingerprint && before.snapshot?.source?.fingerprint === checked.fingerprint
-    ? (before.snapshot.confirmedGroupIds || []).filter(id => history.sharedGroups.some(group => group.id === id)) : [];
+  const sameSource = before.snapshot?.ruleVersion === history.ruleVersion && before.snapshot?.rulesFingerprint === rulesFingerprint && before.snapshot?.source?.fingerprint === checked.fingerprint;
+  const retained = sameSource ? (before.snapshot.confirmedGroupIds || []).filter(id => history.sharedGroups.some(group => group.id === id && !group.automatic)) : [];
   state.snapshot.confirmedGroupIds = retained;
+  state.snapshot.separateGroupIds = sameSource ? (before.snapshot.separateGroupIds || []).filter(id => history.sharedGroups.some(group => group.id === id && group.automatic)) : [];
   state.snapshot.groupsToReconfirm = (before.snapshot?.confirmedGroupIds || []).length - retained.length;
   state.groupAudit = before.groupAudit || [];
   const published = revision === null

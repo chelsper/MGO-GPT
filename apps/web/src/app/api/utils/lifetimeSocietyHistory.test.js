@@ -38,17 +38,85 @@ it("honors the approved full-gift recognition rule in both societies", () => {
 it("suggests exact co-credit sets without combining a chain or double-counting group gifts", () => {
   const a = { id: "1", name: "Fictional A", giftId: "101", amount: "60000" };
   const b = { id: "2", name: "Fictional B", credit: "Soft Credit Recipient", giftId: "101", amount: "60000" };
-  const c = { id: "3", name: "Fictional Foundation", constituentType: "O", giftId: "102", amount: "50000" };
+  const c = { id: "3", name: "Fictional C", giftId: "102", amount: "50000" };
   const result = run([a, b, { ...b, giftId: "102", amount: "50000" }, c, { ...a, giftId: "103", amount: "40000" }, b]);
   expect(result.sharedGroups.map(group => group.members.map(member => member.systemId))).toEqual([["1", "2"], ["2", "3"]]);
   const ab = result.sharedGroups[0];
   expect(ab).toMatchObject({ sharedGiftCount: 1 });
   expect(ab.rows[0]).toMatchObject({ totalCents: 15000000, date: "2020-01-01", members: expect.any(Array) });
-  expect(result.sharedGroups[1].rows[0].constituentType).toBe("mixed");
+  expect(result.sharedGroups[1].rows[0].constituentType).toBe("individual");
   expect(result.confirmedGroupIds).toEqual([]);
   expect(result.rows).toHaveLength(6);
   expect(run([b, { ...a, giftId: "103", amount: "40000" }, c, { ...b, giftId: "102", amount: "50000" }, b, a]).sharedGroups.map(group => group.id))
     .toEqual(result.sharedGroups.map(group => group.id));
+});
+const spouseOptions = { identity: false, spouses: true };
+const spouseInspection = inspectLifetimeQuery(lifetimeQueryFixture(spouseOptions));
+const spouseRun = rows => aggregateLifetimeHistory(lifetimeCsvFixture(rows, spouseOptions), spouseInspection, lifetimeRules, rows.length, new Date("2026-11-16T12:00:00Z"));
+const spouseA = { id: "1", name: "Fictional Harry", spouseId: "DEMO-2", maritalStatus: "Married", giftId: "101", amount: "40000" };
+const spouseB = { id: "2", name: "Fictional Cynthia", spouseId: "DEMO-1", maritalStatus: "Married", giftId: "102", amount: "30000" };
+it("automatically groups reciprocal married individuals even without shared gifts", () => {
+  const result = spouseRun([spouseA, spouseB]);
+  expect(result).toMatchObject({ automaticHouseholdCount: 1, householdReviewCount: 0, confirmedGroupIds: [] });
+  expect(result.sharedGroups[0]).toMatchObject({ automatic: true, sharedGiftCount: 0,
+    rows: [expect.objectContaining({ totalCents: 7000000, groupBasis: "spouse", constituentType: "individual", systemId: null }), expect.any(Object)] });
+  expect(result.sharedGroups[0].members.map(member => member.lookupId)).toEqual(["DEMO-1", "DEMO-2"]);
+});
+it("keeps a corporate donor's unrelated gifts out of spouses' combined giving and deduplicates their shared credits", () => {
+  const company = { id: "3", name: "Fictional Company", constituentType: "O", giftId: "103", amount: "50000" };
+  const result = spouseRun([spouseA, spouseB, company,
+    { ...spouseA, giftId: "103", amount: "50000", credit: "Soft Credit Recipient" },
+    { ...spouseB, giftId: "103", amount: "50000", credit: "Soft Credit Recipient" },
+    { ...company, giftId: "104", amount: "900000" }]);
+  expect(result.sharedGroups).toHaveLength(1);
+  expect(result.sharedGroups[0].rows[0]).toMatchObject({ totalCents: 12000000, date: "2020-01-01" });
+  expect(result.sharedGroups[0].members.every(member => member.constituentType === "individual")).toBe(true);
+  expect(result.rows.find(row => row.lookupId === "DEMO-3")).toMatchObject({ totalCents: 95000000 });
+});
+it("never suggests a company/person household; individual shared-credit suggestions exclude the company", () => {
+  const company = { id: "3", name: "Fictional Company", constituentType: "O", giftId: "101", amount: "50000" };
+  const a = { ...spouseA, spouseId: "", maritalStatus: "", credit: "Soft Credit Recipient", amount: "50000" };
+  const b = { ...spouseB, spouseId: "", maritalStatus: "", giftId: "101", credit: "Soft Credit Recipient", amount: "50000" };
+  expect(spouseRun([company, a]).sharedGroups).toEqual([]);
+  const result = spouseRun([company, a, b, { ...company, giftId: "102", amount: "900000" }]);
+  expect(result.sharedGroups[0]).toMatchObject({ automatic: false, members: [expect.objectContaining({ name: a.name }), expect.objectContaining({ name: b.name })] });
+  expect(result.sharedGroups[0].rows[0].totalCents).toBe(5000000);
+});
+it.each(["Divorced", "Separated", "Widowed", "Single", "", "Unknown"])("does not auto-group when either spouse has marital status %j", status => {
+  const result = spouseRun([spouseA, { ...spouseB, maritalStatus: status }]);
+  expect(result.automaticHouseholdCount).toBe(0);
+  expect(result.householdReviewCount).toBeGreaterThan(0);
+  expect(result.rows).toHaveLength(4);
+});
+it("keeps missing, self, one-sided, organization, conflicting and chained spouse links separate", () => {
+  for (const rows of [[spouseA], [spouseA, { ...spouseB, spouseId: "" }], [{ ...spouseA, spouseId: "DEMO-1" }],
+    [spouseA, { ...spouseB, constituentType: "O" }], [spouseA, spouseB, { ...spouseA, spouseId: "DEMO-3" }],
+    [spouseA, spouseB, { id: "3", name: "Fictional Third", giftId: "103", maritalStatus: "Married", spouseId: "DEMO-2" }],
+    [spouseA, { ...spouseB, spouseId: "DEMO-3" }, { id: "3", name: "Fictional Third", giftId: "103", maritalStatus: "Married", spouseId: "DEMO-1" }]]) {
+    const result = spouseRun(rows);
+    expect(result.automaticHouseholdCount).toBe(0);
+    expect(result.householdReviewCount).toBeGreaterThan(0);
+  }
+});
+it("does not infer spouses from a shared name or silently normalize lookup IDs", () => {
+  expect(spouseRun([{ ...spouseA, spouseId: "demo-2" }, spouseB]).automaticHouseholdCount).toBe(0);
+  expect(spouseRun([{ ...spouseA, lookupId: "001", spouseId: "002" }, { ...spouseB, lookupId: "002", spouseId: "001" }]).automaticHouseholdCount).toBe(1);
+  expect(spouseRun([{ ...spouseA, spouseId: "", name: "Same Name" }, { ...spouseB, spouseId: "", name: "Same Name" }]).automaticHouseholdCount).toBe(0);
+});
+it("allows missing spouse outputs without blocking individual history or inventing auto households", () => {
+  const result = run([spouseA, spouseB]);
+  expect(result.automaticHouseholdCount).toBe(0); expect(result.rows).toHaveLength(4);
+});
+it("retains complex and conflicting gift safeguards inside an automatic household", () => {
+  const complex = spouseRun([spouseA, { ...spouseB, type: "Pledge" }]);
+  expect(complex.sharedGroups[0].rows[0]).toMatchObject({ totalCents: null, date: null, supportedCents: 4000000 });
+  const conflict = spouseRun([spouseA, spouseB, { ...spouseB, giftId: "101", credit: "Soft Credit Recipient", amount: "99999" }]);
+  expect(conflict.sharedGroups[0].rows.every(row => row.date === null && row.supportedCents === null)).toBe(true);
+});
+it("spouse evidence is order-independent and detects changed marital status", () => {
+  expect(spouseRun([spouseA, spouseB, spouseA]).sharedGroups[0].id).toBe(spouseRun([spouseB, spouseA]).sharedGroups[0].id);
+  expect(spouseRun([spouseA, spouseB, { ...spouseA, giftId: "103" }, { ...spouseB, giftId: "103", amount: spouseA.amount, credit: "Soft Credit Recipient" }]).sharedGroups[0].id).toBe(spouseRun([spouseA, spouseB]).sharedGroups[0].id);
+  expect(spouseRun([spouseA, spouseB, { ...spouseB, maritalStatus: "Divorced" }]).automaticHouseholdCount).toBe(0);
 });
 it("does not suggest groups based on name, employee matching credit, or conflicting amounts", () => {
   expect(run([{}, { id: "2", giftId: "102" }]).sharedGroups).toEqual([]);
@@ -60,9 +128,19 @@ it("does not suggest groups based on name, employee matching credit, or conflict
 it("changes group evidence identity when members or credited gifts change", () => {
   const a = {}, b = { id: "2", name: "Fictional B", credit: "Soft Credit Recipient" };
   const original = run([a, b]).sharedGroups[0].id;
-  for (const rows of [[a, { ...b, name: "Different B" }], [a, { ...b, constituentType: "O" }],
+  expect(run([a, { ...b, constituentType: "O" }]).sharedGroups).toEqual([]);
+  for (const rows of [[a, { ...b, name: "Different B" }],
     [a, b, { giftId: "102" }, { ...b, giftId: "102" }]])
     expect(run(rows).sharedGroups[0].id).not.toBe(original);
+});
+it("can use spouse system IDs only with constituent system IDs and does not confuse them with lookup IDs", () => {
+  const options = { spouses: true };
+  const source = inspectLifetimeQuery(lifetimeQueryFixture(options));
+  source.spouseIdentityMode = "system"; source.columns.spouseId = source.columns.spouseLookupId; source.columns.spouseLookupId = "";
+  const rows = [{ ...spouseA, spouseId: "2" }, { ...spouseB, spouseId: "1" }];
+  const result = aggregateLifetimeHistory(lifetimeCsvFixture(rows, options), source, lifetimeRules, rows.length);
+  expect(result.automaticHouseholdCount).toBe(1);
+  expect(aggregateLifetimeHistory(lifetimeCsvFixture([spouseA, spouseB], options), source, lifetimeRules, 2).automaticHouseholdCount).toBe(0);
 });
 it("shows supported subtotals without pretending complex histories have complete totals or dates", () => {
   const result = run([{ amount: "60000" }, { giftId: "102", type: "Pledge", amount: "500000" }]);

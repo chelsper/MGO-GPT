@@ -27,6 +27,39 @@ it("enables full-gift recognition only for the explicitly supported source setti
     expect(inspectLifetimeQuery(query).fullRecognition).toBe(false);
   }
 });
+it("matches the actual Spouse/Spouse Information field by native meaning, not its display alias", () => {
+  const query = lifetimeQueryFixture({ identity: false, spouses: true });
+  expect(inspectLifetimeQuery(query)).toMatchObject({ ready: true, householdsReady: true, spouseIdentityMode: "lookup", columns: { spouseLookupId: "Spouse ID", maritalStatus: "Marital Status" } });
+  const field = query.select_fields.find(entry => entry.query_field.selected_field_name === "Spouse ID");
+  field.user_alias = "Partner lookup";
+  expect(inspectLifetimeQuery(query).columns.spouseLookupId).toBe("Partner lookup");
+  field.query_field.available_field_name = "Integration ID";
+  expect(inspectLifetimeQuery(query).householdsReady).toBe(false);
+  field.query_field.available_field_name = "Constituent ID"; field.query_field.node_path[1].name = "Business Information";
+  expect(inspectLifetimeQuery(query).householdsReady).toBe(false);
+});
+it("requires matched ID namespaces and marital status for automatic households without blocking individual history", () => {
+  const query = lifetimeQueryFixture({ identity: false, spouses: true });
+  const field = query.select_fields.find(entry => entry.query_field.selected_field_name === "Spouse ID");
+  field.query_field.available_field_name = "System Record ID";
+  expect(inspectLifetimeQuery(query)).toMatchObject({ ready: true, householdsReady: false, spouseIdentityMode: null });
+  query.select_fields.push({ query_field: { selected_field_name: "Constituent System Record ID", node_path: [{ name: "Constituent" }] } });
+  expect(inspectLifetimeQuery(query)).toMatchObject({ householdsReady: true, spouseIdentityMode: "system" });
+  query.select_fields = query.select_fields.filter(entry => entry.query_field.selected_field_name !== "Marital Status");
+  expect(inspectLifetimeQuery(query)).toMatchObject({ ready: true, householdsReady: false });
+});
+it("rejects ambiguous spouse fields and never treats a relationship collection or spouse marital status as current constituent evidence", () => {
+  const query = lifetimeQueryFixture({ spouses: true });
+  const spouse = query.select_fields.find(entry => entry.query_field.selected_field_name === "Spouse ID");
+  spouse.query_field.node_path[1].node_type = "OneToMany";
+  expect(inspectLifetimeQuery(query).householdsReady).toBe(false);
+  spouse.query_field.node_path[1].node_type = "OneToOne";
+  query.select_fields.push({ ...spouse, user_alias: "Duplicate spouse" });
+  expect(inspectLifetimeQuery(query).ready).toBe(false);
+  query.select_fields.pop();
+  query.select_fields.find(entry => entry.query_field.selected_field_name === "Marital Status").query_field.node_path = [{ name: "Spouse" }];
+  expect(inspectLifetimeQuery(query).householdsReady).toBe(false);
+});
 async function groupingState() {
   const args = setup();
   const rows = [{}, { id: "2", name: "Fictional B", credit: "Soft Credit Recipient" },
@@ -61,6 +94,53 @@ it("retains confirmations only when source, rules, identity and shared evidence 
   args.db.mockReset().mockResolvedValueOnce([{ payload: state }]).mockResolvedValue([{ report_key: "saved" }]);
   args.transport.metadata.mockResolvedValue({ ...lifetimeQueryFixture(), name: "Changed source" });
   expect((await refreshLifetimeHistory(args)).state.snapshot).toMatchObject({ confirmedGroupIds: [], groupsToReconfirm: 1 });
+});
+async function automaticState() {
+  const args = setup(), options = { identity: false, spouses: true };
+  const rows = [{ spouseId: "DEMO-2", maritalStatus: "Married" }, { id: "2", name: "Fictional Spouse", spouseId: "DEMO-1", maritalStatus: "Married", giftId: "102" }];
+  args.transport.metadata.mockResolvedValue(lifetimeQueryFixture(options));
+  args.transport.execute.mockResolvedValue({ body: new TextEncoder().encode(lifetimeCsvFixture(rows, options)), contentType: "text/csv", queryJobRowCount: 2 });
+  return { args, ...(await refreshLifetimeHistory(args)) };
+}
+it("publishes automatic spouses on refresh without manual confirmation and can keep them separate or restore them without NXT calls", async () => {
+  const { state } = await automaticState();
+  expect(state.snapshot).toMatchObject({ automaticHouseholdCount: 1, confirmedGroupIds: [], separateGroupIds: [] });
+  const groupId = state.snapshot.sharedGroups[0].id;
+  const db = vi.fn().mockResolvedValueOnce([{ payload: state }]).mockResolvedValue([{ report_key: "saved" }]);
+  const args = { db, rules: vi.fn().mockResolvedValue(lifetimeRules), revision: state.revision, user: { id: 10 }, groupId, operation: "remove-group" };
+  const removed = await updateLifetimeGroup(args);
+  expect(removed.state.snapshot.separateGroupIds).toEqual([groupId]);
+  db.mockReset().mockResolvedValueOnce([{ payload: removed.state }]).mockResolvedValue([{ report_key: "saved" }]);
+  const restored = await updateLifetimeGroup({ ...args, revision: removed.state.revision, operation: "confirm-group" });
+  expect(restored.state.snapshot.separateGroupIds).toEqual([]);
+  expect(blackbaudApiFetch).not.toHaveBeenCalled(); expect(executeSavedQueryResults).not.toHaveBeenCalled();
+});
+it("retains staff separation only for unchanged current spouse evidence and invalidates older unsafe groups", async () => {
+  const { state, args } = await automaticState();
+  state.snapshot.separateGroupIds = [state.snapshot.sharedGroups[0].id]; args.revision = state.revision;
+  args.db.mockReset().mockResolvedValueOnce([{ payload: state }]).mockResolvedValue([{ report_key: "saved" }]);
+  expect((await refreshLifetimeHistory(args)).state.snapshot.separateGroupIds).toEqual(state.snapshot.separateGroupIds);
+  const newGiftRows = [{ spouseId: "DEMO-2", maritalStatus: "Married" },
+    { id: "2", name: "Fictional Spouse", spouseId: "DEMO-1", maritalStatus: "Married", giftId: "102" },
+    { spouseId: "DEMO-2", maritalStatus: "Married", giftId: "103" },
+    { id: "2", name: "Fictional Spouse", spouseId: "DEMO-1", maritalStatus: "Married", giftId: "103", credit: "Soft Credit Recipient" }];
+  args.transport.execute.mockResolvedValue({ body: new TextEncoder().encode(lifetimeCsvFixture(newGiftRows, { identity: false, spouses: true })), contentType: "text/csv", queryJobRowCount: newGiftRows.length });
+  args.db.mockReset().mockResolvedValueOnce([{ payload: state }]).mockResolvedValue([{ report_key: "saved" }]);
+  expect((await refreshLifetimeHistory(args)).state.snapshot.separateGroupIds).toEqual(state.snapshot.separateGroupIds);
+  const old = { ...state, snapshot: { ...state.snapshot, ruleVersion: 4, confirmedGroupIds: ["legacy-company-group"] } };
+  expect(publicLifetimeState(old, lifetimeRules)).toMatchObject({ snapshot: null, staleRules: true });
+  args.db.mockReset().mockResolvedValueOnce([{ payload: old }]).mockResolvedValue([{ report_key: "saved" }]);
+  expect((await refreshLifetimeHistory(args)).state.snapshot).toMatchObject({ confirmedGroupIds: [], separateGroupIds: [], groupsToReconfirm: 1 });
+});
+it("rejects organization membership and overlap with automatic spouses on the server", async () => {
+  const { state } = await automaticState();
+  const auto = state.snapshot.sharedGroups[0], suggestion = { ...auto, id: "b".repeat(64), automatic: false };
+  state.snapshot.sharedGroups.push(suggestion);
+  const args = { db: vi.fn().mockResolvedValue([{ payload: state }]), rules: vi.fn().mockResolvedValue(lifetimeRules), revision: state.revision, user: { id: 10 }, groupId: suggestion.id, operation: "confirm-group" };
+  await expect(updateLifetimeGroup(args)).rejects.toThrow(/already belongs/);
+  suggestion.members = [{ ...suggestion.members[0], constituentType: "organization" }];
+  await expect(updateLifetimeGroup(args)).rejects.toThrow(/Organizations are separate/);
+  expect(args.db).toHaveBeenCalledTimes(2);
 });
 it("does not save a confirmation when a concurrent change wins", async () => {
   const { state } = await groupingState();

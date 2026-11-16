@@ -1,7 +1,7 @@
 export const LIFETIME_REPORT_KEY = "lifetime-giving-societies";
 export const LIFETIME_QUERY_ID = "31118";
 export const LIFETIME_QUERY_NAME = "Lifetime Giving - JUMGOGPT";
-export const LIFETIME_RULE_VERSION = 4;
+export const LIFETIME_RULE_VERSION = 5;
 export const LIFETIME_SOCIETY_KEYS = ["1934_club", "frances_bartlett_kinne_society"];
 export const lifetimeError = (message, status = 422) => Object.assign(new Error(message), { lifetimeSafe: true, status });
 export const lifetimeMoney = cents => cents == null ? "Needs review" : new Intl.NumberFormat("en-US", {
@@ -18,6 +18,9 @@ export const LIFETIME_FIELDS = {
   lookupId: { label: "Constituent ID", names: ["Constituent ID"], path: "Constituent" },
   name: { label: "Constituent name", names: ["Name", "Constituent Name"], path: "Constituent", required: true },
   constituentType: { label: "Individual / organization (for filtering)", names: ["Key Indicator", "Constituent Key Indicator"], path: "Constituent" },
+  spouseLookupId: { label: "Spouse Constituent ID (automatic households)", names: ["Constituent ID", "Spouse Constituent ID"], path: "Spouse" },
+  spouseId: { label: "Spouse system record ID (alternative)", names: ["System Record ID", "Spouse System Record ID"], path: "Spouse" },
+  maritalStatus: { label: "Marital Status (automatic households)", names: ["Marital Status"], path: "Constituent" },
   giftId: { label: "Gift system record ID", names: ["System Record ID", "Gift System Record ID"], path: "Gift Information", required: true },
   date: { label: "Gift date", names: ["Gift Date"], path: "Gift Information", required: true },
   amount: { label: "Gift amount", names: ["Gift Amount"], path: "Gift Information", required: true },
@@ -28,7 +31,7 @@ export const LIFETIME_FIELDS = {
 export function lifetimeSourceWarnings(query) {
   const warnings = [
     "Dates are provisional calculations from this query, not official induction dates. Historical adjustments, recognition settings and household credit still require reconciliation.",
-    "Shared gifts suggest giving groups, not verified household relationships. Only explicitly confirmed groups combine histories, counting each gift once. Recognition totals must not be added together as organizational revenue.",
+    "Reciprocal spouse IDs and Married status on both individuals allow automatic households. Shared gifts alone do not prove a household. Companies remain separate; a household includes only gifts given by or explicitly credited to its members, once per gift. Recognition totals must not be added together as organizational revenue.",
   ];
   if (query.constituent_filters?.include_deceased === false) warnings.push("This query excludes deceased constituents.");
   if (query.filter_fields?.some(field => /Donor Recognition/i.test(field.query_field?.selected_field_name || "")))
@@ -51,9 +54,15 @@ export function lifetimeCoverage(rows) {
     unclassified: new Set(rows.filter(row => !["individual", "organization", "mixed"].includes(row.constituentType)).map(row => row.id)).size };
 }
 
-export function lifetimeHouseholdRows(snapshot) {
+export function lifetimeActiveGroupIds(snapshot) {
   const confirmed = new Set(snapshot?.confirmedGroupIds || []);
-  const groups = (snapshot?.sharedGroups || []).filter(group => confirmed.has(group.id));
+  const separate = new Set(snapshot?.separateGroupIds || []);
+  return new Set((snapshot?.sharedGroups || []).filter(group => group.automatic ? !separate.has(group.id) : confirmed.has(group.id)).map(group => group.id));
+}
+
+export function lifetimeHouseholdRows(snapshot) {
+  const active = lifetimeActiveGroupIds(snapshot);
+  const groups = (snapshot?.sharedGroups || []).filter(group => active.has(group.id));
   if (!groups.length) return snapshot?.rows || [];
   const members = new Set(groups.flatMap(group => group.members.map(member => member.id)));
   return [...(snapshot?.rows || []).filter(row => !members.has(row.id)), ...groups.flatMap(group => group.rows)]
@@ -73,11 +82,11 @@ export function lifetimeCsv(rows) {
     return `"${(/^[\s]*[=+@\-\t\r]/.test(text) ? "'" : "") + text.replaceAll('"', '""')}"`;
   };
   return [["Constituent system record ID", "Constituent ID", "Name", "Constituent type", "Society", "Threshold", "Calculated qualification date (provisional)",
-    "Fiscal year", "Imported qualifying history", "Status", "Review notes", "Confirmed group members", "Supported gifts subtotal (not complete lifetime total)"],
+    "Fiscal year", "Imported qualifying history", "Status", "Review notes", "Household members", "Supported gifts subtotal (not complete lifetime total)", "Grouping basis"],
   ...rows.map(row => [row.systemId, row.lookupId, row.name, lifetimeTypeLabel(row.constituentType), row.societyName, (row.thresholdCents / 100).toFixed(2), row.date,
     lifetimeFiscalYear(row.date), row.totalCents == null ? "" : (row.totalCents / 100).toFixed(2),
-    row.status === "provisional" ? "Provisional - reconcile history" : "Needs review", [...row.reasons, row.constituentTypeNote].filter(Boolean).join("; "),
+    row.status === "provisional" ? "Provisional - reconcile history" : "Needs review", [...row.reasons, row.constituentTypeNote, row.householdNote].filter(Boolean).join("; "),
     (row.members || []).map(member => `${member.name} (Constituent ID ${member.lookupId || member.systemId})`).join("; "),
-    row.supportedCents == null ? "" : (row.supportedCents / 100).toFixed(2)])]
+    row.supportedCents == null ? "" : (row.supportedCents / 100).toFixed(2), row.groupBasis === "spouse" ? "NXT-linked married spouses" : row.members ? "Manually confirmed household" : "Separate constituent"])]
     .map(row => row.map(safe).join(",")).join("\r\n");
 }
