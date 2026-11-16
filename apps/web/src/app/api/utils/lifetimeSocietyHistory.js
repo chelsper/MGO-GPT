@@ -1,6 +1,6 @@
 import { visitResultCsv } from "./dashboardQueryResults";
 import { centsFromText } from "./fyRevenueGoals";
-import { LIFETIME_RULE_VERSION, lifetimeError } from "@/utils/lifetimeSocieties";
+import { LIFETIME_RULE_VERSION, lifetimeConstituentType, lifetimeError } from "@/utils/lifetimeSocieties";
 
 export const LIFETIME_LIMITS = { bytes: 32 * 1024 * 1024, rows: 250000, people: 10000, gifts: 150000 };
 const idPattern = /^[1-9]\d{0,18}$/;
@@ -65,7 +65,8 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       }
       let person = people.get(id);
       if (person && (person.name !== name || person.lookupId !== lookupId)) throw lifetimeError("A constituent has conflicting identity rows. Saved results are unchanged.");
-      if (!person) { person = { id, systemId: systemId || null, name, lookupId, events: new Map() }; people.set(id, person); }
+      if (!person) { person = { id, systemId: systemId || null, name, lookupId, types: new Set(), events: new Map() }; people.set(id, person); }
+      person.types.add(lifetimeConstituentType(cell("constituentType")));
       if (people.size > LIFETIME_LIMITS.people || gifts.size > LIFETIME_LIMITS.gifts) throw lifetimeError("The report exceeds its supported history size. Nothing was truncated.", 413);
       let cents = null;
       try { if (amountText) cents = centsFromText(amountText); } catch { /* Keep the person visible for review. */ }
@@ -75,6 +76,9 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
   if (rowCount !== expectedRows) throw lifetimeError("The downloaded and completed query row counts differ. Saved results are unchanged.");
   const results = [];
   for (const person of people.values()) {
+    const constituentType = person.types.size === 1 ? [...person.types][0] : "unknown";
+    const constituentTypeNote = person.types.size > 1 ? "Constituent type is inconsistent across query rows; no type was guessed." :
+      constituentType === "unknown" ? "Constituent Key Indicator is missing or unrecognized; retained in the combined view." : "";
     for (const society of societies) {
       const reasons = new Set(), events = [], ownGiftIds = new Set(), directEvents = new Map();
       if (conflictingPeople.has(person.id)) reasons.add("Repeated gift records conflict; reconcile amounts, dates, types or ownership.");
@@ -121,7 +125,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
         }
         if (!date) reasons.add("The available history does not demonstrate this milestone; it is not proof of ineligibility.");
       } else totalCents = null;
-      results.push({ id: person.id, systemId: person.systemId, name: person.name, lookupId: person.lookupId, societyKey: society.key, societyName: society.name,
+      results.push({ id: person.id, systemId: person.systemId, name: person.name, lookupId: person.lookupId, constituentType, constituentTypeNote, societyKey: society.key, societyName: society.name,
         thresholdCents, totalCents, date, crossingGiftIds, giftCount: person.events.size,
         status: date ? "provisional" : "review", reasons: [...reasons] });
     }

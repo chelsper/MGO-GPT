@@ -29,10 +29,28 @@ it("does not award the same personal gift twice when soft credited to its donor"
   const result = run([{ amount: "600000" }, { amount: "600000", credit: "Soft Credit Recipient" }]);
   expect(result.rows[1].date).toBeNull(); expect(result.rows[1].totalCents).toBe(60000000);
 });
-it("preserves 1934 versus Kinne credit rules without guessing soft-credit allocations", () => {
+it("includes recognition credit in both society rules without guessing recipient allocations", () => {
   const result = run([{}, { giftId: "102", amount: "950000", credit: "Soft Credit Recipient" }]);
-  expect(result.rows[0].date).toBe("2020-01-01"); expect(result.rows[1].date).toBeNull();
-  expect(result.rows[1].reasons.join()).toContain("allocation");
+  expect(result.rows.every(row => row.date === null && row.totalCents === null && row.reasons.join().includes("allocation"))).toBe(true);
+});
+it("reads constituent types independently of names and gift types", () => {
+  const result = run([{ name: "Fictional Company", constituentType: "Individual" },
+    { id: "2", giftId: "102", name: "Fictional Person", constituentType: "O" }]);
+  expect(result.rows.filter(row => row.systemId === "1").every(row => row.constituentType === "individual")).toBe(true);
+  expect(result.rows.filter(row => row.systemId === "2").every(row => row.constituentType === "organization")).toBe(true);
+});
+it.each(["", "Unknown", "1", "True"])("retains unrecognized constituent type %j without guessing or changing dates", constituentType => {
+  expect(run([{ constituentType }]).rows[0]).toMatchObject({ constituentType: "unknown", date: "2020-01-01" });
+});
+it("retains records with missing type outputs, and isolates inconsistent types regardless of row order", () => {
+  const source = inspectLifetimeQuery(lifetimeQueryFixture({ constituentType: false }));
+  const result = aggregateLifetimeHistory(lifetimeCsvFixture([{}], { constituentType: false }), source, lifetimeRules, 1);
+  expect(result.rows[0]).toMatchObject({ constituentType: "unknown", date: "2020-01-01" });
+  for (const types of [["I", "O"], ["O", "I"], ["I", ""], ["", "I"]]) {
+    const mixed = run([...types.map(constituentType => ({ constituentType })), { id: "2", giftId: "102", constituentType: "O" }]);
+    expect(mixed.rows.find(row => row.systemId === "1")).toMatchObject({ constituentType: "unknown", date: "2020-01-01", constituentTypeNote: expect.stringContaining("inconsistent") });
+    expect(mixed.rows.find(row => row.systemId === "2").constituentType).toBe("organization");
+  }
 });
 it.each(["Pledge", "Pledge Payment", "Write Off", "Matching Gift Write Off", "Planned Gift", "Recurring Gift", "Unknown"])("withholds %s histories rather than double-counting", type => {
   const result = run([{}, { giftId: "102", type }]);

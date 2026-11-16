@@ -41,6 +41,7 @@ export function inspectLifetimeQuery(query) {
   const fingerprint = hash(Object.fromEntries(["id", "name", "type", "select_fields", "filter_fields", "summary_fields", "gift_processing_options",
     "advanced_processing_options", "constituent_filters", "suppress_duplicates"].map(key => [key, query[key]])));
   const warnings = lifetimeSourceWarnings(query);
+  if (!columns.constituentType) warnings.push("Add Constituent > Key Indicator to the query output to separate individuals and organizations. Until refreshed with that field, unclassified records remain visible in the combined view.");
   if (identityMode === "lookup") warnings.push("Records are grouped by the exact Constituent ID within this query, not by name. NXT system IDs are not inferred; no profile links or cross-report identity matches are created.");
   // A date/fund/type criterion can hide the beginning of a lifetime history.
   const restrictedHistory = (query.filter_fields || []).some(field => field.query_field?.node_path?.[0]?.name !== "Constituent");
@@ -55,7 +56,10 @@ export async function readLifetimeRules(db = sql) {
   if (societies.some(item => !item || !Number.isFinite(item.minimumAmount) || item.minimumAmount <= 0 ||
     !Number.isSafeInteger(Math.round(item.minimumAmount * 100))))
     throw lifetimeError("Configure active lifetime thresholds for 1934 Club and Frances Bartlett Kinne Society before using this report.", 409);
-  return societies.map(({ key, name, minimumAmount, countSources }) => ({ key, name, minimumAmount, countSources }));
+  // Report-specific clarification: 1934 includes recognized giving. Do not
+  // mutate shared eligibility settings used by portfolios and society letters.
+  return societies.map(({ key, name, minimumAmount, countSources }) => ({ key, name, minimumAmount,
+    countSources: key === "1934_club" ? [...new Set([...countSources, "recognition_credit"])] : countSources }));
 }
 export async function readLifetimeState(db = sql) {
   const rows = await db`SELECT payload FROM report_snapshots_cache WHERE report_key=${CACHE_KEY} LIMIT 1`;

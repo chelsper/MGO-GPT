@@ -6,7 +6,17 @@ Reporting > Dashboards > Lifetime Giving Societies uses Gift query **31118**, **
 
 The first release imports a saved, searchable constituent history, checks both society thresholds, provides provisional dates only for uncomplicated direct gifts, and exports filtered results to CSV. Individual records needing reconciliation remain visible without a guessed date or partial total. No NXT gift, constituent, recognition, appeal or custom-field records are written. It does not combine households or change existing society eligibility logic.
 
-The saved active society configurations supply thresholds and count sources. On November 16, 2026, 1934 Club uses $100,000 committed giving; Frances Bartlett Kinne Society uses $1,000,000 committed giving plus recognition credit. Do not silently change these rules to match the query's soft-credit settings. Configuration changes invalidate the displayed calculation until refreshed.
+The saved active society configurations supply thresholds and count sources. Following the user's November 16 clarification, this report explicitly includes recognition credit for **1934 Club**, in addition to its saved committed-giving source. Frances Bartlett Kinne Society already includes both sources. Current thresholds are $100,000 and $1,000,000 respectively. This is a report-specific correction, not a write to shared society configuration or NXT. Other eligibility workflows are unchanged. Rule version 3 invalidates previous calculations until a refresh; rule/configuration changes are checked during publication.
+
+## Views And Filters
+
+Prominent society buttons select Both societies, 1934 Club, or Frances Bartlett Kinne Society. Constituent type selects individuals, organizations, or their combined view. Search, review status, and calculated fiscal year further narrow the view. Counts and CSV exports use all filtered rows, not just the visible page; constituent counts deduplicate the two society rows. These controls are local and do not run NXT queries. Clear filters restores the combined view.
+
+Constituent > **Key Indicator** supplies record type: I/Individual or O/Organization. It is matched by native field name and Constituent path, never by alias, donor name, constituency code or a spouse's type. Blank, unknown or inconsistent types remain visible in the combined view and a separate unclassified view; they are not silently treated as individuals or organizations. Missing type does not block history refresh or invalidate otherwise supportable dates. Add the optional output and refresh to classify previously untyped results. Conflicting types have an explicit review note and do not affect other donors.
+
+The updated query criteria exclude Estate, Donor Advised Fund and Consortia constituencies. Refresh replaces the snapshot with the query's current results; the application neither restores excluded records nor adds name-based exclusions. Constituent-only exclusions do not incorrectly trigger the gift-history restriction safeguard.
+
+Read-only validation after Key Indicator was added on November 16 returned 62,250 complete query rows, 402 distinct constituent lookup IDs, 233 individuals and 169 organizations, with no unknown types. The local parser produced 66 provisional dates and 738 threshold checks needing reconciliation. These are two threshold checks per record, not membership counts. No report snapshot was published and no donor records were changed by this validation.
 
 ## Source Outputs
 
@@ -14,6 +24,7 @@ Required output paths (aliases may vary; paths must match):
 
 - Constituent > Constituent ID. Alternatively, Constituent > System Record ID if available, preferably aliased `Constituent System Record ID`.
 - Constituent > Name.
+- Constituent > Key Indicator (optional for import, needed for individual/organization views).
 - Gift Information > System Record ID.
 - Gift Information > Gift Date, Gift Amount and Gift Type.
 - Gift Information > Soft Credit/Matching Gift Flag.
@@ -32,7 +43,7 @@ The one-time read-only profile returned 51,453 rows, 18,530 distinct gift system
 - Conflicting repeated values or direct owners put affected constituents in review; unrelated records can still proceed.
 - Same-day gifts are grouped before testing threshold crossing. The report does not invent within-day ordering.
 - Only recognized, uncomplicated direct gift types are calculated in this initial release. Pledges, pledge payments, matching gift transactions, write-offs, planned gifts, recurring commitments and unknown types require linked-history reconciliation before a date is shown.
-- Soft-credit allocations are not inferred from a recipient name or a soft-credit record ID. Kinne histories involving soft credit are withheld. A donor's own gift is not added again for their personal soft credit.
+- Soft-credit allocations are not inferred from a recipient name or a soft-credit record ID. Both 1934 and Kinne histories involving unresolved soft credit are withheld, rather than silently ignoring recognized giving or using full gift amounts as recipient credit. A donor's own gift is not added again for their personal soft credit.
 - Missing/invalid/future dates, invalid/negative amounts, unsupported society rules and gift-level filters withhold dates. An undemonstrated threshold is not a claim of ineligibility.
 - All shown dates remain **provisional calculated qualification dates**. Historical adjustments, recognition settings and household credit have not yet been reconciled. No official membership totals are claimed.
 
