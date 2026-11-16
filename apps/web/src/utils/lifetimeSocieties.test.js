@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { filterLifetimeRows, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear } from "./lifetimeSocieties";
+import { filterLifetimeRows, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeTypeLabel } from "./lifetimeSocieties";
 it("uses July-June fiscal years", () => {
   expect(lifetimeFiscalYear("2020-06-30")).toBe("FY20"); expect(lifetimeFiscalYear("2020-07-01")).toBe("FY21");
   expect(lifetimeFiscalYear(null)).toBe("");
@@ -11,6 +11,10 @@ it("filters locally across names, both identity types, society, status and year"
 });
 it.each([["I", "individual"], ["Individual", "individual"], [" O ", "organization"], ["Organization", "organization"], ["", "unknown"], [null, "unknown"], ["true", "unknown"], ["Trust", "unknown"]])("normalizes only explicit constituent type %j", (raw, expected) => {
   expect(lifetimeConstituentType(raw)).toBe(expected);
+});
+it.each(["constructor", "__proto__", "toString"])("treats inherited object keys as unknown type: %s", value => {
+  expect(lifetimeConstituentType(value)).toBe("unknown");
+  expect(lifetimeTypeLabel(value)).toBe("Type not supplied / needs review");
 });
 it("combines type, society, search, status and year filters and keeps unknowns in the combined view", () => {
   const base = { id: "1", name: "Fictional Donor", constituentType: "individual", societyKey: "1934_club", status: "provisional", date: "2020-07-01" };

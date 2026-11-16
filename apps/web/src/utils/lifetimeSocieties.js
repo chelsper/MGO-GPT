@@ -38,9 +38,10 @@ export function lifetimeSourceWarnings(query) {
   return warnings;
 }
 
-export const lifetimeTypeLabel = type => ({ individual: "Individual", organization: "Organization" })[type] || "Type not supplied / needs review";
+export const lifetimeTypeLabel = type => type === "individual" ? "Individual" : type === "organization" ? "Organization" : "Type not supplied / needs review";
 export function lifetimeConstituentType(value) {
-  return ({ i: "individual", individual: "individual", o: "organization", organization: "organization" })[String(value ?? "").trim().toLowerCase()] || "unknown";
+  const type = String(value ?? "").trim().toLowerCase();
+  return ["i", "individual"].includes(type) ? "individual" : ["o", "organization"].includes(type) ? "organization" : "unknown";
 }
 
 export function lifetimeCoverage(rows) {
