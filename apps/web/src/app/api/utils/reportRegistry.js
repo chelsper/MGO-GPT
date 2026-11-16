@@ -6,6 +6,7 @@ import { PIPELINE_REPORT_KEY } from "@/utils/pipelineReport";
 import { CAMPAIGN_REPORT_KEY } from "@/utils/campaignPriorities";
 import { FY_REVENUE_KEY } from "@/utils/fyRevenueGoals";
 import { BOARD_TRUSTEES_KEY } from "@/utils/boardTrustees";
+import { LIFETIME_REPORT_KEY } from "@/utils/lifetimeSocieties";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -187,6 +188,22 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     presentationNoteTone: "info",
   }),
   CAMPAIGN_REPORT_DEFINITION,
+  Object.freeze({
+    key: LIFETIME_REPORT_KEY,
+    reportType: REPORT_TYPES.QUERY_BASED,
+    adapterKey: LIFETIME_REPORT_KEY,
+    configurationSchema: "lifetime-giving-societies-v1",
+    configurationSchemaVersion: 1,
+    href: "/reports/dashboards/lifetime-giving-societies",
+    title: "Lifetime Giving Societies",
+    description: "Gift-history review and provisional qualification dates for 1934 Club and Frances Bartlett Kinne Society.",
+    audienceMode: "shared_snapshot",
+    defaultVisibility: "specific_users",
+    dataConfigurationType: null,
+    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    presentationNote: "Choose viewers here. Check query 31118 and refresh gift history within the dashboard. NXT records are never changed.",
+    presentationNoteTone: "info",
+  }),
   Object.freeze({
     key: BOARD_TRUSTEES_KEY,
     reportType: REPORT_TYPES.QUERY_BASED,
