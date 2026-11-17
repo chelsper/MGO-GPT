@@ -1,8 +1,20 @@
 import { expect, it } from "vitest";
-import { filterLifetimeRows, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeTypeLabel } from "./lifetimeSocieties";
+import { filterLifetimeRows, lifetimeActiveGroupIds, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeTypeLabel } from "./lifetimeSocieties";
 it("uses July-June fiscal years", () => {
   expect(lifetimeFiscalYear("2020-06-30")).toBe("FY20"); expect(lifetimeFiscalYear("2020-07-01")).toBe("FY21");
   expect(lifetimeFiscalYear(null)).toBe("");
+});
+it("automatically replaces verified spouse members, respects separation and keeps organizational rows visible", () => {
+  const members = [{ id: "1", name: "Fictional A", lookupId: "A1" }, { id: "2", name: "Fictional B", lookupId: "B2" }];
+  const combined = { id: "group:demo", name: "Fictional Spouses", members, constituentType: "individual", groupBasis: "spouse", thresholdCents: 10000000, reasons: [] };
+  const company = { id: "3", name: "Fictional Company", constituentType: "organization" };
+  const snapshot = { rows: [...members, company], sharedGroups: [{ id: "demo", automatic: true, members, rows: [combined] }], confirmedGroupIds: [] };
+  expect([...lifetimeActiveGroupIds(snapshot)]).toEqual(["demo"]);
+  expect(lifetimeHouseholdRows(snapshot)).toEqual([company, combined]);
+  expect(filterLifetimeRows(lifetimeHouseholdRows(snapshot), { constituentType: "individual" })).toEqual([combined]);
+  expect(lifetimeCsv([combined])).toContain("NXT-linked married spouses");
+  snapshot.separateGroupIds = ["demo"];
+  expect(lifetimeHouseholdRows(snapshot)).toEqual(snapshot.rows);
 });
 it("filters locally across names, both identity types, society, status and year", () => {
   const rows = [{ id: '["system","7"]', systemId: "7", lookupId: "ABC", name: "Fictional Donor", societyKey: "1934_club", status: "provisional", date: "2020-07-01" }];

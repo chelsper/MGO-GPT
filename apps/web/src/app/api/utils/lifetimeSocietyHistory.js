@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { visitResultCsv } from "./dashboardQueryResults";
 import { centsFromText } from "./fyRevenueGoals";
+import { lifetimeMaritalStatus, lifetimeSpouseGroups } from "./lifetimeSpouseGroups";
 import { LIFETIME_RULE_VERSION, lifetimeConstituentType, lifetimeError } from "@/utils/lifetimeSocieties";
 
 export const LIFETIME_LIMITS = { bytes: 32 * 1024 * 1024, rows: 250000, people: 10000, gifts: 150000 };
@@ -66,8 +67,10 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       }
       let person = people.get(id);
       if (person && (person.name !== name || person.lookupId !== lookupId)) throw lifetimeError("A constituent has conflicting identity rows. Saved results are unchanged.");
-      if (!person) { person = { id, systemId: systemId || null, name, lookupId, types: new Set(), events: new Map() }; people.set(id, person); }
+      if (!person) { person = { id, systemId: systemId || null, name, lookupId, types: new Set(), events: new Map(), spouseIds: new Set(), maritalStatuses: new Set() }; people.set(id, person); }
       person.types.add(lifetimeConstituentType(cell("constituentType")));
+      person.spouseIds.add(cell(inspection.spouseIdentityMode === "system" ? "spouseId" : "spouseLookupId"));
+      person.maritalStatuses.add(lifetimeMaritalStatus(cell("maritalStatus")));
       if (people.size > LIFETIME_LIMITS.people || gifts.size > LIFETIME_LIMITS.gifts) throw lifetimeError("The report exceeds its supported history size. Nothing was truncated.", 413);
       let cents = null;
       try { if (amountText) cents = centsFromText(amountText); } catch { /* Keep the person visible for review. */ }
@@ -86,6 +89,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
   }
   for (const evidence of giftEvidence.values()) if (evidence.signatures.size > 1)
     for (const id of evidence.members) conflictingPeople.add(id);
+  const spouses = lifetimeSpouseGroups(people, inspection);
   function calculate(person) {
     const results = [];
     const constituentType = person.types.size === 1 ? [...person.types][0] : "unknown";
@@ -143,37 +147,58 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       } else totalCents = null;
       results.push({ id: person.id, systemId: person.systemId, name: person.name, lookupId: person.lookupId,
         constituentType: person.members && person.types.size > 1 && !person.types.has("unknown") ? "mixed" : constituentType,
-        constituentTypeNote: person.members ? "Confirmed giving group; full shared gifts count once. Mixed groups appear only in the combined type view." : constituentTypeNote,
-        ...(person.members ? { members: person.members } : {}), societyKey: society.key, societyName: society.name,
+        constituentTypeNote: person.members ? "Household history includes only gifts given by or explicitly credited to these individuals, once per gift. Companies' unrelated gifts are excluded." : constituentTypeNote,
+        householdNote: spouses.notes.get(person.id) || "",
+        ...(person.members ? { members: person.members, groupBasis: person.groupBasis } : {}), societyKey: society.key, societyName: society.name,
         thresholdCents, totalCents, supportedCents, date, crossingGiftIds, giftCount: person.events.size,
         status: date ? "provisional" : "review", reasons: [...reasons] });
     }
     return results;
   }
   const results = [...people.values()].flatMap(calculate);
-  // Exact co-credit sets only: A+B on one gift and B+C on another never imply A+B+C.
+  const sharedGroups = []; let omittedSharedGroups = 0;
+  const automaticMembers = new Set(spouses.pairs.flatMap(pair => pair.map(person => person.id)));
+  function addGroup(records, evidence, automatic = false) {
+    const members = records.map(person => ({ id: person.id, systemId: person.systemId, lookupId: person.lookupId, name: person.name,
+      constituentType: "individual" }));
+    const groupBasis = automatic ? "spouse" : "confirmed";
+    const spouseEvidence = automatic ? records.map(person => [[...person.spouseIds], [...person.maritalStatuses]]) : null;
+    // New gifts must not undo a staff choice to keep verified spouses separate.
+    const id = createHash("sha256").update(JSON.stringify([groupBasis, members, spouseEvidence, automatic ? null : evidence.sort(([a], [b]) => a.localeCompare(b))])).digest("hex");
+    const combined = { id: `group:${id}`, name: members.map(member => member.name).join(" & "), systemId: null, lookupId: "",
+      members, groupBasis, types: new Set(["individual"]), events: new Map() };
+    // Companies are never members: only these individuals' direct and credited
+    // histories enter the union. calculate() deduplicates by gift system ID.
+    for (const record of records) for (const [eventKey, event] of record.events) combined.events.set(eventKey, event);
+    sharedGroups.push({ id, members, automatic, sharedGiftCount: evidence.length, rows: calculate(combined) });
+  }
+  for (const pair of spouses.pairs) {
+    const evidence = [...new Set([...pair[0].events.values()].map(event => event.giftId))]
+      .filter(giftId => pair.every(person => giftEvidence.get(giftId)?.members.has(person.id)))
+      .map(giftId => [giftId, [...giftEvidence.get(giftId).events].sort()]);
+    addGroup(pair, evidence, true);
+  }
+  // Shared credit suggests only individuals, never their corporate credit
+  // sources. Exact co-credit sets do not infer transitive household chains.
   const sharedSets = new Map();
   for (const [giftId, evidence] of giftEvidence) {
     if (evidence.members.size < 2 || evidence.signatures.size > 1 || [...evidence.members].some(id => conflictingPeople.has(id))) continue;
-    const key = JSON.stringify([...evidence.members].sort());
+    const ids = [...evidence.members].filter(id => { const person = people.get(id); return person.types.size === 1 && person.types.has("individual"); }).sort();
+    if (ids.length < 2 || ids.some(id => automaticMembers.has(id) || spouses.notes.has(id))) continue;
+    const key = JSON.stringify(ids);
     if (!sharedSets.has(key)) sharedSets.set(key, []);
     sharedSets.get(key).push([giftId, [...evidence.events].sort()]);
   }
-  const sharedGroups = []; let omittedSharedGroups = 0;
+  let suggestedCount = 0;
   for (const [key, evidence] of [...sharedSets].sort(([a], [b]) => a.localeCompare(b))) {
     const ids = JSON.parse(key);
-    if (ids.length > 20 || sharedGroups.length >= 1000) { omittedSharedGroups++; continue; }
+    if (ids.length > 20 || suggestedCount >= 1000) { omittedSharedGroups++; continue; }
     const records = ids.map(id => people.get(id));
-    const members = records.map(person => ({ id: person.id, systemId: person.systemId, lookupId: person.lookupId, name: person.name,
-      constituentType: person.types.size === 1 ? [...person.types][0] : "unknown" }));
-    const id = createHash("sha256").update(JSON.stringify([members, evidence.sort(([a], [b]) => a.localeCompare(b))])).digest("hex");
-    const combined = { id: `group:${id}`, name: members.map(member => member.name).join(" & "), systemId: null, lookupId: "",
-      members, types: new Set(members.map(member => member.constituentType)), events: new Map() };
-    for (const record of records) for (const [eventKey, event] of record.events) combined.events.set(eventKey, event);
-    sharedGroups.push({ id, members, sharedGiftCount: evidence.length, rows: calculate(combined) });
+    addGroup(records, evidence); suggestedCount++;
   }
   return { ruleVersion: LIFETIME_RULE_VERSION, identityMode: inspection.identityMode, rows: results.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
-    sharedGroups, omittedSharedGroups, confirmedGroupIds: [],
+    sharedGroups, omittedSharedGroups, confirmedGroupIds: [], separateGroupIds: [],
+    automaticHouseholdCount: spouses.pairs.length, householdReviewCount: spouses.notes.size,
     peopleCount: people.size, rawRows: rowCount, uniqueCreditGifts: gifts.size, repeatedRows,
     provisionalCount: results.filter(row => row.date).length, reviewCount: results.filter(row => !row.date).length };
 }
