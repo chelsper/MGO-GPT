@@ -4,7 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getReportAccessForUser } from "@/app/api/utils/reportAccess";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { LIFETIME_REPORT_KEY, lifetimeError } from "@/utils/lifetimeSocieties";
-import { inspectLifetimeQuery, lifetimeTransport, publicLifetimeState, readLifetimeRules, readLifetimeState, refreshLifetimeHistory, savedLifetimeGiftReview, updateLifetimeGroup, updateLifetimeRecord } from "@/app/api/utils/lifetimeSocieties";
+import { inspectLifetimeQuery, lifetimeTransport, publicLifetimeState, readLifetimeRules, readLifetimeState, refreshLifetimeHistory, savedLifetimeGiftReview, savedLifetimeReconciliationCsv, updateLifetimeGroup, updateLifetimeRecord } from "@/app/api/utils/lifetimeSocieties";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -30,10 +30,15 @@ export async function GET(request) {
     const params = new URL(request?.url || "https://app.invalid").searchParams;
     if (params.size) {
       const milestoneKey = params.get("milestoneKey"), revision = params.get("revision"), page = params.get("page") || "0", view = params.get("view") || "all";
-      if ([...params.keys()].some(key => !["milestoneKey", "revision", "page", "view"].includes(key) || params.getAll(key).length !== 1) ||
+      const format = params.get("format");
+      if ([...params.keys()].some(key => !["milestoneKey", "revision", "page", "view", "format"].includes(key) || params.getAll(key).length !== 1) ||
         !/^[a-f0-9]{64}$/.test(milestoneKey || "") || !/^[a-f0-9-]{36}$/.test(revision || "") ||
-        !/^(0|[1-9]\d{0,5})$/.test(page) || !["all", "counted", "review", "excluded"].includes(view))
+        !/^(0|[1-9]\d{0,5})$/.test(page) || !["all", "counted", "review", "excluded"].includes(view) ||
+        (format !== null && (format !== "reconciliation-csv" || params.has("page") || params.has("view"))))
         throw lifetimeError("Choose gift details from the saved report.", 400);
+      if (format) return new Response(savedLifetimeReconciliationCsv(await readLifetimeState(), await readLifetimeRules(), { milestoneKey, revision }), {
+        headers: { ...headers, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="lifetime-gift-reconciliation.csv"', "X-Content-Type-Options": "nosniff" },
+      });
       return Response.json(savedLifetimeGiftReview(await readLifetimeState(), await readLifetimeRules(), { milestoneKey, revision, page: Number(page), view }), { headers });
     }
     return Response.json({ ...publicLifetimeState(await readLifetimeState(undefined, false), await readLifetimeRules()), canManage, title }, { headers });

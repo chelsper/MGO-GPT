@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group", "record", "gifts"].map(key => [key, vi.fn()])));
+const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group", "record", "gifts", "csv"].map(key => [key, vi.fn()])));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: m.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: m.access }));
-vi.mock("@/app/api/utils/lifetimeSocieties", async original => ({ ...await original(), readLifetimeState: m.read, readLifetimeRules: m.rules, refreshLifetimeHistory: m.refresh, lifetimeTransport: m.transport, updateLifetimeGroup: m.group, updateLifetimeRecord: m.record, savedLifetimeGiftReview: m.gifts }));
+vi.mock("@/app/api/utils/lifetimeSocieties", async original => ({ ...await original(), readLifetimeState: m.read, readLifetimeRules: m.rules, refreshLifetimeHistory: m.refresh, lifetimeTransport: m.transport, updateLifetimeGroup: m.group, updateLifetimeRecord: m.record, savedLifetimeGiftReview: m.gifts, savedLifetimeReconciliationCsv: m.csv }));
 import { GET, POST } from "./route";
 import { lifetimeQueryFixture, lifetimeRules } from "../../../../../test/lifetimeQueryFixture";
 const request = (body, headers) => new Request("https://app.example/api/reports/lifetime-giving-societies", { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -17,6 +17,7 @@ beforeEach(() => {
   m.group.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.record.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.gifts.mockReturnValue({ available: false, items: [] });
+  m.csv.mockReturnValue('"Gift system record ID"\r\n"101"');
   m.transport.mockResolvedValue({ metadata: m.metadata }); m.metadata.mockResolvedValue(lifetimeQueryFixture());
 });
 const giftRequest = suffix => new Request(`https://app.example/api/reports/lifetime-giving-societies?milestoneKey=${"b".repeat(64)}&revision=${"a".repeat(36)}${suffix || ""}`);
@@ -28,10 +29,30 @@ it("allows authorized viewers to read one page of saved evidence with no NXT tra
   expect(m.transport).not.toHaveBeenCalled(); expect(m.refresh).not.toHaveBeenCalled(); expect(m.record).not.toHaveBeenCalled();
 });
 it("rejects unsupported evidence query parameters before reading any saved gift data", async () => {
-  for (const suffix of ["&page=-1", "&page=1.2", "&page=1000000", "&view=anything", "&amount=10", "&milestoneKey=another", "&revision=other"])
+  for (const suffix of ["&page=-1", "&page=1.2", "&page=1000000", "&view=anything", "&amount=10", "&milestoneKey=another", "&revision=other",
+    "&format=all", "&format=", "&format=reconciliation-csv&format=reconciliation-csv", "&format=reconciliation-csv&page=0", "&format=reconciliation-csv&view=all"])
     expect((await GET(giftRequest(suffix))).status).toBe(400);
   expect((await GET(new Request("https://app.example/api/reports/lifetime-giving-societies?milestoneKey=bad"))).status).toBe(400);
   expect(m.read).not.toHaveBeenCalled(); expect(m.gifts).not.toHaveBeenCalled();
+});
+it("exports the full selected recipient's reconciliation CSV for shared viewers, with private attachment headers and no provider calls", async () => {
+  m.user.mockResolvedValue({ id: 2, role: "mgo", active: true });
+  const response = await GET(giftRequest("&format=reconciliation-csv"));
+  expect(response.status).toBe(200); expect(response.headers.get("Content-Type")).toBe("text/csv; charset=utf-8");
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="lifetime-gift-reconciliation.csv"');
+  expect(await response.text()).toContain('"101"');
+  expect(m.csv).toHaveBeenCalledWith(expect.anything(), lifetimeRules, { milestoneKey: "b".repeat(64), revision: "a".repeat(36) });
+  expect(m.gifts).not.toHaveBeenCalled(); expect(m.transport).not.toHaveBeenCalled(); expect(m.refresh).not.toHaveBeenCalled(); expect(m.record).not.toHaveBeenCalled();
+});
+it("enforces authentication, active account and report sharing before exporting", async () => {
+  m.auth.mockResolvedValue(null); expect((await GET(giftRequest("&format=reconciliation-csv"))).status).toBe(401);
+  m.auth.mockResolvedValue({ user: { email: "fictional@example.test" } });
+  m.user.mockResolvedValue({ role: "admin", active: false }); expect((await GET(giftRequest("&format=reconciliation-csv"))).status).toBe(403);
+  m.user.mockResolvedValue({ role: "mgo", active: true }); m.access.mockResolvedValue({ canView: false });
+  expect((await GET(giftRequest("&format=reconciliation-csv"))).status).toBe(403);
+  expect(m.read).not.toHaveBeenCalled(); expect(m.csv).not.toHaveBeenCalled();
 });
 it("enforces login, active account and sharing on evidence reads, not just the report summary", async () => {
   m.auth.mockResolvedValue(null); expect((await GET(giftRequest())).status).toBe(401);
