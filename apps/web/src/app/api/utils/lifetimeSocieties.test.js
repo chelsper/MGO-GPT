@@ -268,3 +268,15 @@ it("uses only the shared connected authorized account and saved-query APIs", asy
   getReportRefreshUser.mockResolvedValue({ id: 8, role: "mgo", active: true });
   await expect(lifetimeTransport("https://app.example")).rejects.toThrow(/shared reporting/);
 });
+it("limits linked transport to serial callers' allowlisted GETs without retries or arbitrary IDs",async()=>{
+  getReportRefreshUser.mockResolvedValue({id:7,role:"admin",active:true});
+  getBlackbaudConnection.mockResolvedValue({connected_at:"yes"});
+  const transport=await lifetimeTransport("https://app.example");
+  for(const path of ["/gift/v1/gifts/101","/gft-gifts/v2/gifts/101/installments","/gft-gifts/v2/gifts/101/pledgepayments","/constituent/v1/constituents/1"]) {
+    await transport.read(path);
+    expect(blackbaudApiFetch).toHaveBeenLastCalledWith(path,{userId:7,authUserId:7,origin:"https://app.example",method:"GET",maxRetries:0,timeoutMs:8000});
+  }
+  const count=blackbaudApiFetch.mock.calls.length;
+  for(const path of ["https://other.example","/gift/v1/gifts/0","/gift/v1/gifts/101?secret=1","/gift/v1/gifts/../101","/query/queries/31118","/constituent/v1/constituents/search"]) expect(()=>transport.read(path)).toThrow(/Unknown/);
+  expect(blackbaudApiFetch).toHaveBeenCalledTimes(count); expect(executeSavedQueryResults).not.toHaveBeenCalled();
+});

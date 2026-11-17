@@ -10,7 +10,7 @@ it("keeps confirmed warnings in attention without treating them as ready for rea
 it("provides specific review guidance without pretending complex gifts can be reconciled automatically", () => {
   const steps = lifetimeReviewSteps({ reasons: ["Pledges, payments, write-offs or other complex gifts need linked history reconciliation.",
     "Repeated gift records conflict; reconcile amounts, dates, types or ownership.", "A gift date is missing, invalid or in the future."] });
-  expect(steps).toHaveLength(3); expect(steps.join()).toMatch(/cannot yet reconcile/); expect(steps.join()).toMatch(/gift system IDs/);
+  expect(steps).toHaveLength(3); expect(steps.join()).toMatch(/Check linked history/); expect(steps.join()).toMatch(/gift system IDs/);
   expect(lifetimeReviewSteps({ status: "confirmed", reasons: [] }).join()).toMatch(/No repeat approval/);
 });
 it("uses July-June fiscal years", () => {

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title }) => <h1>{title}</h1> }));
 import Page from "./page";
@@ -269,4 +269,174 @@ it("resets pagination on filters and exports the entire selected view, not just 
     expect(contents[0]).toContain("Fictional Donor 59"); expect(contents[0]).not.toContain("Fictional Donor 60");
     expect(fetch).toHaveBeenCalledTimes(1);
   } finally { vi.useRealTimers(); click.mockRestore(); }
+});
+
+const linkedRow = { ...row, milestoneKey: "a".repeat(64), recordKey: "b".repeat(64), date: null,
+  status: "review", totalCents: null, reasons: ["Pledge history needs reconciliation."], crossingGiftIds: [] };
+const linkedEvidence = { available: true, counts: { all: 1, counted: 0, review: 1, excluded: 0 }, page: 0, pages: 1, total: 1,
+  asOf: "2026-11-17", items: [{ giftId: "101", day: "2020-01-01", cents: 10000000, type: "Pledge", outcome: "review",
+    canCheckLinked: true, reasons: ["Pledge history needs reconciliation."], notes: [], credits: [] }] };
+function deferred() {
+  let resolve; const promise = new Promise(r => { resolve = r; });
+  return { promise, resolve };
+}
+function linkedSession({ status, canManage = true, rows = [linkedRow], sharedGroups = [] } = {}) {
+  let current = { ...saved, revision: "r0", canManage, snapshot: { ...snapshot, rows, sharedGroups },
+    linkedCheck: status ? { seed: "101", status, reads: 5 } : null };
+  const post = vi.fn();
+  fetch.mockImplementation((url, options) => options.method === "POST" ? post(JSON.parse(options.body), options)
+    : Promise.resolve(json(String(url).includes("?") ? { ...linkedEvidence, linkedCheck: current.linkedCheck } : current)));
+  return { post, checkpoint(revision, status, changes = {}) {
+    current = { ...current, revision, linkedCheck: { seed: "101", status, reads: status === "complete" ? 10 : 5 }, ...changes };
+    return json(current);
+  } };
+}
+async function openLinkedReview() {
+  const mounted = render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "Review gift details" }));
+  await screen.findByText("Gift 101");
+  return mounted;
+}
+it.each(["running", "paused", "attention", "complete"])("opens a saved %s check without automatically resuming or making NXT requests", async status => {
+  const session = linkedSession({ status }); await openLinkedReview();
+  expect(session.post).not.toHaveBeenCalled(); expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.every(([url, options]) => url.startsWith("/api/reports/lifetime-giving-societies") && !options.method)).toBe(true);
+});
+it.each([
+  [undefined, "Check linked history", "check-linked"], ["paused", "Continue saved check", "check-linked"],
+  ["attention", "Start fresh linked check", "restart-linked"], ["complete", "Check again", "restart-linked"],
+])("uses each returned revision and does not repeat restart for %s checkpoints", async (status, action, operation) => {
+  const session = linkedSession({ status }), first = deferred(), second = deferred();
+  session.post.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  await openLinkedReview(); const panel = screen.getByRole("region", { name: "Gift history review" });
+  fireEvent.click(screen.getByRole("button", { name: action }));
+  expect(session.post.mock.calls[0][0]).toEqual({ operation, revision: "r0", giftId: "101", milestoneKey: linkedRow.milestoneKey });
+  expect(screen.getByText(/Reading connected records in NXT and saving evidence in this app/)).toBeVisible();
+  await act(async () => first.resolve(session.checkpoint("r1", "running")));
+  expect(session.post).toHaveBeenCalledTimes(2);
+  expect(session.post.mock.calls[1][0]).toEqual({ operation: "check-linked", revision: "r1", giftId: "101", milestoneKey: linkedRow.milestoneKey });
+  expect(screen.getByRole("region", { name: "Gift history review" })).toBe(panel);
+  expect(fetch.mock.calls.filter(([, options]) => !options.method)).toHaveLength(2);
+  await act(async () => second.resolve(session.checkpoint("r2", "complete")));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
+  expect(session.post).toHaveBeenCalledTimes(2); expect(screen.getByRole("region", { name: "Gift history review" })).toBe(panel);
+  expect(fetch.mock.calls.at(-1)[0]).toContain("revision=r2");
+  expect(screen.queryByRole("button", { name: "Pause after current step" })).not.toBeInTheDocument();
+});
+it("pauses after the current checkpoint saves and continues only on request using the saved revision", async () => {
+  const session = linkedSession(), first = deferred(), second = deferred();
+  session.post.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  fireEvent.click(screen.getByRole("button", { name: "Pause after current step" }));
+  expect(screen.getByRole("button", { name: "Pause after current step" })).toBeDisabled();
+  expect(session.post.mock.calls[0][1].signal.aborted).toBe(false);
+  await act(async () => first.resolve(session.checkpoint("paused-revision", "running")));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Continue saved check" })).toBeEnabled());
+  expect(session.post).toHaveBeenCalledTimes(1); expect(screen.getByText(/This saved check is not running/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Continue saved check" }));
+  expect(session.post.mock.calls[1][0]).toMatchObject({ operation: "check-linked", revision: "paused-revision" });
+  await act(async () => second.resolve(session.checkpoint("finished", "complete")));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
+});
+it("freezes filters, queues, visibility and household controls without closing or remounting the active detail panel", async () => {
+  const member = { id: row.id, name: row.name, constituentType: "individual", lookupId: "D-1" };
+  const group = { id: "household", automatic: true, members: [member], sharedGiftCount: 1,
+    rows: [{ ...linkedRow, name: "Fictional household", id: "group:household", members: [member], groupBasis: "spouse" }] };
+  const session = linkedSession({ rows: [{ ...linkedRow, constituentType: "unknown" }], sharedGroups: [group] }), pending = deferred();
+  session.post.mockReturnValue(pending.promise);
+  render(<Page />); await screen.findByText("Fictional household");
+  fireEvent.click(screen.getByLabelText("Show households instead of separate individuals"));
+  fireEvent.change(screen.getByLabelText("Find a constituent"), { target: { value: "Fictional" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review gift details" })); await screen.findByText("Gift 101");
+  const panel = screen.getByRole("region", { name: "Gift history review" });
+  fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  for (const name of ["Find a constituent", "Constituent type", "Entry fiscal year", "Report visibility", "Show households instead of separate individuals"])
+    expect(screen.getByLabelText(name)).toBeDisabled();
+  for (const name of [/Both societies/, /1934 Club/, /Frances Bartlett Kinne Society/, "Needs investigation 1", "All history 1", "View unclassified", "Clear filters", "Back to list", "Review gift details", "Next", "Previous"]) {
+    const button = screen.getByRole("button", { name }); expect(button).toBeDisabled(); fireEvent.click(button);
+  }
+  fireEvent.change(screen.getByLabelText("Find a constituent"), { target: { value: "No donor" } });
+  fireEvent.change(screen.getByLabelText("Constituent type"), { target: { value: "organization" } });
+  fireEvent.change(screen.getByLabelText("Report visibility"), { target: { value: "archived" } });
+  fireEvent.click(screen.getByLabelText("Show households instead of separate individuals"));
+  expect(screen.getByRole("region", { name: "Gift history review" })).toBe(panel);
+  expect(session.post).toHaveBeenCalledTimes(1);
+  await act(async () => pending.resolve(session.checkpoint("r1", "complete")));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
+  expect(screen.getByRole("region", { name: "Gift history review" })).toBe(panel);
+  expect(screen.getByLabelText("Find a constituent")).toHaveValue("Fictional");
+  expect(screen.getByLabelText("Constituent type")).toHaveValue(""); expect(screen.getByLabelText("Report visibility")).toHaveValue("active");
+  expect(screen.getByLabelText("Show households instead of separate individuals")).not.toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.queryByRole("region", { name: "Gift history review" })).not.toBeInTheDocument();
+});
+it.each([409, 503, "network"])("stops checkpoint writes on %s errors, keeps evidence, and never retries automatically", async status => {
+  const session = linkedSession({ status: "paused" });
+  if (status === "network") session.post.mockRejectedValue(new Error("Connection interrupted"));
+  else session.post.mockResolvedValue(json({ error: "Checkpoint unavailable" }, status));
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Continue saved check" }));
+  await screen.findByRole("alert"); await screen.findByText("Gift 101");
+  expect(screen.getByRole("region", { name: "Gift history review" })).toBeVisible();
+  expect(session.post).toHaveBeenCalledTimes(1); expect(screen.getByRole("button", { name: "Reload saved report" })).toBeEnabled();
+});
+it.each([401, 403])("clears report data and stops the checkpoint loop when write access fails: %s", async status => {
+  const session = linkedSession(); session.post.mockResolvedValue(json({ error: "Report access removed" }, status));
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("region", { name: "Gift history review" })).not.toBeInTheDocument();
+  expect(screen.queryByText(row.name)).not.toBeInTheDocument(); expect(session.post).toHaveBeenCalledTimes(1);
+});
+it("stops a running loop if the checkpoint response removes manager permission", async () => {
+  const session = linkedSession(); session.post.mockImplementation(() => Promise.resolve(session.checkpoint("r1", "running", { canManage: false })));
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  await screen.findByText("Gift 101");
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Pause after current step" })).not.toBeInTheDocument());
+  expect(session.post).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Continue saved check" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Check linked history" })).not.toBeInTheDocument();
+});
+it("aborts a checkpoint on unmount and ignores a late running response instead of resuming", async () => {
+  const session = linkedSession(), pending = deferred(); session.post.mockReturnValue(pending.promise);
+  const mounted = await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  const signal = session.post.mock.calls[0][1].signal; mounted.unmount(); expect(signal.aborted).toBe(true);
+  await act(async () => pending.resolve(session.checkpoint("r1", "running")));
+  expect(session.post).toHaveBeenCalledTimes(1); expect(screen.queryByRole("region", { name: "Gift history review" })).not.toBeInTheDocument();
+});
+it.each(["running", "attention", "complete"])("never offers linked write actions to viewers of a %s check", async status => {
+  const session = linkedSession({ status, canManage: false }); await openLinkedReview();
+  for (const name of ["Check linked history", "Continue saved check", "Start fresh linked check", "Check again", "Pause after current step"])
+    expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+  expect(session.post).not.toHaveBeenCalled();
+});
+it.each(["paused", "attention"])("stops on a saved %s checkpoint and offers only explicit continuation", async status => {
+  const session = linkedSession(); session.post.mockImplementation(() => Promise.resolve(session.checkpoint("r1", status)));
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  const action = status === "paused" ? "Continue saved check" : "Start fresh linked check";
+  await waitFor(() => expect(screen.getByRole("button", { name: action })).toBeEnabled());
+  expect(session.post).toHaveBeenCalledTimes(1); expect(fetch.mock.calls.at(-1)[0]).toContain("revision=r1");
+});
+it("stops at the client checkpoint limit with saved progress rather than automatically resuming", async () => {
+  const session = linkedSession(); let turn = 0;
+  session.post.mockImplementation(() => Promise.resolve(session.checkpoint(`r${++turn}`, "running")));
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Check linked history" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Continue saved check" })).toBeEnabled());
+  expect(session.post).toHaveBeenCalledTimes(60);
+  expect(session.post.mock.calls.map(([body]) => body.revision)).toEqual(Array.from({ length: 60 }, (_, i) => `r${i}`));
+  expect(fetch.mock.calls.at(-1)[0]).toContain("revision=r60");
+});
+it("discards a pending confirmation when rechecking and displays below-threshold review without an old date", async () => {
+  const provisional = { ...linkedRow, status: "provisional", date: "2020-01-01", reasons: [] };
+  const session = linkedSession({ status: "complete", rows: [provisional] }), pending = deferred();
+  session.post.mockReturnValue(pending.promise);
+  await openLinkedReview(); fireEvent.click(screen.getByRole("button", { name: "Review entry-date confirmation" }));
+  expect(screen.getByRole("region", { name: "Confirm report change" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  expect(screen.queryByRole("region", { name: "Confirm report change" })).not.toBeInTheDocument();
+  await act(async () => pending.resolve(session.checkpoint("r1", "complete", { snapshot: { ...snapshot, rows: [{ ...linkedRow,
+    reasons: ["A later reduction brought giving below this threshold. Staff must review the unconfirmed entry date."] }] } })));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
+  expect(screen.getByText(/No supported entry date yet/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Confirm entry date" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Review entry-date confirmation" })).not.toBeInTheDocument();
+  expect(session.post.mock.calls[0][0].operation).toBe("restart-linked");
 });

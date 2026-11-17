@@ -7,7 +7,8 @@ import { decodeResult } from "./dashboardQueryResults";
 import { listGivingSocietyConfigurations } from "./givingSocietyConfigurations";
 import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHistory";
 import { applyLifetimeDecisions, lifetimeRecordKey, lifetimeMilestoneKey, publicLifetimeDecisions } from "./lifetimeRecordDecisions";
-import { analyzeLifetimeGifts, combineLifetimeEvents } from "./lifetimeGiftReview";
+import { combineLifetimeEvents } from "./lifetimeGiftReview";
+import { analyzeReconciledLifetime, canCheckLifetimeGift } from "./lifetimeLinkedHistory";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { lifetimeReconciliationCsv, lifetimeReconciliationNeeds, lifetimeReconciliationSummary } from "@/utils/lifetimeReconciliation";
 import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeActiveGroupIds, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
@@ -84,7 +85,7 @@ export function publicLifetimeState(state, societies) {
     previousImport: !current ? { refreshedAt: snapshot.refreshedAt, peopleCount: snapshot.peopleCount } : null };
 }
 
-function lifetimeGiftReviewEvidence(state, societies, { milestoneKey, revision }) {
+export function lifetimeGiftReviewEvidence(state, societies, { milestoneKey, revision }) {
   if (revision !== state.revision) throw lifetimeError("Saved history changed. Reload the saved report before reviewing these gifts.", 409);
   const snapshot = publicLifetimeState(state, societies).snapshot;
   const active = lifetimeActiveGroupIds(snapshot);
@@ -98,15 +99,17 @@ function lifetimeGiftReviewEvidence(state, societies, { milestoneKey, revision }
     ? evidence.histories[member.id].map(event => ({ ...event, recipientIds: [member.id] })) : null);
   if (histories.some(history => !Array.isArray(history))) throw lifetimeError("Saved gift details are incomplete. The report is unchanged; ask Advancement Services to refresh gift history.", 409);
   const society = state.snapshot.societies.find(society => society.key === row.societyKey);
-  const analysis = analyzeLifetimeGifts(combineLifetimeEvents(histories).values(), {
+  const history = [...combineLifetimeEvents(histories).values()];
+  const linked = evidence.linkedScopes?.[lifetimeRecordKey(row)];
+  const analysis = analyzeReconciledLifetime(history, {
     sources: society.countSources, fullRecognition: snapshot.source.fullRecognition, today: evidence.asOf,
-  });
+  }, linked?.checks || [], linked?.blockedChecks || []);
   const counts = { all: analysis.items.length, counted: 0, review: 0, excluded: 0 };
   for (const item of analysis.items) counts[item.outcome]++;
   const items = analysis.items.map(item => ({ ...item, crossingGift: row.crossingGiftIds.includes(item.giftId),
     credits: item.credits.map(({ recipientIds, ...credit }) => ({ ...credit, recipients: recipientIds.map(id => names.get(id)).filter(Boolean) })),
   }));
-  return { available: true, counts, row, items, asOf: evidence.asOf, refreshedAt: snapshot.refreshedAt };
+  return { available: true, counts, row, items, history, linked, asOf: evidence.asOf, refreshedAt: snapshot.refreshedAt };
 }
 
 export function savedLifetimeGiftReview(state, societies, options) {
@@ -117,8 +120,11 @@ export function savedLifetimeGiftReview(state, societies, options) {
     .sort((a, b) => (a.day || "9999").localeCompare(b.day || "9999") || a.giftId.localeCompare(b.giftId, "en", { numeric: true }));
   const pageSize = 25, pages = Math.max(1, Math.ceil(matches.length / pageSize)), current = Math.min(page, pages - 1);
   return { available: true, counts: evidence.counts, page: current, pages, pageSize, total: matches.length, asOf: evidence.asOf,
+    linkedCheck: evidence.linked?.job ? { seed: evidence.linked.job.seed, status: evidence.linked.job.status,
+      reads: evidence.linked.job.reads, message: evidence.linked.job.message, checkedAt: evidence.linked.job.checkedAt } : null,
     reconciliation: lifetimeReconciliationSummary(evidence.items),
     items: matches.slice(current * pageSize, (current + 1) * pageSize).map(item => ({ ...item,
+      canCheckLinked: item.outcome === "review" && canCheckLifetimeGift(item.type),
       reconciliation: lifetimeReconciliationNeeds(item),
     })) };
 }
@@ -209,6 +215,11 @@ export async function lifetimeTransport(origin) {
   if (!user?.id || user.active === false || !canManageWorkspaceRole(user.role) || !(await getBlackbaudConnection(user.id))?.connected_at)
     throw lifetimeError("Connect an active Admin or Advancement Services shared reporting account to NXT first.", 409);
   return {
+    read: path => {
+      if (!/^\/(gift\/v1\/gifts\/[1-9]\d{0,18}|gft-gifts\/v2\/gifts\/[1-9]\d{0,18}\/(installments|pledgepayments)|constituent\/v1\/constituents\/[1-9]\d{0,18})$/.test(path))
+        throw lifetimeError("Unknown linked-history read.", 400);
+      return blackbaudApiFetch(path, { userId: user.id, authUserId: user.id, origin, method: "GET", maxRetries: 0, timeoutMs: 8000 });
+    },
     metadata: () => blackbaudApiFetch(`/query/queries/${LIFETIME_QUERY_ID}`, { userId: user.id, authUserId: user.id, origin,
       maxRetries: 0, searchParams: { product: "RE", module: "None" } }),
     execute: () => executeSavedQueryResults({ user, origin, queryId: LIFETIME_QUERY_ID, maxBytes: LIFETIME_LIMITS.bytes }),

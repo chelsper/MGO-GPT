@@ -1,10 +1,11 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group", "record", "gifts", "csv"].map(key => [key, vi.fn()])));
+const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group", "record", "gifts", "csv", "linked"].map(key => [key, vi.fn()])));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: m.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: m.access }));
+vi.mock("@/app/api/utils/lifetimeLinkedReports", () => ({ checkLifetimeLinkedHistory: m.linked }));
 vi.mock("@/app/api/utils/lifetimeSocieties", async original => ({ ...await original(), readLifetimeState: m.read, readLifetimeRules: m.rules, refreshLifetimeHistory: m.refresh, lifetimeTransport: m.transport, updateLifetimeGroup: m.group, updateLifetimeRecord: m.record, savedLifetimeGiftReview: m.gifts, savedLifetimeReconciliationCsv: m.csv }));
 import { GET, POST } from "./route";
 import { lifetimeQueryFixture, lifetimeRules } from "../../../../../test/lifetimeQueryFixture";
@@ -16,6 +17,7 @@ beforeEach(() => {
   m.refresh.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.group.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.record.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
+  m.linked.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.gifts.mockReturnValue({ available: false, items: [] });
   m.csv.mockReturnValue('"Gift system record ID"\r\n"101"');
   m.transport.mockResolvedValue({ metadata: m.metadata }); m.metadata.mockResolvedValue(lifetimeQueryFixture());
@@ -73,8 +75,39 @@ it("serves shared viewers saved data only with private no-store headers", async 
 });
 it.each(["mgo", "executive"])("does not let %s execute query jobs", async role => {
   m.user.mockResolvedValue({ id: 2, role, active: true });
-  for (const operation of ["fields", "refresh", "confirm-group", "remove-group", "archive-record", "restore-record", "confirm-date", "reopen-date"]) expect((await POST(request({ operation, revision: null }))).status).toBe(403);
+  for (const operation of ["fields", "refresh", "confirm-group", "remove-group", "archive-record", "restore-record", "confirm-date", "reopen-date", "check-linked", "restart-linked"]) expect((await POST(request({ operation, revision: null }))).status).toBe(403);
   expect(m.transport).not.toHaveBeenCalled(); expect(m.group).not.toHaveBeenCalled(); expect(m.record).not.toHaveBeenCalled();
+  expect(m.linked).not.toHaveBeenCalled();
+});
+const linkedBody = { operation:"check-linked",revision:"a".repeat(36),milestoneKey:"b".repeat(64),giftId:"101" };
+it.each(["admin","advancement_services"])("allows %s to explicitly checkpoint linked history without executing the query",async role=>{
+  m.user.mockResolvedValue({id:3,role,active:true});
+  m.gifts.mockReturnValue({available:true,linkedCheck:{seed:"101",status:"running",reads:5,message:null}});
+  for(const operation of ["check-linked","restart-linked"]) {
+    const response=await POST(request({...linkedBody,operation}));
+    expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const body=await response.json(); expect(body.linkedCheck).toMatchObject({status:"running",reads:5});
+    expect(body).not.toHaveProperty("updatedBy");
+    expect(m.linked).toHaveBeenLastCalledWith({...linkedBody,operation,user:{id:3,role,active:true},origin:"https://app.example"});
+    expect(m.gifts).toHaveBeenLastCalledWith(expect.anything(),lifetimeRules,{milestoneKey:linkedBody.milestoneKey,revision:"updated"});
+  }
+  expect(m.transport).not.toHaveBeenCalled(); expect(m.refresh).not.toHaveBeenCalled();
+});
+it("rejects arbitrary linked targets, evidence, cross-origin requests, anonymous and inactive users",async()=>{
+  for(const change of [{giftId:"../101"},{giftId:"0"},{giftId:101},{giftId:undefined},{milestoneKey:undefined},{groupId:"b".repeat(64)},
+    {recordKey:"b".repeat(64)},{data:{}},{path:"https://other.example"},{operation:"refresh"}])
+    expect((await POST(request({...linkedBody,...change}))).status).toBe(400);
+  expect((await POST(request(linkedBody,{origin:"https://untrusted.example"}))).status).toBe(403);
+  expect((await POST(request(linkedBody,{"sec-fetch-site":"cross-site"}))).status).toBe(403);
+  expect((await POST(request({...linkedBody,revision:undefined}))).status).toBe(409);
+  m.user.mockResolvedValue({role:"admin",active:false}); expect((await POST(request(linkedBody))).status).toBe(403);
+  m.auth.mockResolvedValue(null); expect((await POST(request(linkedBody))).status).toBe(401);
+  expect(m.linked).not.toHaveBeenCalled(); expect(m.transport).not.toHaveBeenCalled();
+});
+it("redacts unexpected linked-check failures without exposing provider evidence",async()=>{
+  m.linked.mockRejectedValueOnce(new Error("private raw donor payload"));
+  const response=await POST(request(linkedBody)); expect(response.status).toBe(503);
+  expect(await response.text()).not.toMatch(/private|payload|donor/);
 });
 it.each(["admin", "advancement_services"])("allows %s to manage saved records without NXT calls", async role => {
   m.user.mockResolvedValue({ id: 3, role, active: true });

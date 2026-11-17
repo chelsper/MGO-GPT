@@ -5,6 +5,7 @@ import { getReportAccessForUser } from "@/app/api/utils/reportAccess";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { LIFETIME_REPORT_KEY, lifetimeError } from "@/utils/lifetimeSocieties";
 import { inspectLifetimeQuery, lifetimeTransport, publicLifetimeState, readLifetimeRules, readLifetimeState, refreshLifetimeHistory, savedLifetimeGiftReview, savedLifetimeReconciliationCsv, updateLifetimeGroup, updateLifetimeRecord } from "@/app/api/utils/lifetimeSocieties";
+import { checkLifetimeLinkedHistory } from "@/app/api/utils/lifetimeLinkedReports";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -53,23 +54,28 @@ export async function POST(request) {
     const text = await request.text();
     if (Buffer.byteLength(text) > 1000) throw lifetimeError("This request is too large.", 413);
     let body; try { body = JSON.parse(text); } catch { throw lifetimeError("Invalid report request.", 400); }
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["operation", "revision", "groupId", "recordKey", "milestoneKey"].includes(key)) ||
-      !["fields", "refresh", "confirm-group", "remove-group", "archive-record", "restore-record", "confirm-date", "reopen-date"].includes(body.operation)) throw lifetimeError("Unknown report request.", 400);
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["operation", "revision", "groupId", "recordKey", "milestoneKey", "giftId"].includes(key)) ||
+      !["fields", "refresh", "confirm-group", "remove-group", "archive-record", "restore-record", "confirm-date", "reopen-date", "check-linked", "restart-linked"].includes(body.operation)) throw lifetimeError("Unknown report request.", 400);
     const groupOperation = ["confirm-group", "remove-group"].includes(body.operation);
     const archiveOperation = ["archive-record", "restore-record"].includes(body.operation);
     const dateOperation = ["confirm-date", "reopen-date"].includes(body.operation);
+    const linkedOperation = ["check-linked", "restart-linked"].includes(body.operation);
+    if (linkedOperation ? typeof body.giftId !== "string" || !/^[1-9]\d{0,18}$/.test(body.giftId) : body.giftId !== undefined)
+      throw lifetimeError("Choose a saved gift from this report.", 400);
     if (groupOperation ? typeof body.groupId !== "string" || !/^[a-f0-9]{64}$/.test(body.groupId) : body.groupId !== undefined)
       throw lifetimeError("Choose a shared-giving suggestion from the current report.", 400);
-    for (const [key, required] of [["recordKey", archiveOperation], ["milestoneKey", dateOperation]]) {
+    for (const [key, required] of [["recordKey", archiveOperation], ["milestoneKey", dateOperation || linkedOperation]]) {
       if (required ? typeof body[key] !== "string" || !/^[a-f0-9]{64}$/.test(body[key]) : body[key] !== undefined)
         throw lifetimeError("Choose a saved record from this report.", 400);
     }
     if (body.operation === "fields") return Response.json(inspectLifetimeQuery(await (await lifetimeTransport(origin)).metadata()), { headers });
     if (body.revision !== null && (typeof body.revision !== "string" || !/^[a-f0-9-]{36}$/.test(body.revision)))
       throw lifetimeError("Reload saved results before refreshing.", 409);
-    const { state, societies } = groupOperation ? await updateLifetimeGroup({ revision: body.revision, groupId: body.groupId, operation: body.operation, user })
+    const { state, societies } = linkedOperation ? await checkLifetimeLinkedHistory({ ...body, user, origin })
+      : groupOperation ? await updateLifetimeGroup({ revision: body.revision, groupId: body.groupId, operation: body.operation, user })
       : archiveOperation || dateOperation ? await updateLifetimeRecord({ ...body, user })
         : await refreshLifetimeHistory({ revision: body.revision, user, transport: await lifetimeTransport(origin) });
-    return Response.json({ ...publicLifetimeState(state, societies), canManage, title }, { headers });
+    return Response.json({ ...publicLifetimeState(state, societies), canManage, title,
+      ...(linkedOperation ? { linkedCheck: savedLifetimeGiftReview(state, societies, { milestoneKey: body.milestoneKey, revision: state.revision }).linkedCheck } : {}) }, { headers });
   } catch (error) { return failure(error); }
 }

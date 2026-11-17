@@ -65,7 +65,7 @@ export function lifetimeMatchesQueue(row, queue) {
 export function lifetimeReviewSteps(row) {
   const steps = new Set();
   for (const reason of row.reasons || []) {
-    if (/complex gifts|linked history|Pledge history/.test(reason)) steps.add("Compare the pledge with its linked payments, adjustments and write-offs in NXT. This report cannot yet reconcile those transactions automatically; do not confirm a date from the supported subtotal alone.");
+    if (/complex gifts|linked history|Pledge history/.test(reason)) steps.add("Use Check linked history to verify the pledge, its applied payments and dated write-offs. Earlier credited payments retain their dates. Only unverifiable evidence needs staff review; do not confirm a date from the supported subtotal alone.");
     else if (/conflict/.test(reason)) steps.add("Check the listed gift system IDs for conflicting amounts, dates, types or owners. Resolve the source conflict before refreshing; no conflicting value is chosen as correct.");
     else if (/gift date/.test(reason)) steps.add("Verify the gift date in NXT. Missing, invalid or future dates cannot establish a past milestone.");
     else if (/gift amount/.test(reason)) steps.add("Verify the gift amount and any adjustments in NXT. Do not treat missing amounts as zero.");
