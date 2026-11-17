@@ -9,6 +9,7 @@ import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHist
 import { applyLifetimeDecisions, lifetimeRecordKey, lifetimeMilestoneKey, publicLifetimeDecisions } from "./lifetimeRecordDecisions";
 import { combineLifetimeEvents } from "./lifetimeGiftReview";
 import { analyzeReconciledLifetime, canCheckLifetimeGift } from "./lifetimeLinkedHistory";
+import { materializeLifetimeFamilies, publicLifetimeFamilyLinks } from "./lifetimeFamilyGroups";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { lifetimeReconciliationCsv, lifetimeReconciliationNeeds, lifetimeReconciliationSummary } from "@/utils/lifetimeReconciliation";
 import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeActiveGroupIds, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
@@ -80,7 +81,11 @@ export function publicLifetimeState(state, societies) {
   const snapshot = state.snapshot;
   const current = !snapshot || (snapshot.ruleVersion === LIFETIME_RULE_VERSION && snapshot.rulesFingerprint === hash(societies));
   const { giftReview, ...summary } = snapshot || {};
+  if (summary.source) summary.source = { ...summary.source, warnings: (summary.source.warnings || []).map(warning => warning.replace(
+    "Companies remain separate; a household includes only gifts given by or explicitly credited to its members, once per gift.",
+    "Organizations stay separate unless staff explicitly links them in a family giving group. A normal household includes only gifts given by or explicitly credited to its individual members, once per gift.")) };
   return { revision: state.revision, societies, snapshot: current && snapshot ? applyLifetimeDecisions(summary, state.recordDecisions) : null, staleRules: !current,
+    familyLinks: publicLifetimeFamilyLinks(state, current ? snapshot : null),
     savedDecisions: publicLifetimeDecisions(state.recordDecisions, current ? snapshot : null),
     previousImport: !current ? { refreshedAt: snapshot.refreshedAt, peopleCount: snapshot.peopleCount } : null };
 }
@@ -186,6 +191,8 @@ export async function updateLifetimeGroup({ revision, groupId, operation, user, 
   const groups = before.snapshot.sharedGroups || [], candidate = groups.find(group => group.id === groupId);
   if (!candidate || !["confirm-group", "remove-group"].includes(operation))
     throw lifetimeError("Choose a shared-giving suggestion from the current report.", 422);
+  if (candidate.family || (before.familyLinks || []).some(link => link.householdKey === lifetimeRecordKey(candidate.rows[0])))
+    throw lifetimeError("Unlink the family's organizations before changing the underlying household. Saved entry dates stay preserved.", 409);
   const confirmed = new Set(before.snapshot.confirmedGroupIds || []);
   const separate = new Set(before.snapshot.separateGroupIds || []);
   if (operation === "confirm-group") {
@@ -247,6 +254,7 @@ export async function refreshLifetimeHistory({ revision, user, transport, db = s
   state.snapshot.separateGroupIds = sameSource ? (before.snapshot.separateGroupIds || []).filter(id => history.sharedGroups.some(group => group.id === id && group.automatic)) : [];
   state.snapshot.groupsToReconfirm = (before.snapshot?.confirmedGroupIds || []).length - retained.length;
   state.groupAudit = before.groupAudit || [];
+  materializeLifetimeFamilies(state);
   const published = revision === null
     ? await db`INSERT INTO report_snapshots_cache (report_key,payload,updated_at) VALUES (${CACHE_KEY},${JSON.stringify(state)}::jsonb,NOW())
         ON CONFLICT (report_key) DO NOTHING RETURNING report_key`
