@@ -3,15 +3,11 @@ import { visitResultCsv } from "./dashboardQueryResults";
 import { centsFromText } from "./fyRevenueGoals";
 import { lifetimeMaritalStatus, lifetimeSpouseGroups } from "./lifetimeSpouseGroups";
 import { lifetimeDecisionIndexes, lifetimeMilestoneKey } from "./lifetimeRecordDecisions";
+import { analyzeLifetimeGifts, combineLifetimeEvents, directFlags, softFlags } from "./lifetimeGiftReview";
 import { LIFETIME_RULE_VERSION, lifetimeConstituentType, lifetimeError } from "@/utils/lifetimeSocieties";
 
 export const LIFETIME_LIMITS = { bytes: 32 * 1024 * 1024, rows: 250000, people: 10000, gifts: 150000 };
 const idPattern = /^[1-9]\d{0,18}$/;
-const token = value => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-const directFlags = new Set(["Regular Gift", "Company MG-Pledge", "Company MG-Payment"]);
-const matchingFlags = new Set(["Constituent MG-Pledge", "Constituent MG-Payment"]);
-const softFlags = new Set(["Soft Credit Recipient", "Soft Credit Recipient Company for MG Pledge", "Soft Credit Recipient Company for MG Payment"]);
-const uncomplicatedTypes = new Set(["onetimegift", "cash", "giftinkind", "other", "stockproperty", "recurringgiftpayment"]);
 
 export function lifetimeDay(value) {
   const raw = value.trim();
@@ -32,6 +28,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
   if (!inspection.ready || !["system", "lookup"].includes(inspection.identityMode))
     throw lifetimeError("Add the missing query outputs before importing gift history.");
   const people = new Map(), gifts = new Map(), conflictingPeople = new Set(), directOwners = new Map(), lookupOwners = new Map(); let indexes, repeatedRows = 0;
+  const conflictingGifts = new Set();
   const today = now.toISOString().slice(0, 10);
   const { milestones } = lifetimeDecisionIndexes(decisions);
   const { rowCount } = visitResultCsv(content, { maxRows: LIFETIME_LIMITS.rows,
@@ -54,17 +51,18 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
         lookupOwners.set(lookupId, id);
       }
       const credit = cell("credit"), dateText = cell("date"), amountText = cell("amount"), type = cell("type");
+      if (credit.length > 200 || type.length > 200) throw lifetimeError("A gift type or credit flag is too long to review safely. Saved results are unchanged.");
       const signature = JSON.stringify([dateText, amountText, type]);
       const key = JSON.stringify([id, giftId, credit]);
       if (gifts.has(key)) {
-        if (gifts.get(key) !== signature) conflictingPeople.add(id);
+        if (gifts.get(key) !== signature) { conflictingPeople.add(id); conflictingGifts.add(giftId); }
         repeatedRows++;
       } else {
         gifts.set(key, signature);
       }
       if (directFlags.has(credit)) {
         const owner = directOwners.get(giftId);
-        if (owner && owner !== id) { conflictingPeople.add(owner); conflictingPeople.add(id); }
+        if (owner && owner !== id) { conflictingPeople.add(owner); conflictingPeople.add(id); conflictingGifts.add(giftId); }
         directOwners.set(giftId, id);
       }
       let person = people.get(id);
@@ -76,7 +74,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       if (people.size > LIFETIME_LIMITS.people || gifts.size > LIFETIME_LIMITS.gifts) throw lifetimeError("The report exceeds its supported history size. Nothing was truncated.", 413);
       let cents = null;
       try { if (amountText) cents = centsFromText(amountText); } catch { /* Keep the person visible for review. */ }
-      person.events.set(`${giftId}:${credit}`, { giftId, credit, day: lifetimeDay(dateText), cents, type });
+      person.events.set(`${giftId}:${credit}`, { giftId, credit, day: lifetimeDay(dateText), cents, type, recipientIds: [id] });
     },
   });
   if (rowCount !== expectedRows) throw lifetimeError("The downloaded and completed query row counts differ. Saved results are unchanged.");
@@ -89,8 +87,11 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
     evidence.events.add(JSON.stringify([person.id, event.credit, event.day, event.cents, event.type]));
     giftEvidence.set(event.giftId, evidence);
   }
-  for (const evidence of giftEvidence.values()) if (evidence.signatures.size > 1)
+  for (const [giftId, evidence] of giftEvidence) if (evidence.signatures.size > 1 || conflictingGifts.has(giftId)) {
+    conflictingGifts.add(giftId);
     for (const id of evidence.members) conflictingPeople.add(id);
+  }
+  for (const person of people.values()) for (const event of person.events.values()) event.conflict = conflictingGifts.has(event.giftId);
   const spouses = lifetimeSpouseGroups(people, inspection);
   function calculate(person) {
     const results = [];
@@ -99,35 +100,16 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       constituentType === "unknown" ? "Constituent Key Indicator is missing or unrecognized; retained in the combined view." : "";
     for (const society of societies) {
       const calculationSkipped = milestones.has(lifetimeMilestoneKey({ ...person, constituentType, societyKey: society.key }));
-      const reasons = new Set(), events = [], ownGiftIds = new Set(), directEvents = new Map();
+      const reasons = new Set();
       if (conflictingPeople.has(person.id) || person.members?.some(member => conflictingPeople.has(member.id))) reasons.add("Repeated gift records conflict; reconcile amounts, dates, types or ownership.");
       if (inspection.restrictedHistory) reasons.add("Gift-level criteria may exclude earlier qualifying gifts.");
       const sources = society.countSources;
       const thresholdCents = Math.round(society.minimumAmount * 100);
       if (!sources.includes("committed") || sources.some(source => !["committed", "recognition_credit"].includes(source)))
         reasons.add("This society's saved recognition rule needs a separate historical calculation.");
-      for (const event of person.events.values()) if (directFlags.has(event.credit)) ownGiftIds.add(event.giftId);
-      for (const event of person.events.values()) {
-        if (matchingFlags.has(event.credit)) continue; // Employee matching credit is not the company's own gift.
-        const soft = softFlags.has(event.credit);
-        if (!directFlags.has(event.credit) && !soft) { reasons.add("An unrecognized credit flag needs review."); continue; }
-        if (soft && (!sources.includes("recognition_credit") || ownGiftIds.has(event.giftId))) continue;
-        if (soft && !inspection.fullRecognition) { reasons.add("Recognition credit needs recipient-level allocation verification; this query is not using the approved Full amount to all rule."); continue; }
-        const previous = directEvents.get(event.giftId);
-        if (previous) {
-          if (JSON.stringify([previous.day, previous.cents, previous.type]) !== JSON.stringify([event.day, event.cents, event.type]))
-            reasons.add("Repeated gift records conflict; reconcile amounts, dates, types or ownership.");
-          continue;
-        }
-        directEvents.set(event.giftId, event);
-        if (!event.day || event.day > today) reasons.add("A gift date is missing, invalid or in the future.");
-        if (event.cents === null || event.cents < 0) reasons.add("A missing, invalid or negative gift amount needs review.");
-        if (!uncomplicatedTypes.has(token(event.type))) {
-          reasons.add("Pledges, payments, write-offs or other complex gifts need linked history reconciliation.");
-          continue;
-        }
-        events.push(event);
-      }
+      const analysis = analyzeLifetimeGifts(person.events.values(), { sources, fullRecognition: inspection.fullRecognition, today });
+      for (const reason of analysis.reasons) reasons.add(reason);
+      const events = analysis.supportedEvents;
       let totalCents = 0, date = null, crossingGiftIds = [];
       const supportedEvents = events.filter(event => event.day && event.day <= today && event.cents !== null && event.cents >= 0);
       let supportedCents = supportedEvents.reduce((total, event) => total + event.cents, 0);
@@ -176,7 +158,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       members, groupBasis, types: new Set(["individual"]), events: new Map() };
     // Companies are never members: only these individuals' direct and credited
     // histories enter the union. calculate() deduplicates by gift system ID.
-    for (const record of records) for (const [eventKey, event] of record.events) combined.events.set(eventKey, event);
+    combined.events = combineLifetimeEvents(records.map(record => record.events.values()));
     sharedGroups.push({ id, members, automatic, sharedGiftCount: evidence.length, rows: calculate(combined) });
   }
   for (const pair of spouses.pairs) {
@@ -203,7 +185,11 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
     const records = ids.map(id => people.get(id));
     addGroup(records, evidence); suggestedCount++;
   }
-  return { ruleVersion: LIFETIME_RULE_VERSION, identityMode: inspection.identityMode, rows: results.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+  const giftReview = { version: 1, asOf: today, histories: Object.fromEntries([...people].map(([id, person]) =>
+    [id, [...person.events.values()].map(({ recipientIds, ...event }) => event)])) };
+  if (Buffer.byteLength(JSON.stringify(giftReview)) > LIFETIME_LIMITS.bytes)
+    throw lifetimeError("Saved gift explanations exceed the supported history size. Previous results are unchanged; nothing was truncated.", 413);
+  return { ruleVersion: LIFETIME_RULE_VERSION, identityMode: inspection.identityMode, giftReviewAvailable: true, giftReview, rows: results.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
     sharedGroups, omittedSharedGroups, confirmedGroupIds: [], separateGroupIds: [],
     automaticHouseholdCount: spouses.pairs.length, householdReviewCount: spouses.notes.size,
     peopleCount: people.size, rawRows: rowCount, uniqueCreditGifts: gifts.size, repeatedRows,

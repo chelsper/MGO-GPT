@@ -5,7 +5,7 @@
 .page small { display:block; font-size:12px; color:var(--muted); font-weight:400; margin-top:6px; line-height:1.5; }
 .page button,.page input,.page select { font:inherit; min-height:44px; border:1px solid #b7ccc0; border-radius:9px; padding:10px 14px; color:var(--ink); background:white; max-width:100%; }
 .page button { font-weight:700; cursor:pointer; }
-.page button:disabled { opacity:.5; cursor:default; }
+.page button:disabled, .page button[aria-disabled="true"] { opacity:.5; cursor:default; }
 .page button:focus-visible,.page input:focus-visible,.page select:focus-visible,.page summary:focus-visible,.tableScroll:focus-visible { outline:3px solid #16878a; outline-offset:3px; }
 .page a { color:var(--green); }
 .page .primary { background:var(--green); color:white; border-color:var(--green); }
@@ -60,5 +60,23 @@
 .groupConfirm { padding:16px; margin-top:12px; background:#edf6f0; border:1px solid var(--line); border-radius:10px; }
 .page .groupToggle { display:flex; align-items:center; gap:10px; }
 .groupToggle input { width:18px; min-height:18px; flex-shrink:0; }
+.reviewTabs { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0 12px; }
+.reviewTabs button { border-radius:8px; font-size:13px; }
+.reviewTabs button[aria-pressed="true"] { background:var(--ink); border-color:var(--ink); color:white; }
+.reviewTabs span { display:inline-block; margin-left:8px; font-variant-numeric:tabular-nums; opacity:.8; }
+.queueHelp { font-size:13px; color:var(--muted); margin:0; }
+.reviewPanel { margin:24px 0; border:2px solid #9bbbaa; border-radius:12px; padding:24px; background:linear-gradient(135deg,#f3f8f4,#fff); scroll-margin-top:80px; }
+.reviewPanel:focus { outline:3px solid #16878a; outline-offset:3px; }
+.reviewPanel h3 { font-size:16px; margin:0 0 8px; }
+.reviewPanel .eyebrow { font-size:11px; letter-spacing:.12em; color:var(--green); font-weight:800; }
+.reviewSteps { padding:16px 20px; background:#fff; border-left:3px solid var(--green); }
+.reviewSteps ul,.giftList ul { padding-left:20px; line-height:1.6; }
+.giftList { list-style:none; padding:0; }
+.giftList > li { padding:18px; margin:12px 0; border:1px solid var(--line); border-radius:10px; background:#fff; }
+.giftList p { margin:8px 0; font-size:13px; }
+.giftList details { font-size:13px; }
+.milestone { color:var(--green); font-weight:700; }
+.page td > button { display:block; margin-bottom:12px; }
+@media(max-width:600px) { .reviewPanel { padding:14px; } .reviewTabs button { flex:1 1 140px; text-align:left; } .giftList > li { padding:14px; } }
 @media(max-width:900px) { .intro { align-items:start; flex-direction:column; } .intro .actions { flex-direction:row; } .filters { grid-template-columns:1fr 1fr; } .tableHeader { flex-wrap:wrap; } }
 @media(max-width:600px) { .page { padding:16px; } .intro,.panel { padding:18px; } .rules,.metrics,.checks,.filters { grid-template-columns:1fr; } .panel > summary > span { display:block; margin:8px 0; } .error button { margin:12px 0 0; } }

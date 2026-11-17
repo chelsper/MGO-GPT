@@ -16,7 +16,7 @@ it("opens saved history and filters without NXT execution", async () => {
   render(<Page />); await screen.findByText("Fictional Donor");
   expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][1].method).toBeUndefined();
   expect(screen.getByText("Fictional Review Donor")).toBeVisible();
-  fireEvent.change(screen.getByLabelText("Review status"), { target: { value: "review" } });
+  fireEvent.click(screen.getByRole("button", { name: "Needs investigation 1" }));
   expect(screen.queryByText("Fictional Donor")).not.toBeInTheDocument(); expect(fetch).toHaveBeenCalledTimes(1);
 });
 it("requires explicit confirmation, permits cancel, and posts only the saved milestone key", async () => {
@@ -31,8 +31,50 @@ it("requires explicit confirmation, permits cancel, and posts only the saved mil
   expect(fetch).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "Confirm entry date" }));
   fireEvent.click(screen.getByRole("button", { name: "Confirm and keep date" }));
+  await screen.findByText(/Entry date confirmed and saved/);
+  expect(screen.queryByText("FY21 / Staff-confirmed")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmed 1" }));
   expect(await screen.findByText("FY21 / Staff-confirmed")).toBeVisible();
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "confirm-date", revision: "saved", milestoneKey: "a".repeat(64) });
+});
+it("defaults to attention, includes confirmed warnings and keeps queue counts scoped to the chosen society", async () => {
+  const confirmed = { ...row, id: "3", name: "Fictional Confirmed", status: "confirmed" };
+  const flagged = { ...confirmed, id: "4", name: "Fictional Changed History", reasons: ["Pledge history needs reconciliation."] };
+  fetch.mockResolvedValue(json({ ...saved, snapshot: { ...snapshot, rows: [...snapshot.rows, confirmed, flagged,
+    { ...confirmed, id: "5", societyKey: lifetimeRules[1].key, societyName: lifetimeRules[1].name, name: "Fictional Kinne" }] } }));
+  render(<Page />); await screen.findByText("Fictional Changed History");
+  expect(screen.queryByText("Fictional Confirmed")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Needs attention 3" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Ready to confirm 1" }));
+  expect(screen.getByText("Fictional Donor")).toBeVisible(); expect(screen.queryByText("Fictional Changed History")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmed 3" }));
+  expect(screen.getByText("Fictional Changed History")).toBeVisible(); expect(screen.getByText("Fictional Confirmed")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: /Frances Bartlett Kinne Society/ }));
+  expect(screen.getByRole("button", { name: "Confirmed 1" })).toBeVisible();
+  expect(screen.getByText("Fictional Kinne")).toBeVisible(); expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("opens saved gift details on demand and returns to the same filtered list with focus restored", async () => {
+  const value = { ...saved, snapshot: { ...snapshot, rows: [{ ...row, milestoneKey: "a".repeat(64) }] } };
+  fetch.mockResolvedValueOnce(json(value)).mockResolvedValueOnce(json({ available: false, message: "Refresh once to add gift details." }));
+  render(<Page />); await screen.findByText(row.name);
+  fireEvent.change(screen.getByLabelText("Find a constituent"), { target: { value: "Fictional Donor" } });
+  const opener = screen.getByRole("button", { name: "Review gift details" }); opener.focus(); fireEvent.click(opener);
+  const review = screen.getByRole("region", { name: "Gift history review" }); expect(review).toHaveFocus();
+  await screen.findByText("Refresh once to add gift details.");
+  expect(fetch.mock.calls[1][0]).toContain("milestoneKey=" + "a".repeat(64));
+  expect(fetch.mock.calls[1][1].method).toBeUndefined();
+  fireEvent.click(within(review).getByRole("button", { name: "Back to list" }));
+  expect(screen.queryByRole("region", { name: "Gift history review" })).not.toBeInTheDocument();
+  expect(opener).toHaveFocus(); expect(screen.getByLabelText("Find a constituent")).toHaveValue("Fictional Donor");
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+it("removes report and evidence if gift-detail access has been revoked", async () => {
+  fetch.mockResolvedValueOnce(json(saved)).mockResolvedValueOnce(json({ error: "Report access removed" }, 403));
+  render(<Page />); await screen.findByText(row.name);
+  fireEvent.click(within(screen.getByText(row.name).closest("tr")).getByRole("button", { name: "Review gift details" }));
+  await screen.findByText("Report access removed");
+  expect(screen.queryByText(row.name)).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Gift history review" })).not.toBeInTheDocument();
 });
 it("archives an organization only after confirmation, preserves kept credit, and exposes local archive/restore views", async () => {
   const company = { ...row, id: "3", name: "Example Matching Company", constituentType: "organization", recordKey: "c".repeat(64) };

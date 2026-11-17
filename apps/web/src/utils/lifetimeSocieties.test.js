@@ -1,5 +1,18 @@
 import { expect, it } from "vitest";
-import { filterLifetimeRows, lifetimeActiveGroupIds, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeTypeLabel } from "./lifetimeSocieties";
+import { filterLifetimeRows, lifetimeActiveGroupIds, lifetimeConstituentType, lifetimeCoverage, lifetimeCsv, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeTypeLabel, lifetimeMatchesQueue, lifetimeReviewSteps } from "./lifetimeSocieties";
+it("keeps confirmed warnings in attention without treating them as ready for reapproval", () => {
+  const row = { status: "confirmed", reasons: [], confirmationNeedsReview: true };
+  expect(lifetimeMatchesQueue(row, "attention")).toBe(true); expect(lifetimeMatchesQueue(row, "review")).toBe(true);
+  expect(lifetimeMatchesQueue(row, "confirmed")).toBe(true); expect(lifetimeMatchesQueue(row, "provisional")).toBe(false);
+  expect(lifetimeMatchesQueue({ ...row, confirmationNeedsReview: false }, "attention")).toBe(false);
+  expect(lifetimeReviewSteps(row).join()).toMatch(/rules changed/);
+});
+it("provides specific review guidance without pretending complex gifts can be reconciled automatically", () => {
+  const steps = lifetimeReviewSteps({ reasons: ["Pledges, payments, write-offs or other complex gifts need linked history reconciliation.",
+    "Repeated gift records conflict; reconcile amounts, dates, types or ownership.", "A gift date is missing, invalid or in the future."] });
+  expect(steps).toHaveLength(3); expect(steps.join()).toMatch(/cannot yet reconcile/); expect(steps.join()).toMatch(/gift system IDs/);
+  expect(lifetimeReviewSteps({ status: "confirmed", reasons: [] }).join()).toMatch(/No repeat approval/);
+});
 it("uses July-June fiscal years", () => {
   expect(lifetimeFiscalYear("2020-06-30")).toBe("FY20"); expect(lifetimeFiscalYear("2020-07-01")).toBe("FY21");
   expect(lifetimeFiscalYear(null)).toBe("");
