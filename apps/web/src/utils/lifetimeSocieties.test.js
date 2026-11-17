@@ -35,12 +35,12 @@ it("combines type, society, search, status and year filters and keeps unknowns i
   expect(filterLifetimeRows(rows, { constituentType: "individual", society: "1934_club", year: "FY21", status: "provisional", search: "fictional" })).toEqual([base]);
   expect(filterLifetimeRows(rows, { constituentType: "organization" })).toHaveLength(1);
   expect(filterLifetimeRows(rows, { constituentType: "unknown" })).toHaveLength(1);
-  expect(lifetimeCoverage(rows)).toEqual({ constituents: 3, provisional: 4, review: 0, unclassified: 1 });
+  expect(lifetimeCoverage(rows)).toEqual({ constituents: 3, confirmed: 0, provisional: 4, review: 0, unclassified: 1 });
 });
 it("exports explicit provisional labels, preserves blank dates and escapes formulas", () => {
   const csv = lifetimeCsv([{ id: '["system","1"]', systemId: "1", lookupId: "=1+1", name: '+Fictional "Donor"', societyName: "1934 Club", thresholdCents: 10000000,
     date: null, totalCents: null, status: "review", reasons: ["Needs history"] }]);
-  expect(csv).toContain("Calculated qualification date (provisional)"); expect(csv).toContain("'\u003d1+1");
+  expect(csv).toContain("Entry date (see confirmation status)"); expect(csv).toContain("'\u003d1+1");
   expect(csv).toContain("'+Fictional \"\"Donor\"\""); expect(csv).toContain('"","","","Needs review"');
 });
 it("never exports the query-local lookup key as a constituent system ID", () => {

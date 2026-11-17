@@ -19,6 +19,58 @@ it("opens saved history and filters without NXT execution", async () => {
   fireEvent.change(screen.getByLabelText("Review status"), { target: { value: "review" } });
   expect(screen.queryByText("Fictional Donor")).not.toBeInTheDocument(); expect(fetch).toHaveBeenCalledTimes(1);
 });
+it("requires explicit confirmation, permits cancel, and posts only the saved milestone key", async () => {
+  const value = { ...saved, snapshot: { ...snapshot, rows: [{ ...row, milestoneKey: "a".repeat(64), recordKey: "b".repeat(64) }] } };
+  fetch.mockResolvedValueOnce(json(value)).mockResolvedValueOnce(json({ ...value, snapshot: { ...value.snapshot,
+    rows: [{ ...value.snapshot.rows[0], status: "confirmed", confirmationNote: "Staff-confirmed entry date." }] } }));
+  render(<Page />); fireEvent.click(await screen.findByRole("button", { name: "Confirm entry date" }));
+  const confirmation = screen.getByRole("region", { name: "Confirm report change" });
+  expect(confirmation).toHaveTextContent("1934 Club / Jul 1, 2020");
+  expect(confirmation).toHaveFocus();
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm entry date" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm and keep date" }));
+  expect(await screen.findByText("FY21 / Staff-confirmed")).toBeVisible();
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "confirm-date", revision: "saved", milestoneKey: "a".repeat(64) });
+});
+it("archives an organization only after confirmation, preserves kept credit, and exposes local archive/restore views", async () => {
+  const company = { ...row, id: "3", name: "Example Matching Company", constituentType: "organization", recordKey: "c".repeat(64) };
+  const value = { ...saved, snapshot: { ...snapshot, rows: [row, company] } };
+  fetch.mockResolvedValueOnce(json(value)).mockResolvedValueOnce(json({ ...value, snapshot: { ...value.snapshot, rows: [row, { ...company, archived: true }] } }));
+  render(<Page />); await screen.findByText(company.name);
+  const companyRow = screen.getByText(company.name).closest("tr");
+  fireEvent.click(within(companyRow).getByRole("button", { name: "Archive record" }));
+  expect(screen.getByRole("region", { name: "Confirm report change" })).toHaveTextContent("All gifts and soft credits remain available");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm archive" }));
+  await waitFor(() => expect(screen.queryByText(company.name)).not.toBeInTheDocument());
+  expect(screen.getByText(row.name)).toBeVisible(); expect(within(screen.getByText(row.name).closest("tr")).getByText("$100,000.00")).toBeVisible();
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "archive-record", revision: "saved", recordKey: company.recordKey });
+  fireEvent.change(screen.getByLabelText("Report visibility"), { target: { value: "archived" } });
+  expect(screen.getByText(company.name)).toBeVisible(); expect(screen.getByRole("button", { name: "Restore record" })).toBeVisible();
+  expect(screen.queryByText(row.name)).not.toBeInTheDocument(); expect(fetch).toHaveBeenCalledTimes(2);
+});
+it("shows durable decisions without a current snapshot and allows a manager to restore an absent record", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, snapshot: null, staleRules: true, savedDecisions: {
+    archives: [{ key: "a".repeat(64), name: "Archived Fictional Company", matched: false }],
+    milestones: [{ key: "b".repeat(64), name: "Fictional Prior Household", societyName: "1934 Club", date: "2020-01-01", matched: false }],
+  } }));
+  render(<Page />); fireEvent.click(await screen.findByText("Saved dates & archived records"));
+  expect(screen.getAllByText(/No exact match in the current report/)).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Restore record" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm restore" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ operation: "restore-record", recordKey: "a".repeat(64), revision: "saved" });
+});
+it("does not offer date confirmation for unresolved history or any write actions to viewers", async () => {
+  fetch.mockResolvedValueOnce(json({ ...saved, canManage: false }));
+  render(<Page />); await screen.findByText(row.name);
+  expect(screen.queryByRole("button", { name: "Confirm entry date" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Archive record" })).not.toBeInTheDocument();
+  cleanup(); fetch.mockResolvedValue(json(saved)); render(<Page />);
+  const review = await screen.findByText("Fictional Review Donor");
+  expect(within(review.closest("tr")).queryByRole("button", { name: "Confirm entry date" })).not.toBeInTheDocument();
+});
 it("does not mistake an unconfigured source for zero members and offers one-step validated refresh", async () => {
   fetch.mockResolvedValue(json({ ...saved, snapshot: null })); render(<Page />); await screen.findByText("Not imported");
   expect(screen.getByRole("button", { name: "Refresh gift history" })).toBeEnabled();

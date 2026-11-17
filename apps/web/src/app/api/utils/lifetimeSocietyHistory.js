@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { visitResultCsv } from "./dashboardQueryResults";
 import { centsFromText } from "./fyRevenueGoals";
 import { lifetimeMaritalStatus, lifetimeSpouseGroups } from "./lifetimeSpouseGroups";
+import { lifetimeDecisionIndexes, lifetimeMilestoneKey } from "./lifetimeRecordDecisions";
 import { LIFETIME_RULE_VERSION, lifetimeConstituentType, lifetimeError } from "@/utils/lifetimeSocieties";
 
 export const LIFETIME_LIMITS = { bytes: 32 * 1024 * 1024, rows: 250000, people: 10000, gifts: 150000 };
@@ -25,13 +26,14 @@ export function lifetimeDay(value) {
 
 // Complex histories still require reconciliation; the approved full-recognition
 // rule can be calculated without guessing recipient-specific allocations.
-export function aggregateLifetimeHistory(content, inspection, societies, expectedRows, now = new Date()) {
+export function aggregateLifetimeHistory(content, inspection, societies, expectedRows, now = new Date(), decisions = {}) {
   if (!Number.isSafeInteger(expectedRows) || expectedRows < 0 || expectedRows > LIFETIME_LIMITS.rows)
     throw lifetimeError("The completed query row count is missing or exceeds the report limit. Saved results are unchanged.");
   if (!inspection.ready || !["system", "lookup"].includes(inspection.identityMode))
     throw lifetimeError("Add the missing query outputs before importing gift history.");
   const people = new Map(), gifts = new Map(), conflictingPeople = new Set(), directOwners = new Map(), lookupOwners = new Map(); let indexes, repeatedRows = 0;
   const today = now.toISOString().slice(0, 10);
+  const { milestones } = lifetimeDecisionIndexes(decisions);
   const { rowCount } = visitResultCsv(content, { maxRows: LIFETIME_LIMITS.rows,
     onHeaders(headers) {
       if (Object.values(inspection.columns).filter(Boolean).some(name => !headers.includes(name)))
@@ -96,6 +98,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
     const constituentTypeNote = person.types.size > 1 ? "Constituent type is inconsistent across query rows; no type was guessed." :
       constituentType === "unknown" ? "Constituent Key Indicator is missing or unrecognized; retained in the combined view." : "";
     for (const society of societies) {
+      const calculationSkipped = milestones.has(lifetimeMilestoneKey({ ...person, constituentType, societyKey: society.key }));
       const reasons = new Set(), events = [], ownGiftIds = new Set(), directEvents = new Map();
       if (conflictingPeople.has(person.id) || person.members?.some(member => conflictingPeople.has(member.id))) reasons.add("Repeated gift records conflict; reconcile amounts, dates, types or ownership.");
       if (inspection.restrictedHistory) reasons.add("Gift-level criteria may exclude earlier qualifying gifts.");
@@ -132,7 +135,11 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       if (conflictingPeople.has(person.id) || person.members?.some(member => conflictingPeople.has(member.id))) supportedCents = null;
       // Treat same-day giving as one event; row order is not evidence of timing.
       const daily = new Map();
-      if (!reasons.size) {
+      if (!reasons.size && calculationSkipped) {
+        // Still validate all gifts and credit recipients; only the confirmed
+        // milestone's chronological crossing calculation is skipped.
+        totalCents = supportedCents;
+      } else if (!reasons.size) {
         for (const event of events) {
           const day = daily.get(event.day) || { cents: 0, ids: [] };
           day.cents += event.cents; day.ids.push(event.giftId); daily.set(event.day, day);
@@ -151,7 +158,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
         householdNote: spouses.notes.get(person.id) || "",
         ...(person.members ? { members: person.members, groupBasis: person.groupBasis } : {}), societyKey: society.key, societyName: society.name,
         thresholdCents, totalCents, supportedCents, date, crossingGiftIds, giftCount: person.events.size,
-        status: date ? "provisional" : "review", reasons: [...reasons] });
+        status: date ? "provisional" : "review", calculationSkipped, reasons: [...reasons] });
     }
     return results;
   }

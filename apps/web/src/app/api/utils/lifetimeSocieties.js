@@ -6,6 +6,7 @@ import { executeSavedQueryResults } from "./savedQueryExecution";
 import { decodeResult } from "./dashboardQueryResults";
 import { listGivingSocietyConfigurations } from "./givingSocietyConfigurations";
 import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHistory";
+import { applyLifetimeDecisions, lifetimeRecordKey, lifetimeMilestoneKey, publicLifetimeDecisions } from "./lifetimeRecordDecisions";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeActiveGroupIds, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
 
@@ -74,8 +75,51 @@ export async function readLifetimeState(db = sql) {
 export function publicLifetimeState(state, societies) {
   const snapshot = state.snapshot;
   const current = !snapshot || (snapshot.ruleVersion === LIFETIME_RULE_VERSION && snapshot.rulesFingerprint === hash(societies));
-  return { revision: state.revision, societies, snapshot: current ? snapshot : null, staleRules: !current,
+  return { revision: state.revision, societies, snapshot: current ? applyLifetimeDecisions(snapshot, state.recordDecisions) : null, staleRules: !current,
+    savedDecisions: publicLifetimeDecisions(state.recordDecisions, current ? snapshot : null),
     previousImport: !current ? { refreshedAt: snapshot.refreshedAt, peopleCount: snapshot.peopleCount } : null };
+}
+
+export async function updateLifetimeRecord({ revision, recordKey, milestoneKey, operation, user, db = sql, rules = readLifetimeRules }) {
+  const before = await readLifetimeState(db), societies = await rules(db);
+  if (before.revision !== revision) throw lifetimeError("Saved history changed. Reload the report before saving this decision.", 409);
+  const snapshot = publicLifetimeState(before, societies).snapshot;
+  const decisions = before.recordDecisions || {}, at = new Date().toISOString();
+  let archives = [...(decisions.archives || [])], milestones = [...(decisions.milestones || [])];
+  let previous = null, next = null;
+  if (operation === "archive-record") {
+    const row = snapshot?.rows.find(row => lifetimeRecordKey(row) === recordKey);
+    if (!row || row.members) throw lifetimeError("Choose a constituent from the current report to archive.", 409);
+    if (archives.some(entry => entry.key === recordKey)) throw lifetimeError("This record is already archived. Reload the report.", 409);
+    next = { key: recordKey, name: row.name, constituentType: row.constituentType, lookupId: row.lookupId, systemId: row.systemId, at, userId: user.id };
+    archives.push(next);
+  } else if (operation === "restore-record") {
+    previous = archives.find(entry => entry.key === recordKey);
+    if (!previous) throw lifetimeError("This archive decision is no longer saved. Reload the report.", 409);
+    archives = archives.filter(entry => entry.key !== recordKey);
+  } else if (operation === "confirm-date") {
+    const activeGroups = lifetimeActiveGroupIds(snapshot);
+    const row = [...(snapshot?.rows || []), ...(snapshot?.sharedGroups || []).filter(group => activeGroups.has(group.id)).flatMap(group => group.rows)]
+      .find(row => lifetimeMilestoneKey(row) === milestoneKey);
+    if (!row || row.archived || row.status !== "provisional" || !row.date || row.reasons.length)
+      throw lifetimeError("Only an active record's supported provisional date can be confirmed. Review its history first.", 409);
+    if (milestones.some(entry => entry.key === milestoneKey)) throw lifetimeError("This date is already confirmed. Reopen date review before changing it.", 409);
+    next = { key: milestoneKey, recordKey: lifetimeRecordKey(row), name: row.name, societyKey: row.societyKey, societyName: row.societyName,
+      date: row.date, crossingGiftIds: row.crossingGiftIds, ruleVersion: snapshot.ruleVersion, rulesFingerprint: snapshot.rulesFingerprint,
+      sourceFingerprint: snapshot.source.fingerprint, at, userId: user.id };
+    milestones.push(next);
+  } else if (operation === "reopen-date") {
+    previous = milestones.find(entry => entry.key === milestoneKey);
+    if (!previous) throw lifetimeError("This confirmed date is no longer saved. Reload the report.", 409);
+    milestones = milestones.filter(entry => entry.key !== milestoneKey);
+  } else throw lifetimeError("Unknown saved-record action.", 400);
+  if (archives.length > 20000 || milestones.length > 40000) throw lifetimeError("The saved-decision limit was reached. Existing decisions are unchanged.", 413);
+  const state = { ...before, revision: randomUUID(), updatedBy: user.id, recordDecisions: { archives, milestones,
+    audit: [...(decisions.audit || []), { operation, previous, next, at, userId: user.id }].slice(-500) } };
+  const published = await db`UPDATE report_snapshots_cache SET payload=${JSON.stringify(state)}::jsonb,updated_at=NOW()
+    WHERE report_key=${CACHE_KEY} AND payload->>'revision'=${revision} RETURNING report_key`;
+  if (!published.length) throw lifetimeError("Saved history changed. Reload before saving this decision.", 409);
+  return { state, societies };
 }
 
 export async function updateLifetimeGroup({ revision, groupId, operation, user, db = sql, rules = readLifetimeRules }) {
@@ -127,11 +171,11 @@ export async function refreshLifetimeHistory({ revision, user, transport, db = s
   const inspection = inspectLifetimeQuery(await transport.metadata());
   if (!inspection.ready) throw lifetimeError("Add the missing query outputs shown in Source readiness before importing gift history.");
   const result = await transport.execute();
-  const history = aggregateLifetimeHistory(decodeResult(result, { maxBytes: LIFETIME_LIMITS.bytes }), inspection, societies, result.queryJobRowCount);
+  const history = aggregateLifetimeHistory(decodeResult(result, { maxBytes: LIFETIME_LIMITS.bytes }), inspection, societies, result.queryJobRowCount, new Date(), before.recordDecisions);
   const checked = inspectLifetimeQuery(await transport.metadata());
   if (inspection.fingerprint !== checked.fingerprint || rulesFingerprint !== hash(await rules(db)))
     throw lifetimeError("The query or society rules changed during refresh. Previous results are unchanged; check the source and try again.", 409);
-  const state = { revision: randomUUID(), updatedBy: user.id, snapshot: { ...history, societies, rulesFingerprint,
+  const state = { ...before, revision: randomUUID(), updatedBy: user.id, snapshot: { ...history, societies, rulesFingerprint,
     source: checked, refreshedAt: new Date().toISOString() } };
   // Lookup IDs are not canonical identities: carry a confirmation only when
   // source, member identity and the exact shared-gift evidence remain identical.
