@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { visitResultCsv } from "./dashboardQueryResults";
 import { centsFromText } from "./fyRevenueGoals";
-import { lifetimeSpouseGroups } from "./lifetimeSpouseGroups";
+import { lifetimeMaritalStatus, lifetimeSpouseGroups } from "./lifetimeSpouseGroups";
 import { LIFETIME_RULE_VERSION, lifetimeConstituentType, lifetimeError } from "@/utils/lifetimeSocieties";
 
 export const LIFETIME_LIMITS = { bytes: 32 * 1024 * 1024, rows: 250000, people: 10000, gifts: 150000 };
@@ -70,7 +70,7 @@ export function aggregateLifetimeHistory(content, inspection, societies, expecte
       if (!person) { person = { id, systemId: systemId || null, name, lookupId, types: new Set(), events: new Map(), spouseIds: new Set(), maritalStatuses: new Set() }; people.set(id, person); }
       person.types.add(lifetimeConstituentType(cell("constituentType")));
       person.spouseIds.add(cell(inspection.spouseIdentityMode === "system" ? "spouseId" : "spouseLookupId"));
-      person.maritalStatuses.add(cell("maritalStatus").toLowerCase());
+      person.maritalStatuses.add(lifetimeMaritalStatus(cell("maritalStatus")));
       if (people.size > LIFETIME_LIMITS.people || gifts.size > LIFETIME_LIMITS.gifts) throw lifetimeError("The report exceeds its supported history size. Nothing was truncated.", 413);
       let cents = null;
       try { if (amountText) cents = centsFromText(amountText); } catch { /* Keep the person visible for review. */ }

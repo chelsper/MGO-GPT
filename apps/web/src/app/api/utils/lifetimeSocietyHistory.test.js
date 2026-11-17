@@ -62,6 +62,32 @@ it("automatically groups reciprocal married individuals even without shared gift
     rows: [expect.objectContaining({ totalCents: 7000000, groupBasis: "spouse", constituentType: "individual", systemId: null }), expect.any(Object)] });
   expect(result.sharedGroups[0].members.map(member => member.lookupId)).toEqual(["DEMO-1", "DEMO-2"]);
 });
+it.each([
+  ["Alum married to alum", "Alum married to alum"],
+  ["Alum married to alum", "Married"],
+  ["Married", "Alum married to alum"],
+  [" ALUM MARRIED TO ALUM ", " married "],
+])("treats marital statuses %j and %j as the same verified marriage", (first, second) => {
+  const result = spouseRun([{ ...spouseA, maritalStatus: first }, { ...spouseB, maritalStatus: second }]);
+  expect(result).toMatchObject({ automaticHouseholdCount: 1, householdReviewCount: 0 });
+  expect(result.sharedGroups[0].id).toBe(spouseRun([spouseA, spouseB]).sharedGroups[0].id);
+  expect(result.sharedGroups[0].rows[0].totalCents).toBe(7000000);
+});
+it("does not treat equivalent married labels across repeated rows as conflicting spouse evidence", () => {
+  const result = spouseRun([spouseA, spouseB, { ...spouseA, maritalStatus: "Alum married to alum" }, { ...spouseB, maritalStatus: "Alum married to alum" }]);
+  expect(result).toMatchObject({ automaticHouseholdCount: 1, householdReviewCount: 0 });
+  expect(result.sharedGroups[0].id).toBe(spouseRun([spouseB, spouseA]).sharedGroups[0].id);
+  expect(result.sharedGroups[0].rows[0].totalCents).toBe(7000000);
+});
+it("still requires valid reciprocal spouses and nonconflicting statuses for alumni marriages", () => {
+  const alum = { ...spouseA, maritalStatus: "Alum married to alum" };
+  for (const status of ["Divorced", "Separated", "Widowed", "", "Not married", "Unknown"])
+    expect(spouseRun([alum, { ...spouseB, maritalStatus: status }]).automaticHouseholdCount).toBe(0);
+  for (const rows of [[alum], [alum, { ...spouseB, spouseId: "" }], [alum, { ...spouseB, constituentType: "O" }],
+    [alum, spouseB, { ...alum, maritalStatus: "Divorced" }],
+    [alum, spouseB, { id: "3", name: "Fictional Third", giftId: "103", maritalStatus: "Alum married to alum", spouseId: "DEMO-2" }]])
+    expect(spouseRun(rows).automaticHouseholdCount).toBe(0);
+});
 it("keeps a corporate donor's unrelated gifts out of spouses' combined giving and deduplicates their shared credits", () => {
   const company = { id: "3", name: "Fictional Company", constituentType: "O", giftId: "103", amount: "50000" };
   const result = spouseRun([spouseA, spouseB, company,

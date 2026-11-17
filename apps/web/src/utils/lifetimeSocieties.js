@@ -31,7 +31,7 @@ export const LIFETIME_FIELDS = {
 export function lifetimeSourceWarnings(query) {
   const warnings = [
     "Dates are provisional calculations from this query, not official induction dates. Historical adjustments, recognition settings and household credit still require reconciliation.",
-    "Reciprocal spouse IDs and Married status on both individuals allow automatic households. Shared gifts alone do not prove a household. Companies remain separate; a household includes only gifts given by or explicitly credited to its members, once per gift. Recognition totals must not be added together as organizational revenue.",
+    "Reciprocal spouse IDs and either Married or Alum married to alum status on both individuals allow automatic households. Shared gifts alone do not prove a household. Companies remain separate; a household includes only gifts given by or explicitly credited to its members, once per gift. Recognition totals must not be added together as organizational revenue.",
   ];
   if (query.constituent_filters?.include_deceased === false) warnings.push("This query excludes deceased constituents.");
   if (query.filter_fields?.some(field => /Donor Recognition/i.test(field.query_field?.selected_field_name || "")))

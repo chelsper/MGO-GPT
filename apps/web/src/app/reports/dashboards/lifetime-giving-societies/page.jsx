@@ -106,7 +106,7 @@ export default function LifetimeSocietiesPage() {
       </details>}
       {snapshot && <details className={styles.panel}>
         <summary>Households <span>{automaticCount} automatic / {confirmedIds.size - automaticCount} manually confirmed</span></summary>
-        <p>Individuals with reciprocal NXT spouse IDs and Married status on both records are grouped automatically. Companies, foundations and other organizations stay separate. A household includes its members' own gifts and gifts explicitly credited to either member, counting each gift once.</p>
+        <p>Individuals with reciprocal NXT spouse IDs and either Married or Alum married to alum status on both records are grouped automatically. Companies, foundations and other organizations stay separate. A household includes its members' own gifts and gifts explicitly credited to either member, counting each gift once.</p>
         <small>Sharing a gift alone does not prove a marriage. Other individual-only suggestions require confirmation. Spouses missing from the query or with conflicting links stay separate. No NXT records are merged or changed.</small>
         {!!snapshot.groupsToReconfirm && <p className={styles.notice}>{snapshot.groupsToReconfirm} previous group confirmations were not carried forward because their rules, source or evidence changed. Company/person combinations are no longer available.</p>}
         {!!householdReviews.length && <details><summary>{householdReviews.length} records need spouse-link review</summary><ul>{householdReviews.map(row => <li key={row.id}>{row.name}: {row.householdNote}</li>)}</ul></details>}

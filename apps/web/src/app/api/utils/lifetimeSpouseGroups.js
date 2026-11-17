@@ -1,3 +1,9 @@
+export function lifetimeMaritalStatus(value) {
+  const status = value.trim().toLowerCase();
+  // JU treats this alumni-specific table value as the same married status.
+  return status === "alum married to alum" ? "married" : status;
+}
+
 // Use exact, reciprocal query identities. A name, shared gift, or shared
 // address is never evidence of marriage, and no external records are added.
 export function lifetimeSpouseGroups(people, inspection) {
@@ -25,7 +31,7 @@ export function lifetimeSpouseGroups(people, inspection) {
     } else if (!spouseId) {
       if (married(person)) notes.set(person.id, "Married record has no spouse identifier in the query; kept separate.");
     } else if (!married(person)) {
-      notes.set(person.id, "Marital status is not consistently Married; no automatic household was created.");
+      notes.set(person.id, "Marital status is not consistently Married or Alum married to alum; no automatic household was created.");
     } else {
       const spouse = identities.get(spouseId);
       if (!spouse) notes.set(person.id, "Spouse is not included in this query's gift history; kept separate. No missing history was fetched or assumed.");
@@ -35,7 +41,7 @@ export function lifetimeSpouseGroups(people, inspection) {
   }
   for (const [id, spouseId] of links) {
     if (links.get(spouseId) !== id || incoming.get(id)?.size !== 1 || incoming.get(spouseId)?.size !== 1) {
-      notes.set(id, "Spouse links are one-sided, conflicting, or not both Married; kept separate for review.");
+      notes.set(id, "Spouse links are one-sided, conflicting, or lack a recognized married status on both records; kept separate for review.");
     } else if (id.localeCompare(spouseId) < 0) pairs.push([people.get(id), people.get(spouseId)]);
   }
   return { pairs, notes };
