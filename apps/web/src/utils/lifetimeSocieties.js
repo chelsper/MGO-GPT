@@ -49,9 +49,17 @@ export function lifetimeConstituentType(value) {
 
 export function lifetimeCoverage(rows) {
   return { constituents: new Set(rows.map(row => row.id)).size,
+    confirmed: rows.filter(row => row.status === "confirmed").length,
     provisional: rows.filter(row => row.status === "provisional").length,
-    review: rows.filter(row => row.status !== "provisional").length,
+    review: rows.filter(row => !["confirmed", "provisional"].includes(row.status)).length,
     unclassified: new Set(rows.filter(row => !["individual", "organization", "mixed"].includes(row.constituentType)).map(row => row.id)).size };
+}
+
+// Archiving is a display choice only, after all gift and household calculations.
+// A household remains visible while at least one member is active.
+export function lifetimeVisibleRows(snapshot, households = true, archive = "active") {
+  const rows = households && archive !== "archived" ? lifetimeHouseholdRows(snapshot) : snapshot?.rows || [];
+  return rows.filter(row => archive === "all" || (archive === "archived" ? row.archived : !row.archived));
 }
 
 export function lifetimeActiveGroupIds(snapshot) {
@@ -81,12 +89,13 @@ export function lifetimeCsv(rows) {
     const text = String(value ?? "");
     return `"${(/^[\s]*[=+@\-\t\r]/.test(text) ? "'" : "") + text.replaceAll('"', '""')}"`;
   };
-  return [["Constituent system record ID", "Constituent ID", "Name", "Constituent type", "Society", "Threshold", "Calculated qualification date (provisional)",
-    "Fiscal year", "Imported qualifying history", "Status", "Review notes", "Household members", "Supported gifts subtotal (not complete lifetime total)", "Grouping basis"],
+  return [["Constituent system record ID", "Constituent ID", "Name", "Constituent type", "Society", "Threshold", "Entry date (see confirmation status)",
+    "Fiscal year", "Imported qualifying history", "Status", "Review notes", "Household members", "Supported gifts subtotal (not complete lifetime total)", "Grouping basis", "Report visibility", "Date confirmed at"],
   ...rows.map(row => [row.systemId, row.lookupId, row.name, lifetimeTypeLabel(row.constituentType), row.societyName, (row.thresholdCents / 100).toFixed(2), row.date,
     lifetimeFiscalYear(row.date), row.totalCents == null ? "" : (row.totalCents / 100).toFixed(2),
-    row.status === "provisional" ? "Provisional - reconcile history" : "Needs review", [...row.reasons, row.constituentTypeNote, row.householdNote].filter(Boolean).join("; "),
-    (row.members || []).map(member => `${member.name} (Constituent ID ${member.lookupId || member.systemId})`).join("; "),
-    row.supportedCents == null ? "" : (row.supportedCents / 100).toFixed(2), row.groupBasis === "spouse" ? "NXT-linked married spouses" : row.members ? "Manually confirmed household" : "Separate constituent"])]
+    row.status === "confirmed" ? "Staff-confirmed entry date" : row.status === "provisional" ? "Provisional - reconcile history" : "Needs review", [...row.reasons, row.confirmationNote, row.constituentTypeNote, row.householdNote].filter(Boolean).join("; "),
+    (row.members || []).map(member => `${member.name} (Constituent ID ${member.lookupId || member.systemId})${member.archived ? " [archived from separate view; credit retained]" : ""}`).join("; "),
+    row.supportedCents == null ? "" : (row.supportedCents / 100).toFixed(2), row.groupBasis === "spouse" ? "NXT-linked married spouses" : row.members ? "Manually confirmed household" : "Separate constituent",
+    row.archived ? "Archived - credit retained" : "Active", row.confirmedAt])]
     .map(row => row.map(safe).join(",")).join("\r\n");
 }

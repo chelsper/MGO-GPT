@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
-import { LIFETIME_QUERY_ID, LIFETIME_QUERY_NAME, LIFETIME_REPORT_KEY, filterLifetimeRows, lifetimeActiveGroupIds, lifetimeCoverage, lifetimeCsv, lifetimeDate, lifetimeFiscalYear, lifetimeHouseholdRows, lifetimeMoney, lifetimeTypeLabel } from "@/utils/lifetimeSocieties";
+import { LIFETIME_QUERY_ID, LIFETIME_QUERY_NAME, LIFETIME_REPORT_KEY, filterLifetimeRows, lifetimeActiveGroupIds, lifetimeCoverage, lifetimeCsv, lifetimeDate, lifetimeFiscalYear, lifetimeVisibleRows, lifetimeMoney, lifetimeTypeLabel } from "@/utils/lifetimeSocieties";
 import styles from "./lifetime.module.css";
 
 const API = "/api/reports/lifetime-giving-societies";
@@ -16,37 +16,46 @@ export default function LifetimeSocietiesPage() {
   const [data, setData] = useState(null), [inspection, setInspection] = useState(null), [error, setError] = useState("");
   const [busy, setBusy] = useState(""), [filters, setFilters] = useState(defaultFilters), [page, setPage] = useState(0);
   const [households, setHouseholds] = useState(true), [groupSearch, setGroupSearch] = useState(""), [groupPage, setGroupPage] = useState(0), [confirmGroup, setConfirmGroup] = useState(null);
+  const [archiveView, setArchiveView] = useState("active"), [pendingDecision, setPendingDecision] = useState(null);
+  const [savedSearch, setSavedSearch] = useState(""), [savedPage, setSavedPage] = useState(0);
   const active = useRef(null), locked = useRef(false);
+  const decisionPanel = useRef(null), decisionOrigin = useRef(null);
+  useEffect(() => {
+    if (pendingDecision) { decisionPanel.current?.focus(); decisionPanel.current?.scrollIntoView?.({ block: "center" }); }
+    else if (decisionOrigin.current?.isConnected) decisionOrigin.current.focus();
+  }, [pendingDecision]);
   useEffect(() => {
     const controller = new AbortController(); active.current = controller;
     request({ signal: controller.signal }).then(value => { if (!controller.signal.aborted) setData(value); })
       .catch(e => { if (!controller.signal.aborted) setError(e.message); });
     return () => active.current?.abort();
   }, []);
-  async function command(operation, groupId) {
+  async function command(operation, values = {}) {
     if (locked.current) return;
     locked.current = true; setBusy(operation); setError("");
     const controller = new AbortController(); active.current = controller;
     try {
       const result = await request(operation === "reload" ? { signal: controller.signal } : {
         method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation, ...(operation !== "fields" ? { revision: data.revision } : {}), ...(groupId ? { groupId } : {}) }),
+        body: JSON.stringify({ operation, ...(operation !== "fields" ? { revision: data.revision } : {}), ...values }),
       });
       if (controller.signal.aborted) return;
       if (operation === "fields") setInspection(result);
-      else { setData(result); setInspection(null); setPage(0); setConfirmGroup(null); }
+      else { setData(result); setInspection(null); setPage(0); setConfirmGroup(null); setPendingDecision(null); }
     } catch (e) {
       if (!controller.signal.aborted) {
         setError(e.message);
-        if ([401, 403].includes(e.status)) { setData(null); setInspection(null); }
+        if ([401, 403].includes(e.status)) { setData(null); setInspection(null); setPendingDecision(null); }
       }
     } finally { locked.current = false; if (!controller.signal.aborted) setBusy(""); }
   }
   const snapshot = data?.snapshot, source = inspection || snapshot?.source;
   const confirmedIds = lifetimeActiveGroupIds(snapshot);
+  const usingHouseholds = households && archiveView !== "archived" && confirmedIds.size > 0;
+  const importedCoverage = lifetimeCoverage(lifetimeVisibleRows(snapshot, true, "all"));
   const automaticCount = (snapshot?.sharedGroups || []).filter(group => group.automatic && confirmedIds.has(group.id)).length;
   const householdReviews = [...new Map((snapshot?.rows || []).filter(row => row.householdNote).map(row => [row.id, row])).values()];
-  const viewRows = households ? lifetimeHouseholdRows(snapshot) : snapshot?.rows || [];
+  const viewRows = lifetimeVisibleRows(snapshot, households, archiveView);
   const rows = filterLifetimeRows(viewRows, filters);
   const coverage = lifetimeCoverage(rows);
   const unclassified = lifetimeCoverage(filterLifetimeRows(viewRows, { society: filters.society })).unclassified;
@@ -56,6 +65,15 @@ export default function LifetimeSocietiesPage() {
     `${member.name} ${member.lookupId} ${member.systemId || ""}`.toLowerCase().includes(groupSearch.trim().toLowerCase())));
   const currentGroupPage = Math.min(groupPage, Math.max(0, Math.ceil(groupMatches.length / 10) - 1));
   const confirmedMembers = new Set((snapshot?.sharedGroups || []).filter(group => confirmedIds.has(group.id)).flatMap(group => group.members.map(member => member.id)));
+  const savedEntries = [...(data?.savedDecisions?.milestones || []).map(entry => ({ ...entry, kind: "date" })),
+    ...(data?.savedDecisions?.archives || []).map(entry => ({ ...entry, kind: "archive" }))]
+    .filter(entry => `${entry.name} ${entry.societyName || ""} ${entry.lookupId || ""}`.toLowerCase().includes(savedSearch.trim().toLowerCase()));
+  const savedCurrent = Math.min(savedPage, Math.max(0, Math.ceil(savedEntries.length / 20) - 1));
+  function decide(operation, row) { decisionOrigin.current = document.activeElement; setPendingDecision({ operation, row }); }
+  function confirmDecision() {
+    const { operation, row } = pendingDecision;
+    command(operation, operation.endsWith("date") ? { milestoneKey: row.milestoneKey || row.key } : { recordKey: row.recordKey || row.key });
+  }
   function filter(key, value) { setFilters(previous => ({ ...previous, [key]: value })); setPage(0); }
   function download() {
     const url = URL.createObjectURL(new Blob(["\uFEFF", lifetimeCsv(rows)], { type: "text/csv;charset=utf-8" }));
@@ -70,15 +88,16 @@ export default function LifetimeSocietiesPage() {
     {!data ? <p role="status">{error ? "Report unavailable." : "Loading saved history..."}</p> : <>
       <section className={styles.intro}>
         <div><p className={styles.eyebrow}>STEWARDSHIP / HISTORY REVIEW</p><h2>When did the relationship reach a milestone?</h2>
-          <p>Calculated qualification dates are provisional, not official induction dates. Complex histories stay in review rather than receiving a guessed date.</p>
+          <p>Confirm a supported entry date once to keep it fixed across refreshes. Unconfirmed calculations are provisional; complex histories stay in review rather than receiving a guessed date.</p>
+          <small>Opening this report uses saved results, not a new NXT query. Archive records you do not actively recognize without removing anyone's gift credit.</small>
           <small>{snapshot ? `Last updated ${new Date(snapshot.refreshedAt).toLocaleString("en-US", { timeZone: "America/New_York" })} Eastern` : data.previousImport ? "Saved history is available; refresh once to apply the updated calculations." : "No gift history imported yet."}</small></div>
         {data.canManage && <div className={styles.actions}><button disabled={!!busy} onClick={() => command("fields")}>{busy === "fields" ? "Checking source..." : "Check query outputs"}</button>
           <button className={styles.primary} disabled={!!busy || source?.ready === false} onClick={() => command("refresh")}>{busy === "refresh" ? "Importing history..." : "Refresh gift history"}</button></div>}
       </section>
-      {busy && <p role="status">{busy === "refresh" ? "Reading the saved Gift query. Previous results stay visible; nothing is changed in NXT." : busy.endsWith("group") ? "Saving this report's grouping. No NXT records are changed." : "Reading saved information..."}</p>}
+      {busy && <p role="status">{busy === "refresh" ? "Reading the saved Gift query. Confirmed entry dates and archive choices are preserved. Nothing is changed in NXT." : busy === "reload" || busy === "fields" ? "Reading saved information..." : "Saving this report-only choice. No NXT records are changed."}</p>}
       {data.staleRules && <p className={styles.notice}>Society rules changed. Refresh the history before using calculated dates; the previous calculations are not shown as current.</p>}
       {snapshot && <div className={styles.importSummary}><strong>History imported: {snapshot.peopleCount.toLocaleString()} constituents</strong>
-        <p>{snapshot.provisionalCount} milestone dates calculated. {snapshot.reviewCount} threshold checks need more history or reconciliation; this is not an import failure.</p>
+        <p>{importedCoverage.confirmed} entry dates confirmed. {importedCoverage.provisional} provisional milestone dates. {importedCoverage.review} threshold checks need more history or reconciliation; this is not an import failure.</p>
         <small>{source?.fullRecognition ? "Full-gift recognition applies to each credited recipient." : "Recognition calculations follow the inspected query settings; unresolved allocations remain in review."} Households count each gift once. Companies stay separate; only gifts explicitly credited to a household member enter its history. Amounts marked as supported subtotals are not complete lifetime totals.</small></div>}
       <section className={styles.rules} aria-label="Society views">
         <button aria-pressed={!filters.society} onClick={() => filter("society", "")}><span>Both societies</span><strong>All milestones</strong><small>View each society's threshold separately.</small></button>
@@ -97,7 +116,7 @@ export default function LifetimeSocietiesPage() {
           <ul className={styles.checks}>{source.checks.map(check => <li key={check.key}><strong>{check.label}</strong>
             <span>{check.column || (check.required ? "Add to NXT query output" : "Optional")}</span>{!check.column && check.required && <small>{check.help}</small>}</li>)}</ul>
         </> : <p><strong>Refresh gift history</strong> validates the source automatically. Use <strong>Check query outputs</strong> if you want to inspect the field mapping first.</p>}
-        <p>Choose viewers in <a href="/report-configurations">Report configurations</a>. Only Admins and Advancement Services can refresh the source.</p>
+        <p>Choose viewers in <a href="/report-configurations">Report configurations</a>. Only Admins and Advancement Services can refresh, confirm dates or archive records.</p>
       </details>}
       {!snapshot && <p>{data.staleRules ? "Refresh needed for updated calculations" : "Not imported"}</p>}
       {source && <details className={styles.notes}><summary>How to interpret this report</summary><ul>{source.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>
@@ -120,12 +139,12 @@ export default function LifetimeSocietiesPage() {
             <p>{group.sharedGiftCount} shared gift{group.sharedGiftCount === 1 ? "" : "s"} / {group.automatic ? confirmed ? "NXT-linked married spouses / automatically grouped" : "NXT-linked spouses / kept separate by staff" : confirmed ? "Manually confirmed household" : "Suggested only; histories still separate"}</p>
             <ul>{group.members.map(member => <li key={member.id}>{member.name} / {lifetimeTypeLabel(member.constituentType)} / Constituent ID {member.lookupId || member.systemId}</li>)}</ul>
             {data.canManage && <>
-              {confirmed ? <button disabled={!!busy} onClick={() => command("remove-group", group.id)}>{group.automatic ? "Keep spouses separate" : "Undo grouping"}</button> :
+              {confirmed ? <button disabled={!!busy} onClick={() => command("remove-group", { groupId: group.id })}>{group.automatic ? "Keep spouses separate" : "Undo grouping"}</button> :
                 <button disabled={!!busy || overlap} onClick={() => setConfirmGroup(group.id)}>Review and confirm group</button>}
               {overlap && <small>A member is already in another confirmed group. Undo that grouping first.</small>}
               {!confirmed && confirmGroup === group.id && <div className={styles.groupConfirm}>
                 <p>Confirm these {group.members.length} individuals as one household? This combines all gifts given by or explicitly credited to these individuals, counting each gift system ID once, not just the shared gifts listed above. No organization's unrelated giving is included. Unresolved pledge and adjustment histories still need reconciliation.</p>
-                <div className={styles.actions}><button className={styles.primary} disabled={!!busy} onClick={() => command("confirm-group", group.id)}>Confirm household</button>
+                <div className={styles.actions}><button className={styles.primary} disabled={!!busy} onClick={() => command("confirm-group", { groupId: group.id })}>Confirm household</button>
                   <button disabled={!!busy} onClick={() => setConfirmGroup(null)}>Keep separate</button></div>
               </div>}
             </>}
@@ -134,6 +153,28 @@ export default function LifetimeSocietiesPage() {
         <div className={styles.pagination}><p>{groupMatches.length} households / suggestions. Page {currentGroupPage + 1} of {Math.max(1, Math.ceil(groupMatches.length / 10))}</p>
           <div className={styles.actions}><button disabled={currentGroupPage === 0} onClick={() => setGroupPage(currentGroupPage - 1)}>Previous groups</button>
             <button disabled={(currentGroupPage + 1) * 10 >= groupMatches.length} onClick={() => setGroupPage(currentGroupPage + 1)}>Next groups</button></div></div>
+      </details>}
+      {data.canManage && pendingDecision && <section ref={decisionPanel} tabIndex={-1} className={styles.groupConfirm} role="region" aria-label="Confirm report change">
+        <h2>{pendingDecision.operation === "confirm-date" ? "Keep this entry date?" : pendingDecision.operation === "reopen-date" ? "Reopen date review?" : pendingDecision.operation === "archive-record" ? "Archive from this report?" : "Restore to the active report?"}</h2>
+        <p><strong>{pendingDecision.row.name}</strong>{pendingDecision.operation.endsWith("date") && <> / {pendingDecision.row.societyName} / {lifetimeDate(pendingDecision.row.date)}</>}</p>
+        <p>{pendingDecision.operation === "confirm-date" ? "Confirm only after reconciling the giving history and recognition settings. This date stays fixed across refreshes for this exact recipient or household and society. It does not establish an official induction date in NXT." :
+          pendingDecision.operation === "reopen-date" ? "This removes the date lock, not gift history. If a refresh skipped this confirmed date's calculation, refresh gift history again before confirming a replacement. Other society dates stay fixed." :
+          pendingDecision.operation === "archive-record" ? "Hide this individual or organization from the active separate-record view in both societies. All gifts and soft credits remain available to other recipients and households. A household stays visible while another member is active. You can restore this record later." :
+          "Remove this report-only archive choice. If the record is absent from the latest query or is shown in a household, it may not appear as a separate row. No NXT records are changed."}</p>
+        <div className={styles.actions}><button className={styles.primary} disabled={!!busy} onClick={confirmDecision}>{pendingDecision.operation === "confirm-date" ? "Confirm and keep date" : pendingDecision.operation === "reopen-date" ? "Reopen this date" : pendingDecision.operation === "archive-record" ? "Confirm archive" : "Confirm restore"}</button>
+          <button disabled={!!busy} onClick={() => setPendingDecision(null)}>Cancel</button></div>
+      </section>}
+      {!!(data.savedDecisions?.archives.length || data.savedDecisions?.milestones.length) && <details className={styles.panel}>
+        <summary>Saved dates &amp; archived records <span>{data.savedDecisions.milestones.length} confirmed dates / {data.savedDecisions.archives.length} archived records</span></summary>
+        <p>Saved choices survive refreshes, including when a record leaves the query. Changed identity details are not matched by guesswork. Household dates are never transferred to individual members.</p>
+        <label>Find saved decisions<input type="search" value={savedSearch} onChange={e => { setSavedSearch(e.target.value); setSavedPage(0); }} /></label>
+        {savedEntries.slice(savedCurrent * 20, (savedCurrent + 1) * 20).map(entry => <article className={styles.group} key={`${entry.kind}:${entry.key}`}>
+          <h3>{entry.name}</h3><p>{entry.kind === "date" ? `${entry.societyName}: ${lifetimeDate(entry.date)} / Staff-confirmed` : "Archived from active recognition / Gift credit retained"}</p>
+          {!entry.matched && <small>No exact match in the current report. This saved decision is retained separately, not applied to another record.</small>}
+          {data.canManage && <button disabled={!!busy} onClick={() => decide(entry.kind === "date" ? "reopen-date" : "restore-record", entry)}>{entry.kind === "date" ? "Reopen date review" : "Restore record"}</button>}
+        </article>)}
+        <div className={styles.pagination}><p>{savedEntries.length} saved decisions / Page {savedCurrent + 1} of {Math.max(1, Math.ceil(savedEntries.length / 20))}</p><div className={styles.actions}>
+          <button disabled={!savedCurrent} onClick={() => setSavedPage(savedCurrent - 1)}>Previous decisions</button><button disabled={(savedCurrent + 1) * 20 >= savedEntries.length} onClick={() => setSavedPage(savedCurrent + 1)}>Next decisions</button></div></div>
       </details>}
       {snapshot && <section className={styles.panel} aria-labelledby="history-title">
         <div className={styles.tableHeader}><div><h2 id="history-title">{filters.society ? data.societies.find(s => s.key === filters.society)?.name : "Milestone history"}</h2><p>{filters.society ? "One threshold check per recipient or confirmed group in this society view." : "Two threshold checks per recipient or confirmed group in the combined view."} A missing date does not mean the donor is ineligible.</p></div>
@@ -145,28 +186,37 @@ export default function LifetimeSocietiesPage() {
             {viewRows.some(row => row.constituentType === "mixed") && <option value="mixed">Mixed giving groups</option>}
             {(!!unclassified || filters.constituentType === "unknown") && <option value="unknown">Type not supplied / needs review</option>}
           </select></label>
-          <label>Review status<select value={filters.status} onChange={e => filter("status", e.target.value)}><option value="">All history</option><option value="provisional">Provisional date available</option><option value="review">Needs review</option></select></label>
-          <label>Calculated fiscal year<select value={filters.year} onChange={e => filter("year", e.target.value)}><option value="">All years / undated</option>{years.map(year => <option key={year}>{year}</option>)}</select></label>
+          <label>Review status<select value={filters.status} onChange={e => filter("status", e.target.value)}><option value="">All history</option><option value="confirmed">Staff-confirmed date</option><option value="provisional">Provisional date available</option><option value="review">Needs review</option></select></label>
+          <label>Entry fiscal year<select value={filters.year} onChange={e => filter("year", e.target.value)}><option value="">All years / undated</option>{years.map(year => <option key={year}>{year}</option>)}</select></label>
+          <label>Report visibility<select value={archiveView} onChange={e => { setArchiveView(e.target.value); setPage(0); }}><option value="active">Active records</option><option value="archived">Archived records</option><option value="all">Active &amp; archived</option></select></label>
         </div>
-        {!!confirmedIds.size && <label className={styles.groupToggle}><input type="checkbox" checked={households} onChange={e => { setHouseholds(e.target.checked); setPage(0); setFilters(defaultFilters); }} />Show households instead of separate individuals</label>}
+        <small>Archiving changes visibility only. Gifts from archived organizations still count for individuals who received credit. Archived view lists separate records for restoration.</small>
+        {!!confirmedIds.size && <label className={styles.groupToggle}><input type="checkbox" disabled={archiveView === "archived"} checked={households && archiveView !== "archived"} onChange={e => { setHouseholds(e.target.checked); setPage(0); setFilters(defaultFilters); }} />Show households instead of separate individuals</label>}
         {!!unclassified && <p className={styles.typeNote}>{unclassified} constituent{unclassified === 1 ? " has" : "s have"} no confirmed type. They remain in the combined view, not the individuals-only or organizations-only views.
           {data.canManage && <> Add <strong>Constituent &gt; Key Indicator</strong> to query 31118's output, then refresh gift history. Conflicting values need source review.</>}
           {" "}<button onClick={() => { setFilters({ ...defaultFilters, society: filters.society, constituentType: "unknown" }); setPage(0); }}>View unclassified</button></p>}
         <section className={styles.metrics} aria-label="Filtered history coverage">
-          <article><strong>{coverage.constituents.toLocaleString()}</strong><span>{households && confirmedIds.size ? "Recipients / groups in this view" : "Constituents in this view"}</span></article>
+          <article><strong>{coverage.constituents.toLocaleString()}</strong><span>{usingHouseholds ? "Recipients / groups in this view" : "Constituents in this view"}</span></article>
           <article><strong>{coverage.provisional.toLocaleString()}</strong><span>Provisional milestone dates</span></article>
+          <article><strong>{coverage.confirmed.toLocaleString()}</strong><span>Staff-confirmed entry dates</span></article>
           <article><strong>{coverage.review.toLocaleString()}</strong><span>Milestones needing review</span></article>
         </section>
-        <div className={styles.scope}><p role="status">Showing {rows.length} threshold check{rows.length === 1 ? "" : "s"} for {coverage.constituents} {households && confirmedIds.size ? "recipients / groups" : `constituent${coverage.constituents === 1 ? "" : "s"}`}. The CSV includes this entire filtered view.</p>
-          {Object.values(filters).some(Boolean) && <button onClick={() => { setFilters(defaultFilters); setPage(0); }}>Clear filters</button>}</div>
+        <div className={styles.scope}><p role="status">Showing {rows.length} threshold check{rows.length === 1 ? "" : "s"} for {coverage.constituents} {usingHouseholds ? "recipients / groups" : `constituent${coverage.constituents === 1 ? "" : "s"}`}. The CSV includes this entire filtered view.</p>
+          {(Object.values(filters).some(Boolean) || archiveView !== "active") && <button onClick={() => { setFilters(defaultFilters); setArchiveView("active"); setPage(0); }}>Clear filters</button>}</div>
         <div className={styles.tableScroll} tabIndex={0} role="region" aria-label="Lifetime society milestone history"><table>
-          <thead><tr><th scope="col">Constituent</th><th scope="col">Society</th><th scope="col">Calculated qualification date</th><th scope="col">Imported qualifying history</th><th scope="col">Review notes</th></tr></thead>
+          <thead><tr><th scope="col">Constituent</th><th scope="col">Society</th><th scope="col">Entry date</th><th scope="col">Imported qualifying history</th><th scope="col">Review notes</th></tr></thead>
           <tbody>{rows.slice(current * 50, (current + 1) * 50).map(row => <tr key={`${row.id}:${row.societyKey}`}>
             <th scope="row">{row.name}<small>{row.groupBasis === "spouse" ? "NXT-linked married household / " : row.members ? "Confirmed household / " : ""}{lifetimeTypeLabel(row.constituentType)}</small><small>{[row.systemId && `System ID ${row.systemId}`, row.lookupId && `Constituent ID ${row.lookupId}`].filter(Boolean).join(" / ")}</small>
-              {row.members && <details><summary>Group members</summary>{row.members.map(member => <small key={member.id}>{member.name} / Constituent ID {member.lookupId || member.systemId}</small>)}</details>}</th><td>{row.societyName}</td>
-            <td>{lifetimeDate(row.date)}{row.date && <small>{lifetimeFiscalYear(row.date)} / Provisional</small>}</td><td>{lifetimeMoney(row.totalCents)}
+              {row.archived && <small>Archived / Gift credit retained</small>}
+              {row.members ? <details><summary>Group members</summary>{row.members.map(member => <div key={member.id}><small>{member.name} / Constituent ID {member.lookupId || member.systemId}{member.archived ? " / Archived from separate view; credit retained" : ""}</small>
+                {data.canManage && <button disabled={!!busy} onClick={() => decide(member.archived ? "restore-record" : "archive-record", member)}>{member.archived ? "Restore record" : "Archive record"}</button>}</div>)}</details> : data.canManage &&
+                <button disabled={!!busy} onClick={() => decide(row.archived ? "restore-record" : "archive-record", row)}>{row.archived ? "Restore record" : "Archive record"}</button>}</th><td>{row.societyName}</td>
+            <td>{lifetimeDate(row.date)}{row.date && <small>{lifetimeFiscalYear(row.date)} / {row.status === "confirmed" ? "Staff-confirmed" : "Provisional"}</small>}
+              {data.canManage && !row.archived && row.status === "provisional" && <button disabled={!!busy} onClick={() => decide("confirm-date", row)}>Confirm entry date</button>}
+              {data.canManage && row.status === "confirmed" && <button disabled={!!busy} onClick={() => decide("reopen-date", row)}>Reopen date review</button>}
+            </td><td>{lifetimeMoney(row.totalCents)}
               {row.totalCents === null && row.supportedCents != null && <small>Supported gifts subtotal: {lifetimeMoney(row.supportedCents)}. Excludes unresolved history; not a complete lifetime total.</small>}</td>
-            <td>{row.reasons.length ? row.reasons.join(" ") : "Reconcile historical adjustments and recognition settings before using this date."}
+            <td>{row.confirmationNote && <strong>{row.confirmationNote}</strong>}{row.reasons.length ? row.reasons.join(" ") : row.status !== "confirmed" ? "Reconcile historical adjustments and recognition settings before using this date." : ""}
               {row.constituentTypeNote && <small>{row.constituentTypeNote}</small>}
               {row.householdNote && <small>{row.householdNote}</small>}
               {!!row.crossingGiftIds.length && <details><summary>Milestone gift reference</summary><small>Gift system IDs: {row.crossingGiftIds.join(", ")}</small></details>}</td>

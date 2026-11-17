@@ -21,7 +21,7 @@
 .rules button[aria-pressed="true"] { border-color:var(--green); background:#eaf5ee; box-shadow:inset 0 0 0 1px var(--green); }
 .rules strong { display:block; font-size:30px; letter-spacing:-.03em; margin:8px 0; }
 .rules span { font-weight:650; }
-.metrics { grid-template-columns:repeat(3,1fr); }
+.metrics { grid-template-columns:repeat(4,1fr); }
 .metrics article { padding:20px; border:1px solid var(--line); border-radius:12px; background:white; }
 .metrics strong { display:block; font-size:26px; font-variant-numeric:tabular-nums; }
 .metrics span { display:block; color:var(--muted); font-size:13px; margin-top:8px; }
