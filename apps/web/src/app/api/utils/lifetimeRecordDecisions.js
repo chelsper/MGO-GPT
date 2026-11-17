@@ -25,6 +25,7 @@ export function applyLifetimeDecisions(snapshot, decisions = {}) {
     return { ...row, recordKey, milestoneKey, ...(members ? { members } : {}),
       archived: members ? members.every(member => member.archived) : archives.has(recordKey),
       ...(confirmation ? { date: confirmation.date, status: "confirmed", confirmedAt: confirmation.at,
+        confirmationNeedsReview: confirmation.rulesFingerprint !== snapshot.rulesFingerprint || confirmation.ruleVersion !== snapshot.ruleVersion,
         crossingGiftIds: confirmation.crossingGiftIds,
         confirmationNote: confirmation.rulesFingerprint !== snapshot.rulesFingerprint || confirmation.ruleVersion !== snapshot.ruleVersion
           ? "Society calculation rules have changed since confirmation. The staff-confirmed date is preserved; review it if needed."

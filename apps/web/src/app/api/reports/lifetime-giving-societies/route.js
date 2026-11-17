@@ -4,7 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getReportAccessForUser } from "@/app/api/utils/reportAccess";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { LIFETIME_REPORT_KEY, lifetimeError } from "@/utils/lifetimeSocieties";
-import { inspectLifetimeQuery, lifetimeTransport, publicLifetimeState, readLifetimeRules, readLifetimeState, refreshLifetimeHistory, updateLifetimeGroup, updateLifetimeRecord } from "@/app/api/utils/lifetimeSocieties";
+import { inspectLifetimeQuery, lifetimeTransport, publicLifetimeState, readLifetimeRules, readLifetimeState, refreshLifetimeHistory, savedLifetimeGiftReview, updateLifetimeGroup, updateLifetimeRecord } from "@/app/api/utils/lifetimeSocieties";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -24,10 +24,19 @@ async function context(edit = false) {
 const failure = error => Response.json({ error: error.lifetimeSafe ? error.message :
   "The report could not be loaded or refreshed. Saved history is unchanged. Check the shared NXT connection before trying again." },
 { status: error.lifetimeSafe ? error.status : 503, headers });
-export async function GET() {
+export async function GET(request) {
   try {
     const { canManage, title } = await context();
-    return Response.json({ ...publicLifetimeState(await readLifetimeState(), await readLifetimeRules()), canManage, title }, { headers });
+    const params = new URL(request?.url || "https://app.invalid").searchParams;
+    if (params.size) {
+      const milestoneKey = params.get("milestoneKey"), revision = params.get("revision"), page = params.get("page") || "0", view = params.get("view") || "all";
+      if ([...params.keys()].some(key => !["milestoneKey", "revision", "page", "view"].includes(key) || params.getAll(key).length !== 1) ||
+        !/^[a-f0-9]{64}$/.test(milestoneKey || "") || !/^[a-f0-9-]{36}$/.test(revision || "") ||
+        !/^(0|[1-9]\d{0,5})$/.test(page) || !["all", "counted", "review", "excluded"].includes(view))
+        throw lifetimeError("Choose gift details from the saved report.", 400);
+      return Response.json(savedLifetimeGiftReview(await readLifetimeState(), await readLifetimeRules(), { milestoneKey, revision, page: Number(page), view }), { headers });
+    }
+    return Response.json({ ...publicLifetimeState(await readLifetimeState(undefined, false), await readLifetimeRules()), canManage, title }, { headers });
   } catch (error) { return failure(error); }
 }
 export async function POST(request) {

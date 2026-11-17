@@ -7,6 +7,7 @@ import { decodeResult } from "./dashboardQueryResults";
 import { listGivingSocietyConfigurations } from "./givingSocietyConfigurations";
 import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHistory";
 import { applyLifetimeDecisions, lifetimeRecordKey, lifetimeMilestoneKey, publicLifetimeDecisions } from "./lifetimeRecordDecisions";
+import { analyzeLifetimeGifts, combineLifetimeEvents } from "./lifetimeGiftReview";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeActiveGroupIds, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
 
@@ -68,16 +69,47 @@ export async function readLifetimeRules(db = sql) {
   return societies.map(({ key, name, minimumAmount, countSources }) => ({ key, name, minimumAmount,
     countSources: key === "1934_club" ? [...new Set([...countSources, "recognition_credit"])] : countSources }));
 }
-export async function readLifetimeState(db = sql) {
-  const rows = await db`SELECT payload FROM report_snapshots_cache WHERE report_key=${CACHE_KEY} LIMIT 1`;
+export async function readLifetimeState(db = sql, includeEvidence = true) {
+  const rows = includeEvidence ? await db`SELECT payload FROM report_snapshots_cache WHERE report_key=${CACHE_KEY} LIMIT 1`
+    : await db`SELECT payload #- '{snapshot,giftReview}' AS payload FROM report_snapshots_cache WHERE report_key=${CACHE_KEY} LIMIT 1`;
   return rows[0]?.payload || { revision: null, snapshot: null };
 }
 export function publicLifetimeState(state, societies) {
   const snapshot = state.snapshot;
   const current = !snapshot || (snapshot.ruleVersion === LIFETIME_RULE_VERSION && snapshot.rulesFingerprint === hash(societies));
-  return { revision: state.revision, societies, snapshot: current ? applyLifetimeDecisions(snapshot, state.recordDecisions) : null, staleRules: !current,
+  const { giftReview, ...summary } = snapshot || {};
+  return { revision: state.revision, societies, snapshot: current && snapshot ? applyLifetimeDecisions(summary, state.recordDecisions) : null, staleRules: !current,
     savedDecisions: publicLifetimeDecisions(state.recordDecisions, current ? snapshot : null),
     previousImport: !current ? { refreshedAt: snapshot.refreshedAt, peopleCount: snapshot.peopleCount } : null };
+}
+
+export function savedLifetimeGiftReview(state, societies, { milestoneKey, revision, page = 0, view = "all" }) {
+  if (revision !== state.revision) throw lifetimeError("Saved history changed. Reload the saved report before reviewing these gifts.", 409);
+  const snapshot = publicLifetimeState(state, societies).snapshot;
+  const active = lifetimeActiveGroupIds(snapshot);
+  const row = [...(snapshot?.rows || []), ...(snapshot?.sharedGroups || []).filter(group => active.has(group.id)).flatMap(group => group.rows)]
+    .find(row => row.milestoneKey === milestoneKey);
+  if (!row) throw lifetimeError("This recipient or household is no longer in the current report. Reload saved results.", 409);
+  const evidence = state.snapshot.giftReview;
+  if (evidence?.version !== 1) return { available: false, items: [], message: "Gift details were not saved with this older import. An Admin or Advancement Services user can refresh gift history once to add them. Existing dates and archive choices stay saved." };
+  const recipients = row.members || [row], names = new Map(recipients.map(member => [member.id, member.name]));
+  const histories = recipients.map(member => Array.isArray(evidence.histories[member.id])
+    ? evidence.histories[member.id].map(event => ({ ...event, recipientIds: [member.id] })) : null);
+  if (histories.some(history => !Array.isArray(history))) throw lifetimeError("Saved gift details are incomplete. The report is unchanged; ask Advancement Services to refresh gift history.", 409);
+  const society = state.snapshot.societies.find(society => society.key === row.societyKey);
+  const analysis = analyzeLifetimeGifts(combineLifetimeEvents(histories).values(), {
+    sources: society.countSources, fullRecognition: snapshot.source.fullRecognition, today: evidence.asOf,
+  });
+  const counts = { all: analysis.items.length, counted: 0, review: 0, excluded: 0 };
+  for (const item of analysis.items) counts[item.outcome]++;
+  const matches = analysis.items.filter(item => view === "all" || item.outcome === view)
+    .sort((a, b) => (a.day || "9999").localeCompare(b.day || "9999") || a.giftId.localeCompare(b.giftId, "en", { numeric: true }));
+  const pageSize = 25, pages = Math.max(1, Math.ceil(matches.length / pageSize)), current = Math.min(page, pages - 1);
+  return { available: true, counts, page: current, pages, pageSize, total: matches.length, asOf: evidence.asOf,
+    items: matches.slice(current * pageSize, (current + 1) * pageSize).map(item => ({ ...item,
+      crossingGift: row.crossingGiftIds.includes(item.giftId),
+      credits: item.credits.map(({ recipientIds, ...credit }) => ({ ...credit, recipients: recipientIds.map(id => names.get(id)).filter(Boolean) })),
+    })) };
 }
 
 export async function updateLifetimeRecord({ revision, recordKey, milestoneKey, operation, user, db = sql, rules = readLifetimeRules }) {

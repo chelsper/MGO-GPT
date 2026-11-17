@@ -55,6 +55,32 @@ export function lifetimeCoverage(rows) {
     unclassified: new Set(rows.filter(row => !["individual", "organization", "mixed"].includes(row.constituentType)).map(row => row.id)).size };
 }
 
+export const lifetimeNeedsInvestigation = row => !["provisional", "confirmed"].includes(row.status) || !!row.reasons?.length || !!row.confirmationNeedsReview;
+export function lifetimeMatchesQueue(row, queue) {
+  if (queue === "attention") return row.status !== "confirmed" || lifetimeNeedsInvestigation(row);
+  if (queue === "review") return lifetimeNeedsInvestigation(row);
+  if (queue === "provisional") return row.status === "provisional" && !lifetimeNeedsInvestigation(row);
+  return !queue || row.status === queue;
+}
+export function lifetimeReviewSteps(row) {
+  const steps = new Set();
+  for (const reason of row.reasons || []) {
+    if (/complex gifts|linked history|Pledge history/.test(reason)) steps.add("Compare the pledge with its linked payments, adjustments and write-offs in NXT. This report cannot yet reconcile those transactions automatically; do not confirm a date from the supported subtotal alone.");
+    else if (/conflict/.test(reason)) steps.add("Check the listed gift system IDs for conflicting amounts, dates, types or owners. Resolve the source conflict before refreshing; no conflicting value is chosen as correct.");
+    else if (/gift date/.test(reason)) steps.add("Verify the gift date in NXT. Missing, invalid or future dates cannot establish a past milestone.");
+    else if (/gift amount/.test(reason)) steps.add("Verify the gift amount and any adjustments in NXT. Do not treat missing amounts as zero.");
+    else if (/credit flag|allocation/.test(reason)) steps.add("Have Advancement Services verify the credit flag and query recognition settings. No recipient credit is inferred from a donor's name.");
+    else if (/criteria/.test(reason)) steps.add("Review the query's gift-level filters for omitted earlier gifts. Changing the report view will not restore gifts absent from the source.");
+    else if (/does not demonstrate/.test(reason)) steps.add("Check whether earlier qualifying gifts are absent or the imported history is below this threshold. A missing date is not proof of ineligibility.");
+    else if (/reopened/.test(reason)) steps.add("Refresh gift history when ready to calculate a replacement provisional date. Reopening does not change another society's confirmed date.");
+    else steps.add("Ask Advancement Services to reconcile the saved review note before confirming this date.");
+  }
+  if (row.confirmationNeedsReview) steps.add("The society rules changed after confirmation. Review the saved date; reopen it only if staff decides a correction is necessary.");
+  if (!steps.size) steps.add(row.status === "confirmed" ? "This date is already confirmed. No repeat approval is needed. Reopen review only for an intentional correction."
+    : "Check the included gifts, recognition settings and household members, then explicitly confirm the provisional date when satisfied.");
+  return [...steps];
+}
+
 // Archiving is a display choice only, after all gift and household calculations.
 // A household remains visible while at least one member is active.
 export function lifetimeVisibleRows(snapshot, households = true, archive = "active") {
@@ -79,7 +105,7 @@ export function lifetimeHouseholdRows(snapshot) {
 
 export function filterLifetimeRows(rows, { search = "", society = "", constituentType = "", status = "", year = "" } = {}) {
   const term = search.trim().toLowerCase();
-  return rows.filter(row => (!society || row.societyKey === society) && (!status || row.status === status) &&
+  return rows.filter(row => (!society || row.societyKey === society) && lifetimeMatchesQueue(row, status) &&
     (!constituentType || (row.constituentType || "unknown") === constituentType) &&
     (!year || lifetimeFiscalYear(row.date) === year) && `${row.name} ${row.systemId || ""} ${row.lookupId || ""} ${(row.members || []).map(member => `${member.name} ${member.lookupId} ${member.systemId || ""}`).join(" ")}`.toLowerCase().includes(term));
 }
