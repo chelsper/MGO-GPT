@@ -8,7 +8,7 @@ const gift = { giftId: "101", day: "2020-01-01", cents: 10000000, type: "Cash", 
 const result = { available: true, counts: { all: 26, counted: 25, review: 1, excluded: 0 }, items: [gift], page: 0, pages: 2, total: 26, asOf: "2026-11-17" };
 const json = (body, status = 200) => ({ ok: status === 200, status, json: async () => body });
 beforeEach(() => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(result))));
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const props = () => ({ row, revision: "b".repeat(36), onClose: vi.fn(), onReload: vi.fn(), onAccessDenied: vi.fn(), canManage: true, onConfirm: vi.fn(), busy: false });
 it("reads details only, explains direct versus soft credit and provides actionable linked-history guidance", async () => {
   render(<Review {...props()} />); await screen.findByText("Gift 101");
@@ -77,4 +77,52 @@ it("does not offer confirmation for viewers, archived records or already-confirm
     render(<Review {...props()} {...changes} />); await screen.findByText("Gift 101");
     expect(screen.queryByRole("button", { name: "Review entry-date confirmation" })).not.toBeInTheDocument(); cleanup();
   }
+});
+const reconciliation = [{ code: "pledge", label: "Pledges", gifts: 1, evidence: "Verify linked payments and dated write-offs; do not count a pledge and payment twice." }];
+const exportResult = { ...result, reconciliation, items: [{ ...gift, type: "Pledge", outcome: "review", reconciliation }] };
+async function openChecklist() {
+  await screen.findByText("Gift 101");
+  fireEvent.click(screen.getByText("Reconciliation checklist / 1 unresolved gifts"));
+}
+it("shows gift-specific evidence and exports all unresolved gifts independent of the visible page", async () => {
+  const create = vi.fn(() => "blob:fictional"), click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: vi.fn() });
+  fetch.mockResolvedValueOnce(json(exportResult)).mockResolvedValueOnce({ ok: true, headers: new Headers({ "content-type": "text/csv; charset=utf-8" }), blob: async () => new Blob(["fictional csv"]) });
+  render(<Review {...props()} canManage={false} />); await openChecklist();
+  expect(screen.getByText(/not a completed reconciliation/)).toBeVisible();
+  fireEvent.click(screen.getByText("Evidence needed for this gift")); expect(screen.getAllByText(/dated write-offs/)).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Export all unresolved gifts (CSV)" }));
+  await screen.findByRole("status", { name: "" });
+  await screen.findByText(/CSV download prepared/);
+  expect(fetch.mock.calls[1][0]).toContain("format=reconciliation-csv");
+  expect(fetch.mock.calls[1][0]).not.toContain("page="); expect(fetch.mock.calls[1][0]).not.toContain("view=");
+  expect(fetch.mock.calls[1][1].method).toBeUndefined(); expect(create).toHaveBeenCalledTimes(1); expect(click).toHaveBeenCalledTimes(1);
+});
+it.each([409, 503, 403])("keeps the review usable after an export failure and does not download an error response: %s", async status => {
+  const value = props(), click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  fetch.mockResolvedValueOnce(json(exportResult)).mockResolvedValueOnce(json({ error: "Export unavailable" }, status));
+  render(<Review {...value} />); await openChecklist();
+  fireEvent.click(screen.getByRole("button", { name: "Export all unresolved gifts (CSV)" })); await screen.findByRole("alert");
+  expect(screen.getByText("Gift 101")).toBeVisible(); expect(click).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Export all unresolved gifts (CSV)" })).not.toBeDisabled();
+  if (status === 409) { fireEvent.click(screen.getByRole("button", { name: "Reload saved report" })); expect(value.onReload).toHaveBeenCalledTimes(1); }
+  if (status === 403) expect(value.onAccessDenied).toHaveBeenCalledWith("Export unavailable");
+});
+it("blocks repeated export clicks, aborts on close and does not download late responses", async () => {
+  let resolve;
+  const create = vi.fn(); vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: vi.fn() });
+  fetch.mockResolvedValueOnce(json(exportResult)).mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+  const mounted = render(<Review {...props()} />); await openChecklist();
+  fireEvent.click(screen.getByRole("button", { name: "Export all unresolved gifts (CSV)" }));
+  const pending = screen.getByRole("button", { name: "Preparing reconciliation CSV..." }); expect(pending).toBeDisabled(); fireEvent.click(pending);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const signal = fetch.mock.calls[1][1].signal; mounted.unmount(); expect(signal.aborted).toBe(true);
+  resolve({ ok: true, headers: new Headers({ "content-type": "text/csv" }), blob: async () => new Blob(["fictional csv"]) });
+  await waitFor(() => expect(create).not.toHaveBeenCalled());
+});
+it("rejects non-CSV success responses instead of downloading a login or error page", async () => {
+  fetch.mockResolvedValueOnce(json(exportResult)).mockResolvedValueOnce({ ok: true, headers: new Headers({ "content-type": "text/html" }) });
+  render(<Review {...props()} />); await openChecklist();
+  fireEvent.click(screen.getByRole("button", { name: "Export all unresolved gifts (CSV)" }));
+  await screen.findByText(/did not return a CSV/); expect(screen.queryByText(/CSV download prepared/)).not.toBeInTheDocument();
 });

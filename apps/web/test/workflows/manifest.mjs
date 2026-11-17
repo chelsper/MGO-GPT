@@ -198,6 +198,7 @@ export const workflowGroups = {
     "src/app/api/reports/lifetime-giving-societies/route.test.js",
     "src/app/reports/dashboards/lifetime-giving-societies/page.test.jsx",
     "src/app/reports/dashboards/lifetime-giving-societies/LifetimeGiftReview.test.jsx",
+    "src/utils/lifetimeReconciliation.test.js",
     "src/app/api/utils/boardTrusteeEligibility.test.js",
     "src/utils/boardTrustees.test.js",
     "src/app/api/reports/board-of-trustees/route.test.js",

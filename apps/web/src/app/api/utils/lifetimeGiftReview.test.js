@@ -6,7 +6,7 @@ vi.mock("./reportRefresh", () => ({ getReportRefreshUser: vi.fn() }));
 vi.mock("./blackbaud", () => ({ blackbaudApiFetch: vi.fn(), getBlackbaudConnection: vi.fn() }));
 vi.mock("./savedQueryExecution", () => ({ executeSavedQueryResults: vi.fn() }));
 vi.mock("./givingSocietyConfigurations", () => ({ listGivingSocietyConfigurations: vi.fn() }));
-import { inspectLifetimeQuery, publicLifetimeState, savedLifetimeGiftReview, readLifetimeState } from "./lifetimeSocieties";
+import { inspectLifetimeQuery, publicLifetimeState, savedLifetimeGiftReview, savedLifetimeReconciliationCsv, readLifetimeState } from "./lifetimeSocieties";
 import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHistory";
 import { lifetimeQueryFixture, lifetimeCsvFixture, lifetimeRules } from "../../../../test/lifetimeQueryFixture";
 
@@ -107,4 +107,45 @@ it("rejects oversized type/flag fields and incomplete saved ledgers instead of r
   expect(() => fixture([{ type: "x".repeat(201) }])).toThrow(/too long/);
   const f = fixture([{}]); f.state.snapshot.giftReview.histories = {};
   expect(() => f.detail()).toThrow(/incomplete/);
+});
+it("exports all unresolved gifts beyond the current page and never changes saved dates or decisions", () => {
+  const f = fixture(Array.from({ length: 61 }, (_, i) => ({ giftId: String(100 + i), type: i === 60 ? "Cash" : i % 2 ? "Pledge Payment" : "Pledge" })));
+  const before = JSON.stringify(f.state), row = f.view().snapshot.rows[0];
+  const result = f.detail(undefined, { page: 2 });
+  expect(result.reconciliation).toEqual(expect.arrayContaining([expect.objectContaining({ code: "pledge", gifts: 30 }), expect.objectContaining({ code: "payment", gifts: 30 })]));
+  expect(result.items[0].reconciliation[0].code).toBe("pledge");
+  const csv = savedLifetimeReconciliationCsv(f.state, lifetimeRules, { revision: f.state.revision, milestoneKey: row.milestoneKey });
+  expect(csv.startsWith("\uFEFF")).toBe(true); expect(csv.split("\r\n")).toHaveLength(61);
+  expect(csv).toContain('"100"'); expect(csv).toContain('"159"'); expect(csv).not.toContain('"160"');
+  expect(csv).not.toContain("recipientIds"); expect(csv).not.toContain(row.milestoneKey);
+  expect(JSON.stringify(f.state)).toBe(before);
+});
+it("exports household gifts once and never pulls in unrelated company history or excluded employee credit", () => {
+  const f = fixture([
+    { id: "9", name: "Fictional Corporation", constituentType: "O", type: "Matching Gift Pledge Payment" },
+    { id: "9", name: "Fictional Corporation", constituentType: "O", giftId: "999", type: "Pledge" },
+    { name: "Spouse One", credit: "Soft Credit Recipient", type: "Matching Gift Pledge Payment", spouseId: "DEMO-2", maritalStatus: "Married" },
+    { id: "2", name: "Spouse Two", credit: "Soft Credit Recipient", type: "Matching Gift Pledge Payment", spouseId: "DEMO-1", maritalStatus: "Married" },
+    { name: "Spouse One", giftId: "888", credit: "Constituent MG-Payment", type: "Matching Gift Pledge Payment", spouseId: "DEMO-2", maritalStatus: "Married" },
+  ], { identity: false, spouses: true });
+  const company = f.view().snapshot.rows.find(row => row.constituentType === "organization");
+  f.state.recordDecisions = { archives: [{ key: company.recordKey, name: company.name }] };
+  const row = f.view().snapshot.sharedGroups[0].rows[0];
+  const csv = savedLifetimeReconciliationCsv(f.state, lifetimeRules, { revision: f.state.revision, milestoneKey: row.milestoneKey });
+  expect(csv.split("\r\n")).toHaveLength(2); expect(csv).toContain('"101"'); expect(csv).toContain("Spouse One; Spouse Two");
+  expect(csv).not.toContain('"999"'); expect(csv).not.toContain('"888"'); expect(csv).not.toContain("Fictional Corporation");
+});
+it("fails closed on stale, incomplete, legacy, empty or oversized reconciliation exports", () => {
+  const f = fixture([{ type: "Pledge" }]), options = { revision: f.state.revision, milestoneKey: f.view().snapshot.rows[0].milestoneKey };
+  const output = changes => savedLifetimeReconciliationCsv(f.state, lifetimeRules, { ...options, ...changes });
+  expect(() => output({ revision: "old" })).toThrow(/Saved history changed/);
+  expect(() => output({ milestoneKey: "0".repeat(64) })).toThrow(/no longer/);
+  const limit = LIFETIME_LIMITS.bytes;
+  try { LIFETIME_LIMITS.bytes = 10; expect(() => output()).toThrow(/Nothing was truncated/); }
+  finally { LIFETIME_LIMITS.bytes = limit; }
+  const ledger = f.state.snapshot.giftReview;
+  delete f.state.snapshot.giftReview; expect(() => output()).toThrow(/older import/);
+  f.state.snapshot.giftReview = { ...ledger, histories: {} }; expect(() => output()).toThrow(/incomplete/);
+  const clean = fixture([{}]);
+  expect(() => savedLifetimeReconciliationCsv(clean.state, lifetimeRules, { revision: clean.state.revision, milestoneKey: clean.view().snapshot.rows[0].milestoneKey })).toThrow(/no unresolved/);
 });

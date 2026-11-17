@@ -9,6 +9,7 @@ import { aggregateLifetimeHistory, LIFETIME_LIMITS } from "./lifetimeSocietyHist
 import { applyLifetimeDecisions, lifetimeRecordKey, lifetimeMilestoneKey, publicLifetimeDecisions } from "./lifetimeRecordDecisions";
 import { analyzeLifetimeGifts, combineLifetimeEvents } from "./lifetimeGiftReview";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
+import { lifetimeReconciliationCsv, lifetimeReconciliationNeeds, lifetimeReconciliationSummary } from "@/utils/lifetimeReconciliation";
 import { LIFETIME_FIELDS, LIFETIME_QUERY_ID, LIFETIME_RULE_VERSION, LIFETIME_SOCIETY_KEYS, lifetimeActiveGroupIds, lifetimeError, lifetimeSourceWarnings } from "@/utils/lifetimeSocieties";
 
 const CACHE_KEY = "report:lifetime-giving-societies:v1";
@@ -83,7 +84,7 @@ export function publicLifetimeState(state, societies) {
     previousImport: !current ? { refreshedAt: snapshot.refreshedAt, peopleCount: snapshot.peopleCount } : null };
 }
 
-export function savedLifetimeGiftReview(state, societies, { milestoneKey, revision, page = 0, view = "all" }) {
+function lifetimeGiftReviewEvidence(state, societies, { milestoneKey, revision }) {
   if (revision !== state.revision) throw lifetimeError("Saved history changed. Reload the saved report before reviewing these gifts.", 409);
   const snapshot = publicLifetimeState(state, societies).snapshot;
   const active = lifetimeActiveGroupIds(snapshot);
@@ -102,14 +103,32 @@ export function savedLifetimeGiftReview(state, societies, { milestoneKey, revisi
   });
   const counts = { all: analysis.items.length, counted: 0, review: 0, excluded: 0 };
   for (const item of analysis.items) counts[item.outcome]++;
-  const matches = analysis.items.filter(item => view === "all" || item.outcome === view)
+  const items = analysis.items.map(item => ({ ...item, crossingGift: row.crossingGiftIds.includes(item.giftId),
+    credits: item.credits.map(({ recipientIds, ...credit }) => ({ ...credit, recipients: recipientIds.map(id => names.get(id)).filter(Boolean) })),
+  }));
+  return { available: true, counts, row, items, asOf: evidence.asOf, refreshedAt: snapshot.refreshedAt };
+}
+
+export function savedLifetimeGiftReview(state, societies, options) {
+  const evidence = lifetimeGiftReviewEvidence(state, societies, options);
+  if (!evidence.available) return evidence;
+  const { page = 0, view = "all" } = options;
+  const matches = evidence.items.filter(item => view === "all" || item.outcome === view)
     .sort((a, b) => (a.day || "9999").localeCompare(b.day || "9999") || a.giftId.localeCompare(b.giftId, "en", { numeric: true }));
   const pageSize = 25, pages = Math.max(1, Math.ceil(matches.length / pageSize)), current = Math.min(page, pages - 1);
-  return { available: true, counts, page: current, pages, pageSize, total: matches.length, asOf: evidence.asOf,
+  return { available: true, counts: evidence.counts, page: current, pages, pageSize, total: matches.length, asOf: evidence.asOf,
+    reconciliation: lifetimeReconciliationSummary(evidence.items),
     items: matches.slice(current * pageSize, (current + 1) * pageSize).map(item => ({ ...item,
-      crossingGift: row.crossingGiftIds.includes(item.giftId),
-      credits: item.credits.map(({ recipientIds, ...credit }) => ({ ...credit, recipients: recipientIds.map(id => names.get(id)).filter(Boolean) })),
+      reconciliation: lifetimeReconciliationNeeds(item),
     })) };
+}
+
+export function savedLifetimeReconciliationCsv(state, societies, options) {
+  const evidence = lifetimeGiftReviewEvidence(state, societies, options);
+  if (!evidence.available) throw lifetimeError(evidence.message, 409);
+  if (!evidence.counts.review) throw lifetimeError("This recipient has no unresolved gift records to export. Other report-level review notes may still need attention.", 409);
+  evidence.items.sort((a, b) => (a.day || "9999").localeCompare(b.day || "9999") || a.giftId.localeCompare(b.giftId, "en", { numeric: true }));
+  return "\uFEFF" + lifetimeReconciliationCsv(evidence, LIFETIME_LIMITS.bytes);
 }
 
 export async function updateLifetimeRecord({ revision, recordKey, milestoneKey, operation, user, db = sql, rules = readLifetimeRules }) {
