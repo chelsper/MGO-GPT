@@ -77,6 +77,17 @@
 .giftList details { font-size:13px; }
 .milestone { color:var(--green); font-weight:700; }
 .page td > button { display:block; margin-bottom:12px; }
+.familyPreviewGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:20px 0; }
+.familyPreviewCard { padding:20px; border:1px solid var(--line); border-radius:12px; background:white; min-width:0; overflow-wrap:anywhere; }
+.familyPreviewCard h4 { font-size:18px; margin:0 0 16px; }
+.familyPreviewCard dl { margin:0; }
+.familyPreviewCard dl > div { display:flex; justify-content:space-between; gap:18px; padding:12px 0; border-bottom:1px solid var(--line); font-size:14px; }
+.familyPreviewCard dt,.familyPreviewCard dd { flex:1; margin:0; }
+.familyPreviewCard dd { text-align:right; font-variant-numeric:tabular-nums; }
+.familyPreviewCard p,.familyPreviewCard details { font-size:13px; }
+.familyPreviewTotal { color:var(--green); font-weight:700; }
+.sharedGiftCredit { display:block; font-size:13px; margin-bottom:8px; }
+@media(max-width:900px) { .familyPreviewGrid { grid-template-columns:1fr; } }
 @media(max-width:600px) { .reviewPanel { padding:14px; } .reviewTabs button { flex:1 1 140px; text-align:left; } .giftList > li { padding:14px; } }
 @media(max-width:900px) { .intro { align-items:start; flex-direction:column; } .intro .actions { flex-direction:row; } .filters { grid-template-columns:1fr 1fr; } .tableHeader { flex-wrap:wrap; } }
 @media(max-width:600px) { .page { padding:16px; } .intro,.panel { padding:18px; } .rules,.metrics,.checks,.filters { grid-template-columns:1fr; } .panel > summary > span { display:block; margin:8px 0; } .error button { margin:12px 0 0; } }

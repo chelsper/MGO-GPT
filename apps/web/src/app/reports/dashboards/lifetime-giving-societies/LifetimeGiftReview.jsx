@@ -84,7 +84,9 @@ export default function LifetimeGiftReview({ row, revision, onClose, onReload, o
     <p>{row.status === "confirmed" ? `Staff-confirmed entry date: ${lifetimeDate(row.date)}. This review does not change it.` : row.date ? `Provisional entry date: ${lifetimeDate(row.date)}. Not yet confirmed.` : "No supported entry date yet. Your history is saved; it needs reconciliation, not another approval step."}</p>
     <div className={styles.reviewSteps}><h3>What to check next</h3><ul>{lifetimeReviewSteps(row).map(step => <li key={step}>{step}</li>)}</ul>
       {row.householdNote && <p>{row.householdNote}</p>}
-      {row.members && <p>Household: {row.members.map(member => member.name).join("; ")}. Only gifts given by or explicitly credited to these members are included, once per gift. Organizations' unrelated gifts are not included.</p>}
+      {row.members && <p>{row.groupBasis === "family" ? "Staff-linked family" : "Household"}: {row.members.map(member => member.name).join("; ")}. {row.groupBasis === "family"
+        ? "All imported qualifying gifts for these household members and explicitly linked organizations are included, even without a spouse's soft credit. Shared gifts count once. Other organizations remain separate; individual credit and NXT records are unchanged."
+        : "Only gifts given by or explicitly credited to these members are included, once per gift. Organizations' unrelated gifts are not included."}</p>}
     </div>
     <p className={styles.typeNote}>These are saved query results and any verified linked-history checks, not a live NXT check on every view. Supported recognition includes verified dated reductions; it is not a complete lifetime total while other history is unresolved. Excluded credits are not additional gifts.</p>
     <p>Any unconfirmed crossing followed by giving below the threshold needs staff review, even if giving later recovers. Staff-confirmed dates stay locked.</p>

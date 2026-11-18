@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title }) => <h1>{title}</h1> }));
 import Page from "./page";
 import { lifetimeRules } from "../../../../../test/lifetimeQueryFixture";
+import { lifetimeFamilyPreviewFixture } from "../../../../../test/lifetimeFamilyPreviewFixture";
+const familyPreview = () => lifetimeFamilyPreviewFixture({ revision: "saved", householdKey: "b".repeat(64), recordKey: "9".repeat(64) });
 const inspection = { ready: true, checks: [{ key: "id", label: "Constituent system record ID", required: true, column: "Person ID" }], warnings: ["Calculated dates are provisional."] };
 const row = { id: '["system","1"]', systemId: "1", lookupId: "D-1", name: "Fictional Donor", constituentType: "individual", societyKey: "1934_club", societyName: "1934 Club", thresholdCents: 10000000,
   totalCents: 10000000, date: "2020-07-01", status: "provisional", reasons: [], crossingGiftIds: ["101"] };
@@ -10,8 +12,60 @@ const snapshot = { refreshedAt: "2026-11-16T12:00:00Z", source: inspection, rows
   totalCents: null, status: "review", reasons: ["Pledge history needs reconciliation."], crossingGiftIds: [] }], peopleCount: 2, rawRows: 3, repeatedRows: 1, provisionalCount: 1, reviewCount: 1 };
 const saved = { revision: "saved", title: "Lifetime Giving Societies", canManage: true, societies: lifetimeRules, snapshot };
 const json = (body, status = 200) => ({ ok: status === 200, status, json: async () => body });
+function familyFixture(linked = false) {
+  const members = [{ ...row, recordKey: "1".repeat(64) }, { ...row, id: "2", name: "Fictional Spouse", lookupId: "D-2", recordKey: "2".repeat(64) }];
+  const org = { ...row, id: "9", name: "Fictional Foundation", lookupId: "F-9", recordKey: "9".repeat(64), constituentType: "organization" };
+  const base = { id: "a".repeat(64), automatic: true, sharedGiftCount: 1, members, rows: [{ ...row, id: "household", name: "Fictional spouses",
+    recordKey: "b".repeat(64), milestoneKey: "c".repeat(64), members, groupBasis: "spouse" }] };
+  const group = { id: "f".repeat(64), family: true, baseGroupId: base.id, members: [...members, org], rows: [{ ...base.rows[0], id: "family", name: "Fictional spouses + Fictional Foundation",
+    recordKey: "d".repeat(64), milestoneKey: "e".repeat(64), members: [...members, org], groupBasis: "family", constituentType: "mixed" }] };
+  return { ...saved, revision: linked ? "linked" : "saved", familyLinks: linked ? [{ key: "7".repeat(64), householdKey: base.rows[0].recordKey, organizationKey: org.recordKey,
+    householdName: base.rows[0].name, organizationName: org.name, matched: true }] : [], snapshot: { ...snapshot, rows: [...members, org],
+      sharedGroups: linked ? [base, group] : [base], giftReviewAvailable: true } };
+}
 beforeEach(() => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(saved))));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("opens from the exact household or organization and cancel returns focus without saving", async () => {
+  fetch.mockResolvedValue(json(familyFixture())); render(<Page />); await screen.findByText("Fictional spouses");
+  const shortcut = screen.getByRole("button", { name: "Link foundation" }); shortcut.focus(); fireEvent.click(shortcut);
+  expect(screen.getByLabelText("Household")).toHaveValue("b".repeat(64));
+  expect(screen.getByLabelText("Foundation or organization")).toHaveValue("");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" })); expect(shortcut).toHaveFocus();
+  const orgButton = screen.getByRole("button", { name: "Link to household" }); orgButton.focus(); fireEvent.click(orgButton);
+  expect(screen.getByLabelText("Foundation or organization")).toHaveValue("9".repeat(64));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" })); expect(orgButton).toHaveFocus();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("submits a family link once with exact saved keys, shows the combined group and preserves the separate-record view", async () => {
+  let finish;
+  fetch.mockResolvedValueOnce(json(familyFixture())).mockResolvedValueOnce(json(familyPreview())).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  render(<Page />); const shortcut = await screen.findByRole("button", { name: "Link foundation" }); shortcut.focus(); fireEvent.click(shortcut);
+  fireEvent.change(screen.getByLabelText("Foundation or organization"), { target: { value: "9".repeat(64) } });
+  await waitFor(() => expect(screen.getByLabelText(/Include all imported qualifying gifts/)).toBeEnabled());
+  fireEvent.click(screen.getByLabelText(/Include all imported qualifying gifts/));
+  const save = screen.getByRole("button", { name: "Confirm family link" }); fireEvent.click(save); fireEvent.click(save);
+  expect(save).toBeDisabled(); expect(fetch).toHaveBeenCalledTimes(3);
+  expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ operation: "link-family", revision: "saved", householdKey: "b".repeat(64), recordKey: "9".repeat(64) });
+  await act(async () => finish(json(familyFixture(true))));
+  expect(screen.queryByRole("region", { name: "Link foundation to household" })).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Family giving groups" }).parentElement).toHaveFocus();
+  expect(within(screen.getByRole("table")).getByText("Fictional spouses + Fictional Foundation")).toBeVisible();
+  expect(within(screen.getByRole("table")).queryByText("Fictional Foundation")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText("Show households and family groups instead of separate records"));
+  expect(within(screen.getByRole("table")).getByText("Fictional Foundation")).toBeVisible();
+  expect(within(screen.getByRole("table")).getByText("Fictional Donor")).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(3);
+});
+it.each([409, 403])("does not retry a rejected family link and handles access appropriately (%s)", async status => {
+  fetch.mockResolvedValueOnce(json(familyFixture())).mockResolvedValueOnce(json(familyPreview())).mockResolvedValueOnce(json({ error: status === 409 ? "Saved history changed" : "Access removed" }, status));
+  render(<Page />); fireEvent.click(await screen.findByRole("button", { name: "Link foundation" }));
+  fireEvent.change(screen.getByLabelText("Foundation or organization"), { target: { value: "9".repeat(64) } });
+  await waitFor(() => expect(screen.getByLabelText(/Include all imported qualifying gifts/)).toBeEnabled());
+  fireEvent.click(screen.getByLabelText(/Include all imported qualifying gifts/)); fireEvent.click(screen.getByRole("button", { name: "Confirm family link" }));
+  await screen.findByRole("alert"); expect(fetch).toHaveBeenCalledTimes(3);
+  if (status === 409) expect(screen.getByRole("region", { name: "Link foundation to household" })).toBeVisible();
+  else { expect(screen.queryByRole("region", { name: "Family giving groups" })).not.toBeInTheDocument(); expect(screen.queryByText("Fictional spouses")).not.toBeInTheDocument(); }
+});
 it("opens saved history and filters without NXT execution", async () => {
   render(<Page />); await screen.findByText("Fictional Donor");
   expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][1].method).toBeUndefined();
@@ -171,7 +225,8 @@ it("shows automatic grouping to viewers without offering write controls and keep
   fireEvent.click(screen.getByText("Households"));
   expect(screen.getByText("1 records need spouse-link review")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Keep spouses separate" })).not.toBeInTheDocument();
-  expect(screen.getByText(/Companies, foundations and other organizations stay separate/)).toBeVisible();
+  expect(screen.getByText(/Foundations and other organizations are linked separately under Family giving groups/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Link foundation to household" })).not.toBeInTheDocument();
 });
 it("shows actionable missing outputs without enabling an unsafe import", async () => {
   fetch.mockResolvedValueOnce(json({ ...saved, snapshot: null })).mockResolvedValueOnce(json({ ...inspection, ready: false,
