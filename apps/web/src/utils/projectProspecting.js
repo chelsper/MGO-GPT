@@ -36,6 +36,29 @@ export function projectIdentity(snapshot, source) {
     invalidRows: rowIds.filter(id => !id).length, error: null };
 }
 
+export function projectProspectRows(snapshot, identity) {
+  const rows = [], byId = new Map();
+  for (const [index, row] of (snapshot?.tableRows || []).entries()) {
+    const id = identity.rowIds?.[index] || null;
+    let prospect = id ? byId.get(id) : null;
+    if (!prospect) {
+      prospect = { id, values: row.map(() => new Set()) };
+      rows.push(prospect);
+      if (id) byId.set(id, prospect);
+    }
+    row.forEach((cell, column) => {
+      const value = id && column === identity.index ? id : cell;
+      if (value.trim()) prospect.values[column].add(value);
+    });
+  }
+  // Retain distinct query values without adding amounts or guessing identities.
+  // The representative row stays within the shared table's source-cell limits.
+  return rows.map(({ id, values }) => ({ id,
+    values: values.map(values => [...values]),
+    row: values.map(values => values.values().next().value || ""),
+  }));
+}
+
 export function projectCsv(headers, rows) {
   const cell = value => {
     let text = String(value ?? "");

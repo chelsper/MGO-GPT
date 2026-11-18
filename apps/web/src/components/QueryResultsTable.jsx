@@ -51,6 +51,7 @@ export default function QueryResultsTable({
   compact = false,
   leadingColumn,
   trailingColumn,
+  renderCell,
 }) {
   const hintId = useId();
   const [sort, setSort] = useState(null);
@@ -187,7 +188,8 @@ export default function QueryResultsTable({
                       undefined
                     }
                   >
-                    {displayCell(row[column.sourceIndex], column.format)}
+                    {renderCell ? renderCell(row[column.sourceIndex], column, index)
+                      : displayCell(row[column.sourceIndex], column.format)}
                   </td>
                 ))}
                 {trailingColumn && <td>{trailingColumn.render(row, index)}</td>}

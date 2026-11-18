@@ -77,6 +77,67 @@ describe("project prospect tags UI", () => {
     await screen.findByText("1 constituent updated. Nothing changed in NXT.");
     expect(JSON.parse(fetch.mock.calls.find(([, options]) => options.method === "POST")[1].body).constituentIds).toEqual(["456"]);
   });
+  it("shows one row per constituent while preserving alternate values, tags, search and export", async () => {
+    assignments = [{ constituentId: "123", tagId: tag.id }];
+    const objectUrl = vi.fn(() => "blob:project-csv");
+    vi.stubGlobal("URL", { createObjectURL: objectUrl, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await open({ snapshot: { ...snapshot, headers: ["Name", "System ID", "Interest"], total: 4, tableRows: [
+      ["Fictional Avery", "123", "Arts"], ["Fictional Avery", "456", "Research"],
+      ["Fictional Avery", "123", "Science"], ["Fictional Avery", "123", "Arts"],
+    ] } });
+    const table = screen.getByRole("table", { name: report.title });
+    expect(within(table).getAllByRole("checkbox")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "2 constituents" })).toBeInTheDocument();
+    expect(screen.getByText("2 of 2 constituents shown")).toBeInTheDocument();
+    expect(screen.getByText(/2 repeated query rows were combined/)).toBeInTheDocument();
+    expect(within(table).getAllByText(tag.name)).toHaveLength(1);
+    fireEvent.click(screen.getByText("+1 more"));
+    expect(screen.getByRole("list", { name: "Additional Interest values" })).toHaveTextContent("Science");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Science" } });
+    expect(screen.getByText("1 of 2 constituents shown")).toBeInTheDocument();
+    expect(within(table).getByRole("checkbox")).toHaveAttribute("aria-label", "Select constituent 123");
+    fireEvent.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+    const csv = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsText(objectUrl.mock.calls[0][0]); });
+    expect(csv).toContain('"Fictional Avery","123","Arts\nScience","Leadership interest"');
+    expect(csv.match(/Fictional Avery/g)).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledOnce();
+    selectAll(); chooseTag(); fireEvent.click(screen.getByRole("button", { name: "Remove tag" }));
+    await screen.findByText("1 constituent updated. Nothing changed in NXT.");
+    expect(JSON.parse(fetch.mock.calls.find(([, options]) => options.method === "POST")[1].body).constituentIds).toEqual(["123"]);
+  });
+  it("keeps grouped values and tag selection aligned after reordering columns and sorting", async () => {
+    await open({ report: { ...report, dataConfiguration: { ...report.dataConfiguration,
+      columns: [{ header: "System ID", visible: false }, { header: "Name", visible: true }, { header: "Interest", visible: true }] } },
+      snapshot: { ...snapshot, headers: ["Name", "System ID", "Interest"], total: 4, tableRows: [
+        ["Avery", "123", "Arts"], ["Blake", "456", "Research"],
+        ["Avery", "123", "Science"], ["Blake", "456", "Health"],
+      ] } });
+    fireEvent.click(screen.getByRole("button", { name: "Name", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Name", exact: true }));
+    const first = within(screen.getByRole("table", { name: report.title })).getAllByRole("row")[1];
+    expect(first).toHaveTextContent("Blake"); expect(first).toHaveTextContent("Research"); expect(first).toHaveTextContent("Health");
+    expect(first).not.toHaveTextContent("Science");
+    fireEvent.click(within(first).getByRole("checkbox")); chooseTag();
+    fireEvent.click(screen.getByRole("button", { name: "Apply tag" }));
+    await screen.findByText("1 constituent updated. Nothing changed in NXT.");
+    expect(JSON.parse(fetch.mock.calls.find(([, options]) => options.method === "POST")[1].body).constituentIds).toEqual(["456"]);
+  });
+  it("leaves blank and invalid identities visible but unselectable", async () => {
+    await open({ snapshot: { ...snapshot, total: 4, tableRows: [["", ""], ["", ""], ["Same name", "bad"], ["Same name", "bad"]] } });
+    const boxes = within(screen.getByRole("table", { name: report.title })).getAllByRole("checkbox");
+    expect(boxes).toHaveLength(4); boxes.forEach(box => expect(box).toBeDisabled());
+    expect(screen.getByText("4 of 4 entries shown")).toBeInTheDocument();
+  });
+  it("paginates unique constituents rather than their repeated query rows", async () => {
+    const people = Array.from({ length: 26 }, (_, i) => [`Person ${i}`, String(i + 1)]);
+    await open({ snapshot: { ...snapshot, total: 52, tableRows: people.flatMap(row => [row, row]) } });
+    expect(screen.getByText("Rows 1-25 of 26; page 1 of 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    const last = within(screen.getByRole("table", { name: report.title })).getAllByRole("checkbox");
+    expect(last).toHaveLength(1); expect(last[0]).toHaveAttribute("aria-label", "Select constituent 26");
+    selectAll(); expect(screen.getByText("26 selected")).toBeInTheDocument();
+  });
   it("blocks tagging without mapping while preserving the query output", async () => {
     await open({ report: { ...report, dataConfiguration: projectSource() } });
     expect(screen.getByText("Fictional Avery")).toBeInTheDocument();

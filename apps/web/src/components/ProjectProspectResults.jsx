@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import QueryResultsTable from "./QueryResultsTable";
+import QueryResultsTable, { displayCell } from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
 import { orderedListColumns } from "@/utils/listQueryConfiguration";
-import { normalizeProjectTag, projectIdentity, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
+import { normalizeProjectTag, projectIdentity, projectProspectRows, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
 import { requestProjectTags } from "@/utils/projectTagRequest";
 import styles from "./projectProspecting.module.css";
 import shared from "./reportConfigurationEditor.module.css";
@@ -23,6 +23,8 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const controller = useRef(null);
   const endpoint = `/api/reports/lists/${encodeURIComponent(report.key)}/tags`;
   const identity = projectIdentity(snapshot, report.dataConfiguration);
+  const prospects = projectProspectRows(snapshot, identity);
+  const duplicateRows = snapshot.tableRows.length - prospects.length;
 
   async function loadTags(signal) {
     const data = await requestProjectTags(endpoint, { signal });
@@ -48,8 +50,9 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   }
   const columns = orderedListColumns(snapshot.headers, settings);
   const indexes = columns.map(column => snapshot.headers.indexOf(column.header));
-  const filtered = snapshot.tableRows.map((row, index) => ({ row, id: identity.rowIds?.[index] || null }))
-    .filter(({ row, id }) => row.some(cell => cell.toLowerCase().includes(search.trim().toLowerCase())) &&
+  const searchTerm = search.trim().toLowerCase();
+  const filtered = prospects
+    .filter(({ values, id }) => (!searchTerm || values.some(cells => cells.some(cell => cell.toLowerCase().includes(searchTerm)))) &&
       (!filterTag || (filterTag === "__untagged" ? !assignments.get(id)?.size : assignments.get(id)?.has(filterTag))));
   const filteredIds = [...new Set(filtered.map(item => item.id).filter(Boolean))];
   const rows = filtered.map(({ row }) => indexes.map(index => row[index]));
@@ -105,8 +108,8 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
 
   function exportCsv() {
     const visible = columns.filter(column => column.visible);
-    const values = filtered.map(({ row, id }) => [
-      ...visible.map(column => row[snapshot.headers.indexOf(column.header)]),
+    const values = filtered.map(({ values, id }) => [
+      ...visible.map(column => values[snapshot.headers.indexOf(column.header)].join("\n")),
       tags.filter(tag => assignments.get(id)?.has(tag.id)).map(tag => tag.name).join("; "),
     ]);
     const blob = new Blob([projectCsv([...visible.map(column => column.label || column.header), "Project tags"], values)], { type: "text/csv;charset=utf-8" });
@@ -118,13 +121,13 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   }
 
   return <section className={styles.panel} aria-label="Project prospects and tags" aria-busy={Boolean(loading || saving)}>
-    <div className={styles.heading}><div><h2>{identity.error ? `${snapshot.total} query rows` : `${identity.ids.length} people`}</h2>
+    <div className={styles.heading}><div><h2>{identity.error ? `${snapshot.total} query rows` : `${identity.ids.length} constituents`}</h2>
       <p>Tags are shared with this project's viewers and saved in the app only.</p></div>
       <div className={styles.tools}><ListColumnEditor headers={snapshot.headers} value={settings} onChange={setSettings} compact />
         <button className={shared.button} disabled={busy || !saved || Boolean(error)} onClick={exportCsv}>Export filtered CSV</button></div></div>
     {identity.error && <p className={shared.notice}>{identity.error} {report.canConfigure && <a href={`/report-configurations?report=${encodeURIComponent(report.key)}`}>Project settings</a>}</p>}
     {identity.invalidRows > 0 && <p className={shared.notice}>{identity.invalidRows} rows have no valid constituent system ID. They remain visible but cannot be tagged.</p>}
-    {identity.ids.length < snapshot.total && !identity.error && <p className={styles.help}>Query rows may repeat a person. A tag applies once per constituent system ID and appears on each of that person's rows.</p>}
+    {duplicateRows > 0 && <p className={styles.help}>Showing each constituent once. {duplicateRows} repeated query {duplicateRows === 1 ? "row was" : "rows were"} combined; additional field values remain available and are included in CSV exports. Amounts are not added together.</p>}
     {loading && <p role="status">Loading project tags...</p>}
     {error && <div role="alert" className={shared.notice}>{error} <button className={shared.button} disabled={saving || loading} onClick={reloadProject}>Reload project</button></div>}
     <div className={styles.tools}>
@@ -133,7 +136,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
         <option value="">All people</option><option value="__untagged">No tags yet</option>
         {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
       </select></label>
-      <span className={styles.help}>{filtered.length} of {snapshot.total} query rows shown</span>
+      <span className={styles.help}>{filtered.length} of {prospects.length} {identity.error ? "query rows" : identity.invalidRows ? "entries" : "constituents"} shown</span>
     </div>
     <div className={styles.tagBar}>
       <div className={styles.tools}>
@@ -153,6 +156,16 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
       {notice && <p role="status">{notice}</p>}
     </div>
     <QueryResultsTable headers={columns.map(column => column.header)} rows={rows} columnSettings={columns} title={report.title} compact
+      renderCell={(value, column, index) => {
+        const values = filtered[index].values[snapshot.headers.indexOf(column.header)];
+        if (values.length <= 1) return displayCell(value, column.format);
+        return <details className={styles.cellValues}>
+          <summary>{displayCell(value, column.format)} <span className={styles.help}>+{values.length - 1} more</span></summary>
+          <ul aria-label={`Additional ${column.label || column.header} values`}>
+            {values.slice(1).map((value, index) => <li key={index}>{displayCell(value, column.format)}</li>)}
+          </ul>
+        </details>;
+      }}
       leadingColumn={{ title: "Select", render: (row, index) => {
         const id = filtered[index].id;
         return <input type="checkbox" aria-label={`Select constituent ${id || "unavailable"}`} checked={Boolean(id && selected.includes(id))}
