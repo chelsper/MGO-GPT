@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectSource, projectIdentity, normalizeProjectTag, projectCsv, PROJECT_SECTION } from "./projectProspecting";
+import { projectSource, projectIdentity, projectProspectRows, normalizeProjectTag, projectCsv, PROJECT_SECTION } from "./projectProspecting";
 import { validateListSource, normalizeListSource, reportNavigation, LIST_SCHEMA } from "./constituentLists";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { listSnapshotKeys } from "@/app/api/utils/constituentListRefresh";
@@ -31,6 +31,40 @@ describe("Project Prospecting", () => {
     expect(listSnapshotKeys(report, "https://app.test")).toEqual(listSnapshotKeys({ ...report, dataConfiguration: { ...source, systemIdColumn: "ID", columns: [] } }, "https://app.test"));
     expect(listSnapshotKeys(report, "https://app.test")).toEqual(listSnapshotKeys({ ...report, dataConfiguration: { ...source, fieldCategory: "Prospect Research", fieldDescription: "The Center" } }, "https://app.test"));
     expect(listSnapshotKeys(report, "https://app.test")).not.toEqual(listSnapshotKeys({ ...report, dataConfiguration: { ...source, queryId: "99" } }, "https://app.test"));
+  });
+  it("groups repeated system IDs in first-seen order and keeps all distinct nonblank values", () => {
+    const snapshot = { headers: ["Name", source.systemIdColumn, "Interest", "Amount"], tableRows: [
+      ["Fictional Avery", "123", "", "100"],
+      ["Fictional Avery", "456", "Research", "100"],
+      ["Fictional Avery", " 123 ", "Arts", "200"],
+      ["Fictional Avery", "123", "Arts", "100"],
+      ["Avery Alias", "123", "Science", ""],
+    ] };
+    const original = structuredClone(snapshot);
+    expect(projectProspectRows(snapshot, projectIdentity(snapshot, source))).toEqual([
+      { id: "123", row: ["Fictional Avery", "123", "Arts", "100"],
+        values: [["Fictional Avery", "Avery Alias"], ["123"], ["Arts", "Science"], ["100", "200"]] },
+      { id: "456", row: ["Fictional Avery", "456", "Research", "100"],
+        values: [["Fictional Avery"], ["456"], ["Research"], ["100"]] },
+    ]);
+    expect(snapshot).toEqual(original);
+  });
+  it("never combines invalid or unmapped IDs, even with identical names and lookup IDs", () => {
+    const snapshot = { headers: ["Name", source.systemIdColumn, "Lookup ID"], tableRows: [
+      ["Same name", "", "123"], ["Same name", "", "123"],
+      ["Same name", "1.0", "123"], ["Same name", "1.0", "123"],
+      ["Same name", "9007199254740999", "123"], ["Same name", "9007199254740998", "123"],
+    ] };
+    expect(projectProspectRows(snapshot, projectIdentity(snapshot, source))).toHaveLength(6);
+    const unmapped = projectProspectRows(snapshot, projectIdentity(snapshot, projectSource()));
+    expect(unmapped).toHaveLength(6); expect(unmapped.every(row => row.id === null)).toBe(true);
+  });
+  it("keeps representative cells bounded while retaining a long collection of alternate values", () => {
+    const snapshot = { headers: [source.systemIdColumn, "Notes"], tableRows: Array.from({ length: 100 }, (_, i) => ["123", `${i} ${"x".repeat(200)}`]) };
+    const rows = projectProspectRows(snapshot, projectIdentity(snapshot, source));
+    expect(rows).toHaveLength(1); expect(rows[0].values[1]).toHaveLength(100);
+    expect(rows[0].row[1]).toBe(snapshot.tableRows[0][1]);
+    expect(projectProspectRows({ tableRows: [] }, { rowIds: [] })).toEqual([]);
   });
   it("keeps project and normal list navigation separate", () => {
     const report = { key: "list-project-center", dataConfiguration: source, configurationSchema: LIST_SCHEMA, canView: true, active: true };

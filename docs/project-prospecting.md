@@ -23,9 +23,9 @@ All explicitly selected viewers see all returned query columns, regardless of th
 
 Search or filter the list, select individuals or up to 100 matching people, choose a tag, then apply or remove it. Create a new tag inline when needed. A project supports up to 100 distinct names, each 1-50 characters. Matching ignores case and normalizes whitespace. Tags are independent between projects.
 
-Assignments use project key + tag ID + constituent system ID, never names or row positions. Duplicate rows for the same constituent share tags. Invalid ID rows remain visible but cannot be tagged. Refreshing a query does not delete tags: if someone leaves and later returns to its results, their tags return too.
+Assignments use project key + tag ID + constituent system ID, never names or row positions. The table shows one row per mapped constituent system ID, even when the saved query repeats that constituent. Distinct nonblank field values remain available under **+N more** in the cell and remain searchable. Values are not summed or treated as separate gifts. Same-name constituents with different system IDs remain separate. Invalid ID rows remain visible individually but cannot be tagged; an absent mapping does not guess identity from names, Lookup IDs, or row IDs. Refreshing a query does not delete tags: if someone leaves and later returns to its results, their tags return too.
 
-Export filtered CSV includes the visible columns and project tag names, with spreadsheet formula neutralization. Export does not change NXT, query membership, or access. Tag names are separated by semicolons in a single CSV cell.
+Export filtered CSV includes one row per mapped constituent, the visible columns and project tag names, with spreadsheet formula neutralization. Multiple distinct values for a column are separated by line breaks inside its quoted CSV cell. Export does not change NXT, query membership, or access. Tag names are separated by semicolons in a single CSV cell. The saved query snapshot remains intact; deduplication is display/export only and needs no new NXT refresh.
 
 ## Adding People
 
