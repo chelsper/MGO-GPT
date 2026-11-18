@@ -144,6 +144,20 @@ error bodies are persisted in diagnostics. The only Blackbaud POST executes the
 saved query; all constituent/gift retrievals are GET-only. No NXT definitions or
 donor records are changed.
 
+## Pledge Reminder CSV
+
+Admins and Advancement Services can use **Create pledge reminder CSV** after a query-12033 refresh finishes (including completed-with-errors jobs). The current tab and search define the proposed worklist. Select up to 200 eligible pledges across the full filtered result, not just the displayed page. Each pledge remains a separate reminder even if the same donor has several pledges.
+
+Choose the letter date and explicitly prepare the selection. Preparation makes one bounded, non-retried constituent GET per pledge through the signed-in reviewer's own NXT connection, sequentially; it does not rerun the query or update gifts. The UI can pause after the current read and continue remaining items without replacing already prepared drafts. A failed read stops the loop, preserving finished drafts in the current page.
+
+Amounts come from the current verified saved pledge worklist, not a fresh balance check. Past Due uses unpaid installment balances through Eastern today; Upcoming uses balances on the next unpaid installment date only, excluding arrears. Paid to date uses verified payment applications rather than amount minus balance. The letter date changes only the displayed letter date, not financial classification. Saved verification timestamps and the amounts-as-of date remain visible and are included in the CSV. Refresh the worklist before preparing reminders when payments may have changed.
+
+Staff can edit the suggested addressee and separate address lines, city, state and ZIP locally. Extra street lines are preserved in Address_Line_2. Missing/current-address issues require correction or exclusion; Do not mail, deceased/inactive, mismatched-identity and international addresses are held rather than silently included. This first template is US-address-only. Organization names are suggested as the addressee; staff can add the intended contact/attention line. No household merging or guessed spouse/foundation attribution occurs.
+
+After one explicit review confirmation, download only ready selected reminders; held rows are counted visibly and remain available for correction. A server-side cached-state check revalidates reviewer access, user/origin scope, job, selected IDs, verification timestamps, timing view and Eastern day immediately before download, with no NXT calls. Changed/stale data blocks export without deleting drafts. The CSV preserves leading ZIP zeroes as text, quotes multiline values, neutralizes spreadsheet formulas and maps these exact template fields: `Addressee`, `Address_Line_1`, `Address_Line_2`, `City`, `State`, `Zip`, `Fund`, `Pledge_Amount`, `Amount_Paid_to_Date`, `Installment_Amount`. Additional audit columns include `Letter_Date`, `Due_Date`, pledge/constituent IDs, balance and check dates. Word should merge `Letter_Date` instead of retaining a typed date.
+
+Drafts are page-local, not a persisted mailing history. Leaving before downloading prompts a warning; closing asks before discarding unexported prepared drafts. Export never sends email, applies an appeal, marks mailed, adjusts balances, or creates NXT records. Review merged Word letters and the template's current payment instructions before dispatch. The supplied template and its banking information are not bundled into public application assets or committed to the repository.
+
 ## API references and deployment validation
 
 - [Gift list and Gift Get](https://developer.sky.blackbaud.com/api#api=58bdd5edd7dcde06046081d6&operation=GetGift)

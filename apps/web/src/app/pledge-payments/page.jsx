@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import PledgePaymentList, { pledgeMoney } from "@/components/PledgePaymentList";
+import PledgeReminderPanel from "@/components/PledgeReminderPanel";
 import { OPEN_PLEDGE_QUERY_ID, pledgeWorklist } from "@/utils/pledgePayments";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
@@ -31,6 +32,7 @@ export default function PledgePaymentsPage() {
   const [tab, setTab] = useState("pastDue");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [reminderSource, setReminderSource] = useState(null);
   const inFlight = useRef(false);
 
   async function load() {
@@ -109,6 +111,10 @@ export default function PledgePaymentsPage() {
         <p className="mt-3 text-xs text-gray-500">{job.completedAt ? `Finished ${new Date(job.completedAt).toLocaleString()}. ` : ""}Refresh continues in small batches while this page stays open. Leaving pauses the work; Resume does not restart verified pledges. Opening this page or switching tabs does not refresh NXT.</p>
       </section>}
       {incomplete && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">This worklist is incomplete or still refreshing. Totals cover the verified rows shown, with older saved values retained where available. Unverified pledges without saved data are not included.</div>}
+      {!reminderSource && <div><button className={button} disabled={busy || automatic || legacySource || !job?.discoveryComplete || !["completed", "completed_with_errors"].includes(job?.status) || !filtered.length}
+        onClick={() => setReminderSource({ rows: filtered, view: tab, jobId: job.id, today: data.today })}>Create pledge reminder CSV</button>
+        <p className="mt-2 text-sm text-gray-600">Use the selected tab and search to choose the reminder worklist. Finish refreshing first; verified pledges remain eligible when other pledges need review.</p></div>}
+      {reminderSource && <PledgeReminderPanel source={reminderSource} onClose={() => setReminderSource(null)} />}
       <section className="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white">
         <div className="space-y-4 border-b border-gray-200 p-5">
           <div role="tablist" aria-label="Pledge payment timing" className="flex flex-wrap gap-2">

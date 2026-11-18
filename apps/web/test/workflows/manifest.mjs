@@ -1,6 +1,14 @@
 // Deliberately explicit: a renamed/missing/empty/skipped required suite fails the gate.
 // Live-provider and disposable-PostgreSQL suites have separate prerequisites.
 export const workflowGroups = {
+  "Pledge reminder CSV": [
+    "src/utils/pledgeReminders.test.js",
+    "src/components/PledgeReminderPanel.test.jsx",
+    "src/app/api/pledge-payments/reminders/route.test.js",
+    "src/app/pledge-payments/page.test.jsx",
+    "src/utils/pledgePayments.test.js",
+    "src/app/api/pledge-payments/route.test.js",
+  ],
   "Project Prospecting": [
     "test/workflows/reportLayouts.test.js",
     "src/utils/projectProspecting.test.js",
