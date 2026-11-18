@@ -6,7 +6,7 @@ vi.mock("./blackbaud", () => ({ blackbaudApiFetch: vi.fn(), getBlackbaudConnecti
 vi.mock("./savedQueryExecution", () => ({ executeSavedQueryResults: vi.fn() }));
 vi.mock("./givingSocietyConfigurations", () => ({ listGivingSocietyConfigurations: vi.fn() }));
 import { publicLifetimeState, refreshLifetimeHistory, updateLifetimeGroup, updateLifetimeRecord, savedLifetimeGiftReview } from "./lifetimeSocieties";
-import { materializeLifetimeFamilies, updateLifetimeFamily } from "./lifetimeFamilyGroups";
+import { materializeLifetimeFamilies, previewLifetimeFamily, updateLifetimeFamily } from "./lifetimeFamilyGroups";
 import { lifetimeCsv, lifetimeVisibleRows, filterLifetimeRows, lifetimeActiveGroupIds } from "@/utils/lifetimeSocieties";
 import { lifetimeQueryFixture, lifetimeRules, lifetimeCsvFixture } from "../../../../test/lifetimeQueryFixture";
 import { blackbaudApiFetch } from "./blackbaud";
@@ -42,6 +42,76 @@ async function fixture(initial = rows) {
   const record = (operation, values) => updateLifetimeRecord({ revision: state.revision, user, db, rules, operation, ...values });
   return { db, rules, transport, user, refresh, view, base, org, command, record, state: () => state, family: () => view().snapshot.sharedGroups.find(group => group.family) };
 }
+
+const preview = (f, options = {}) => previewLifetimeFamily(f.state(), lifetimeRules, { revision: f.state().revision,
+  householdKey: f.base()?.rows[0].recordKey, recordKey: f.org()?.recordKey, ...options });
+
+it("previews the exact saved result with overlap once, without mutation, writes, provider reads, or private evidence", async () => {
+  const f = await fixture(), before = structuredClone(f.state());
+  f.db.mockClear(); f.transport.metadata.mockClear(); f.transport.execute.mockClear();
+  const result = preview(f);
+  expect(result.societies[0]).toMatchObject({ current: { totalCents: 8000000 }, organization: { totalCents: 11000000 }, overlapCents: 6000000,
+    combined: { totalCents: 13000000, date: "2021-01-01", status: "provisional" }, counts: { all: 3, counted: 3, review: 0, excluded: 0 } });
+  expect(result.sharedGifts).toMatchObject({ total: 1, pages: 1, items: [{ giftId: "101", recognition: [
+    { societyKey: lifetimeRules[0].key, outcome: "counted", cents: 6000000 }, { societyKey: lifetimeRules[1].key, outcome: "counted", cents: 6000000 }] }] });
+  expect(result.existingOrganizations).toEqual([]); expect(result.members).toHaveLength(3);
+  expect(f.state()).toEqual(before); expect(f.db).not.toHaveBeenCalled();
+  expect(f.transport.metadata).not.toHaveBeenCalled(); expect(f.transport.execute).not.toHaveBeenCalled(); expect(blackbaudApiFetch).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toMatch(/userId|familyAudit|giftReview|linkedScopes|DEMO-10|Unrelated Corporation/);
+  await f.command("link-family");
+  for (const society of result.societies) expect(f.family().rows.find(row => row.societyKey === society.societyKey)).toMatchObject(society.combined);
+});
+
+it("keeps existing linked organizations in the preview and does not count them again", async () => {
+  const f = await fixture(); await f.command("link-family");
+  const other = f.view().snapshot.rows.find(row => row.name === "Unrelated Corporation");
+  const result = preview(f, { recordKey: other.recordKey });
+  expect(result.existingOrganizations.map(person => person.name)).toEqual([foundation.name]);
+  expect(result.members).toHaveLength(4); expect(result.currentName).toContain(foundation.name);
+  expect(result.societies[0]).toMatchObject({ current: { totalCents: 13000000 }, organization: { totalCents: 900000000 }, overlapCents: 0, combined: { totalCents: 913000000 } });
+  expect(result.sharedGifts.total).toBe(0);
+});
+
+it("withholds full totals and overlap for unresolved or conflicting gifts instead of adding partial subtotals", async () => {
+  const f = await fixture([...rows, { ...foundation, giftId: "107", type: "Pledge", amount: "1000000" }]);
+  expect(preview(f).societies[0]).toMatchObject({ overlapCents: null, organization: { totalCents: null },
+    combined: { totalCents: null, supportedCents: 13000000, date: null, status: "review" }, counts: { review: 1 } });
+  await f.refresh(rows.map(row => row.id === "9" && row.giftId === undefined ? { ...row, amount: "70000" } : row));
+  expect(preview(f).societies[0]).toMatchObject({ overlapCents: null, combined: { totalCents: null, supportedCents: null, date: null } });
+  expect(preview(f).sharedGifts.items[0].recognition.every(credit => credit.outcome === "review" && credit.cents === null)).toBe(true);
+});
+
+it("keeps archived foundation credit, distinguishes society-specific exclusions, and does not infer revenue", async () => {
+  const f = await fixture(); await f.record("archive-record", { recordKey: f.org().recordKey });
+  expect(preview(f).societies[0].combined.totalCents).toBe(13000000);
+  const rules = lifetimeRules.map(rule => ({ ...rule, countSources: ["committed"] }));
+  f.rules.mockResolvedValue(rules); await f.refresh();
+  const view = publicLifetimeState(f.state(), rules).snapshot;
+  const result = previewLifetimeFamily(f.state(), rules, { revision: f.state().revision, householdKey: view.sharedGroups[0].rows[0].recordKey,
+    recordKey: view.rows.find(row => row.name === foundation.name).recordKey });
+  expect(result.societies[0]).toMatchObject({ current: { totalCents: 2000000 }, organization: { totalCents: 11000000 }, overlapCents: 0, combined: { totalCents: 13000000 } });
+});
+
+it("paginates shared gift IDs deterministically and keeps totals unchanged on every page", async () => {
+  const gifts = Array.from({ length: 45 }, (_, index) => [a, b, foundation].map(row => ({ ...row, giftId: String(200 + index), amount: "100" }))).flat();
+  const f = await fixture(gifts), first = preview(f), second = preview(f, { page: 1 }), last = preview(f, { page: 999 });
+  expect(first.sharedGifts).toMatchObject({ total: 45, page: 0, pages: 3, pageSize: 20 });
+  expect(first.sharedGifts.items).toHaveLength(20); expect(second.sharedGifts.items).toHaveLength(20); expect(last.sharedGifts.items).toHaveLength(5);
+  expect(last.sharedGifts.page).toBe(2); expect(new Set([...first.sharedGifts.items, ...second.sharedGifts.items, ...last.sharedGifts.items].map(item => item.giftId)).size).toBe(45);
+  expect(last.societies).toEqual(first.societies); expect(second.societies).toEqual(first.societies);
+});
+
+it("rejects stale revisions, changed rules, incomplete ledgers and existing links without altering saved state", async () => {
+  const f = await fixture(), before = structuredClone(f.state());
+  expect(() => preview(f, { revision: "stale" })).toThrow(/Saved history changed/);
+  expect(() => preview(f, { householdKey: "0".repeat(64) })).toThrow(/current active household/);
+  expect(() => previewLifetimeFamily(before, lifetimeRules.map(rule => ({ ...rule, minimumAmount: 1 })), {
+    revision: before.revision, householdKey: f.base().rows[0].recordKey, recordKey: f.org().recordKey })).toThrow(/current active household/);
+  expect(f.state()).toEqual(before);
+  delete f.state().snapshot.giftReview.histories[f.org().id];
+  expect(() => preview(f)).toThrow(/member history is incomplete/);
+  await f.refresh(); await f.command("link-family"); expect(() => preview(f)).toThrow(/already has a saved family link/);
+});
 
 it("explicitly includes all selected foundation gifts, deduplicates shared gifts and keeps unrelated companies and individual totals unchanged", async () => {
   const f = await fixture(), before = structuredClone(f.view());
@@ -215,4 +285,11 @@ it.each([false, true])("reconciles foundation-only pledge evidence in the exact 
   materializeLifetimeFamilies(f.state());
   expect(f.family().rows[0].totalCents).toBe(writtenOff ? 13000000 : 23000000);
   expect(read.mock.calls.flat().every(path => !path.includes("query"))).toBe(true);
+  if (!writtenOff) await f.record("confirm-date", { milestoneKey });
+  await f.command("unlink-family", { familyLinkKey: f.view().familyLinks[0].key });
+  read.mockClear();
+  const proposed = preview(f).societies[0];
+  expect(proposed.combined).toMatchObject(writtenOff ? { totalCents: 13000000, date: null, status: "review" } : { totalCents: 23000000, date: "2018-01-01", status: "confirmed" });
+  expect(proposed.organization.totalCents).toBeNull(); expect(proposed.overlapCents).toBeNull();
+  expect(read).not.toHaveBeenCalled();
 });

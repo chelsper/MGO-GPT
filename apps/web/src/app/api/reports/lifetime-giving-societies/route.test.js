@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group", "record", "gifts", "csv", "linked", "family"].map(key => [key, vi.fn()])));
+const m = vi.hoisted(() => Object.fromEntries(["auth", "user", "schema", "access", "read", "rules", "refresh", "transport", "metadata", "group", "record", "gifts", "csv", "linked", "family", "preview"].map(key => [key, vi.fn()])));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: m.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: m.access }));
 vi.mock("@/app/api/utils/lifetimeLinkedReports", () => ({ checkLifetimeLinkedHistory: m.linked }));
-vi.mock("@/app/api/utils/lifetimeFamilyGroups", async original => ({ ...await original(), updateLifetimeFamily: m.family }));
+vi.mock("@/app/api/utils/lifetimeFamilyGroups", async original => ({ ...await original(), updateLifetimeFamily: m.family, previewLifetimeFamily: m.preview }));
 vi.mock("@/app/api/utils/lifetimeSocieties", async original => ({ ...await original(), readLifetimeState: m.read, readLifetimeRules: m.rules, refreshLifetimeHistory: m.refresh, lifetimeTransport: m.transport, updateLifetimeGroup: m.group, updateLifetimeRecord: m.record, savedLifetimeGiftReview: m.gifts, savedLifetimeReconciliationCsv: m.csv }));
 import { GET, POST } from "./route";
 import { lifetimeQueryFixture, lifetimeRules } from "../../../../../test/lifetimeQueryFixture";
@@ -20,9 +20,39 @@ beforeEach(() => {
   m.record.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.linked.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
   m.family.mockResolvedValue({ state: { revision: "updated", snapshot: null, updatedBy: 1 }, societies: lifetimeRules });
+  m.preview.mockReturnValue({ revision: "saved", societies: [], sharedGifts: { items: [] } });
   m.gifts.mockReturnValue({ available: false, items: [] });
   m.csv.mockReturnValue('"Gift system record ID"\r\n"101"');
   m.transport.mockResolvedValue({ metadata: m.metadata }); m.metadata.mockResolvedValue(lifetimeQueryFixture());
+});
+const previewRequest = (changes = {}, suffix = "") => new Request(`https://app.example/api/reports/lifetime-giving-societies?${new URLSearchParams({
+  preview: "family", householdKey: "b".repeat(64), recordKey: "c".repeat(64), revision: "a".repeat(36), ...changes })}${suffix}`);
+it.each(["admin", "advancement_services"])("allows %s to preview a bounded saved family scope with no mutations or NXT requests", async role => {
+  m.user.mockResolvedValue({ id: 1, role, active: true });
+  const response = await GET(previewRequest({ page: "2" }));
+  expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(m.preview).toHaveBeenCalledExactlyOnceWith({ revision: null, snapshot: null }, lifetimeRules, {
+    householdKey: "b".repeat(64), recordKey: "c".repeat(64), revision: "a".repeat(36), page: 2 });
+  for (const key of ["family", "transport", "refresh", "group", "record", "linked"]) expect(m[key]).not.toHaveBeenCalled();
+});
+it("refuses viewers, inactive accounts and anonymous preview requests before reading private history", async () => {
+  m.user.mockResolvedValue({ id: 2, role: "mgo", active: true }); expect((await GET(previewRequest())).status).toBe(403);
+  m.user.mockResolvedValue({ id: 2, role: "admin", active: false }); expect((await GET(previewRequest())).status).toBe(403);
+  m.auth.mockResolvedValue(null); expect((await GET(previewRequest())).status).toBe(401);
+  expect(m.read).not.toHaveBeenCalled(); expect(m.preview).not.toHaveBeenCalled();
+});
+it("rejects forged or unbounded preview inputs before reading history", async () => {
+  for (const changes of [{ preview: "all" }, { householdKey: "names" }, { recordKey: "123" }, { revision: "stale" }, { page: "-1" }, { page: "1000000" },
+    { page: "1.2" }, { format: "csv" }, { amount: "100000" }, { milestoneKey: "b".repeat(64) }]) expect((await GET(previewRequest(changes))).status).toBe(400);
+  for (const key of ["preview", "householdKey", "recordKey", "revision", "page"]) expect((await GET(previewRequest({ page: "0" }, `&${key}=duplicate`))).status).toBe(400);
+  expect(m.read).not.toHaveBeenCalled(); expect(m.preview).not.toHaveBeenCalled();
+});
+it("returns a safe stale preview response and redacts unexpected errors without fallback writes", async () => {
+  m.preview.mockImplementationOnce(() => { throw Object.assign(new Error("Saved history changed"), { lifetimeSafe: true, status: 409 }); });
+  expect((await GET(previewRequest())).status).toBe(409);
+  m.preview.mockImplementationOnce(() => { throw new Error("private donor evidence"); });
+  const response = await GET(previewRequest()); expect(response.status).toBe(503); expect(await response.text()).not.toContain("private donor evidence");
+  expect(m.family).not.toHaveBeenCalled(); expect(m.transport).not.toHaveBeenCalled();
 });
 const giftRequest = suffix => new Request(`https://app.example/api/reports/lifetime-giving-societies?milestoneKey=${"b".repeat(64)}&revision=${"a".repeat(36)}${suffix || ""}`);
 it("allows authorized viewers to read one page of saved evidence with no NXT transport or mutations", async () => {

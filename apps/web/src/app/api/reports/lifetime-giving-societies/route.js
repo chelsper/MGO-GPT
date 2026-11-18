@@ -6,7 +6,7 @@ import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import { LIFETIME_REPORT_KEY, lifetimeError } from "@/utils/lifetimeSocieties";
 import { inspectLifetimeQuery, lifetimeTransport, publicLifetimeState, readLifetimeRules, readLifetimeState, refreshLifetimeHistory, savedLifetimeGiftReview, savedLifetimeReconciliationCsv, updateLifetimeGroup, updateLifetimeRecord } from "@/app/api/utils/lifetimeSocieties";
 import { checkLifetimeLinkedHistory } from "@/app/api/utils/lifetimeLinkedReports";
-import { updateLifetimeFamily } from "@/app/api/utils/lifetimeFamilyGroups";
+import { previewLifetimeFamily, updateLifetimeFamily } from "@/app/api/utils/lifetimeFamilyGroups";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -30,6 +30,15 @@ export async function GET(request) {
   try {
     const { canManage, title } = await context();
     const params = new URL(request?.url || "https://app.invalid").searchParams;
+    if (params.has("preview")) {
+      if (!canManage) throw lifetimeError("Only Admins and Advancement Services can preview family links.", 403);
+      const householdKey = params.get("householdKey"), recordKey = params.get("recordKey"), revision = params.get("revision"), page = params.get("page") || "0";
+      if ([...params.keys()].some(key => !["preview", "householdKey", "recordKey", "revision", "page"].includes(key) || params.getAll(key).length !== 1) ||
+        params.get("preview") !== "family" || ![householdKey, recordKey].every(key => /^[a-f0-9]{64}$/.test(key || "")) ||
+        !/^[a-f0-9-]{36}$/.test(revision || "") || !/^(0|[1-9]\d{0,5})$/.test(page))
+        throw lifetimeError("Choose a household and organization from the saved report to preview.", 400);
+      return Response.json(previewLifetimeFamily(await readLifetimeState(), await readLifetimeRules(), { householdKey, recordKey, revision, page: Number(page) }), { headers });
+    }
     if (params.size) {
       const milestoneKey = params.get("milestoneKey"), revision = params.get("revision"), page = params.get("page") || "0", view = params.get("view") || "all";
       const format = params.get("format");

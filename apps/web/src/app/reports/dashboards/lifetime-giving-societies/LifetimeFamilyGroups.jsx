@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { lifetimeBaseGroupIds } from "@/utils/lifetimeSocieties";
+import LifetimeFamilyPreview from "./LifetimeFamilyPreview";
 import styles from "./lifetime.module.css";
 
-export default function LifetimeFamilyGroups({ snapshot, links = [], canManage, busy, revision, request, onOpen, onClose, onCommand }) {
+export default function LifetimeFamilyGroups({ snapshot, links = [], canManage, busy, revision, request, onOpen, onClose, onCommand, onAccessDenied, onReload }) {
   const [householdKey, setHouseholdKey] = useState(""), [organizationKey, setOrganizationKey] = useState("");
-  const [search, setSearch] = useState(""), [confirmed, setConfirmed] = useState(false), [removing, setRemoving] = useState(null);
+  const [search, setSearch] = useState(""), [removing, setRemoving] = useState(null);
   const [page, setPage] = useState(0);
   const panel = useRef(null);
   const active = lifetimeBaseGroupIds(snapshot);
@@ -17,15 +18,14 @@ export default function LifetimeFamilyGroups({ snapshot, links = [], canManage, 
   const existing = links.find(link => link.organizationKey === organizationKey);
   const valid = household && organization && !existing && snapshot?.giftReviewAvailable;
   useEffect(() => {
-    setHouseholdKey(request?.householdKey || ""); setOrganizationKey(request?.recordKey || ""); setConfirmed(false); setRemoving(null);
+    setHouseholdKey(request?.householdKey || ""); setOrganizationKey(request?.recordKey || ""); setRemoving(null);
     if (request) { panel.current?.focus(); panel.current?.scrollIntoView?.({ block: "center" }); }
   }, [request]);
   useEffect(() => {
-    if (confirmed) setConfirmed(false);
     if (removing) setRemoving(null);
   }, [revision]);
   async function save() {
-    if (!canManage || busy || !valid || !confirmed) return;
+    if (!canManage || busy || !valid) return;
     if (await onCommand("link-family", { householdKey, recordKey: organizationKey })) onClose();
   }
   return <section className={styles.panel} aria-label="Family giving groups">
@@ -37,10 +37,10 @@ export default function LifetimeFamilyGroups({ snapshot, links = [], canManage, 
     {canManage && request && <div ref={panel} tabIndex={-1} className={styles.groupConfirm} role="region" aria-label="Link foundation to household">
       <h3>Choose the exact records</h3>
       <div className={styles.filters}>
-        <label>Household<select disabled={busy} value={householdKey} onChange={e => { setHouseholdKey(e.target.value); setConfirmed(false); }}>
+        <label>Household<select disabled={busy} value={householdKey} onChange={e => setHouseholdKey(e.target.value)}>
           <option value="">Choose a household</option>{households.map(group => <option key={group.id} value={group.rows[0].recordKey}>{group.rows[0].name} ({group.members.map(person => person.lookupId || person.systemId).join(" / ")})</option>)}
         </select></label>
-        <label>Foundation or organization<select disabled={busy} value={organizationKey} onChange={e => { setOrganizationKey(e.target.value); setConfirmed(false); }}>
+        <label>Foundation or organization<select disabled={busy} value={organizationKey} onChange={e => setOrganizationKey(e.target.value)}>
           <option value="">Choose an organization</option>{organizations.map(row => <option key={row.recordKey} value={row.recordKey}>{row.name} / {row.lookupId || row.systemId}{row.archived ? " / Archived; gift credit retained" : ""}</option>)}
         </select></label>
       </div>
@@ -51,10 +51,10 @@ export default function LifetimeFamilyGroups({ snapshot, links = [], canManage, 
         <p><strong>{household.rows[0].name}</strong> + <strong>{organization.name}</strong></p>
         <p>This includes all of this organization's imported qualifying gifts, even those not soft credited to either spouse. Existing foundation links for this household remain included. Shared gifts count once; unresolved gifts still require reconciliation.</p>
         <p>The combined family group has its own entry dates. Existing individual, household and organization confirmations stay saved and are not copied to the new group. Missing members after a refresh leave the link for review rather than combining a partial group.</p>
-        <label className={styles.groupToggle}><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />Include all imported qualifying gifts from this organization in this family's recognition</label>
+        <LifetimeFamilyPreview key={`${revision}:${householdKey}:${organizationKey}`} revision={revision} householdKey={householdKey} recordKey={organizationKey}
+          busy={busy} onConfirm={save} onAccessDenied={onAccessDenied} onReload={onReload} />
       </>}
-      <div className={styles.actions}><button className={styles.primary} disabled={busy || !valid || !confirmed} onClick={save}>Confirm family link</button>
-        <button disabled={busy} onClick={onClose}>Cancel</button></div>
+      <div className={styles.actions}>{!valid && <button className={styles.primary} disabled>Confirm family link</button>}<button disabled={busy} onClick={onClose}>Cancel</button></div>
     </div>}
     {!!links.length && <>
       <label>Find a family link<input type="search" value={search} disabled={busy} onChange={e => { setSearch(e.target.value); setPage(0); setRemoving(null); }} /></label>
@@ -66,7 +66,7 @@ export default function LifetimeFamilyGroups({ snapshot, links = [], canManage, 
           <p>Remove this foundation link? Other links and all gift credit remain. Prior exact-scope date confirmations stay saved; no date is transferred to a different group.</p>
           <div className={styles.actions}><button disabled={busy} onClick={async () => { if (await onCommand("unlink-family", { familyLinkKey: link.key })) setRemoving(null); }}>Confirm unlink</button>
             <button disabled={busy} onClick={() => setRemoving(null)}>Keep linked</button></div>
-        </> : <button disabled={busy} onClick={() => { setRemoving(link.key); setConfirmed(false); }}>Unlink organization</button>)}
+        </> : <button disabled={busy} onClick={() => setRemoving(link.key)}>Unlink organization</button>)}
       </article>)}
       {matches.length > 10 && <div className={styles.pagination}><p>{matches.length} saved family links / Page {current + 1} of {Math.ceil(matches.length / 10)}</p><div className={styles.actions}>
         <button disabled={busy || !current} onClick={() => { setPage(current - 1); setRemoving(null); }}>Previous family links</button>

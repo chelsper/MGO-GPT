@@ -207,7 +207,7 @@ export default function LifetimeSocietiesPage() {
             <button disabled={(currentGroupPage + 1) * 10 >= groupMatches.length} onClick={() => setGroupPage(currentGroupPage + 1)}>Next groups</button></div></div>
       </details>}
       {(snapshot || !!data.familyLinks?.length) && <div ref={familyPanel} tabIndex={-1}><LifetimeFamilyGroups snapshot={snapshot} links={data.familyLinks} canManage={data.canManage} busy={!!busy}
-        revision={data.revision} request={familyRequest} onOpen={openFamily} onClose={closeFamily} onCommand={command} /></div>}
+        revision={data.revision} request={familyRequest} onOpen={openFamily} onClose={closeFamily} onCommand={command} onAccessDenied={accessDenied} onReload={() => command("reload")} /></div>}
       {data.canManage && pendingDecision && <section ref={decisionPanel} tabIndex={-1} className={styles.groupConfirm} role="region" aria-label="Confirm report change">
         <h2>{pendingDecision.operation === "confirm-date" ? "Keep this entry date?" : pendingDecision.operation === "reopen-date" ? "Reopen date review?" : pendingDecision.operation === "archive-record" ? "Archive from this report?" : "Restore to the active report?"}</h2>
         <p><strong>{pendingDecision.row.name}</strong>{pendingDecision.operation.endsWith("date") && <> / {pendingDecision.row.societyName} / {lifetimeDate(pendingDecision.row.date)}</>}</p>
