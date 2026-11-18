@@ -105,6 +105,7 @@ describe("project prospect tags UI", () => {
     selectAll(); chooseTag(); fireEvent.click(screen.getByRole("button", { name: "Remove tag" }));
     await screen.findByText("1 constituent updated. Nothing changed in NXT.");
     expect(JSON.parse(fetch.mock.calls.find(([, options]) => options.method === "POST")[1].body).constituentIds).toEqual(["123"]);
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:project-csv"), { timeout: 2000 });
   });
   it("keeps grouped values and tag selection aligned after reordering columns and sorting", async () => {
     await open({ report: { ...report, dataConfiguration: { ...report.dataConfiguration,
