@@ -16,6 +16,7 @@ describe("workflow return destinations", () => {
     ["/reports/opportunity-pipeline/lifecycle?fy=2027", "Back to Prospect Lifecycle"],
     ["/reports/lists", "Back to Lists"],
     ["/reports/lists/current-portfolio", "Back to Report"],
+    ["/reports/project-prospecting/list-project-center?view=saved#results", "Back to Report"],
     ["/reports/personal-dashboards/42", "Back to Report"],
     ["/integration-health#health-connections", "Back to Integration Health"],
     ["/settings#blackbaud-connection", "Back to My Account & Connections"],
