@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import useAuth from "@/utils/useAuth";
 import { isAllowedWorkspaceEmail, workspaceEmailAccessMessage } from "@/utils/authDomain";
+import { getSignInReturnPath } from "@/utils/signInNavigation";
 
 const ACCESS_DENIED_MESSAGE =
   "You don't have access to this workspace yet. Use a ju.edu email address and ask an administrator for an invitation.";
@@ -18,11 +19,14 @@ export default function SignInPage() {
   const [credentialsEnabled, setCredentialsEnabled] = useState(false);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [signupQuery, setSignupQuery] = useState("");
+  const [returnTo, setReturnTo] = useState("/");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      setSignupQuery(window.location.search);
+      const params = new URLSearchParams(location.search);
+      const destination = getSignInReturnPath(location.search);
+      setReturnTo(destination);
+      setSignupQuery(location.search);
       const msg = params.get("message");
       if (msg) {
         setMessage(msg);
@@ -64,7 +68,7 @@ export default function SignInPage() {
         .then((res) => (res.ok ? res.json() : null))
         .then((session) => {
           if (session?.user) {
-            window.location.replace("/");
+            location.replace(destination);
           }
         })
         .catch(() => {});
@@ -93,7 +97,7 @@ export default function SignInPage() {
       const result = await signInWithCredentials({
         email,
         password,
-        callbackUrl: "/",
+        callbackUrl: returnTo,
         redirect: false,
       });
 
@@ -111,7 +115,7 @@ export default function SignInPage() {
         return;
       }
 
-      window.location.href = result?.url || "/";
+      location.href = returnTo;
     } catch (err) {
       console.error("Sign in error:", err);
       const errorMessages = {
@@ -133,7 +137,7 @@ export default function SignInPage() {
 
     try {
       await signInWithOkta({
-        callbackUrl: "/",
+        callbackUrl: returnTo,
         redirect: true,
       });
     } catch (err) {
@@ -181,6 +185,11 @@ export default function SignInPage() {
           <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "8px" }}>
             Access is limited to Jacksonville University email addresses.
           </p>
+          {returnTo !== "/" && (
+            <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "8px" }}>
+              After signing in, you will return to the page you opened.
+            </p>
+          )}
         </div>
 
         {message && (

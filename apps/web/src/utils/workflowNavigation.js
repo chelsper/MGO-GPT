@@ -38,7 +38,7 @@ export function getSafeInternalReturnPath(value) {
   try {
     const url = new URL(value, "https://navigation.invalid");
     if (url.origin !== "https://navigation.invalid") return "";
-    const report = /^\/reports\/(?:future-made-phase-ii|alumni-family-engagement|executive-team-standings|(?:dashboards|custom-field|lists)\/[a-zA-Z0-9_-]+|personal-dashboards\/[1-9]\d*)$/.test(url.pathname);
+    const report = /^\/reports\/(?:future-made-phase-ii|alumni-family-engagement|executive-team-standings|(?:dashboards|custom-field|lists|project-prospecting)\/[a-zA-Z0-9_-]+|personal-dashboards\/[1-9]\d*)$/.test(url.pathname);
     return Object.hasOwn(RETURN_PAGES, url.pathname) || report
       ? `${url.pathname}${url.search}${url.hash}` : "";
   } catch { return ""; }

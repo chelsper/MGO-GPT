@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import useConstituentList from "./useConstituentList";
 import ListMembershipSearch from "@/components/ListMembershipSearch";
@@ -18,9 +18,26 @@ import ListColumnEditor from "@/components/ListColumnEditor";
 import { displayCell } from "@/components/QueryResultsTable";
 import ProjectProspectResults from "@/components/ProjectProspectResults";
 import { isProjectProspecting, PROJECT_HREF, PROJECT_SECTION } from "@/utils/projectProspecting";
+import { buildSignInHref } from "@/utils/signInNavigation";
+
+function ListSignInNotice() {
+  const [href, setHref] = useState("/account/signin");
+  useEffect(() => {
+    const destination = buildSignInHref(`${location.pathname}${location.search}${location.hash}`);
+    setHref(destination);
+    location.replace(destination);
+  }, []);
+  return (
+    <div role="status" className={styles.notice}>
+      Sign in to view this list. Taking you to sign-in; afterward, you will
+      return to the same list. Your project access stays unchanged.
+      <p><a className={styles.button} href={href}>Continue to sign-in</a></p>
+    </div>
+  );
+}
 
 export default function ConstituentListView({ params, projectRoute = false }) {
-  const { data, error, loading, refreshing, reload, refresh } =
+  const { data, error, errorStatus, loading, refreshing, reload, refresh } =
     useConstituentList(params.listKey);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -109,17 +126,18 @@ export default function ConstituentListView({ params, projectRoute = false }) {
           }
         />
         {loading && <p role="status">Loading saved list...</p>}
-        {error && !report && (
+        {error && !report && (errorStatus === 401 ? <ListSignInNotice /> : (
           <div role="alert" className={`${styles.notice} ${styles.error}`}>
-            This list could not be loaded. Try again or contact your
-            administrator if it remains unavailable.
+            {errorStatus === 403
+              ? "Your signed-in account does not have access to this list. Ask an administrator to check your account and project access."
+              : "This list could not be loaded. Try again or contact your administrator if it remains unavailable."}
             <p>
               <button className={styles.button} onClick={reload}>
                 Reload status
               </button>
             </p>
           </div>
-        )}
+        ))}
         {report && (
           <div className={styles.stack}>
             <ListRefreshStatus

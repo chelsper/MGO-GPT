@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mocks = vi.hoisted(() => ({
   useList: vi.fn(),
   refresh: vi.fn(),
@@ -27,6 +27,7 @@ import Page from "./page";
 import ProjectPage from "@/app/reports/project-prospecting/[listKey]/page";
 import PhaseTwoPage from "@/app/reports/future-made-phase-ii/page";
 import { projectSource } from "@/utils/projectProspecting";
+import { getSignInReturnPath } from "@/utils/signInNavigation";
 const data = {
   report: {
     key: "list-demo",
@@ -55,6 +56,36 @@ beforeEach(() => {
     refresh: mocks.refresh,
     reload: mocks.reload,
   });
+});
+it.each([
+  [ProjectPage, "/reports/project-prospecting/list-demo"],
+  [Page, "/reports/lists/list-demo"],
+  [PhaseTwoPage, "/reports/future-made-phase-ii"],
+])("directs signed-out list visitors to sign-in with their exact return path", (Route, pathname) => {
+  const replace = vi.fn();
+  vi.stubGlobal("location", { pathname, search: "?view=saved", hash: "#results", replace });
+  mocks.useList.mockReturnValue({ error: "Unauthorized", errorStatus: 401, reload: mocks.reload, refresh: mocks.refresh });
+  render(<Route params={{ listKey: "list-demo" }} />);
+  expect(replace).toHaveBeenCalledTimes(1);
+  const href = replace.mock.calls[0][0];
+  expect(getSignInReturnPath(new URL(href, "https://app.test").search)).toBe(`${pathname}?view=saved#results`);
+  expect(screen.getByRole("link", { name: "Continue to sign-in" })).toHaveAttribute("href", href);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  expect(mocks.reload).not.toHaveBeenCalled();
+});
+it.each([403, 404, 503, null])("does not turn a %s failure into a sign-in loop or expose raw diagnostics", status => {
+  const replace = vi.fn();
+  vi.stubGlobal("location", { replace });
+  mocks.useList.mockReturnValue({ error: "private diagnostic", errorStatus: status, reload: mocks.reload });
+  render(<ProjectPage params={{ listKey: "list-demo" }} />);
+  expect(screen.getByRole("alert")).toHaveTextContent(status === 403 ? "does not have access" : "could not be loaded");
+  expect(screen.queryByText("private diagnostic")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Continue to sign-in" })).not.toBeInTheDocument();
+  expect(replace).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Reload status" }));
+  expect(mocks.reload).toHaveBeenCalledTimes(1);
+  expect(mocks.refresh).not.toHaveBeenCalled();
 });
 it.each([
   ["Lists", Page, "list-demo", "/reports/lists"],

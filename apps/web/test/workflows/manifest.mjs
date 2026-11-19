@@ -24,6 +24,7 @@ export const workflowGroups = {
     "src/components/ListMembershipSearch.test.jsx",
     "src/components/ListSourceEditor.test.jsx",
     "src/app/reports/lists/[listKey]/page.test.jsx",
+    "src/app/reports/lists/useConstituentList.test.jsx",
   ],
   "App release recovery": [
     "src/utils/appRelease.test.js",
@@ -36,6 +37,8 @@ export const workflowGroups = {
   "Login and role boundaries": [
     "src/auth.test.js",
     "src/app/api/auth/authSecurity.test.js",
+    "src/app/account/signin/page.test.jsx",
+    "src/utils/signInNavigation.test.js",
     "src/utils/workspaceRoles.test.js",
     "src/app/api/utils/getWorkspaceUser.test.js",
     "src/app/api/utils/workspaceWritePermission.test.js",
