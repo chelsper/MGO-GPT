@@ -41,6 +41,10 @@ export const workflowGroups = {
     "__create/app-release-check.test.js",
   ],
   "Login and role boundaries": [
+    "src/utils/useUser.test.jsx",
+    "src/components/SessionAccessNotice.test.jsx",
+    "src/components/AppShell.test.jsx",
+    "src/app/my-top-prospects/WorkspaceEditing.test.jsx",
     "src/auth.test.js",
     "src/app/api/auth/authSecurity.test.js",
     "src/app/account/signin/page.test.jsx",

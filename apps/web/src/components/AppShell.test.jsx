@@ -8,6 +8,7 @@ import { normalizeDashboardAssistant } from "@/utils/dashboardAssistantSettings"
 import { useDashboardAssistantSettings, useWorkspaceLabels } from "./WorkspaceTerminology";
 
 const state = vi.hoisted(() => ({
+  session: null,
   organization: null,
   profileRole: "admin",
   reviewer: true,
@@ -27,7 +28,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/utils/useUser", () => ({
-  default: () => ({ data: { name: "Chelsea Santoro", email: "csantor@ju.edu" }, loading: false }),
+  default: () => state.session,
 }));
 vi.mock("@/utils/useWorkspaceView", () => ({
   default: () => ({
@@ -70,6 +71,7 @@ let container;
 let root;
 
 beforeEach(() => {
+  state.session = { data: { name: 'Example Staff', email: 'staff@example.edu' }, loading: false, error: null, refetch: vi.fn() };
   state.organization = null;
   state.profileRole = "admin";
   state.reviewer = true;
@@ -101,6 +103,48 @@ async function renderShell(pathname = "/submissions") {
 }
 
 describe("AppShell", () => {
+  it('does not mount a protected workflow while checking its session', async () => {
+    state.session = { data: null, loading: true };
+    await renderShell('/my-top-prospects');
+    expect(container.textContent).toContain('Checking your sign-in...');
+    expect(container.textContent).not.toContain('Queue content');
+    expect(container.querySelector('header')).toBeNull();
+  });
+
+  it('replaces an expired session with sign-in instead of an endless page spinner', async () => {
+    state.session.data = null;
+    await renderShell('/my-top-prospects?category=active#portfolio');
+    expect(container.textContent).toContain('Sign in to continue');
+    expect(container.textContent).not.toContain('Queue content');
+    expect(container.querySelector('a')).toHaveAttribute('href', '/account/signin?returnTo=%2Fmy-top-prospects%3Fcategory%3Dactive%23portfolio');
+  });
+
+  it('offers retry when the initial session check fails', async () => {
+    state.session.data = null;
+    state.session.error = 'unavailable';
+    await renderShell('/constituency-import');
+    expect(container.textContent).toContain('Could not check your sign-in');
+    await act(async () => fireEvent.click(container.querySelector('button')));
+    expect(state.session.refetch).toHaveBeenCalledWith({ showLoading: true });
+    expect(container.textContent).not.toContain('Queue content');
+  });
+
+  it.each(['/account/signin', '/account/logout', '/forgot-password', '/reset-password'])('leaves the public recovery page accessible: %s', async path => {
+    state.session = { data: null, loading: true, error: 'unavailable' };
+    await renderShell(path);
+    expect(container.textContent).toContain('Queue content');
+    expect(container.textContent).not.toContain('Checking your sign-in');
+  });
+
+  it('keeps an authenticated workflow mounted after a transient background check failure', async () => {
+    await renderShell('/constituency-import');
+    const form = container.querySelector('main');
+    state.session.error = 'unavailable';
+    await renderShell('/constituency-import');
+    expect(container.querySelector('main')).toBe(form);
+    expect(container.textContent).toContain('Queue content');
+  });
+
   it("withholds the helper until settings load and reuses the configured organization choices", async () => {
     await renderShell();
     expect(JSON.parse(container.querySelector('[data-testid="helper-settings"]').textContent).enabled).toBe(false);

@@ -33,6 +33,7 @@ import {
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import OrganizationLogo from "@/components/OrganizationLogo";
 import AppReleaseNotice from "@/components/AppReleaseNotice";
+import SessionAccessNotice from "@/components/SessionAccessNotice";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 import styles from "./AppShell.module.css";
 
@@ -97,7 +98,7 @@ export default function AppShell({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: user, loading: userLoading } = useUser();
+  const { data: user, loading: userLoading, error: sessionError, refetch: retrySession } = useUser();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -293,7 +294,10 @@ export default function AppShell({ children }) {
     }
   }
 
-  if (isPublicRoute || userLoading || !user) return children;
+  if (isPublicRoute) return children;
+  if (userLoading || !user) {
+    return <SessionAccessNotice loading={userLoading} error={sessionError} onRetry={retrySession} returnTo={`${location.pathname}${location.search}${location.hash}`} />;
+  }
 
   const workspaceLabel = isReviewerView ? labels.advancementServices : `${labels.mgo} Workspace`;
   const roleLabel = isAdmin
