@@ -112,7 +112,7 @@ export default function PledgePaymentsPage() {
       </section>}
       {incomplete && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">This worklist is incomplete or still refreshing. Totals cover the verified rows shown, with older saved values retained where available. Unverified pledges without saved data are not included.</div>}
       {!reminderSource && <div><button className={button} disabled={busy || automatic || legacySource || !job?.discoveryComplete || !["completed", "completed_with_errors"].includes(job?.status) || !filtered.length}
-        onClick={() => setReminderSource({ rows: filtered, view: tab, jobId: job.id, today: data.today })}>Create pledge reminder CSV</button>
+        onClick={() => setReminderSource({ rows: filtered, view: tab, jobId: job.id, today: data.today })}>Create pledge reminders</button>
         <p className="mt-2 text-sm text-gray-600">Use the selected tab and search to choose the reminder worklist. Finish refreshing first; verified pledges remain eligible when other pledges need review.</p></div>}
       {reminderSource && <PledgeReminderPanel source={reminderSource} onClose={() => setReminderSource(null)} />}
       <section className="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatCalendarDate, calendarDate } from "@/utils/prospectActivity";
 import { PLEDGE_REMINDER_LIMIT, REMINDER_FIELDS, pledgeReminderIssue, pledgeReminderDraftIssue, pledgeReminderCsv } from "@/utils/pledgeReminders";
 import { pledgeMoney } from "./PledgePaymentList";
+import PledgeReminderHandoff from "./PledgeReminderHandoff";
 
 const button = "min-h-11 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 disabled:opacity-50";
 export default function PledgeReminderPanel({ source, onClose }) {
@@ -78,8 +79,8 @@ export default function PledgeReminderPanel({ source, onClose }) {
     if (!downloaded && Object.keys(drafts).length && !window.confirm("Close these reminder drafts? They are kept only on this page; download the CSV first if you need them.")) return;
     onClose();
   }
-  return <section aria-label="Pledge reminder CSV" className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-bold">Create pledge reminder CSV</h2>
+  return <section aria-label="Pledge reminders" className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-bold">Create pledge reminders</h2>
       <p className="mt-1 text-sm">{source.view === "pastDue" ? "Past Due: amount due includes all unpaid installments through today." : "Upcoming: amount due covers installments on the next due date only; past-due installments are not included."} One reminder row per pledge, not per household.</p></div>
       <button className={button} disabled={busy} onClick={close}>Close reminders</button></div>
     <p className="text-sm">Amounts use verified saved pledge data as of {formatCalendarDate(source.today)}, not a new balance check. Refresh the worklist before starting if payments have changed. Preparation reads the selected recipients' NXT mailing details only. No appeals, emails or NXT writes are made.</p>
@@ -95,13 +96,14 @@ export default function PledgeReminderPanel({ source, onClose }) {
     <div className="flex flex-wrap gap-3"><button className={`${button} !bg-indigo-600 !text-white`} disabled={busy || !pending.length} onClick={prepare}>{prepared.length ? "Continue reminder preparation" : "Prepare selected reminders"}</button>
       {busy === "prepare" && <button className={button} onClick={() => { stop.current = true; }}>Pause after current read</button>}</div>
     {notice && <p role="status" className="text-sm">{notice}</p>}{error && <p role="alert" className="text-sm text-red-800">{error}</p>}
-    {prepared.length > 0 && <><h3 className="font-bold">Review reminder details</h3><p className="text-sm">{ready.length} ready / {selected.length - ready.length} not included yet. Correct missing details below or clear that pledge's checkbox. Name and address edits affect this CSV only. These drafts are not saved after leaving this page.</p>
+    {prepared.length > 0 && <><h3 className="font-bold">Review reminder details</h3><p className="text-sm">{ready.length} ready / {selected.length - ready.length} not included yet. Correct missing details below or clear that pledge's checkbox. Name and address edits affect these reminders only, not NXT. These drafts are not saved after leaving this page.</p>
       {prepared.map(draft => { const issue = pledgeReminderDraftIssue(draft); return <details key={draft.pledge.id} className="rounded-xl border border-gray-200 bg-white p-4">
         <summary className="cursor-pointer font-semibold">{draft.pledge.name} / Pledge {draft.pledge.lookupId} / {issue ? "Needs review" : "Ready for review"}</summary>
         <p className="mt-3 text-sm">Pledged: {pledgeMoney(draft.pledge.totalCents)} / Paid: {pledgeMoney(draft.pledge.paidToDateCents)} / Amount due: {pledgeMoney(draft.pledge.amountDueCents)}</p>
         {issue && <p className="mt-2 text-sm text-amber-900">{issue}</p>}{draft.warnings.map(warning => <p key={warning} className="mt-2 text-sm text-amber-900">{warning}</p>)}
         <div className="mt-3 grid gap-3 sm:grid-cols-2">{REMINDER_FIELDS.map(field => <label key={field} className="text-sm font-semibold">{field.replaceAll("_", " ")}<textarea rows={field === "Addressee" || field === "Address_Line_2" ? 2 : 1} maxLength={500} value={draft.fields[field]} disabled={busy || Boolean(draft.blocked)} onChange={e => { changed(); const value = e.target.value; setDrafts(current => ({ ...current, [draft.pledge.id]: { ...current[draft.pledge.id], fields: { ...current[draft.pledge.id].fields, [field]: value } } })); }} className="mt-1 block w-full rounded-lg border border-gray-300 p-2 font-normal" /></label>)}</div>
       </details>; })}
+      <PledgeReminderHandoff drafts={ready} source={source} letterDate={letterDate} disabled={Boolean(busy)} onBusy={value => setBusy(value ? "handoff" : false)} />
       <label className="flex gap-3 text-sm"><input type="checkbox" checked={reviewed} disabled={busy} onChange={e => setReviewed(e.target.checked)} className="mt-1 h-4 w-4" /><span>I reviewed the included recipients, addresses and saved pledge amounts, and will verify the template's date and payment instructions before mailing.</span></label>
       <button className={`${button} !bg-indigo-600 !text-white`} disabled={busy || !reviewed || !ready.length || pending.length > 0 || calendarDate(letterDate) !== letterDate} onClick={download}>Download {ready.length} pledge reminders CSV</button>
       <p className="text-xs text-gray-600">Merge using Addressee, Address_Line_1, Address_Line_2, City, State, Zip, Fund, Pledge_Amount, Amount_Paid_to_Date and Installment_Amount. Use Letter_Date instead of a typed date. Review Word's merged letters before printing; exporting does not record delivery.</p>

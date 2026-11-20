@@ -14,6 +14,9 @@ const cache = () => ({ source: { queryId: "12033" }, job: { id: "job", discovery
   totalCents: 10000, balanceCents: 8000, fundDescriptions: ["Scholarships"], payments: [{ amountCents: 2000, date: "2026-11-01" }],
   installments: [{ id: "i1", date: "2026-11-01", amountCents: 10000, balanceCents: 8000 }],
 }] });
+const pdfBody = () => ({ ...body(), operation: "pdf", confirm: true, letterDate: "2026-11-18", fields: {
+  Addressee: "Fictional Avery", Address_Line_1: "10 Test St", Address_Line_2: "", City: "Jacksonville", State: "FL", Zip: "01234",
+} });
 beforeEach(() => {
   vi.clearAllMocks(); m.auth.mockResolvedValue({ user: { email: "staff@example.test" } });
   m.workspace.mockResolvedValue({ sessionUser: { id: 7, role: "advancement_services", active: true }, workspaceUser: { id: 99, role: "mgo" } });
@@ -71,5 +74,43 @@ describe("pledge reminder preparation boundary", () => {
     expect((await (await POST(request())).json()).draft.blocked).toContain("Do not mail");
     m.sky.mockRejectedValueOnce(new Error("private token donor data")); const response = await POST(request());
     expect(response.status).toBe(503); expect(await response.text()).not.toContain("private token");
+  });
+  it("prepares one private PDF and primary-email handoff from server pledge data without any write or send", async () => {
+    const profile = await m.sky(); m.sky.mockClear(); profile.email = { constituent_id: "10", address: "avery@example.test", inactive: false, do_not_email: false };
+    m.sky.mockResolvedValue(profile);
+    const response = await POST(request({ ...pdfBody(), amountDueCents: 9999999, email: "attacker@example.test" }));
+    expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const { handoff } = await response.json();
+    expect(handoff).toMatchObject({ pledgeId: "1", refreshedAt: "2026-11-18T12:00:00Z", letterDate: "2026-11-18", email: { address: "avery@example.test", reason: "" } });
+    expect(Buffer.from(handoff.pdf, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+    expect(m.sky).toHaveBeenCalledOnce(); expect(m.sky.mock.calls[0][1].method).toBe("GET");
+    expect(m.cache).toHaveBeenCalledTimes(2);
+  });
+  it("requires confirmation and bounded valid fields before reading NXT for PDFs", async () => {
+    for (const change of [{ confirm: false }, { letterDate: "2026-02-30" }, { fields: null }, { fields: [] }, { fields: { ...pdfBody().fields, Addressee: "x".repeat(501) } }, { pledges: [body().pledges[0], { id: "2", refreshedAt: body().pledges[0].refreshedAt }] }]) {
+      expect((await POST(request({ ...pdfBody(), ...change }))).status).toBe(400);
+    }
+    expect(m.sky).not.toHaveBeenCalled(); expect(m.cache).not.toHaveBeenCalled();
+  });
+  it("keeps a missing or restricted email out without preventing a valid postal PDF", async () => {
+    const missing = await POST(request(pdfBody())); expect(missing.status).toBe(200);
+    expect((await missing.json()).handoff.email.address).toBe("");
+    const profile = await m.sky(); profile.email = { constituent_id: "10", address: "avery@example.test", inactive: false, do_not_email: true };
+    m.sky.mockResolvedValue(profile);
+    const restricted = await POST(request(pdfBody())); expect(restricted.status).toBe(200);
+    expect((await restricted.json()).handoff.email).toMatchObject({ address: "", reason: expect.stringContaining("restricted") });
+  });
+  it("rejects stale cache, changed cache after generation and changed recipient restrictions", async () => {
+    const data = cache(); data.records[0].stale = true; m.cache.mockResolvedValueOnce(data);
+    expect((await POST(request(pdfBody()))).status).toBe(409); expect(m.sky).not.toHaveBeenCalled();
+    m.cache.mockResolvedValueOnce(cache()).mockResolvedValueOnce({ ...cache(), job: { ...cache().job, id: "other" } });
+    expect((await POST(request(pdfBody()))).status).toBe(409);
+    const profile = await m.sky(); profile.deceased = true; m.sky.mockResolvedValue(profile);
+    expect((await POST(request(pdfBody()))).status).toBe(400);
+  });
+  it("denies an unauthenticated or unauthorized PDF request before any provider read", async () => {
+    m.auth.mockResolvedValueOnce(null); expect((await POST(request(pdfBody()))).status).toBe(401);
+    m.workspace.mockResolvedValue({ sessionUser: { id: 7, role: "mgo", active: true }, workspaceUser: { role: "admin" } });
+    expect((await POST(request(pdfBody()))).status).toBe(403); expect(m.sky).not.toHaveBeenCalled();
   });
 });

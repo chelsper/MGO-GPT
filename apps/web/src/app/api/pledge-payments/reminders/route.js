@@ -6,7 +6,10 @@ import { pledgeScope, readPledgeCache } from "@/app/api/utils/pledgePaymentStore
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import { OPEN_PLEDGE_QUERY_ID, pledgeWorklist } from "@/utils/pledgePayments";
-import { PLEDGE_REMINDER_LIMIT, pledgeReminderIssue, pledgeReminderRecipient } from "@/utils/pledgeReminders";
+import { PLEDGE_REMINDER_LIMIT, REMINDER_FIELDS, pledgeReminderIssue, pledgeReminderRecipient } from "@/utils/pledgeReminders";
+import { calendarDate } from "@/utils/prospectActivity";
+import { pledgeReminderEmailRecipient, reminderEmailText, reminderPdfFilename } from "@/utils/pledgeReminderHandoff";
+import { renderPledgeReminderPdf } from "@/app/api/utils/pledgeReminderPdf";
 
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -36,11 +39,15 @@ export async function POST(request) {
     const raw = await request.text();
     if (raw.length > 40000) throw fail("Select fewer pledges.", 413);
     let body; try { body = JSON.parse(raw); } catch { throw fail("Invalid reminder request.", 400); }
-    if (!body || !["prepare", "check"].includes(body.operation) || !["pastDue", "upcoming"].includes(body.view) ||
+    if (!body || !["prepare", "check", "pdf"].includes(body.operation) || !["pastDue", "upcoming"].includes(body.view) ||
       typeof body.jobId !== "string" || !Array.isArray(body.pledges) || !body.pledges.length || body.pledges.length > PLEDGE_REMINDER_LIMIT ||
-      (body.operation === "prepare" && body.pledges.length !== 1) || new Set(body.pledges.map(ref => ref?.id)).size !== body.pledges.length ||
+      (body.operation !== "check" && body.pledges.length !== 1) || new Set(body.pledges.map(ref => ref?.id)).size !== body.pledges.length ||
       body.pledges.some(ref => !ref || typeof ref.id !== "string" || !/^[1-9]\d{0,18}$/.test(ref.id) || typeof ref.refreshedAt !== "string" || ref.refreshedAt.length > 40))
       throw fail("Choose saved pledges from this worklist.", 400);
+    if (body.operation === "pdf" && (body.confirm !== true || calendarDate(body.letterDate) !== body.letterDate ||
+      !body.fields || typeof body.fields !== "object" || Array.isArray(body.fields) ||
+      REMINDER_FIELDS.some(key => typeof body.fields[key] !== "string" || body.fields[key].length > 500)))
+      throw fail("Review the recipient, letter date and saved pledge amounts before preparing the PDF.", 400);
     const today = getStandingsPeriods().asOf;
     const scope = pledgeScope(user.id, origin);
     const rows = selectedRows(await readPledgeCache(scope), body, today);
@@ -50,6 +57,17 @@ export async function POST(request) {
       userId: user.id, authUserId: user.id, origin, method: "GET", timeoutMs: 15000, maxRetries: 0,
     });
     const recipient = pledgeReminderRecipient(profile, row.constituentId, today);
+    if (body.operation === "pdf") {
+      const fields = Object.fromEntries(REMINDER_FIELDS.map(key => [key, body.fields[key].trim()]));
+      const draft = { pledge: row, ...recipient, fields };
+      const pdf = await renderPledgeReminderPdf(draft, { letterDate: body.letterDate, today, view: body.view });
+      selectedRows(await readPledgeCache(scope), body, today);
+      return Response.json({ handoff: {
+        pledgeId: row.id, refreshedAt: row.refreshedAt, letterDate: body.letterDate, checkedAt: new Date().toISOString(),
+        filename: reminderPdfFilename(row, body.letterDate), pdf: pdf.toString("base64"),
+        email: pledgeReminderEmailRecipient(profile, row.constituentId), ...reminderEmailText(fields.Addressee),
+      } }, { headers });
+    }
     selectedRows(await readPledgeCache(scope), body, today);
     return Response.json({ draft: { pledge: row, ...recipient, checkedAt: new Date().toISOString() } }, { headers });
   } catch (error) {

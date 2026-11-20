@@ -18,11 +18,11 @@ describe("pledge payments worklist", () => {
     fetch.mockResolvedValueOnce(Response.json(data));
     render(<PledgePaymentsPage />); await screen.findByText("Example Donor");
     fireEvent.click(screen.getByRole("tab", { name: /Upcoming/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Create pledge reminder CSV" }));
-    expect(screen.getByRole("region", { name: "Pledge reminder CSV" })).toHaveTextContent("Upcoming: amount due covers installments on the next due date only");
+    fireEvent.click(screen.getByRole("button", { name: "Create pledge reminders" }));
+    expect(screen.getByRole("region", { name: "Pledge reminders" })).toHaveTextContent("Upcoming: amount due covers installments on the next due date only");
     expect(fetch).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Close reminders" }));
-    expect(screen.queryByRole("region", { name: "Pledge reminder CSV" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Pledge reminders" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Upcoming/ })).toHaveAttribute("aria-selected", "true");
   });
   it("shows both tabs and requested columns without a refresh, and switches without another call", async () => {
