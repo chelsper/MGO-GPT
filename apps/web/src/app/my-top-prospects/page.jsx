@@ -42,6 +42,7 @@ import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorkli
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
+import SessionAccessNotice from "@/components/SessionAccessNotice";
 import usePortfolioRefreshRunner from "@/utils/usePortfolioRefreshRunner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -5720,7 +5721,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
 export default function MyTopProspectsPage() {
   const labels = useWorkspaceLabels();
   const fundraiserLabel = labels.mgo;
-  const { data: user, loading } = useUser();
+  const { data: user, loading, error: sessionError, refetch: retrySession } = useUser();
   const queryClient = useQueryClient();
   const [workspaceSwitchMessage, setWorkspaceSwitchMessage] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -6894,17 +6895,7 @@ export default function MyTopProspectsPage() {
 
   if (loading || !user) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#F9FAFB",
-        }}
-      >
-        <p style={{ color: "#6B7280" }}>Loading...</p>
-      </div>
+      <SessionAccessNotice loading={loading} error={sessionError} onRetry={retrySession} returnTo={typeof window === "undefined" ? "/my-top-prospects" : `${window.location.pathname}${window.location.search}${window.location.hash}`} />
     );
   }
 

@@ -1,7 +1,7 @@
 # Pledge reminder Outlook readiness
 
 Checked November 20, 2026, at approximately 10:48 AM America/New_York.
-Status: simple PDF/compose-link handoff implemented locally; not deployed. A Microsoft Graph mailbox connection is not implemented or required for this version.
+Status: simple PDF/compose-link handoff deployed November 20, 2026 (commit `6cfb46847bf04eb4112bf1490fd40fe026868eb6`). A Microsoft Graph mailbox connection is not implemented or required for this version. Separate staff-confirmed NXT action logging is described in [Pledge payments](pledge-payments.md#staff-confirmed-sending-and-nxt-actions); it is not part of that deployed handoff release.
 
 ## Current implementation
 

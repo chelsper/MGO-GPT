@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-const state = vi.hoisted(() => ({ profile: null }));
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+const state = vi.hoisted(() => ({ profile: null, session: null }));
 vi.mock("@/components/ProspectExport", () => ({ default: () => null }));
-vi.mock("@/utils/useUser", () => ({ default: () => ({ data: { id: 2 }, loading: false }) }));
+vi.mock("@/utils/useUser", () => ({ default: () => state.session }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }) => ({
     data: queryKey[0] === "profile-sync-status" ? state.profile : undefined,
@@ -15,6 +15,7 @@ import MyProspects from "./page";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 beforeEach(() => {
+  state.session = { data: { id: 2 }, loading: false, refetch: vi.fn() };
   state.profile = {
     user: { id: 2, role: "admin", name: "Admin Author" },
     workspaceUser: { id: 44, role: "mgo", name: "Selected MGO" },
@@ -22,6 +23,24 @@ beforeEach(() => {
   };
 });
 afterEach(cleanup);
+
+it('offers sign-in instead of Loading when its own session has expired', () => {
+  state.session.data = null;
+  render(<MyProspects />);
+  expect(screen.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+  expect(screen.queryByText('Loading...')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Add Prospect' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Sign in' })).toBeVisible();
+});
+
+it('offers a session-only retry after a failed check', () => {
+  state.session.data = null;
+  state.session.error = 'unavailable';
+  render(<MyProspects />);
+  expect(screen.getByRole('heading', { name: 'Could not check your sign-in' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Try checking again' }));
+  expect(state.session.refetch).toHaveBeenCalledWith({ showLoading: true });
+});
 
 it.each(["admin", "mgo,admin"])("enables Admin editing and action entry for %s", (role) => {
   state.profile.user.role = role;

@@ -12,6 +12,7 @@ import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
 import campaignPrioritiesSchema from "./campaignPrioritiesSchema";
 import pipelineChangeGuardSchema from "./pipelineChangeGuardSchema";
 import projectProspectingSchema from "./projectProspectingSchema";
+import pledgeReminderLogSchema from "./pledgeReminderLogSchema";
 
 let schemaReadyPromise;
 
@@ -46,6 +47,7 @@ export default async function ensureAppSchema() {
 
     await relationshipOriginatorSchema(sql);
     await campaignPrioritiesSchema(sql);
+    await pledgeReminderLogSchema(sql);
 
     await sql`
       CREATE TABLE IF NOT EXISTS standings_annual_goals (
