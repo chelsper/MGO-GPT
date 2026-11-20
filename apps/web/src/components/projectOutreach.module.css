@@ -1,0 +1,234 @@
+.panel {
+  --ink: #193f36;
+  --green: #08745d;
+  --line: #cfdfd8;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+  color: var(--ink);
+  min-width: 0;
+}
+.heading,
+.tools,
+.identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.heading {
+  margin-bottom: 16px;
+  align-items: start;
+}
+.heading h2 {
+  font-size: 25px;
+  margin: 6px 0;
+}
+.heading h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.heading p,
+.help,
+.panel small {
+  color: #536b63;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  font-weight: 750;
+}
+.panel button,
+.panel a {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid #9cbfb2;
+  border-radius: 9px;
+  color: var(--green);
+  background: white;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}
+.panel .primary {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+.panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.panel :is(button, input, select, textarea, a, summary):focus-visible {
+  outline: 3px solid #74a99a;
+  outline-offset: 3px;
+}
+.tools {
+  justify-content: flex-start;
+  align-items: end;
+  margin: 12px 0;
+}
+.panel label {
+  display: grid;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 650;
+  min-width: 0;
+}
+.panel :is(input:not([type="checkbox"]), select, textarea) {
+  border: 1px solid #b5c9c0;
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.panel input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--green);
+}
+.panel textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.form {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: #f5faf7;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+.form h3 {
+  margin: 0;
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.form .check {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+}
+.brief {
+  border-left: 3px solid var(--green);
+  padding: 12px 18px;
+  background: linear-gradient(110deg, #edf6f1, #fff);
+  margin: 20px 0;
+}
+.brief p,
+.notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 20px 0;
+}
+.metrics div {
+  padding: 16px;
+  border-right: 1px solid var(--line);
+}
+.metrics span {
+  font-size: 12px;
+  color: #536b63;
+  display: block;
+}
+.metrics strong {
+  display: block;
+  font-size: 28px;
+  margin-top: 7px;
+}
+.assignment {
+  padding: 16px;
+  background: #edf6f1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.confirm {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.list {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+}
+.person {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+}
+.identity {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+.person p {
+  margin: 10px 0;
+}
+.panel summary {
+  padding: 12px 0;
+  cursor: pointer;
+  font-weight: 650;
+}
+.event {
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+}
+.warning {
+  background: #fff9e8;
+  border: 1px solid #e8d498;
+  border-radius: 9px;
+  padding: 12px;
+  color: #6e511b;
+  overflow-wrap: anywhere;
+}
+.positive {
+  color: #166144;
+}
+@media (max-width: 900px) {
+  .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .panel {
+    padding: 14px;
+  }
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tools label {
+    width: 100%;
+  }
+  .form {
+    padding: 14px;
+  }
+  .person {
+    padding: 14px;
+  }
+  .tools button {
+    flex: 1 1 145px;
+  }
+}

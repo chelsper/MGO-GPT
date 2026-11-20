@@ -20,6 +20,7 @@ export default function ProjectProspectingPage() {
       <h2 className={styles.listTitle}>{project.title}</h2><p>{project.description}</p>
       <p className={styles.muted}>Saved NXT query {project.dataConfiguration.queryId || "not selected"}. Everyone granted access can create and apply tags.</p>
       {project.canView ? <a className={styles.button} href={getReportHref(project)}>Open project</a> : <p>Select viewers and enable this project before opening its data.</p>}
+      {project.canView && <a className={styles.button} href={`/project-outreach/${encodeURIComponent(project.key)}`}>Outreach assignments</a>}
       {canManage && <a className={styles.button} href={`/report-configurations?report=${encodeURIComponent(project.key)}&tab=${project.active ? "Configure" : "Access"}`}>Project settings</a>}
     </article>)}</div>}
   </div></main>;

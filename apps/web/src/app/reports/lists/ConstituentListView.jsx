@@ -19,6 +19,7 @@ import { displayCell } from "@/components/QueryResultsTable";
 import ProjectProspectResults from "@/components/ProjectProspectResults";
 import { isProjectProspecting, PROJECT_HREF, PROJECT_SECTION } from "@/utils/projectProspecting";
 import { buildSignInHref } from "@/utils/signInNavigation";
+import ProjectOutreachPanel from "@/components/ProjectOutreachPanel";
 
 function ListSignInNotice() {
   const [href, setHref] = useState("/account/signin");
@@ -36,7 +37,7 @@ function ListSignInNotice() {
   );
 }
 
-export default function ConstituentListView({ params, projectRoute = false }) {
+export default function ConstituentListView({ params, projectRoute = false, outreachRoute = false }) {
   const { data, error, errorStatus, loading, refreshing, reload, refresh } =
     useConstituentList(params.listKey);
   const [search, setSearch] = useState("");
@@ -97,8 +98,8 @@ export default function ConstituentListView({ params, projectRoute = false }) {
           activeReportKey={params.listKey}
           title={report?.title || "Constituent list"}
           description={report?.description}
-          backHref={project ? PROJECT_HREF : "/reports/lists"}
-          backLabel={project ? "Back to Project Prospecting" : "Back to Lists"}
+          backHref={outreachRoute ? "/project-outreach" : project ? PROJECT_HREF : "/reports/lists"}
+          backLabel={outreachRoute ? "Back to Project Outreach" : project ? "Back to Project Prospecting" : "Back to Lists"}
           reportSection={project ? PROJECT_SECTION : undefined}
           action={
             report &&
@@ -140,6 +141,10 @@ export default function ConstituentListView({ params, projectRoute = false }) {
         ))}
         {report && (
           <div className={styles.stack}>
+            {project && <nav className={styles.toolbar} aria-label="Project views">
+              <a className={styles.button} aria-current={!outreachRoute ? "page" : undefined} href={`${PROJECT_HREF}/${encodeURIComponent(report.key)}`}>List &amp; tags</a>
+              <a className={styles.button} aria-current={outreachRoute ? "page" : undefined} href={`/project-outreach/${encodeURIComponent(report.key)}`}>Outreach assignments</a>
+            </nav>}
             <ListRefreshStatus
               snapshot={snapshot}
               queryOutput={queryOutput}
@@ -147,7 +152,7 @@ export default function ConstituentListView({ params, projectRoute = false }) {
               refreshing={refreshing}
               error={error}
             />
-            {project && (report.canManageMembers ? (
+            {project && !outreachRoute && (report.canManageMembers ? (
               <ListMembershipSearch key={`${report.key}:${report.revision}`} report={report} compact />
             ) : (
               <p className={styles.notice}>
@@ -170,7 +175,8 @@ export default function ConstituentListView({ params, projectRoute = false }) {
               </section>
             )}
             {!snapshot && preview}
-            {snapshot?.tableRows && (
+            {outreachRoute && <ProjectOutreachPanel key={report.key} report={report} snapshot={snapshot} refreshing={busy} />}
+            {!outreachRoute && snapshot?.tableRows && (
               isProjectProspecting(report) ? <ProjectProspectResults key={`${report.revision}:${snapshot.generatedAt}`} report={report} snapshot={snapshot} refreshing={busy} onReload={reload} /> : <ListQueryResults
                 key={`${report.revision}:${snapshot.generatedAt}`}
                 snapshot={snapshot}
@@ -178,7 +184,7 @@ export default function ConstituentListView({ params, projectRoute = false }) {
                 title={report.title}
               />
             )}
-            {snapshot && !snapshot.tableRows && (
+            {!outreachRoute && snapshot && !snapshot.tableRows && (
               <section className={styles.card} aria-label="Saved list members">
                 <div className={styles.toolbar}>
                   <h2 className={styles.listTitle}>

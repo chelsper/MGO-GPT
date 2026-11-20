@@ -12,6 +12,7 @@ import relationshipOriginatorSchema from "./relationshipOriginatorSchema";
 import campaignPrioritiesSchema from "./campaignPrioritiesSchema";
 import pipelineChangeGuardSchema from "./pipelineChangeGuardSchema";
 import projectProspectingSchema from "./projectProspectingSchema";
+import projectOutreachSchema from "./projectOutreachSchema";
 import pledgeReminderLogSchema from "./pledgeReminderLogSchema";
 
 let schemaReadyPromise;
@@ -2694,6 +2695,7 @@ export default async function ensureAppSchema() {
       ON report_configurations (visibility)
     `;
     await projectProspectingSchema(sql);
+    await projectOutreachSchema(sql);
     await sql`
       DO $metric_library_schema$
       BEGIN

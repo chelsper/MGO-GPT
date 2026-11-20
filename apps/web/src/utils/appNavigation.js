@@ -14,6 +14,7 @@ export const MGO_NAV_ITEMS = [
   { label: "Reports", href: "/reports", section: "My Work", primaryOrder: 3, description: "Review saved portfolio giving, team standings, and your available reports." },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
+  { label: "Project Outreach", href: "/project-outreach", section: "My Work", description: "Work project call assignments and record outcomes without changing portfolio ownership." },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
@@ -25,6 +26,7 @@ export const MGO_NAV_ITEMS = [
 export const REVIEWER_NAV_ITEMS = [
   { label: "Work Queue", href: "/submissions", section: "Daily Work", primaryOrder: 1, description: "Review outstanding requests and NXT exceptions in one queue." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work" },
+  { label: "Project Outreach", href: "/project-outreach", section: "Daily Work", description: "Assign project call lists and track outreach and NXT action confirmation." },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
   { label: "Stewardship", href: "/stewardship", section: "Stewardship", description: "Coordinate gift follow-ups, prepare society letters, and track acknowledgments." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
@@ -80,6 +82,7 @@ const ROUTE_LABELS = {
   "/new-constituent": "Suggest New Constituent",
   "/organization-configurations": "Organization Settings",
   "/prospect-pool": "Prospect Pool",
+  "/project-outreach": "Project Outreach",
   "/prospect-exports": "Top Prospect Exports",
   "/pledge-payments": "Pledge Payments",
   "/report-configurations": "Report Access & Configurations",
@@ -140,6 +143,7 @@ export function groupNavigationItems(items, { promotePrimary = false } = {}) {
 }
 
 export function isNavigationItemActive(pathname, href) {
+  if (href === "/project-outreach") return pathname === href || pathname.startsWith(`${href}/`);
   if (href === "/") return pathname === "/";
   if (href === "/stewardship") return pathname === href || pathname.startsWith("/stewardship/");
   if (href === "/follow-ups") return pathname === href || pathname === "/team-discussion";
@@ -151,6 +155,9 @@ export function isNavigationItemActive(pathname, href) {
 
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
+  if (pathname.startsWith("/project-outreach/")) return [
+    { label: "Home", href: "/" }, { label: "Project Outreach", href: "/project-outreach" }, { label: "Call assignments" },
+  ];
   if (pathname === "/stewardship/inventory/import") return [
     { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" },
     { label: "Gift Inventory", href: "/stewardship/inventory" }, { label: "Received Items", href: "/stewardship/inventory/recipients" },
