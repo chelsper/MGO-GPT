@@ -10,6 +10,7 @@ import { PLEDGE_REMINDER_LIMIT, REMINDER_FIELDS, pledgeReminderIssue, pledgeRemi
 import { calendarDate } from "@/utils/prospectActivity";
 import { pledgeReminderEmailRecipient, reminderEmailText, reminderPdfFilename } from "@/utils/pledgeReminderHandoff";
 import { renderPledgeReminderPdf } from "@/app/api/utils/pledgeReminderPdf";
+import { createReminderLogStore } from "@/app/api/utils/pledgeReminderLogStore";
 
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -62,10 +63,17 @@ export async function POST(request) {
       const draft = { pledge: row, ...recipient, fields };
       const pdf = await renderPledgeReminderPdf(draft, { letterDate: body.letterDate, today, view: body.view });
       selectedRows(await readPledgeCache(scope), body, today);
+      const email = pledgeReminderEmailRecipient(profile, row.constituentId);
+      const filename = reminderPdfFilename(row, body.letterDate);
+      let recording = null;
+      if (!email.reason) {
+        try { recording = await createReminderLogStore().prepare({ ownerId: user.id, origin, draft, email: email.address,
+          letterDate: body.letterDate, today, view: body.view, filename }); } catch { /* PDF/email preparation still works if local tracking is unavailable. */ }
+      }
       return Response.json({ handoff: {
         pledgeId: row.id, refreshedAt: row.refreshedAt, letterDate: body.letterDate, checkedAt: new Date().toISOString(),
-        filename: reminderPdfFilename(row, body.letterDate), pdf: pdf.toString("base64"),
-        email: pledgeReminderEmailRecipient(profile, row.constituentId), ...reminderEmailText(fields.Addressee),
+        filename, pdf: pdf.toString("base64"), recording,
+        email, ...reminderEmailText(fields.Addressee),
       } }, { headers });
     }
     selectedRows(await readPledgeCache(scope), body, today);

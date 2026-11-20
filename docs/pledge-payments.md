@@ -166,7 +166,23 @@ The PDF uses the supplied letter's appreciation wording, a single-spaced address
 
 Download the PDF first, then open Outlook on the web or the default email app. The recipient is the verified primary NXT email; missing, inactive, restricted, mismatched or unconfirmed email status blocks email links without blocking an otherwise valid postal PDF. Staff may edit the plain-text subject/message. Attach the PDF manually, verify the sending account and recipient, and send in Outlook. Opening a compose link does not attach a file, connect a mailbox, prove sending, or create an NXT action. Reopening may create a second draft. Copy-email-text is available as a fallback.
 
-Prepared files are page-local. Changed reminder details invalidate them, and the handoff expires after 15 minutes. Previously downloaded files and Outlook messages cannot be updated automatically. Saved pledge amounts are validated, not refreshed from NXT; refresh the pledge worklist first if payments have changed. The UI says **Prepared, not sent**. Sent-history and a staff-confirmed NXT action are separate future work.
+Prepared files are page-local. Changed reminder details invalidate them, and the handoff expires after 15 minutes. Previously downloaded files and Outlook messages cannot be updated automatically. Saved pledge amounts are validated, not refreshed from NXT; refresh the pledge worklist first if payments have changed. The UI says **Prepared, not sent**. Preparation never creates an NXT action.
+
+## Staff-confirmed Sending and NXT Actions
+
+This follow-on feature is separate from the PDF/Outlook release deployed November 20, 2026. It requires the additive `pledge_reminder_snapshots` and `pledge_reminder_logs` tables. No new mailbox connection or environment setting is needed.
+
+Preparing a PDF with a valid primary email saves a private, owner-scoped reminder snapshot in the app: recipient, verified email, pledge/reference IDs, fund, financial amounts, check timestamp, letter/due dates and filename. Full postal addresses, PDF bytes and edited email bodies are not retained. If snapshot persistence fails, PDF and compose functionality remain available with an explicit logging-unavailable notice. Existing CSV export is unchanged.
+
+After actually sending in Outlook, expand **Record reminder sent in NXT**, choose the actual sending date and confirm that the matching PDF was attached. This explicit operation creates one completed **Email / Stewardship** action through the signed-in Admin or Advancement Services user's own NXT connection. It records staff-confirmed sending, not app-verified delivery. It does not send mail, change balances, add appeals or change MGO assignments. The historical reminder's saved financial amounts remain unchanged if payments arrive later.
+
+**Saved pledge reminders and NXT logging** shows the latest 50 prepared email reminders for the signed-in account. Loading saved details does not call NXT. Downloading a PDF, opening Outlook or preparing a reminder never records sending. Older snapshots remain stored but are not currently paginated in this first history view.
+
+A durable database claim is saved before creating the action. Duplicate protection spans staff accounts for the same reminder event and the same pledge/actual sending date. Any unresolved action for that pledge blocks new submissions, even if someone edits the date or regenerates the PDF. A genuinely later reminder is allowed after the earlier result is verified. Each write has retries disabled; a lost response is held for investigation, not resubmitted.
+
+If the outcome is uncertain, use **Reload saved status**, then **Verify existing NXT action only**. This reads the checkpointed NXT action ID (or the existing action ID staff supplies after checking NXT) and requires an exact match to the saved reminder, recipient, dates and completed Email/Stewardship fields. It never creates or edits an action. Missing/mismatched actions stay held for staff investigation; no automated release or resend is offered. Only the original recording staff account can recover its pending action here. Another account sees the hold without the original account's action ID.
+
+Local database verification: `PLEDGE_REMINDER_TEST_PGHOST=/private/tmp/pledge-reminder-pg.<suffix> node scripts/check-pledge-reminder-logs-postgres.mjs` against a disposable PostgreSQL server listening only on that socket, port 55441. This tests the actual additive schema/store with simultaneous starts and cross-staff claims. It must not use a production database. Live Outlook delivery and live NXT action acceptance require a separate authorized pilot; automated tests use fictional records only.
 
 Future automatic attachment/mailbox integration is documented in [Pledge reminder Outlook readiness](pledge-reminder-outlook-readiness.md); it is not required for this simple handoff.
 
@@ -181,4 +197,4 @@ an Advancement Services connection after deployment. A forbidden endpoint or
 unsupported response must remain a visible review issue, never a zero balance.
 For first acceptance, compare an unpaid pledge, a partial payment, a write-off,
 and a pledge with multiple payments to the same NXT records before relying on
-the worklist for outreach. This feature sends no reminders and makes no NXT writes.
+the worklist for outreach. Loading the worklist and preparing/exporting reminders send no mail or NXT writes. Only the explicit staff-confirmed action operation described above writes to NXT.

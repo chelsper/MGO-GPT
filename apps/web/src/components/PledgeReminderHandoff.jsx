@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { calendarDate } from "@/utils/prospectActivity";
 import { HANDOFF_LIFETIME_MS, reminderEmailLinks } from "@/utils/pledgeReminderHandoff";
+import PledgeReminderRecord from "./PledgeReminderRecord";
 
 const button = "inline-flex min-h-11 items-center justify-center rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50";
 const input = "mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2 font-normal";
@@ -99,7 +100,9 @@ function SingleHandoff({ draft, source, letterDate, disabled, onBusy }) {
           <button type="button" className={button} disabled={!canOpen} onClick={copy}>Copy email text</button>
         </div>
         <p className="text-sm">{downloaded ? "Attach the downloaded PDF yourself, check the sending account and recipient, then send in Outlook. Reopening the email link may create another draft." : "Download the PDF first to enable the email links."} The desktop link uses your default email app. If Outlook does not populate correctly, copy the email text instead.</p>
-        <p className="text-xs text-gray-600">The app cannot tell whether you sent the email. No sent status or NXT action is recorded. If a payment arrives or details change, prepare a new PDF and replace any older attachment yourself.</p>
+        <p className="text-xs text-gray-600">The app cannot tell whether you sent the email. No sent status or NXT action is recorded automatically. If a payment arrives or details change before sending, prepare a new PDF and replace any older attachment yourself.</p>
+        {result.recording?.snapshotId ? <PledgeReminderRecord snapshotId={result.recording.snapshotId} />
+          : <p className="text-sm text-amber-900">Saved NXT logging is unavailable for this preparation. The PDF and email links still work; no action has been recorded.</p>}
       </>}
       {notice && <p role="status" className="text-sm">{notice}</p>}
     </div>}

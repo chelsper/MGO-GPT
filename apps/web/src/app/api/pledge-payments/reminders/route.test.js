@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.fn(), cache: vi.fn(), sky: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.fn(), cache: vi.fn(), sky: vi.fn(), save: vi.fn() }));
+vi.mock("@/app/api/utils/pledgeReminderLogStore", () => ({ createReminderLogStore: () => ({ prepare: m.save }) }));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: m.schema }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: m.workspace }));
@@ -18,7 +19,7 @@ const pdfBody = () => ({ ...body(), operation: "pdf", confirm: true, letterDate:
   Addressee: "Fictional Avery", Address_Line_1: "10 Test St", Address_Line_2: "", City: "Jacksonville", State: "FL", Zip: "01234",
 } });
 beforeEach(() => {
-  vi.clearAllMocks(); m.auth.mockResolvedValue({ user: { email: "staff@example.test" } });
+  vi.clearAllMocks(); m.save.mockResolvedValue({ snapshotId: "10000000-0000-4000-8000-000000000001" }); m.auth.mockResolvedValue({ user: { email: "staff@example.test" } });
   m.workspace.mockResolvedValue({ sessionUser: { id: 7, role: "advancement_services", active: true }, workspaceUser: { id: 99, role: "mgo" } });
   m.cache.mockResolvedValue(cache()); m.sky.mockResolvedValue({ id: "10", name: "Fictional Avery", deceased: false, inactive: false, no_valid_address: false,
     address: { constituent_id: "10", address_lines: "10 Test St", city: "Jacksonville", state: "FL", postal_code: "32211", country: "United States", inactive: false, do_not_mail: false } });
@@ -85,12 +86,26 @@ describe("pledge reminder preparation boundary", () => {
     expect(Buffer.from(handoff.pdf, "base64").subarray(0, 5).toString()).toBe("%PDF-");
     expect(m.sky).toHaveBeenCalledOnce(); expect(m.sky.mock.calls[0][1].method).toBe("GET");
     expect(m.cache).toHaveBeenCalledTimes(2);
+    expect(m.save).toHaveBeenCalledOnce(); expect(handoff.recording.snapshotId).toBe("10000000-0000-4000-8000-000000000001");
   });
   it("requires confirmation and bounded valid fields before reading NXT for PDFs", async () => {
     for (const change of [{ confirm: false }, { letterDate: "2026-02-30" }, { fields: null }, { fields: [] }, { fields: { ...pdfBody().fields, Addressee: "x".repeat(501) } }, { pledges: [body().pledges[0], { id: "2", refreshedAt: body().pledges[0].refreshedAt }] }]) {
       expect((await POST(request({ ...pdfBody(), ...change }))).status).toBe(400);
     }
     expect(m.sky).not.toHaveBeenCalled(); expect(m.cache).not.toHaveBeenCalled();
+  });
+  it("preserves the PDF and manual email handoff if local history cannot be saved", async () => {
+    const profile = await m.sky(); m.sky.mockClear();
+    profile.email = { constituent_id: "10", address: "avery@example.test", inactive: false, do_not_email: false };
+    m.sky.mockResolvedValue(profile); m.save.mockRejectedValueOnce(new Error("private database failure"));
+    const response = await POST(request(pdfBody()));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.handoff.recording).toBeNull();
+    expect(result.handoff.email.address).toBe("avery@example.test");
+    expect(Buffer.from(result.handoff.pdf, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+    expect(JSON.stringify(result)).not.toContain("private database failure");
+    expect(m.sky.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
   });
   it("keeps a missing or restricted email out without preventing a valid postal PDF", async () => {
     const missing = await POST(request(pdfBody())); expect(missing.status).toBe(200);
@@ -99,6 +114,7 @@ describe("pledge reminder preparation boundary", () => {
     m.sky.mockResolvedValue(profile);
     const restricted = await POST(request(pdfBody())); expect(restricted.status).toBe(200);
     expect((await restricted.json()).handoff.email).toMatchObject({ address: "", reason: expect.stringContaining("restricted") });
+    expect(m.save).not.toHaveBeenCalled();
   });
   it("rejects stale cache, changed cache after generation and changed recipient restrictions", async () => {
     const data = cache(); data.records[0].stale = true; m.cache.mockResolvedValueOnce(data);

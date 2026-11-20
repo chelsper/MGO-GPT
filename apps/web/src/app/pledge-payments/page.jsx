@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import PledgePaymentList, { pledgeMoney } from "@/components/PledgePaymentList";
 import PledgeReminderPanel from "@/components/PledgeReminderPanel";
+import PledgeReminderHistory from "@/components/PledgeReminderHistory";
 import { OPEN_PLEDGE_QUERY_ID, pledgeWorklist } from "@/utils/pledgePayments";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
@@ -115,6 +116,7 @@ export default function PledgePaymentsPage() {
         onClick={() => setReminderSource({ rows: filtered, view: tab, jobId: job.id, today: data.today })}>Create pledge reminders</button>
         <p className="mt-2 text-sm text-gray-600">Use the selected tab and search to choose the reminder worklist. Finish refreshing first; verified pledges remain eligible when other pledges need review.</p></div>}
       {reminderSource && <PledgeReminderPanel source={reminderSource} onClose={() => setReminderSource(null)} />}
+      <PledgeReminderHistory />
       <section className="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white">
         <div className="space-y-4 border-b border-gray-200 p-5">
           <div role="tablist" aria-label="Pledge payment timing" className="flex flex-wrap gap-2">
