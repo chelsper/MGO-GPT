@@ -1,0 +1,970 @@
+import { useEffect, useRef, useState } from "react";
+import { INTERACTION_TYPES } from "@/utils/actionEntryOptions";
+import {
+  outreachPeople,
+  outreachCounts,
+  OUTREACH_OUTCOMES,
+  validateOutreachOutcome,
+  validateOutreachSettings,
+} from "@/utils/projectOutreach";
+import { projectIdentity } from "@/utils/projectProspecting";
+import { requestProjectOutreach } from "@/utils/projectOutreachRequest";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import styles from "./projectOutreach.module.css";
+
+const emptySettings = {
+  nameColumn: "",
+  phoneColumn: "",
+  restrictionColumn: "",
+  deadline: "",
+  instructions: "",
+  interactionType: "Solicitation",
+};
+const stageLabel = {
+  not_started: "Not started",
+  follow_up: "Follow-up needed",
+  complete: "Outreach complete",
+};
+
+function Setup({ saved, headers, busy, onSave }) {
+  const [settings, setSettings] = useState(saved.settings || emptySettings);
+  const error = validateOutreachSettings(settings, headers);
+  return (
+    <form
+      className={styles.form}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!error) onSave(settings);
+      }}
+    >
+      <p>
+        Choose the query's contact columns. Assignment does not add a custom
+        field or change a solicitor in NXT.
+      </p>
+      <div className={styles.fields}>
+        {[
+          ["nameColumn", "Constituent name", true],
+          ["phoneColumn", "Phone number", false],
+          ["restrictionColumn", "Contact restrictions / do-not-call", false],
+        ].map(([key, label, required]) => (
+          <label key={key}>
+            {label}
+            <select
+              value={settings[key]}
+              required={required}
+              disabled={busy}
+              onChange={(e) =>
+                setSettings({ ...settings, [key]: e.target.value })
+              }
+            >
+              <option value="">
+                {required ? "Choose output column" : "Not in this query"}
+              </option>
+              {headers.map((h) => (
+                <option key={h} value={h}>
+                  {h}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+        <label>
+          Project deadline
+          <input
+            type="date"
+            required
+            value={settings.deadline}
+            disabled={busy}
+            onChange={(e) =>
+              setSettings({ ...settings, deadline: e.target.value })
+            }
+          />
+        </label>
+        <label>
+          NXT action type
+          <select
+            value={settings.interactionType}
+            disabled={busy}
+            onChange={(e) =>
+              setSettings({ ...settings, interactionType: e.target.value })
+            }
+          >
+            {INTERACTION_TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Instructions for callers
+        <textarea
+          value={settings.instructions}
+          maxLength={2000}
+          disabled={busy}
+          onChange={(e) =>
+            setSettings({ ...settings, instructions: e.target.value })
+          }
+          placeholder="Purpose of the call, talking points, and next steps"
+        />
+      </label>
+      <small>
+        Changing the project deadline sets the default for new assignments.
+        Existing due dates stay unchanged unless you explicitly assign them a
+        new date.
+      </small>
+      <button disabled={busy || !!error} className={styles.primary}>
+        Save outreach setup
+      </button>
+    </form>
+  );
+}
+
+function OutcomeForm({ task, saved, busy, onSave, onCancel }) {
+  const [result, setResult] = useState(() => ({
+    eventId: crypto.randomUUID(),
+    taskId: task.id,
+    version: task.version,
+    outcome: "",
+    notes: "",
+    actionDate: saved.today,
+    stage: "follow_up",
+    nextDate: "",
+    contactReviewed: false,
+  }));
+  const error = validateOutreachOutcome(result, saved.today);
+  const field = (name, value) =>
+    setResult((current) => ({ ...current, [name]: value }));
+  useEffect(() => {
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
+  return (
+    <form
+      className={styles.form}
+      onSubmit={(e) => e.preventDefault()}
+      aria-label={`Record outcome for ${task.name}`}
+    >
+      <h3>Record outcome: {task.name}</h3>
+      <div className={styles.fields}>
+        <label>
+          What happened?
+          <select
+            autoFocus
+            value={result.outcome}
+            onChange={(e) => field("outcome", e.target.value)}
+            disabled={busy}
+            required
+          >
+            <option value="">Choose outcome</option>
+            {Object.entries(OUTREACH_OUTCOMES).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Interaction date
+          <input
+            type="date"
+            value={result.actionDate}
+            max={saved.today}
+            onChange={(e) => field("actionDate", e.target.value)}
+            disabled={busy}
+            required
+          />
+        </label>
+        <label>
+          Next step
+          <select
+            value={result.stage}
+            onChange={(e) =>
+              setResult({
+                ...result,
+                stage: e.target.value,
+                nextDate: e.target.value === "complete" ? "" : result.nextDate,
+              })
+            }
+            disabled={busy}
+          >
+            <option value="follow_up">Follow-up needed</option>
+            <option value="complete">Outreach complete</option>
+          </select>
+        </label>
+        {result.stage === "follow_up" && (
+          <label>
+            Follow-up date
+            <input
+              type="date"
+              value={result.nextDate}
+              min={result.actionDate}
+              onChange={(e) => field("nextDate", e.target.value)}
+              disabled={busy}
+              required
+            />
+          </label>
+        )}
+      </div>
+      <label>
+        Notes
+        <textarea
+          value={result.notes}
+          maxLength={4000}
+          onChange={(e) => field("notes", e.target.value)}
+          disabled={busy}
+          required
+        />
+      </label>
+      <label className={styles.check}>
+        <input
+          type="checkbox"
+          checked={result.contactReviewed}
+          onChange={(e) => field("contactReviewed", e.target.checked)}
+          disabled={busy}
+        />
+        I reviewed contact preferences and am recording what actually happened.
+      </label>
+      <p>
+        Saving keeps the result in this project. Submitting also creates one
+        completed{" "}
+        {result.outcome === "contact_issue" ? "Task/Other" : "Phone Call"} /{" "}
+        {saved.settings.interactionType} action in NXT, credited to you. It does
+        not send a message or change a portfolio.
+      </p>
+      <div className={styles.tools}>
+        <button
+          type="button"
+          className={styles.primary}
+          disabled={busy || !!error}
+          onClick={() => onSave(result, true)}
+        >
+          Save &amp; submit NXT action
+        </button>
+        <button
+          type="button"
+          disabled={busy || !!error}
+          onClick={() => onSave(result, false)}
+        >
+          Save outcome only
+        </button>
+        <button type="button" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function EventActions({ event, own, busy, run }) {
+  const [actionId, setActionId] = useState("");
+  if (event.state === "confirmed")
+    return (
+      <p className={styles.positive}>NXT action confirmed: {event.actionId}</p>
+    );
+  if (!own)
+    return (
+      <p>
+        NXT:{" "}
+        {event.state === "draft"
+          ? "Not submitted"
+          : "Needs verification by the staff member who recorded it"}
+        .
+      </p>
+    );
+  return event.state === "draft" ? (
+    <div className={styles.tools}>
+      <span>Outcome saved; NXT not submitted.</span>
+      <button
+        disabled={busy}
+        onClick={() =>
+          run({ operation: "submit", eventId: event.id, confirm: true })
+        }
+      >
+        Submit this saved outcome to NXT
+      </button>
+    </div>
+  ) : (
+    <div className={styles.warning}>
+      <p>
+        Outcome saved. The action may already exist in NXT. Do not submit a
+        replacement.
+      </p>
+      <label>
+        Existing NXT action system ID (if not already saved)
+        <input
+          value={actionId}
+          inputMode="numeric"
+          onChange={(e) => setActionId(e.target.value)}
+          disabled={busy}
+        />
+      </label>
+      <button
+        disabled={busy}
+        onClick={() =>
+          run({
+            operation: "verify",
+            eventId: event.id,
+            ...(actionId ? { actionId } : {}),
+          })
+        }
+      >
+        Verify existing action only
+      </button>
+    </div>
+  );
+}
+
+export default function ProjectOutreachPanel({
+  report,
+  snapshot,
+  refreshing = false,
+}) {
+  const [saved, setSaved] = useState(null),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true),
+    [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState(""),
+    [scope, setScope] = useState(""),
+    [status, setStatus] = useState("open");
+  const [selected, setSelected] = useState([]),
+    [assignee, setAssignee] = useState(""),
+    [dueDate, setDueDate] = useState("");
+  const [confirm, setConfirm] = useState(false),
+    [editing, setEditing] = useState(null),
+    [page, setPage] = useState(0);
+  const controller = useRef(null),
+    writing = useRef(false),
+    outcomeOpener = useRef(null);
+  useEffect(() => {
+    if (!editing) outcomeOpener.current?.focus();
+  }, [editing]);
+  const endpoint = `/api/reports/lists/${encodeURIComponent(report.key)}/outreach`;
+  async function load(signal) {
+    const data = await requestProjectOutreach(endpoint, { signal });
+    if (
+      data.revision !== report.revision ||
+      data.snapshotAt !== (snapshot?.generatedAt || null) ||
+      !Array.isArray(data.tasks) ||
+      !Array.isArray(data.callers)
+    )
+      throw new Error(
+        "The saved query changed. Reload the project to continue; your recorded outcomes are kept.",
+      );
+    if (!signal.aborted) {
+      setSaved(data);
+      setError("");
+      setSelected([]);
+      setConfirm(false);
+    }
+    return data;
+  }
+  useEffect(() => {
+    const current = new AbortController();
+    controller.current = current;
+    setLoading(true);
+    setSaving(false);
+    load(current.signal)
+      .catch((e) => {
+        if (!current.signal.aborted) setError(e.message);
+      })
+      .finally(() => {
+        if (!current.signal.aborted) setLoading(false);
+      });
+    return () => current.abort();
+  }, [endpoint, report.revision, snapshot?.generatedAt]);
+  async function reload() {
+    if (writing.current) return;
+    setLoading(true);
+    try {
+      await load(controller.current.signal);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function run(body, afterSave) {
+    if (writing.current || loading || refreshing || error) return;
+    writing.current = true;
+    setSaving(true);
+    setNotice("Saving...");
+    const signal = controller.current.signal;
+    try {
+      const result = await requestProjectOutreach(endpoint, {
+        signal,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, revision: report.revision }),
+      });
+      if (signal.aborted) return;
+      if (afterSave) await afterSave(result, signal);
+      const message =
+        result.message ||
+        (result.state === "confirmed"
+          ? "NXT action confirmed. Nothing was sent to the constituent."
+          : result.state === "processing"
+            ? "Submission is still protected. Reload saved status; do not submit it again."
+            : "Changes saved. Portfolio ownership is unchanged.");
+      await load(signal);
+      if (!signal.aborted) setNotice(message);
+    } catch (e) {
+      if (!signal.aborted) {
+        setNotice("");
+        setError(e.message);
+      }
+    } finally {
+      writing.current = false;
+      if (!signal.aborted) setSaving(false);
+    }
+  }
+  async function record(result, send) {
+    await run(
+      {
+        operation: "record",
+        result,
+        settingsVersion: saved.settingsVersion,
+        snapshotAt: saved.snapshotAt,
+      },
+      async (value, signal) => {
+        setEditing(null);
+        if (send) {
+          let synced;
+          try {
+            synced = await requestProjectOutreach(endpoint, {
+              signal,
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                operation: "submit",
+                eventId: value.id,
+                confirm: true,
+                revision: report.revision,
+              }),
+            });
+          } catch {
+            throw new Error(
+              "Your outcome is saved. NXT confirmation is unavailable. Reload saved status before continuing; do not record a replacement outcome.",
+            );
+          }
+          if (synced.state !== "confirmed")
+            throw new Error(
+              synced.message ||
+                "Outcome saved; NXT is not yet confirmed. Reload saved outreach to check.",
+            );
+          value.state = "confirmed";
+        }
+      },
+    );
+  }
+  const identity = projectIdentity(snapshot, report.dataConfiguration);
+  const settingsError =
+    saved?.settings &&
+    validateOutreachSettings(saved.settings, snapshot?.headers);
+  const busy = loading || saving || refreshing;
+  const blocked = busy || !!error;
+  const tasks = saved?.tasks || [];
+  const people = outreachPeople(
+    snapshot,
+    report.dataConfiguration,
+    saved?.settings,
+  );
+  const peopleById = new Map(people.map((p) => [p.constituentId, p]));
+  const tasksById = new Map(tasks.map((t) => [t.constituentId, t]));
+  const rows = [
+    ...people.map((p) => ({ ...p, task: tasksById.get(p.constituentId) })),
+    ...tasks
+      .filter((t) => !peopleById.has(t.constituentId))
+      .map((t) => ({
+        constituentId: t.constituentId,
+        name: t.name,
+        phones: [],
+        restrictions: [],
+        task: t,
+      })),
+  ];
+  const effectiveScope = scope || (saved?.canManage ? "all" : "mine");
+  const visible = rows.filter((p) => {
+    const t = p.task;
+    return (
+      (!search ||
+        `${p.name} ${p.constituentId} ${t?.assigneeName || ""}`
+          .toLowerCase()
+          .includes(search.toLowerCase())) &&
+      (effectiveScope === "all" ||
+        t?.assigneeId === saved?.viewerId ||
+        t?.events.some(
+          (e) => e.actorId === saved?.viewerId && e.state !== "confirmed",
+        )) &&
+      (status === "all" ||
+        (status === "unassigned" && !t) ||
+        (status === "open" &&
+          (t?.stage !== "complete" ||
+            t.events.some((e) => e.state !== "confirmed"))) ||
+        status === t?.stage ||
+        (status === "attention" &&
+          t &&
+          (!t.inCurrentQuery ||
+            !t.assigneeAvailable ||
+            t.events.some((e) => e.state !== "confirmed"))))
+    );
+  });
+  const counts = outreachCounts(
+    effectiveScope === "all"
+      ? tasks
+      : tasks.filter((t) => t.assigneeId === saved?.viewerId),
+  );
+  const selectable = (p) =>
+    !!saved?.canManage &&
+    !!saved.settings &&
+    !settingsError &&
+    !identity.error &&
+    peopleById.has(p.constituentId) &&
+    !p.task?.events.some((e) => ["processing", "review"].includes(e.state));
+  const pages = Math.max(1, Math.ceil(visible.length / 25)),
+    currentPage = Math.min(page, pages - 1);
+  const editingTask = tasks.find((t) => t.id === editing);
+  return (
+    <section
+      className={styles.panel}
+      aria-label="Project outreach"
+      aria-busy={busy}
+    >
+      <div className={styles.heading}>
+        <div>
+          <span className={styles.eyebrow}>PROJECT OUTREACH</span>
+          <h2>Call assignments &amp; outcomes</h2>
+          <p>
+            Temporary project work, not portfolio ownership. Opening this view
+            does not contact NXT.
+          </p>
+        </div>
+        <button disabled={busy} onClick={reload}>
+          Reload saved outreach
+        </button>
+      </div>
+      {loading && <p role="status">Loading saved outreach...</p>}
+      {error && (
+        <div className={styles.warning} role="alert">
+          {error}{" "}
+          <button disabled={busy} onClick={reload}>
+            Reload saved status
+          </button>
+        </div>
+      )}
+      {notice && <p role="status">{notice}</p>}
+      {identity.error && (
+        <p className={styles.warning}>
+          Map the constituent system record ID in Project settings before
+          assigning people.
+        </p>
+      )}
+      {saved?.canManage && (
+        <details open={!saved.settings || !!settingsError}>
+          <summary>Outreach setup</summary>
+          <Setup
+            key={saved.settingsVersion}
+            saved={saved}
+            headers={snapshot?.headers || []}
+            busy={blocked}
+            onSave={(settings) =>
+              run({
+                operation: "settings",
+                settings,
+                settingsVersion: saved.settingsVersion,
+              })
+            }
+          />
+        </details>
+      )}
+      {saved && !saved.settings && (
+        <p>
+          No outreach assignments yet. An Admin or Advancement Services user
+          needs to save the project deadline and contact columns.
+        </p>
+      )}
+      {saved?.settings && (
+        <>
+          <div className={styles.brief}>
+            <strong>Project deadline: {saved.settings.deadline}</strong>
+            <p>
+              {saved.settings.instructions ||
+                "No additional instructions saved."}
+            </p>
+          </div>
+          {settingsError && (
+            <p className={styles.warning}>
+              {settingsError} Existing assignments and history are kept.
+            </p>
+          )}
+          <div className={styles.metrics}>
+            {[
+              ["Assigned", counts.assigned],
+              ["Attempted", counts.attempted],
+              ["Reached", counts.reached],
+              ["Follow-up", counts.followUp],
+              ["Outreach complete", counts.complete],
+              ["NXT not confirmed", counts.pendingNxt],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className={styles.tools}>
+            <label>
+              Queue
+              <select
+                value={effectiveScope}
+                onChange={(e) => {
+                  setScope(e.target.value);
+                  setPage(0);
+                  setSelected([]);
+                  setConfirm(false);
+                }}
+              >
+                <option value="mine">My outreach</option>
+                <option value="all">Project overview</option>
+              </select>
+            </label>
+            <label>
+              Status
+              <select
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(0);
+                  setSelected([]);
+                  setConfirm(false);
+                }}
+              >
+                {[
+                  ["open", "Open outreach"],
+                  ["all", "All people"],
+                  ["unassigned", "Unassigned"],
+                  ["follow_up", "Follow-up needed"],
+                  ["complete", "Outreach complete"],
+                  ["attention", "Needs attention"],
+                ].map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Find a person or caller
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(0);
+                  setSelected([]);
+                  setConfirm(false);
+                }}
+              />
+            </label>
+          </div>
+          {saved.canManage && (
+            <div className={styles.assignment}>
+              <div className={styles.tools}>
+                <button
+                  disabled={blocked}
+                  onClick={() => {
+                    setSelected(
+                      visible
+                        .filter(selectable)
+                        .slice(0, 100)
+                        .map((p) => p.constituentId),
+                    );
+                    setConfirm(false);
+                  }}
+                >
+                  Select up to 100 matching people
+                </button>
+                <button
+                  disabled={blocked || !selected.length}
+                  onClick={() => {
+                    setSelected([]);
+                    setConfirm(false);
+                  }}
+                >
+                  Clear selection
+                </button>
+                <span>{selected.length} selected</span>
+                <label>
+                  Assign caller
+                  <select
+                    value={assignee}
+                    disabled={blocked}
+                    onChange={(e) => {
+                      setAssignee(e.target.value);
+                      setConfirm(false);
+                    }}
+                  >
+                    <option value="">Choose a project member</option>
+                    {saved.callers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Assignment due date
+                  <input
+                    type="date"
+                    value={dueDate || saved.settings.deadline}
+                    disabled={blocked}
+                    onChange={(e) => {
+                      setDueDate(e.target.value);
+                      setConfirm(false);
+                    }}
+                  />
+                </label>
+                <button
+                  className={styles.primary}
+                  disabled={
+                    blocked || !selected.length || !assignee || !!settingsError
+                  }
+                  onClick={() => setConfirm(true)}
+                >
+                  Review assignments
+                </button>
+              </div>
+              {confirm && (
+                <div className={styles.confirm}>
+                  <p>
+                    Assign {selected.length} people to{" "}
+                    <strong>
+                      {
+                        saved.callers.find((u) => String(u.id) === assignee)
+                          ?.name
+                      }
+                    </strong>
+                    , due {dueDate || saved.settings.deadline}?{" "}
+                    {selected.filter((id) => tasksById.has(id)).length} existing
+                    assignments will be updated. Previous outcomes remain saved.
+                    No NXT portfolios or custom fields will change.
+                  </p>
+                  <button
+                    className={styles.primary}
+                    disabled={blocked || !selected.length}
+                    onClick={() =>
+                      run({
+                        operation: "assign",
+                        people: selected.map((id) => ({
+                          constituentId: id,
+                          version: tasksById.get(id)?.version || 0,
+                        })),
+                        assigneeId: Number(assignee),
+                        dueDate: dueDate || saved.settings.deadline,
+                        settingsVersion: saved.settingsVersion,
+                        snapshotAt: saved.snapshotAt,
+                      })
+                    }
+                  >
+                    Confirm assignments
+                  </button>{" "}
+                  <button disabled={blocked} onClick={() => setConfirm(false)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {editingTask && (
+            <OutcomeForm
+              key={editingTask.id}
+              task={editingTask}
+              saved={saved}
+              busy={blocked}
+              onSave={record}
+              onCancel={() => setEditing(null)}
+            />
+          )}
+          <p className={styles.help}>
+            {visible.length} people shown. Contact details are from the saved
+            query. Check current NXT contact preferences before calling; blank
+            or missing restriction columns are not proof of permission.
+          </p>
+          <div className={styles.list}>
+            {visible
+              .slice(currentPage * 25, (currentPage + 1) * 25)
+              .map((person) => {
+                const task = person.task,
+                  overlap = (saved.overlaps || []).find(
+                    (o) => o.constituent_id === person.constituentId,
+                  );
+                return (
+                  <article key={person.constituentId} className={styles.person}>
+                    <div className={styles.heading}>
+                      <div className={styles.identity}>
+                        {saved.canManage && (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${person.name}`}
+                            disabled={
+                              blocked ||
+                              !selectable(person) ||
+                              (!selected.includes(person.constituentId) &&
+                                selected.length >= 100)
+                            }
+                            checked={selected.includes(person.constituentId)}
+                            onChange={(e) => {
+                              setSelected((current) =>
+                                e.target.checked
+                                  ? [...current, person.constituentId]
+                                  : current.filter(
+                                      (id) => id !== person.constituentId,
+                                    ),
+                              );
+                              setConfirm(false);
+                            }}
+                          />
+                        )}
+                        <div>
+                          <h3>{person.name}</h3>
+                          <small>System ID {person.constituentId}</small>
+                        </div>
+                      </div>
+                      <span>
+                        {task ? stageLabel[task.stage] : "Unassigned"}
+                      </span>
+                    </div>
+                    <p>
+                      {person.phones.length
+                        ? person.phones.join(" / ")
+                        : "No phone number in the saved query."}
+                    </p>
+                    {person.restrictions.length > 0 && (
+                      <p className={styles.warning}>
+                        Review contact restrictions:{" "}
+                        {person.restrictions.join(" / ")}
+                      </p>
+                    )}
+                    {overlap && (
+                      <p className={styles.help}>
+                        Also has open outreach in {overlap.count} other
+                        project(s) you can access. Coordinate before calling.
+                      </p>
+                    )}
+                    {task && (
+                      <p>
+                        {task.assigneeName} <span aria-hidden="true">/</span>{" "}
+                        Due {task.dueDate}
+                        {task.dueDate < saved.today && task.stage !== "complete"
+                          ? " / Overdue"
+                          : ""}
+                      </p>
+                    )}
+                    {task && !task.inCurrentQuery && (
+                      <p className={styles.warning}>
+                        No longer in the latest saved query, or identity mapping
+                        needs review. New outcomes are paused; existing history
+                        is kept.
+                      </p>
+                    )}
+                    {task && !task.assigneeAvailable && (
+                      <p className={styles.warning}>
+                        Caller is inactive or no longer has project access. A
+                        manager should review this assignment.
+                      </p>
+                    )}
+                    <div className={styles.tools}>
+                      <a
+                        href={buildBlackbaudConstituentProfileUrl(
+                          person.constituentId,
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open NXT record
+                      </a>
+                      {task?.assigneeId === saved.viewerId &&
+                        saved.canRecord && (
+                          <button
+                            disabled={
+                              blocked ||
+                              !task.inCurrentQuery ||
+                              !!settingsError ||
+                              !!editing
+                            }
+                            onClick={(event) => {
+                              outcomeOpener.current = event.currentTarget;
+                              setEditing(task.id);
+                            }}
+                          >
+                            Record outcome
+                          </button>
+                        )}
+                    </div>
+                    {task?.events.length > 0 && (
+                      <details>
+                        <summary>
+                          {task.events.length} recorded outcome(s)
+                        </summary>
+                        {task.events.map((event) => (
+                          <div key={event.id} className={styles.event}>
+                            <strong>
+                              {event.result.actionDate}:{" "}
+                              {OUTREACH_OUTCOMES[event.result.outcome]}
+                            </strong>
+                            <p>{event.actorName}</p>
+                            <p className={styles.notes}>{event.result.notes}</p>
+                            {event.result.nextDate && (
+                              <p>Follow-up date: {event.result.nextDate}</p>
+                            )}
+                            <EventActions
+                              event={event}
+                              own={
+                                saved.canRecord &&
+                                event.actorId === saved.viewerId
+                              }
+                              busy={blocked}
+                              run={run}
+                            />
+                          </div>
+                        ))}
+                      </details>
+                    )}
+                  </article>
+                );
+              })}
+          </div>
+          {!visible.length && (
+            <p>
+              No people match this queue. Try All people, or ask a project
+              manager to assign outreach to you.
+            </p>
+          )}
+          {pages > 1 && (
+            <nav className={styles.tools} aria-label="Outreach pages">
+              <button
+                disabled={currentPage === 0}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                Previous
+              </button>
+              <span>
+                Page {currentPage + 1} of {pages}
+              </span>
+              <button
+                disabled={currentPage + 1 === pages}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                Next
+              </button>
+            </nav>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

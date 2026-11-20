@@ -35,6 +35,7 @@ it.each([
   "lists/[listKey]/page.jsx",
   "project-prospecting/[listKey]/page.jsx",
   "future-made-phase-ii/page.jsx",
+  "../project-outreach/[listKey]/page.jsx",
 ])(
   "wraps %s once and shares content without importing another wrapped route",
   async (route) => {

@@ -1,6 +1,14 @@
 // Deliberately explicit: a renamed/missing/empty/skipped required suite fails the gate.
 // Live-provider and disposable-PostgreSQL suites have separate prerequisites.
 export const workflowGroups = {
+  "Project Outreach": [
+    "src/utils/projectOutreach.test.js",
+    "src/utils/projectOutreachRequest.test.js",
+    "src/app/api/utils/projectOutreachActions.test.js",
+    "src/app/api/reports/lists/[listKey]/outreach/route.test.js",
+    "src/components/ProjectOutreachPanel.test.jsx",
+    "src/app/project-outreach/page.test.jsx",
+  ],
   "Pledge reminder CSV": [
     "src/utils/pledgeReminders.test.js",
     "src/utils/pledgeReminderHandoff.test.js",
