@@ -146,7 +146,7 @@ donor records are changed.
 
 ## Pledge Reminder CSV
 
-Admins and Advancement Services can use **Create pledge reminder CSV** after a query-12033 refresh finishes (including completed-with-errors jobs). The current tab and search define the proposed worklist. Select up to 200 eligible pledges across the full filtered result, not just the displayed page. Each pledge remains a separate reminder even if the same donor has several pledges.
+Admins and Advancement Services can use **Create pledge reminders** after a query-12033 refresh finishes (including completed-with-errors jobs). The current tab and search define the proposed worklist. Select up to 200 eligible pledges across the full filtered result, not just the displayed page. Each pledge remains a separate reminder even if the same donor has several pledges. CSV export remains available alongside the individual PDF/email handoff.
 
 Choose the letter date and explicitly prepare the selection. Preparation makes one bounded, non-retried constituent GET per pledge through the signed-in reviewer's own NXT connection, sequentially; it does not rerun the query or update gifts. The UI can pause after the current read and continue remaining items without replacing already prepared drafts. A failed read stops the loop, preserving finished drafts in the current page.
 
@@ -157,6 +157,18 @@ Staff can edit the suggested addressee and separate address lines, city, state a
 After one explicit review confirmation, download only ready selected reminders; held rows are counted visibly and remain available for correction. A server-side cached-state check revalidates reviewer access, user/origin scope, job, selected IDs, verification timestamps, timing view and Eastern day immediately before download, with no NXT calls. Changed/stale data blocks export without deleting drafts. The CSV preserves leading ZIP zeroes as text, quotes multiline values, neutralizes spreadsheet formulas and maps these exact template fields: `Addressee`, `Address_Line_1`, `Address_Line_2`, `City`, `State`, `Zip`, `Fund`, `Pledge_Amount`, `Amount_Paid_to_Date`, `Installment_Amount`. Additional audit columns include `Letter_Date`, `Due_Date`, pledge/constituent IDs, balance and check dates. Word should merge `Letter_Date` instead of retaining a typed date.
 
 Drafts are page-local, not a persisted mailing history. Leaving before downloading prompts a warning; closing asks before discarding unexported prepared drafts. Export never sends email, applies an appeal, marks mailed, adjusts balances, or creates NXT records. Review merged Word letters and the template's current payment instructions before dispatch. The supplied template and its banking information are not bundled into public application assets or committed to the repository.
+
+## Individual PDF and Outlook Handoff
+
+After preparing recipient details, expand **Prepare a PDF and Outlook email** and select one ready pledge. Confirm the recipient and saved amounts, then choose **Prepare PDF & email**. The server validates the saved worklist before and after generation and reads the constituent again through the reviewer's own NXT connection. Client-supplied amounts or email addresses are never used.
+
+The PDF uses the supplied letter's appreciation wording, a single-spaced address, pledge reference, fund, financial statement and JU online-giving link. Per staff approval, bank and stock-transfer instructions remain in the existing Word template, not application code. PDFs are generated privately in memory using the existing pdf-lib dependency; no converter, storage, migration or new environment settings are required. Unsupported characters or oversized content fail safely with a CSV/Word alternative.
+
+Download the PDF first, then open Outlook on the web or the default email app. The recipient is the verified primary NXT email; missing, inactive, restricted, mismatched or unconfirmed email status blocks email links without blocking an otherwise valid postal PDF. Staff may edit the plain-text subject/message. Attach the PDF manually, verify the sending account and recipient, and send in Outlook. Opening a compose link does not attach a file, connect a mailbox, prove sending, or create an NXT action. Reopening may create a second draft. Copy-email-text is available as a fallback.
+
+Prepared files are page-local. Changed reminder details invalidate them, and the handoff expires after 15 minutes. Previously downloaded files and Outlook messages cannot be updated automatically. Saved pledge amounts are validated, not refreshed from NXT; refresh the pledge worklist first if payments have changed. The UI says **Prepared, not sent**. Sent-history and a staff-confirmed NXT action are separate future work.
+
+Future automatic attachment/mailbox integration is documented in [Pledge reminder Outlook readiness](pledge-reminder-outlook-readiness.md); it is not required for this simple handoff.
 
 ## API references and deployment validation
 

@@ -3,6 +3,9 @@
 export const workflowGroups = {
   "Pledge reminder CSV": [
     "src/utils/pledgeReminders.test.js",
+    "src/utils/pledgeReminderHandoff.test.js",
+    "src/app/api/utils/pledgeReminderPdf.test.js",
+    "src/components/PledgeReminderHandoff.test.jsx",
     "src/components/PledgeReminderPanel.test.jsx",
     "src/app/api/pledge-payments/reminders/route.test.js",
     "src/app/pledge-payments/page.test.jsx",
