@@ -70,6 +70,23 @@ function completeForm() {
   fireEvent.click(screen.getByLabelText(/I reviewed contact/));
 }
 describe("project outreach pilot UI", () => {
+  it("opens and focuses the requested setup field without saving or contacting NXT", async () => {
+    state.canManage = true;
+    await mount();
+    fireEvent.click(screen.getByText(/Setup & readiness/));
+    fireEvent.click(screen.getByRole("button", {name:"Edit phone numbers"}));
+    expect(screen.getByLabelText("Phone number")).toHaveFocus();
+    expect(screen.getByLabelText("Phone number").closest("details")).toHaveAttribute("open");
+    expect(requests).toHaveLength(0);
+  });
+  it("missing NXT connection and mapping do not block saving a local outcome", async () => {
+    state.nxtReadiness={state:"saved",checkedAt:"2026-11-21T15:00:00Z",callers:[{id:8,name:"Fictional Caller",connection:"not_connected",fundraiserMapped:false}]};
+    await mount();
+    completeForm();
+    fireEvent.click(screen.getByRole("button",{name:"Save outcome only"}));
+    await waitFor(() => expect(requests.map(r => r.operation)).toEqual(["record"]));
+    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+  });
   it("focuses the outcome form and returns to the original caller row on cancel", async () => {
     await mount();
     const opener = screen.getByRole("button", { name: "Record outcome" });

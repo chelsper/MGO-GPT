@@ -11,6 +11,7 @@ import { projectIdentity } from "@/utils/projectProspecting";
 import { requestProjectOutreach } from "@/utils/projectOutreachRequest";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "./projectOutreach.module.css";
+import ProjectOutreachReadiness from "./ProjectOutreachReadiness";
 
 const emptySettings = {
   nameColumn: "",
@@ -50,6 +51,7 @@ function Setup({ saved, headers, busy, onSave }) {
           <label key={key}>
             {label}
             <select
+              data-outreach-field={key}
               value={settings[key]}
               required={required}
               disabled={busy}
@@ -72,6 +74,7 @@ function Setup({ saved, headers, busy, onSave }) {
           Project deadline
           <input
             type="date"
+            data-outreach-field="deadline"
             required
             value={settings.deadline}
             disabled={busy}
@@ -98,6 +101,7 @@ function Setup({ saved, headers, busy, onSave }) {
       <label>
         Instructions for callers
         <textarea
+          data-outreach-field="instructions"
           value={settings.instructions}
           maxLength={2000}
           disabled={busy}
@@ -322,6 +326,7 @@ export default function ProjectOutreachPanel({
   report,
   snapshot,
   refreshing = false,
+  onReviewSource,
 }) {
   const [saved, setSaved] = useState(null),
     [error, setError] = useState(""),
@@ -339,7 +344,13 @@ export default function ProjectOutreachPanel({
     [page, setPage] = useState(0);
   const controller = useRef(null),
     writing = useRef(false),
-    outcomeOpener = useRef(null);
+    outcomeOpener = useRef(null),
+    setupRef = useRef(null);
+  function openSetup(field) {
+    if (!setupRef.current) return;
+    setupRef.current.open = true;
+    setupRef.current.querySelector(`[data-outreach-field="${field}"]`)?.focus();
+  }
   useEffect(() => {
     if (!editing) outcomeOpener.current?.focus();
   }, [editing]);
@@ -557,6 +568,7 @@ export default function ProjectOutreachPanel({
         </div>
       )}
       {notice && <p role="status">{notice}</p>}
+      {saved && <ProjectOutreachReadiness report={report} snapshot={snapshot} saved={saved} busy={blocked} onSetup={openSetup} onReviewSource={onReviewSource} />}
       {identity.error && (
         <p className={styles.warning}>
           Map the constituent system record ID in Project settings before
@@ -564,7 +576,7 @@ export default function ProjectOutreachPanel({
         </p>
       )}
       {saved?.canManage && (
-        <details open={!saved.settings || !!settingsError}>
+        <details ref={setupRef} open={!saved.settings || !!settingsError}>
           <summary>Outreach setup</summary>
           <Setup
             key={saved.settingsVersion}

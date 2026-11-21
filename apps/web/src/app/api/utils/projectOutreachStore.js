@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { listError } from "./listConfigurations";
-import { canManageWorkspaceRole, isMgoRole } from "@/utils/workspaceRoles";
+import { canManageWorkspaceRole, isMgoRole, isAdminRole } from "@/utils/workspaceRoles";
+import { readOutreachNxtReadiness } from "./projectOutreachReadiness";
 import {
   outreachPeople,
   OUTREACH_LIMIT,
@@ -123,6 +124,8 @@ export function createProjectOutreachStore(db = sql) {
         viewerId: Number(c.user.id),
         canManage: canManageWorkspaceRole(c.user.role),
         canRecord: canWrite(c.user),
+        canManageAccounts: isAdminRole(c.user.role),
+        nxtReadiness: await readOutreachNxtReadiness(c, db),
         callers: callers.map((u) => ({ id: Number(u.id), name: u.name })),
         overlaps: overlap,
         tasks: rows.map((t) => ({
