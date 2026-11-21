@@ -14,6 +14,27 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 
 ## Security and durability
 
+### Setup and readiness checklist
+
+Outreach now includes a collapsible checklist of saved query results, system-ID
+and contact mappings, deadline, instructions and eligible caller access. Links
+open the current project's configuration/access tab or focus the relevant setup
+field. Go to list refresh only focuses the existing control; it does not run a
+query. Empty complete query results are not displayed as a refresh failure.
+
+Caller NXT setup is advisory and reads database flags only. It does not retrieve
+tokens, renew credentials, call NXT, or promise successful submission. Managers
+see only active, explicitly shared eligible callers; MGOs see only themselves;
+executive-only viewers get no connection metadata. Saved mappings are not proof
+of an active fundraiser: the existing live identity/permission checks still run
+on submission. An expired access token with a saved refresh token is described
+as renewal due, not a failed connection. Connection status unavailable, missing
+phone/restriction outputs, or missing instructions do not add write gates.
+Save outcome only remains independent of NXT connectivity. No schema migration,
+automatic access grants, source refresh, or action submission is introduced.
+
+### Existing safeguards
+
 - Existing active-account and explicit project-viewer authorization applies to every endpoint; Admin does not bypass project access. Executive-only viewers cannot assign, record or submit.
 - Managers assign only active, explicitly shared callers with MGO or management roles. MGOs record only their own assignments and submit/verify only their own immutable outcomes.
 - Same-origin JSON writes, bounded inputs, optimistic report/settings/task revisions, current snapshot checks and transaction row locks protect mutations. Audit insertion is part of each assignment/outcome/settings transaction.

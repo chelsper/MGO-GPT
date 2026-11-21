@@ -17,6 +17,7 @@ vi.mock("./sql", () => ({
 }));
 import schema from "./projectOutreachSchema";
 import { createProjectOutreachStore } from "./projectOutreachStore";
+import { readOutreachNxtReadiness } from "./projectOutreachReadiness";
 import { projectIdentity } from "@/utils/projectProspecting";
 import {
   report,
@@ -167,20 +168,55 @@ const record = async (patch = {}, ctx = caller) => {
 describe.skipIf(!enabled)("project outreach real PostgreSQL", () => {
   beforeAll(async () => {
     await execute(`DROP SCHEMA IF EXISTS outreach_fixture CASCADE; CREATE SCHEMA outreach_fixture; SET search_path=outreach_fixture;
-      CREATE TABLE users(id bigint PRIMARY KEY,role text,active boolean,name text);
+      CREATE TABLE users(id bigint PRIMARY KEY,role text,active boolean,name text,blackbaud_constituent_id text);
+      CREATE TABLE blackbaud_connections(user_id bigint PRIMARY KEY,access_token text,refresh_token text,expires_at timestamptz);
       CREATE TABLE report_configurations(report_key text PRIMARY KEY,configuration_kind text,title text,active boolean,visibility text,specific_user_ids jsonb,data_configuration jsonb,updated_at timestamptz);
       CREATE TABLE report_snapshots_cache(report_key text PRIMARY KEY,payload jsonb);
       CREATE TABLE nxt_create_receipts(id bigserial PRIMARY KEY,owner_user_id bigint,kind text,payload jsonb,state text,remote_id text,verified_by_user_id bigint,verified_at timestamptz,updated_at timestamptz);`);
     await Promise.all([schema(db), schema(db)]);
   });
   beforeEach(async () => {
-    await execute(`TRUNCATE users,report_configurations,report_snapshots_cache,nxt_create_receipts CASCADE;
-      INSERT INTO users VALUES(7,'admin',true,'Fictional Manager'),(8,'mgo',true,'Fictional Caller'),(9,'mgo',true,'Fictional Other'),(10,'executive',true,'Fictional Viewer');
+    await execute(`TRUNCATE users,report_configurations,report_snapshots_cache,nxt_create_receipts,blackbaud_connections CASCADE;
+      INSERT INTO users(id,role,active,name) VALUES(7,'admin',true,'Fictional Manager'),(8,'mgo',true,'Fictional Caller'),(9,'mgo',true,'Fictional Other'),(10,'executive',true,'Fictional Viewer');
       INSERT INTO report_configurations VALUES(${literal(report.key)},'constituent_list','Fictional calls',true,'specific_users','[7,8,9,10]',${literal(JSON.stringify(report.dataConfiguration))},${literal(report.revision)});
       INSERT INTO report_snapshots_cache VALUES('fixture-snapshot',${literal(JSON.stringify(snapshot))});`);
   });
   afterAll(async () => {
     await execute("DROP SCHEMA outreach_fixture CASCADE");
+  });
+  it("reads connection flags only for authorized project callers, not the entire staff directory", async () => {
+    await execute(`UPDATE users SET blackbaud_constituent_id='123' WHERE id=8;
+      INSERT INTO blackbaud_connections VALUES(8,'fictional-access','fictional-refresh',NOW()+INTERVAL '1 hour'),(9,'fictional-access','fictional-refresh',NOW()-INTERVAL '1 hour');
+      INSERT INTO users VALUES(11,'mgo',true,'Fictional unrelated','777');`);
+    const own=await readOutreachNxtReadiness(caller,db);
+    expect(own.state).toBe("saved");
+    expect(own.callers).toEqual([{id:8,name:"Fictional Caller",connection:"saved",fundraiserMapped:true}]);
+    // The persisted viewer role, not a supplied role hint, controls other callers' visibility.
+    expect((await readOutreachNxtReadiness({...caller,user:{id:8,role:"admin"}},db)).callers).toEqual(own.callers);
+    const all=await readOutreachNxtReadiness(manager,db);
+    expect(all.callers.map(c=>c.id).sort()).toEqual([7,8,9]);
+    expect(all.callers.find(c=>c.id===9)).toMatchObject({connection:"refresh_due",fundraiserMapped:false});
+    expect(all.callers.find(c=>c.id===7).connection).toBe("not_connected");
+    expect(JSON.stringify(all)).not.toContain("fictional-access");
+    expect(JSON.stringify(all)).not.toContain("fictional-refresh");
+    expect(JSON.stringify(all)).not.toContain("unrelated");
+    await execute("UPDATE blackbaud_connections SET refresh_token=NULL WHERE user_id=9; UPDATE users SET active=FALSE WHERE id=8");
+    const changed=await readOutreachNxtReadiness(manager,db);
+    expect(changed.callers.map(c=>c.id).sort()).toEqual([7,9]);
+    expect(changed.callers.find(c=>c.id===9).connection).toBe("reconnect");
+    expect((await readOutreachNxtReadiness(caller,db)).callers).toEqual([]);
+    await execute("UPDATE report_configurations SET specific_user_ids='[8,9]'");
+    expect((await readOutreachNxtReadiness(manager,db)).callers).toEqual([]);
+  });
+  it("keeps local outcomes writable without any NXT connection or fundraiser mapping", async () => {
+    await setup();
+    await assign();
+    const before=await store.read(caller,state);
+    expect(before.nxtReadiness.callers).toEqual([{id:8,name:"Fictional Caller",connection:"not_connected",fundraiserMapped:false}]);
+    await record();
+    const after=await store.read(caller,state);
+    expect(after.tasks[0].events).toHaveLength(1);
+    expect(after.tasks[0].events[0].state).toBe("draft");
   });
   it("sets up, assigns, records and retains history across refresh and reassignment", async () => {
     await setup();

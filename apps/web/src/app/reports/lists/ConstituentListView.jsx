@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import useConstituentList from "./useConstituentList";
 import ListMembershipSearch from "@/components/ListMembershipSearch";
@@ -43,6 +43,7 @@ export default function ConstituentListView({ params, projectRoute = false, outr
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [localColumns, setLocalColumns] = useState(null);
+  const refreshControl = useRef(null);
   const report = data?.report;
   const project = isProjectProspecting(report) || projectRoute;
   const snapshot = data?.snapshot;
@@ -105,12 +106,13 @@ export default function ConstituentListView({ params, projectRoute = false, outr
             report &&
             (needsConfiguration ? (
               report.canConfigure && (
-                <a className={styles.button} href="/report-configurations">
+                <a ref={refreshControl} className={styles.button} href={`/report-configurations?report=${encodeURIComponent(report.key)}&tab=Configure`}>
                   List settings
                 </a>
               )
             ) : (
               <button
+                ref={refreshControl}
                 className={styles.button}
                 disabled={loading || busy}
                 onClick={needsRestart ? restartRefresh : refresh}
@@ -175,7 +177,7 @@ export default function ConstituentListView({ params, projectRoute = false, outr
               </section>
             )}
             {!snapshot && preview}
-            {outreachRoute && <ProjectOutreachPanel key={report.key} report={report} snapshot={snapshot} refreshing={busy} />}
+            {outreachRoute && <ProjectOutreachPanel key={report.key} report={report} snapshot={snapshot} refreshing={busy} onReviewSource={() => { refreshControl.current?.scrollIntoView({ block: "center" }); refreshControl.current?.focus(); }} />}
             {!outreachRoute && snapshot?.tableRows && (
               isProjectProspecting(report) ? <ProjectProspectResults key={`${report.revision}:${snapshot.generatedAt}`} report={report} snapshot={snapshot} refreshing={busy} onReload={reload} /> : <ListQueryResults
                 key={`${report.revision}:${snapshot.generatedAt}`}

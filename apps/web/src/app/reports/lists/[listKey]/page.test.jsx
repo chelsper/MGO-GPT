@@ -262,7 +262,10 @@ it("gives administrators a direct setup entry without an expanded warning", () =
   render(<Page params={{ listKey: "list-demo" }} />);
   expect(
     screen.getByRole("link", { name: "List settings", exact: true }),
-  ).toHaveAttribute("href", "/report-configurations");
+  ).toHaveAttribute(
+    "href",
+    "/report-configurations?report=list-demo&tab=Configure",
+  );
   expect(screen.getByText("Choose the correct ID field.")).not.toBeVisible();
 });
 it("asks before explicitly rereading a saved query edited in NXT", () => {
