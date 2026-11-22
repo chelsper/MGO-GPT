@@ -44,9 +44,20 @@ export default function ConstituentListView({ params, projectRoute = false, outr
   const [page, setPage] = useState(0);
   const [localColumns, setLocalColumns] = useState(null);
   const [fromTasks, setFromTasks] = useState(false);
+  const [callEntry, setCallEntry] = useState(null);
   useEffect(() => {
-    setFromTasks(new URLSearchParams(window.location.search).get("from") === "tasks");
-  }, [params.listKey]);
+    const query = new URLSearchParams(window.location.search);
+    setFromTasks(query.get("from") === "tasks");
+    setCallEntry(outreachRoute && query.get("from") === "tasks" && query.get("start") === "calls" ? params.listKey : null);
+  }, [params.listKey, outreachRoute]);
+  function consumeCallEntry() {
+    setCallEntry(null);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("start") === "calls") {
+      url.searchParams.delete("start");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }
   const refreshControl = useRef(null);
   const report = data?.report;
   const project = isProjectProspecting(report) || projectRoute;
@@ -181,7 +192,7 @@ export default function ConstituentListView({ params, projectRoute = false, outr
               </section>
             )}
             {!snapshot && preview}
-            {outreachRoute && <ProjectOutreachPanel key={report.key} report={report} snapshot={snapshot} refreshing={busy} onReviewSource={() => { refreshControl.current?.scrollIntoView({ block: "center" }); refreshControl.current?.focus(); }} />}
+            {outreachRoute && <ProjectOutreachPanel key={report.key} report={report} snapshot={snapshot} refreshing={busy} startCalls={callEntry === report.key} onStartCallsHandled={consumeCallEntry} onReviewSource={() => { refreshControl.current?.scrollIntoView({ block: "center" }); refreshControl.current?.focus(); }} />}
             {!outreachRoute && snapshot?.tableRows && (
               isProjectProspecting(report) ? <ProjectProspectResults key={`${report.revision}:${snapshot.generatedAt}`} report={report} snapshot={snapshot} refreshing={busy} onReload={reload} /> : <ListQueryResults
                 key={`${report.revision}:${snapshot.generatedAt}`}

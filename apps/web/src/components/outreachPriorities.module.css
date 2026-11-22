@@ -48,6 +48,15 @@
   outline: 3px solid #268a9e;
   outline-offset: 3px;
 }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.section a.secondary {
+  background: white;
+  color: var(--ink);
+}
 .totals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
