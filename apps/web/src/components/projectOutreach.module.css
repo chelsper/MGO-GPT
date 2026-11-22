@@ -396,6 +396,36 @@
   background: #f5faf7;
   border-radius: 12px;
 }
+.callSummary {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  margin: 20px 0;
+  background: linear-gradient(120deg, #f2f8f4, #fff);
+}
+.callSummary h3 { margin: 0; }
+.summaryCounts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 0;
+}
+.summaryCounts div { display: grid; gap: 6px; }
+.summaryCounts strong { font-size: 26px; }
+.summaryCounts span { font-size: 13px; color: #536b63; }
+.summaryList { list-style: none; padding: 0; }
+.summaryList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+}
+.summaryList li > div { display: grid; gap: 5px; flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.summaryList span { font-size: 14px; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .progress {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -460,6 +490,8 @@
   }
 }
 @media (max-width: 600px) {
+  .summaryCounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .callSummary { padding: 14px; }
   .outcomeOptions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
