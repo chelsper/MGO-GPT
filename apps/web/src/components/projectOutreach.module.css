@@ -297,12 +297,77 @@
   background: #f5faf7;
   border-radius: 12px;
 }
+.progress {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin: 20px 0;
+  padding: 0 16px 12px;
+  background: linear-gradient(130deg, #f2f8f4, #fff);
+}
+.progress summary span {
+  font-weight: 400;
+  font-size: 13px;
+  margin-left: 12px;
+}
+.progressGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.progressCaller {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: #fff;
+  min-width: 0;
+}
+.progressCaller h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.progressCaller progress {
+  width: 100%;
+  accent-color: var(--green);
+}
+.progressCounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.progressCounts button {
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.progressCounts strong {
+  font-size: 22px;
+}
+.progressFocus {
+  padding: 16px;
+  border-left: 4px solid var(--green);
+  background: #edf6f1;
+  margin: 16px 0;
+}
+.progressFocus h3 {
+  margin: 0;
+}
 @media (max-width: 900px) {
   .metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (max-width: 600px) {
+  .progressGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .progress summary span {
+    display: block;
+    margin: 6px 0 0;
+  }
   .callLaunch,
   .callContext,
   .callRecovery {

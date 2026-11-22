@@ -14,6 +14,30 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 
 ## Security and durability
 
+### Manager progress
+
+The collapsible Team progress panel uses the existing saved project payload for
+Admin/Advancement Services managers only. It does not fetch NXT, change access,
+assign callers or submit outcomes. Counts always cover the accessible project,
+not the current table search or pagination. Unassigned counts use unique system
+record IDs in the current saved query. Former/inactive callers remain visible
+when they own assignments or outstanding action history; they are not added to
+the eligible caller picker.
+
+Assigned/not-started/overdue/due-today/complete and assignment-review counts use
+current assignment ownership. NXT draft/verification counts use each event's
+recording user, even after reassignment, and count actions rather than people.
+Complete is not a claim of NXT confirmation. Overdue excludes completed work and
+uses the server-supplied date, not the browser's local date. Counts overlap.
+
+Selecting a count opens the matching people, clears hidden search/status/scope
+filters and existing selections, and focuses an explanatory heading. Back to
+previous view restores prior filters/page. Manual filter edits exit the progress
+focus. Open outcome drafts disable count navigation; the guided caller workflow
+remains caller-specific and retains the prior focused view on cancellation.
+Existing per-user submit/verify controls remain unchanged; no manager can submit
+someone else's action from this panel.
+
 ### Guided calling queue
 
 Start my next call opens the signed-in caller's own available assignments across
