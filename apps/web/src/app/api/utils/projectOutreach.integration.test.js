@@ -18,6 +18,7 @@ vi.mock("./sql", () => ({
 import schema from "./projectOutreachSchema";
 import { createProjectOutreachStore } from "./projectOutreachStore";
 import { readOutreachNxtReadiness } from "./projectOutreachReadiness";
+import { readOutreachPriorities } from "./outreachPriorities";
 import { projectIdentity } from "@/utils/projectProspecting";
 import {
   report,
@@ -183,6 +184,54 @@ describe.skipIf(!enabled)("project outreach real PostgreSQL", () => {
   });
   afterAll(async () => {
     await execute("DROP SCHEMA outreach_fixture CASCADE");
+  });
+  it("reads personal priorities in an explicit read-only transaction without multiplying assignments by events", async () => {
+    await setup();
+    await assign([{constituentId:"123",version:0},{constituentId:"456",version:0}],{dueDate:"2026-11-22"});
+    await record({stage:"follow_up",nextDate:"2026-11-21"});
+    const [task] = await execute("SELECT id FROM project_outreach_tasks WHERE constituent_id='123'");
+    await execute(`INSERT INTO project_outreach_events(id,task_id,actor_id,result,state) VALUES
+      ('33333333-3333-4333-8333-333333333333',${literal(task.id)},8,'{}','review'),
+      ('44444444-4444-4444-8444-444444444444',${literal(task.id)},9,'{}','draft')`);
+    const readOnlyDb = (text,values) => execute(`BEGIN READ ONLY; ${prepare({text,values})}${invoke({text,values})} COMMIT;`);
+    const context={userId:8,origin:caller.origin,today:"2026-11-22"};
+    expect(await readOutreachPriorities(context,readOnlyDb)).toEqual([{
+      key:report.key,open:2,overdue:1,today:1,upcoming:0,drafts:1,verification:1,
+    }]);
+    await execute(`UPDATE project_outreach_tasks SET assignee_id=9,stage='complete' WHERE id=${literal(task.id)}`);
+    expect((await readOutreachPriorities(context,db))[0]).toMatchObject({open:1,overdue:0,today:1,drafts:1,verification:1});
+    expect((await readOutreachPriorities({...context,userId:9},db))[0]).toMatchObject({open:0,overdue:0,today:0,drafts:1,verification:0});
+  });
+  it("isolates overview counts by app origin and preserves scheduled work when query membership changes", async () => {
+    await setup();await assign();
+    const context={userId:8,origin:caller.origin,today:"2026-11-22"};
+    expect((await readOutreachPriorities(context,db))[0]).toMatchObject({open:1,upcoming:1});
+    expect((await readOutreachPriorities({...context,origin:"https://other.test"},db))[0]).toMatchObject({open:0,upcoming:0});
+    await execute("DELETE FROM report_snapshots_cache");
+    expect((await readOutreachPriorities(context,db))[0]).toMatchObject({open:1,upcoming:1});
+  });
+  it("enforces persisted active caller role and explicit project access even for managers", async () => {
+    await setup();await assign();
+    const context={userId:8,origin:caller.origin,today:"2026-11-22"};
+    expect(await readOutreachPriorities({...context,userId:10},db)).toEqual([]);
+    await execute("UPDATE users SET role='executive' WHERE id=8");
+    expect(await readOutreachPriorities(context,db)).toEqual([]);
+    await execute("UPDATE users SET role='MGO, Executive',active=FALSE WHERE id=8");
+    expect(await readOutreachPriorities(context,db)).toEqual([]);
+    await execute("UPDATE users SET active=TRUE WHERE id=8; UPDATE report_configurations SET specific_user_ids='[8]'");
+    expect(await readOutreachPriorities({...context,userId:7},db)).toEqual([]);
+    expect((await readOutreachPriorities(context,db))[0].open).toBe(1);
+    await execute("UPDATE report_configurations SET visibility='all_users'");
+    expect(await readOutreachPriorities(context,db)).toEqual([]);
+    await execute("UPDATE report_configurations SET visibility='specific_users',active=FALSE");
+    expect(await readOutreachPriorities(context,db)).toEqual([]);
+    await execute("UPDATE report_configurations SET active=TRUE,data_configuration='{}'");
+    expect(await readOutreachPriorities(context,db)).toEqual([]);
+  });
+  it("includes explicit zero workload for a shared project without assignments", async () => {
+    expect(await readOutreachPriorities({userId:8,origin:caller.origin,today:"2026-11-22"},db)).toEqual([{
+      key:report.key,open:0,overdue:0,today:0,upcoming:0,drafts:0,verification:0,
+    }]);
   });
   it("reads connection flags only for authorized project callers, not the entire staff directory", async () => {
     await execute(`UPDATE users SET blackbaud_constituent_id='123' WHERE id=8;

@@ -14,6 +14,33 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 
 ## Security and durability
 
+### Personal priorities overview
+
+Project Outreach's landing page shows the signed-in caller's saved workload
+across explicitly shared projects: overdue, due today and upcoming assignments,
+plus their own NXT drafts and actions awaiting verification. Projects with due
+work appear first. Local filters narrow the project list; Open outreach uses the
+existing workflow and does not start a call or submit an action automatically.
+
+One aggregate database SELECT checks the persisted active account, caller role,
+project sharing and app origin in the same statement. Managers do not bypass
+project sharing or receive other callers' personal counts. Assignment and event
+aggregates stay separate so multiple outcomes cannot multiply assignment totals.
+Authored NXT work follows the original recorder after reassignment. No names,
+contact details, outcome notes, credentials or provider responses enter this API.
+
+These are scheduled-work counts, not live contact eligibility or a guarantee of
+the guided-call queue size. Missing query members remain counted until staff
+resolves the saved assignment; the individual project still applies its existing
+membership, uncertainty and contact-review safeguards. Completed outreach is not
+made due again because it has NXT paperwork outstanding. Assignments can count
+in multiple projects; action counts are not unique people.
+
+The overview uses the server's Eastern date and displays when saved counts were
+read. Reload reads saved aggregates only. Errors, malformed payloads and missing
+project counts never become false zero totals; project navigation remains usable.
+No new schema, NXT requests, refreshes, notifications, grants or mutations.
+
 ### Manager progress
 
 The collapsible Team progress panel uses the existing saved project payload for

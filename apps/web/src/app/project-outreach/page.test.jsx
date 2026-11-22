@@ -15,6 +15,19 @@ vi.mock("@/app/reports/SharedReportHeader", () => ({
 import Page from "./page";
 import { report } from "../../../test/fixtures/projectOutreach";
 beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, options = {}) => {
+      if (url !== "/api/project-outreach/priorities" || options.method)
+        throw new Error("Unexpected query refresh or write");
+      return Response.json({
+        canRecord: false,
+        today: "2026-11-22",
+        checkedAt: "2026-11-22T16:00:00Z",
+        projects: [],
+      });
+    }),
+  );
   mocks.configuration.mockReturnValue({
     configurations: [
       { ...report, canView: true },
@@ -24,18 +37,26 @@ beforeEach(() => {
     isPending: false,
   });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 describe("project outreach entry", () => {
-  it("links only explicitly accessible projects without issuing query refreshes", () => {
+  it("links only explicitly accessible projects without issuing query refreshes", async () => {
     render(<Page />);
-    expect(screen.getByRole("link", { name: "Open outreach" })).toHaveAttribute(
-      "href",
-      `/project-outreach/${report.key}`,
-    );
+    expect(
+      screen.getByRole("link", { name: `Open outreach for ${report.title}` }),
+    ).toHaveAttribute("href", `/project-outreach/${report.key}`);
     expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: /Manage projects/ }),
     ).not.toBeInTheDocument();
+    await screen.findByText(/Your account has viewing access/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/project-outreach/priorities",
+      expect.objectContaining({ cache: "no-store" }),
+    );
   });
   it("offers managers the existing project configuration path", () => {
     mocks.configuration.mockReturnValue({
@@ -48,5 +69,20 @@ describe("project outreach entry", () => {
       screen.getByRole("link", { name: "Manage projects & access" }),
     ).toHaveAttribute("href", "/reports/project-prospecting");
     expect(screen.getByText(/No shared projects/)).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    { isPending: true, error: null },
+    { isPending: false, error: new Error("Access unavailable") },
+  ])("does not load priorities before project access is known", (state) => {
+    mocks.configuration.mockReturnValue({
+      configurations: [{ ...report, canView: true }],
+      ...state,
+    });
+    render(<Page />);
+    expect(
+      screen.queryByRole("region", { name: "My outreach priorities" }),
+    ).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

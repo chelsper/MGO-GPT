@@ -3,6 +3,7 @@ import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import { isProjectProspecting } from "@/utils/projectProspecting";
 import styles from "@/components/reportConfigurationEditor.module.css";
+import OutreachPriorities from "@/components/OutreachPriorities";
 
 export default function ProjectOutreachHome() {
   const { configurations, canManage, isPending, error, refetch } =
@@ -58,21 +59,8 @@ export default function ProjectOutreachHome() {
             Services user to grant you project access.
           </p>
         )}
-        {!error && (
-          <div className={styles.grid}>
-            {projects.map((project) => (
-              <article key={project.key} className={styles.card}>
-                <h2 className={styles.listTitle}>{project.title}</h2>
-                <p>{project.description}</p>
-                <a
-                  className={styles.button}
-                  href={`/project-outreach/${encodeURIComponent(project.key)}`}
-                >
-                  Open outreach
-                </a>
-              </article>
-            ))}
-          </div>
+        {!isPending && !error && projects.length > 0 && (
+          <OutreachPriorities projects={projects} />
         )}
       </div>
     </main>
