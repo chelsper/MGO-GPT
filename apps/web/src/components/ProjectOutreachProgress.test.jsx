@@ -211,14 +211,15 @@ it("uses all project assignments rather than just the first page", async () => {
 it("preserves a focused list when entering and cancelling the caller's guided workflow", async () => {
   await open();
   fireEvent.click(screen.getByRole("button", { name: "Unassigned people: 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Start my next call" }));
+  fireEvent.click(screen.getByRole("button", { name: "Resume my calls" }));
+  await screen.findByRole("form", { name: "Record outcome for Fictional Avery" });
   expect(
     screen.getByRole("form", { name: "Record outcome for Fictional Avery" }),
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
   expect(shownNames()).toEqual(["Fictional Casey"]);
   expect(
-    screen.getByRole("button", { name: "Start my next call" }),
+    screen.getByRole("button", { name: "Resume my calls" }),
   ).toHaveFocus();
 });
 it("does not discard an open outcome when clicking a progress count", async () => {

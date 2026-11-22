@@ -26,12 +26,27 @@ it("provides a personal entry point using only accessible projects and the exist
   expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/");
   expect(screen.getByRole("link", { name: "Follow-ups & Discussion" })).toHaveAttribute("href", "/follow-ups");
   expect(screen.getByRole("link", { name: "Browse Project Outreach" })).toHaveAttribute("href", "/project-outreach");
-  expect(screen.getByRole("link", { name: `View project for ${report.title}` })).toHaveAttribute("href", `/project-outreach/${report.key}?from=tasks`);
+  expect(screen.queryByRole("link", { name: `View project for ${report.title}` })).not.toBeInTheDocument();
   expect(screen.queryByText("Not shared")).not.toBeInTheDocument();
   expect(screen.queryByText("Not a project")).not.toBeInTheDocument();
   await screen.findByText(/Your account has viewing access/);
   expect(screen.queryByRole("link", { name: /Start \/ continue my calls/ })).not.toBeInTheDocument();
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("keeps Project Prospecting in Reports rather than displaying it as a task project", async () => {
+  mocks.configuration.mockReturnValue({ configurations: [
+    { ...report, canView: true },
+    { ...report, key: "list-prospecting", title: "Project Prospecting", canView: true },
+  ], canManage: true, isPending: false });
+  fetch.mockResolvedValue(Response.json({ canRecord: true, today: "2026-11-22", checkedAt: "2026-11-22T17:00:00Z", projects: [
+    { key: report.key, open: 1, overdue: 0, today: 0, upcoming: 1, drafts: 0, verification: 0 },
+    { key: "list-prospecting", open: 0, overdue: 0, today: 0, upcoming: 0, drafts: 0, verification: 0 },
+  ] }));
+  render(<Page />);
+  expect(screen.queryByRole("heading", { name: "Project Prospecting" })).not.toBeInTheDocument();
+  await screen.findByRole("link", { name: `Start / continue my calls for ${report.title}` });
+  expect(screen.queryByRole("heading", { name: "Project Prospecting" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /for Project Prospecting/ })).not.toBeInTheDocument();
 });
 it("opens the personal guided-call shortcut while preserving the full project link", async () => {
   fetch.mockResolvedValue(Response.json({canRecord:true,today:"2026-11-22",checkedAt:"2026-11-22T17:00:00Z",projects:[{key:report.key,open:1,overdue:0,today:0,upcoming:1,drafts:0,verification:0}]}));

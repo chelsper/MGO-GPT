@@ -100,8 +100,11 @@ it.each(["view only", "no assignments", "paperwork only", "missing summary", "re
   render(<OutreachPriorities projects={projects} fromTasks />);
   await waitFor(() => expect(screen.queryByText("Loading saved priorities...")).not.toBeInTheDocument());
   expect(screen.queryByRole("link", { name: /Start \/ continue/ })).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "View project for Fictional Due" }))
-    .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
+  if (scenario === "paperwork only") {
+    expect(screen.getByRole("link", { name: "View project for Fictional Due" }))
+      .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
+  } else expect(screen.queryByRole("link", { name: "View project for Fictional Due" })).not.toBeInTheDocument();
+  if (["missing summary", "read error"].includes(scenario)) expect(screen.queryByText(/No open call assignments/)).not.toBeInTheDocument();
   expect(requests.every(r => !r.options.method)).toBe(true);
 });
 it("does not report zero work after an error and leaves project links available for retry", async () => {

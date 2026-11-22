@@ -124,7 +124,7 @@ it("opens the Tasks shortcut once using saved priority, keeps contact warnings a
   const handled = vi.fn();
   render(<StrictMode><Panel report={report} snapshot={snapshot} startCalls onStartCallsHandled={handled} /></StrictMode>);
   await screen.findByRole("form", { name: "Record outcome for Fictional Blake" });
-  expect(screen.getByRole("heading", { name: "Fictional Blake" })).toHaveFocus();
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Fictional Blake" })).toHaveFocus());
   expect(screen.getByText(/Review contact restrictions: Do not call/)).toBeInTheDocument();
   expect(screen.getByText("Outreach setup", {exact:true})).not.toBeVisible();
   expect(screen.queryByLabelText("Queue")).not.toBeInTheDocument();
@@ -310,7 +310,7 @@ it("does not repeat a same-day follow-up within this session, or silently comple
   expect(state.tasks[0].stage).toBe("follow_up");
   fireEvent.click(screen.getByRole("button", { name: "Return to list" }));
   expect(
-    screen.getByRole("button", { name: "Start my next call" }),
+    screen.getByRole("button", { name: "Resume my calls" }),
   ).toBeDisabled();
   expect(requests).toHaveLength(1);
 });
@@ -645,7 +645,8 @@ it("counts a recovered saved outcome as handled when returning directly to the l
   expect(
     screen.queryByText(/paused after an unconfirmed save/),
   ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Start my next call" }));
+  fireEvent.click(screen.getByRole("button", { name: "Resume my calls" }));
+  await screen.findByRole("form", { name: "Record outcome for Fictional Avery" });
   expect(
     screen.getByRole("form", { name: "Record outcome for Fictional Avery" }),
   ).toBeInTheDocument();
@@ -738,4 +739,87 @@ it("does not offer a calling flow to read-only viewers", async () => {
     screen.queryByRole("button", { name: "Start my next call" }),
   ).not.toBeInTheDocument();
   expect(requests).toHaveLength(0);
+});
+
+const pastEvent = (task, patch = {}) => ({
+  id: "22222222-2222-4222-8222-222222222222", actorId: 8, actorName: "Fictional Caller",
+  createdAt: "2026-11-20T15:00:00Z", state: "draft",
+  result: { eventId: "22222222-2222-4222-8222-222222222222", taskId: task.id, version: 1,
+    outcome: "voicemail", stage: "follow_up", nextDate: "2026-11-20", notes: "Saved fictional message.", actionDate: "2026-11-20", contactReviewed: true }, ...patch,
+});
+it("restores today's summary after returning and resumes without repeating a same-day saved outcome", async () => {
+  state.tasks[1].events = [pastEvent(state.tasks[1])];
+  state.tasks[1].dueDate = state.today;
+  const view = render(<Panel report={report} snapshot={snapshot} />);
+  const summary = await screen.findByRole("region", { name: "Your call summary" });
+  expect(within(summary).getByText(/1 saved in app only/)).toBeInTheDocument();
+  expect(within(summary).getByText(/0 confirmed in NXT/)).toBeInTheDocument();
+  view.unmount();
+  render(<Panel report={report} snapshot={snapshot} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Resume my calls" }));
+  await screen.findByRole("form", { name: "Record outcome for Fictional Avery" });
+  expect(requests).toHaveLength(0);
+});
+it.each(["reassigned", "read failure", "completed"])("reloads saved assignments before resuming after %s", async scenario => {
+  state.tasks[1].stage = "complete";
+  state.tasks[1].events = [pastEvent(state.tasks[1])];
+  render(<Panel report={report} snapshot={snapshot} />);
+  const resume = await screen.findByRole("button", { name: "Resume my calls" });
+  if (scenario === "reassigned") state.tasks[0].assigneeId = 9;
+  if (scenario === "completed") state.tasks[0].stage = "complete";
+  if (scenario === "read failure") get = () => Response.json({ error: "Saved status unavailable" }, { status: 503 });
+  fireEvent.click(resume);
+  if (scenario === "read failure") {
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("region", { name: "Your call summary" })).not.toBeInTheDocument();
+  } else await screen.findByText(/No calls are ready for you right now/);
+  expect(screen.queryByRole("form", { name: /Record outcome/ })).not.toBeInTheDocument();
+  expect(requests).toHaveLength(0);
+});
+it("reviews an existing action without recording another outcome and returns focus to the summary", async () => {
+  state.tasks[1].events = [pastEvent(state.tasks[1])];
+  render(<Panel report={report} snapshot={snapshot} />);
+  const summary = await screen.findByRole("region", { name: "Your call summary" });
+  fireEvent.click(within(summary).getByText(/Review saved outcomes/));
+  const review = within(summary).getByRole("button", { name: /Review saved outcomes for Fictional Blake/ });
+  fireEvent.click(review);
+  const history = screen.getByRole("region", { name: "Review saved call outcomes" });
+  expect(within(history).getByRole("heading")).toHaveFocus();
+  expect(within(history).getByText("Saved fictional message.")).toBeInTheDocument();
+  expect(requests).toHaveLength(0);
+  fireEvent.click(within(history).getByRole("button", { name: "Back to call summary" }));
+  expect(review).toHaveFocus();
+});
+it("confirms an existing summary action only on explicit submission and reloads the summary", async () => {
+  state.tasks[1].events = [pastEvent(state.tasks[1])];
+  render(<Panel report={report} snapshot={snapshot} />);
+  const summary = await screen.findByRole("region", { name: "Your call summary" });
+  fireEvent.click(within(summary).getByText(/Review saved outcomes/));
+  fireEvent.click(within(summary).getByRole("button", { name: /Review saved outcomes for Fictional Blake/ }));
+  const history = screen.getByRole("region", { name: "Review saved call outcomes" });
+  fireEvent.click(within(history).getByRole("button", { name: "Submit this saved outcome to NXT" }));
+  await screen.findByText("1 confirmed in NXT");
+  expect(requests.map(r => r.operation)).toEqual(["submit"]);
+  expect(state.tasks[1].events).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Back to call summary" }));
+  expect(within(screen.getByRole("region", { name: "Your call summary" })).getByRole("button", { name: /Review saved outcomes for Fictional Blake/ })).toHaveFocus();
+});
+it("preserves a manual verification ID after a failed request and read-only status reload", async () => {
+  state.tasks[1].events = [pastEvent(state.tasks[1], { state: "review" })];
+  post = () => Response.json({ error: "Check the existing action ID." }, { status: 409 });
+  render(<Panel report={report} snapshot={snapshot} />);
+  const summary = await screen.findByRole("region", { name: "Your call summary" });
+  fireEvent.click(within(summary).getByText(/Review saved outcomes/));
+  fireEvent.click(within(summary).getByRole("button", { name: /Review saved outcomes for Fictional Blake/ }));
+  const history = screen.getByRole("region", { name: "Review saved call outcomes" });
+  fireEvent.change(within(history).getByLabelText(/Existing NXT action system ID/), { target: { value: "909" } });
+  fireEvent.click(within(history).getByRole("button", { name: "Verify existing action only" }));
+  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved status", exact: true }));
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  const reopened = screen.getByRole("region", { name: "Review saved call outcomes" });
+  expect(within(reopened).getByLabelText(/Existing NXT action system ID/)).toHaveValue("909");
+  expect(within(reopened).queryByRole("button", { name: "Submit this saved outcome to NXT" })).not.toBeInTheDocument();
+  expect(requests.map(r => r.operation)).toEqual(["verify"]);
+  expect(requests[0].actionId).toBe("909");
 });

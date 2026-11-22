@@ -44,7 +44,8 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
     projects,
     summary,
     effectiveFilter,
-  );
+  ).filter((project) => !fromTasks || (summary?.canRecord &&
+    (project.priorities?.open > 0 || project.priorities?.drafts > 0 || project.priorities?.verification > 0)));
   const available = prioritizeOutreachProjects(projects, summary).filter(
     (project) => project.priorities,
   );
@@ -56,8 +57,8 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
         <div>
           <h2>{fromTasks ? "Project call assignments" : "My priorities"}</h2>
           <p>
-            Your saved workload across shared projects. No NXT refresh or action
-            submission.
+            {fromTasks ? "Only your assigned outreach and unfinished NXT actions appear here. Prospecting lists stay in Reports." :
+              "Your saved workload across shared projects. No NXT refresh or action submission."}
           </p>
         </div>
         <button
@@ -68,7 +69,7 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
         </button>
       </div>
       {loading && <p role="status">Loading saved priorities...</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{fromTasks ? "Your saved tasks are unavailable right now. Reload saved priorities to try again; this does not mean you have no tasks." : error}</p>}
       {summary?.canRecord && (
         <>
           {available.length === projects.length && (
@@ -104,7 +105,7 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             >
-              <option value="all">All shared projects</option>
+              <option value="all">{fromTasks ? "All my task projects" : "All shared projects"}</option>
               <option value="overdue">With my overdue assignments</option>
               <option value="today">With my assignments due today</option>
               <option value="actions">With my unfinished NXT actions</option>
@@ -113,22 +114,23 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
           </label>
           {available.length < projects.length && (
             <p role="status">
-              Some projects have no current workload summary. Open the project
-              to check its saved status.
+              {fromTasks ? "Some task counts could not be confirmed. Reload saved priorities before assuming your list is complete." :
+                "Some projects have no current workload summary. Open the project to check its saved status."}
             </p>
           )}
         </>
       )}
       {summary && !summary.canRecord && (
         <p>
-          Your account has viewing access. Open a shared project to review
-          outreach.
+          {fromTasks ? "Your account has viewing access, not personal call assignments. Shared prospecting lists are available in Reports." :
+            "Your account has viewing access. Open a shared project to review outreach."}
         </p>
       )}
-      {!ordered.length && (
+      {!ordered.length && !loading && !error && summary?.canRecord && (!fromTasks || available.length === projects.length) && (
         <p role="status">
-          No projects match this view. Choose All shared projects to see the
-          other lists.
+          {fromTasks ? (effectiveFilter === "all" ? "No open call assignments or unfinished NXT actions for you. Project Prospecting remains separate in Reports." :
+            "No tasks match this view. Choose All my task projects to see your other assignments.") :
+            "No projects match this view. Choose All shared projects to see the other lists."}
         </p>
       )}
       <div className={styles.projects}>

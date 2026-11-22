@@ -17,9 +17,10 @@ import styles from "./projectOutreach.module.css";
 import ProjectOutreachReadiness from "./ProjectOutreachReadiness";
 import ProjectOutreachProgress from "./ProjectOutreachProgress";
 import OutreachContactDetails from "./OutreachContactDetails";
+import OutreachCallSummary from "./OutreachCallSummary";
+import { outreachCallSummary, outreachResumeQueue } from "@/utils/outreachCallSummary";
 import { matchesOutreachProgress } from "@/utils/outreachProgress";
 import {
-  outreachCallQueue,
   outreachCallLabel,
   recordedCallOutcome,
   canAdvanceCall,
@@ -515,6 +516,8 @@ export default function ProjectOutreachPanel({
     [pausedCalls, setPausedCalls] = useState([]),
     [callAttempt, setCallAttempt] = useState(null);
   const [progressFocus, setProgressFocus] = useState(null);
+  const [reviewTaskId, setReviewTaskId] = useState(null);
+  const summaryOpener = useRef(null), reviewHeading = useRef(null);
   const previousFilters = useRef(null),
     progressHeading = useRef(null),
     progressOpener = useRef(null);
@@ -562,6 +565,9 @@ export default function ProjectOutreachPanel({
   useEffect(() => {
     if (progressFocus && !callMode) progressHeading.current?.focus();
   }, [progressFocus, callMode]);
+  useEffect(() => {
+    if (reviewTaskId && !loading && !saving && !refreshing && !error) reviewHeading.current?.focus();
+  }, [reviewTaskId, loading, saving, refreshing, error]);
   useEffect(() => {
     if (callMode) callFocusRef.current?.focus();
     else if (returnCallFocus.current) {
@@ -734,7 +740,7 @@ export default function ProjectOutreachPanel({
     const handled = [...new Set([...handledCalls, taskId])];
     setHandledCalls(handled);
     setCallAttempt(null);
-    const next = outreachCallQueue(data, [...handled, ...pausedCalls])[0];
+    const next = outreachResumeQueue(data, [...handled, ...pausedCalls])[0];
     setEditing(next?.id || null);
   }
   function stopCalls() {
@@ -752,12 +758,31 @@ export default function ProjectOutreachPanel({
     setEditing(null);
   }
   function beginCalls(task) {
+    setReviewTaskId(null);
     setCallAttempt(null);
     setCallMode(true);
     setEditing(task.id);
     setConfirm(false);
     setSelected([]);
     setNotice("");
+  }
+  async function resumeCalls() {
+    if (writing.current || blocked || editing) return;
+    const signal = controller.current.signal;
+    setLoading(true);
+    try {
+      const data = await load(signal);
+      if (signal.aborted) return;
+      if (!data.settings || validateOutreachSettings(data.settings, snapshot?.headers) || identity.error)
+        throw new Error("Review the project's saved setup before resuming calls. Your outcomes are kept.");
+      const next = outreachResumeQueue(data, [...handledCalls, ...pausedCalls])[0];
+      if (next) beginCalls(next);
+      else setNotice("No calls are ready for you right now. Saved outcomes and future follow-ups remain in the list; nothing was changed.");
+    } catch (e) {
+      if (!signal.aborted) setError(e.message);
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
   }
   const identity = projectIdentity(snapshot, report.dataConfiguration);
   const settingsError =
@@ -829,7 +854,9 @@ export default function ProjectOutreachPanel({
   const pages = Math.max(1, Math.ceil(visible.length / 25)),
     currentPage = Math.min(page, pages - 1);
   const editingTask = tasks.find((t) => t.id === editing);
-  const callQueue = outreachCallQueue(saved, [...handledCalls, ...pausedCalls]);
+  const callSummary = outreachCallSummary(saved);
+  const reviewTask = tasks.find(task => task.id === reviewTaskId);
+  const callQueue = outreachResumeQueue(saved, [...handledCalls, ...pausedCalls]);
   const callEvent = recordedCallOutcome(saved, callAttempt);
   const canContinueCall = canAdvanceCall(saved, callAttempt);
   const activeCallTask =
@@ -868,7 +895,7 @@ export default function ProjectOutreachPanel({
         "This project's saved setup needs attention before calls can open. Review the details below; your assignments and outcomes are kept.",
       );
     } else {
-      const next = outreachCallQueue(saved, [...handledCalls, ...pausedCalls])[0];
+      const next = outreachResumeQueue(saved, [...handledCalls, ...pausedCalls])[0];
       if (next) beginCalls(next);
       else
         setNotice(
@@ -983,6 +1010,7 @@ export default function ProjectOutreachPanel({
                   filters. Future follow-ups, completed outreach and uncertain
                   NXT actions stay in the list, not this call queue.
                 </p>
+                <p className={styles.help}>People with a saved outcome today are not repeated here. You can still record a later interaction from their individual record.</p>
                 {pausedCalls.length > 0 && (
                   <p className={styles.warning}>
                     {pausedCalls.length} paused after an unconfirmed save.
@@ -1001,10 +1029,32 @@ export default function ProjectOutreachPanel({
                   !callQueue.length
                 }
                 ref={callStartRef}
-                onClick={() => beginCalls(callQueue[0])}
+                onClick={() => callSummary?.hasHistory ? resumeCalls() : beginCalls(callQueue[0])}
               >
-                Start my next call
+                {callSummary?.hasHistory ? "Resume my calls" : "Start my next call"}
               </button>
+            </section>
+          )}
+          {!editing && !callAttempt && saved.canRecord && (
+            <div hidden={blocked}><OutreachCallSummary summary={callSummary} today={saved.today} busy={blocked}
+              onReview={(taskId, opener) => {
+                summaryOpener.current = opener;
+                setReviewTaskId(taskId);
+              }} /></div>
+          )}
+          {reviewTaskId && !editing && !callAttempt && saved.canRecord && (
+            <section hidden={blocked} className={styles.callRecovery} aria-label="Review saved call outcomes">
+              <h3 ref={reviewHeading} tabIndex={-1}>{reviewTask ? `Saved outcomes for ${reviewTask.name}` : "Saved outcomes unavailable"}</h3>
+              <p className={styles.help}>Review existing outcomes below. No new call, action, or message is created by opening this panel.</p>
+              {reviewTask?.events.filter(event => event.actorId === saved.viewerId).map(event => (
+                <div key={event.id} className={styles.event}>
+                  <strong>{event.result.actionDate}: {OUTREACH_OUTCOMES[event.result.outcome]}</strong>
+                  <p className={styles.notes}>{event.result.notes}</p>
+                  {event.result.nextDate && <p>Follow-up date: {event.result.nextDate}</p>}
+                  <EventActions event={event} own busy={blocked} run={run} />
+                </div>
+              ))}
+              <button onClick={() => { setReviewTaskId(null); summaryOpener.current?.focus(); }}>Back to call summary</button>
             </section>
           )}
           {callMode ? (
