@@ -9,9 +9,9 @@ const current = "a".repeat(40);
 const version = { environment: "production", commitSha: "b".repeat(40), deploymentId: "dpl_new" };
 const path = "/stewardship/requests?status=open#request-13";
 const reply = value => ({ ok: true, json: async () => value });
-function setup() {
+function setup(destination = path) {
   const fetch = vi.fn(async url => reply(url === "/api/app-release/reload"
-    ? { deploymentId: "dpl_new", returnTo: path } : version));
+    ? { deploymentId: "dpl_new", returnTo: destination } : version));
   const assign = vi.fn();
   vi.stubGlobal("fetch", fetch);
   vi.stubGlobal("location", { origin: "http://localhost:3000", assign });
@@ -22,9 +22,12 @@ afterEach(() => {
   cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers();
 });
 
-it("leaves the workspace untouched until confirmation and returns to the same filtered view", async () => {
-  const { fetch, assign, confirm } = setup();
-  render(<><AppReleaseNotice path={path} buildCommit={current} /><input aria-label="Notes" defaultValue="Unsaved draft" /></>);
+it.each([
+  path, "/tasks?view=upcoming#assignments", "/project-outreach?view=mine",
+  "/project-outreach/list-year-end_2026?from=tasks&start=calls#outreach",
+])("preserves unsaved notes until confirmation and returns to %s", async destination => {
+  const { fetch, assign, confirm } = setup(destination);
+  render(<><AppReleaseNotice path={destination} buildCommit={current} /><input aria-label="Notes" defaultValue="Unsaved draft" /></>);
   const button = await screen.findByRole("button", { name: "Load latest version" });
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: "omit", cache: "no-store", redirect: "error" });
@@ -35,7 +38,7 @@ it("leaves the workspace untouched until confirmation and returns to the same fi
   expect(screen.getByLabelText("Notes")).toHaveValue("Unsaved draft");
   confirm.mockReturnValue(true);
   fireEvent.click(button);
-  await waitFor(() => expect(assign).toHaveBeenCalledWith(path));
+  await waitFor(() => expect(assign).toHaveBeenCalledWith(destination));
   expect(fetch).toHaveBeenCalledTimes(5);
 });
 
@@ -63,6 +66,30 @@ it("disables updates while a save is active, without changing the save", async (
   expect(assign).not.toHaveBeenCalled();
   await act(async () => { finish("saved"); expect(await saving).toBe("saved"); });
   expect(button).toBeEnabled();
+});
+
+it.each(["record", "submit", "verify", "assign", "settings"])("waits for an outreach %s write without duplicating it", async operation => {
+  const destination = "/project-outreach/list-year-end_2026?from=tasks";
+  const { assign, confirm } = setup(destination);
+  render(<AppReleaseNotice path={destination} buildCommit={current} />);
+  const button = await screen.findByRole("button", { name: "Load latest version" });
+  let finish;
+  let saving;
+  const send = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+  act(() => {
+    saving = trackAppWrite("/api/reports/lists/list-year-end_2026/outreach", {
+      method: "POST", body: JSON.stringify({ operation }),
+    }, send);
+  });
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(assign).not.toHaveBeenCalled();
+  expect(send).toHaveBeenCalledTimes(1);
+  await act(async () => { finish("saved"); expect(await saving).toBe("saved"); });
+  expect(button).toBeEnabled();
+  expect(assign).not.toHaveBeenCalled();
+  expect(send).toHaveBeenCalledTimes(1);
 });
 
 it("stays in place when recovery fails and offers an explicit retry", async () => {

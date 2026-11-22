@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { appReleasePath, recoverAppRelease, releaseCookiePaths } from "./appRelease";
 
 const path = "/reports/dashboards/fy-revenue-goals?fy=2027#pledges";
+const outreachPaths = [
+  "/tasks?view=upcoming#assignments",
+  "/project-outreach?view=mine",
+  "/project-outreach/list-year-end_2026?from=tasks&start=calls#outreach",
+];
 const version = { environment: "production", commitSha: "b".repeat(40), deploymentId: "dpl_new" };
 const response = value => ({ ok: true, json: async () => value });
 function fetcher() {
@@ -15,7 +20,23 @@ describe("app version recovery", () => {
     expect(appReleasePath("/action-opportunity-update?returnTo=%2Fmy-top-prospects"))
       .toBe("/action-opportunity-update?returnTo=%2Fmy-top-prospects");
   });
-  it.each(["//other.test", "https://other.test", "/api/users", "/account/logout", "/unknown", "/\\other.test", "/%0a", "/reports/../api/users"])("rejects unsafe or non-workspace destinations: %s", value => {
+  it.each(outreachPaths)("recovers %s without losing its workflow parameters", async destination => {
+    expect(appReleasePath(destination.replace("?", "?dpl=dpl_old&"))).toBe(destination);
+    const fetch = vi.fn(async url => response(url === "/api/app-release/reload"
+      ? { deploymentId: version.deploymentId, returnTo: destination } : version));
+    expect(await recoverAppRelease(destination, { fetcher: fetch })).toBe(destination);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "/api/version", "/api/app-release/reload", "/api/version", destination.split("#")[0],
+    ]);
+    expect(JSON.parse(fetch.mock.calls[1][1].body).returnTo).toBe(destination);
+    expect(releaseCookiePaths(destination)).toContain(destination.split("?")[0]);
+  });
+  it("includes every outreach parent when clearing an old page version pin", () => {
+    expect(releaseCookiePaths(outreachPaths[2])).toEqual(expect.arrayContaining([
+      "/", "/project-outreach", "/project-outreach/list-year-end_2026",
+    ]));
+  });
+  it.each(["//other.test", "https://other.test", "/api/users", "/account/logout", "/unknown", "/\\other.test", "/%0a", "/reports/../api/users", "/tasks/unknown", "/project-outreach/../api/users", "/project-outreach/list-test/actions", "/project-outreach/list%2Ftest"])("rejects unsafe or non-workspace destinations: %s", value => {
     expect(appReleasePath(value)).toBe("");
   });
   it("clears framework pin scopes including all current page ancestors", () => {

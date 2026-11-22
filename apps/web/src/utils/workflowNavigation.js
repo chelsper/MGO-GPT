@@ -1,5 +1,7 @@
 const RETURN_PAGES = {
   "/": "Home",
+  "/tasks": "My Tasks",
+  "/project-outreach": "Project Outreach",
   "/reports": "Reports",
   "/reports/dashboards": "My Dashboards",
   "/reports/lists": "Lists",
@@ -39,7 +41,8 @@ export function getSafeInternalReturnPath(value) {
     const url = new URL(value, "https://navigation.invalid");
     if (url.origin !== "https://navigation.invalid") return "";
     const report = /^\/reports\/(?:future-made-phase-ii|alumni-family-engagement|executive-team-standings|(?:dashboards|custom-field|lists|project-prospecting)\/[a-zA-Z0-9_-]+|personal-dashboards\/[1-9]\d*)$/.test(url.pathname);
-    return Object.hasOwn(RETURN_PAGES, url.pathname) || report
+    const outreach = /^\/project-outreach\/[a-zA-Z0-9_-]+$/.test(url.pathname);
+    return Object.hasOwn(RETURN_PAGES, url.pathname) || report || outreach
       ? `${url.pathname}${url.search}${url.hash}` : "";
   } catch { return ""; }
 }
@@ -48,6 +51,7 @@ export function getReturnDestination(value, fallback = "/") {
   const href = getSafeInternalReturnPath(value) || getSafeInternalReturnPath(fallback) || "/";
   const url = new URL(href, "https://navigation.invalid");
   let name = RETURN_PAGES[url.pathname] || "Report";
+  if (url.pathname.startsWith("/project-outreach/")) name = "Project Outreach";
   if (url.pathname === "/my-top-prospects" && url.searchParams.get("tab") === "portfolio") name = "My Portfolio";
   const run = url.searchParams.get("queueRun");
   if (url.pathname === "/constituency-import" && /^[1-9]\d{0,17}$/.test(run || "")) name = `Import Batch #${run}`;
