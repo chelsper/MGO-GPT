@@ -70,6 +70,33 @@ function completeForm() {
   fireEvent.click(screen.getByLabelText(/I reviewed contact/));
 }
 describe("project outreach pilot UI", () => {
+  it("lets managers explicitly map optional contacts and saves no contact values to NXT", async () => {
+    state.canManage=true;
+    const extended={...snapshot,headers:[...snapshot.headers,"Home phone","Preferred email"],tableRows:snapshot.tableRows.map(row=>[...row,"904-555-0100","avery@example.test"])};
+    render(<Panel report={report} snapshot={extended}/>);
+    await screen.findByText("Outreach setup",{exact:true});
+    fireEvent.click(screen.getByText("Outreach setup",{exact:true}));
+    fireEvent.click(screen.getByText("Additional contact details (optional)"));
+    fireEvent.change(screen.getByLabelText("Alternate phone number"),{target:{value:"Home phone"}});
+    fireEvent.change(screen.getByLabelText("Email address"),{target:{value:"Preferred email"}});
+    expect(requests).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button",{name:"Save outreach setup"}));
+    await waitFor(()=>expect(requests).toHaveLength(1));
+    expect(requests[0]).toMatchObject({operation:"settings",settings:{alternatePhoneColumn:"Home phone",emailColumn:"Preferred email"}});
+    expect(JSON.stringify(requests[0])).not.toContain("avery@example.test");
+    expect(requests.some(r=>r.operation==="submit")).toBe(false);
+  });
+  it("shows explicitly mapped optional contacts in the guided card only, preserving contact warnings", async () => {
+    state.settings={...state.settings,alternatePhoneColumn:"Home phone",emailColumn:"Preferred email"};
+    const extended={...snapshot,headers:[...snapshot.headers,"Home phone","Preferred email"],tableRows:snapshot.tableRows.map(row=>[...row,"904-555-0100","avery@example.test"])};
+    render(<Panel report={report} snapshot={extended}/>);
+    fireEvent.click(await screen.findByRole("button",{name:"Start my next call"}));
+    const context=screen.getByRole("region",{name:"Current call details"});
+    expect(within(context).getByRole("link",{name:"Call 904-555-0100"})).toHaveAttribute("href","tel:9045550100");
+    expect(within(context).getByRole("button",{name:"Copy email avery@example.test"})).toBeInTheDocument();
+    expect(within(context).getByText(/Review contact restrictions: Do not call/)).toBeInTheDocument();
+    expect(requests).toHaveLength(0);
+  });
   it("shows a compact useful pledge reminder in the list and guided call, without a live lookup", async () => {
     state.settings.showPledgeContext = true;
     const extended = { ...snapshot,

@@ -15,6 +15,7 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "./projectOutreach.module.css";
 import ProjectOutreachReadiness from "./ProjectOutreachReadiness";
 import ProjectOutreachProgress from "./ProjectOutreachProgress";
+import OutreachContactDetails from "./OutreachContactDetails";
 import { matchesOutreachProgress } from "@/utils/outreachProgress";
 import {
   outreachCallQueue,
@@ -108,6 +109,21 @@ function Setup({ saved, headers, busy, onSave }) {
           </select>
         </label>
       </div>
+      <details>
+        <summary>Additional contact details (optional)</summary>
+        <p>Show another phone number and email on the call card using only the saved query. Leave these blank if not needed.</p>
+        <div className={styles.fields}>
+          {[["alternatePhoneColumn", "Alternate phone number"], ["emailColumn", "Email address"]].map(([key, label]) => (
+            <label key={key}>{label}
+              <select data-outreach-field={key} value={settings[key] || ""} disabled={busy}
+                onChange={e => setSettings({...settings, [key]:e.target.value})}>
+                <option value="">Not shown</option>
+                {headers.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </label>
+          ))}
+        </div>
+      </details>
       {!!outreachPledgeColumns(headers).length && (
         <label className={styles.check}>
           <input type="checkbox" checked={settings.showPledgeContext === true}
@@ -396,11 +412,6 @@ function CallContext({ task, person, saved, focusRef }) {
       <p className={styles.help}>
         System ID {task.constituentId} / Due {task.dueDate}
       </p>
-      <p>
-        {person?.phones.length
-          ? person.phones.join(" / ")
-          : "No phone number in the saved query. Check contact details before calling."}
-      </p>
       {!!person?.restrictions.length && (
         <p className={styles.warning}>
           Review contact restrictions: {person.restrictions.join(" / ")}
@@ -410,6 +421,7 @@ function CallContext({ task, person, saved, focusRef }) {
         Contact details are from the saved query. Check current NXT contact
         preferences before calling; blank restrictions are not permission.
       </p>
+      <OutreachContactDetails key={task.id} person={person} />
       <PledgeContext context={person?.pledgeContext} />
       {overlap && (
         <p className={styles.warning}>

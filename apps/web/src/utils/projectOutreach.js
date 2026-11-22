@@ -30,6 +30,8 @@ export function validateOutreachSettings(value, headers = []) {
         ![
           "nameColumn",
           "phoneColumn",
+          "alternatePhoneColumn",
+          "emailColumn",
           "restrictionColumn",
           "deadline",
           "instructions",
@@ -50,6 +52,12 @@ export function validateOutreachSettings(value, headers = []) {
       (value[key] && headers.filter((h) => h === value[key]).length !== 1)
     )
       return "Choose contact columns from the saved query output.";
+  }
+  for (const key of ["alternatePhoneColumn", "emailColumn"]) {
+    if (value[key] !== undefined && (
+      typeof value[key] !== "string" ||
+      (value[key] && headers.filter((h) => h === value[key]).length !== 1)
+    )) return "Choose optional contact columns from the saved query output.";
   }
   if (!validActionDate(value.deadline)) return "Choose a project deadline.";
   if (
@@ -194,6 +202,8 @@ export function outreachPeople(snapshot, source, settings) {
         constituentId: person.id,
         name: cell("nameColumn").join(" / ") || `NXT constituent ${person.id}`,
         phones: cell("phoneColumn"),
+        alternatePhones: cell("alternatePhoneColumn"),
+        emails: cell("emailColumn"),
         restrictions: cell("restrictionColumn"),
       };
     });

@@ -23,12 +23,16 @@ describe("project outreach rules", () => {
         constituentId: "123",
         name: "Fictional Avery",
         phones: ["555-0100", "555-0101"],
+        alternatePhones: [],
+        emails: [],
         restrictions: ["Do not call"],
       },
       {
         constituentId: "456",
         name: "Fictional Blake",
         phones: [],
+        alternatePhones: [],
+        emails: [],
         restrictions: [],
       },
     ]);
@@ -51,6 +55,19 @@ describe("project outreach rules", () => {
       expect(
         validateOutreachSettings({ ...settings, ...patch }, snapshot.headers),
       ).toBeTruthy();
+  });
+  it("supports optional contact columns without guessing or changing existing settings", () => {
+    const extended = {...snapshot,headers:[...snapshot.headers,"Home phone","Preferred email"],tableRows:snapshot.tableRows.map(row=>[...row,"(555) 010-0999","avery@example.test"])};
+    const mapped = {...settings,alternatePhoneColumn:"Home phone",emailColumn:"Preferred email"};
+    expect(validateOutreachSettings(settings, extended.headers)).toBeNull();
+    expect(validateOutreachSettings(mapped, extended.headers)).toBeNull();
+    expect(outreachPeople(extended,report.dataConfiguration,settings)[0].emails).toEqual([]);
+    expect(outreachPeople(extended,report.dataConfiguration,mapped)[0]).toMatchObject({alternatePhones:["(555) 010-0999"],emails:["avery@example.test"]});
+    for (const key of ["alternatePhoneColumn","emailColumn"]) {
+      for (const value of [null, 3, "Missing column"]) expect(validateOutreachSettings({...settings,[key]:value},extended.headers)).toMatch(/optional contact/);
+      expect(validateOutreachSettings({...settings,[key]:"Home phone"},[...extended.headers,"Home phone"])).toMatch(/optional contact/);
+      expect(validateOutreachSettings({...settings,[key]:""},snapshot.headers)).toBeNull();
+    }
   });
   it("validates outcomes, actual dates, follow-up dates and contact acknowledgment", () => {
     expect(validateOutreachOutcome(result, "2026-11-20")).toBeNull();
