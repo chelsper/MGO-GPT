@@ -27,6 +27,7 @@ export default function ProjectOutreachHome() {
             )
           }
         />
+        <p><a className={styles.button} href="/tasks">My Tasks</a> Your personal starting point for assigned outreach. Use this area for project setup and team progress.</p>
         <section className={styles.card}>
           <h2>My outreach</h2>
           <p>

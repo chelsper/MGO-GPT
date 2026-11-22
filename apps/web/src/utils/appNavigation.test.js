@@ -39,7 +39,7 @@ describe("app navigation", () => {
   });
   it("names the report collection Reports while retaining its default destination", () => {
     const items = getNavigationItems({ isReviewer: false });
-    expect(items.find(item => item.href === "/reports")).toMatchObject({ label: "Reports", primaryOrder: 3 });
+    expect(items.find(item => item.href === "/reports")).toMatchObject({ label: "Reports", primaryOrder: 4 });
     expect(getBreadcrumbs("/reports")).toEqual([
       { label: "Home", href: "/" }, { label: "Reports" },
     ]);
@@ -169,8 +169,8 @@ describe("app navigation", () => {
     const original = [...items];
     const primary = getPrimaryNavigationItems(items);
     expect(primary.map(item => item.href)).toEqual(isReviewer
-      ? ["/submissions", "/constituency-import", "/prospect-exports"]
-      : ["/my-top-prospects", "/follow-ups", "/reports"]);
+      ? ["/submissions", "/tasks", "/constituency-import", "/prospect-exports"]
+      : ["/my-top-prospects", "/tasks", "/follow-ups", "/reports"]);
     expect(primary.every(item => Boolean(item.description))).toBe(true);
     const groups = groupNavigationItems(items, { promotePrimary: true });
     expect(groups[0]).toEqual({ section: "Start here", items: primary });
@@ -183,6 +183,16 @@ describe("app navigation", () => {
     const items = getNavigationItems({ isReviewer: false }).filter(item => !item.primaryOrder);
     expect(getPrimaryNavigationItems(items)).toEqual([]);
     expect(groupNavigationItems(items, { promotePrimary: true })).toEqual(groupNavigationItems(items));
+  });
+
+  it.each([false, true])("makes Tasks a distinct primary destination without removing project management (%s)", isReviewer => {
+    const items = getNavigationItems({ isReviewer });
+    expect(items.filter(item => item.href === "/tasks")).toHaveLength(1);
+    expect(getPrimaryNavigationItems(items).some(item => item.href === "/tasks")).toBe(true);
+    expect(items.some(item => item.href === "/project-outreach")).toBe(true);
+    expect(getBreadcrumbs("/tasks")).toEqual([{ label: "Home", href: "/" }, { label: "Tasks" }]);
+    expect(isNavigationItemActive("/tasks", "/tasks")).toBe(true);
+    expect(isNavigationItemActive("/tasks", "/reports")).toBe(false);
   });
 
   it("builds explicit report breadcrumbs and highlights report routes", () => {

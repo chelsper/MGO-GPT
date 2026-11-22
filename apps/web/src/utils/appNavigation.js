@@ -10,8 +10,9 @@ function getReviewerRoleDescriptions(mgo) {
 
 export const MGO_NAV_ITEMS = [
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work", primaryOrder: 1, description: "Prioritize your top prospects and browse your assigned portfolio." },
-  { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work", primaryOrder: 2, description: "Work your next steps, coordinate with teammates, and prepare for meetings." },
-  { label: "Reports", href: "/reports", section: "My Work", primaryOrder: 3, description: "Review saved portfolio giving, team standings, and your available reports." },
+  { label: "Tasks", href: "/tasks", section: "My Work", primaryOrder: 2, description: "See your project call assignments, due dates, and actions that need recording." },
+  { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work", primaryOrder: 3, description: "Work your next steps, coordinate with teammates, and prepare for meetings." },
+  { label: "Reports", href: "/reports", section: "My Work", primaryOrder: 4, description: "Review saved portfolio giving, team standings, and your available reports." },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
   { label: "Project Outreach", href: "/project-outreach", section: "My Work", description: "Work project call assignments and record outcomes without changing portfolio ownership." },
@@ -25,15 +26,16 @@ export const MGO_NAV_ITEMS = [
 
 export const REVIEWER_NAV_ITEMS = [
   { label: "Work Queue", href: "/submissions", section: "Daily Work", primaryOrder: 1, description: "Review outstanding requests and NXT exceptions in one queue." },
+  { label: "Tasks", href: "/tasks", section: "Daily Work", primaryOrder: 2, description: "See your own project call assignments and unfinished action recording. Manage the team in Project Outreach." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work" },
   { label: "Project Outreach", href: "/project-outreach", section: "Daily Work", description: "Assign project call lists and track outreach and NXT action confirmation." },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
   { label: "Stewardship", href: "/stewardship", section: "Stewardship", description: "Coordinate gift follow-ups, prepare society letters, and track acknowledgments." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
-  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 3 },
+  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 4 },
   { label: "List Request Queue", href: "/list-requests", section: "Requests" },
   { label: "Data Request Queue", href: "/data-requests", section: "Requests", description: "Review contact information and constituent record corrections." },
-  { label: "Constituency Import", href: "/constituency-import", section: "Imports", primaryOrder: 2, description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
+  { label: "Constituency Import", href: "/constituency-import", section: "Imports", primaryOrder: 3, description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
   { label: "Import History", href: "/import-history", section: "Imports", description: "View successfully imported records and failed imports. Read-only results; nothing to approve." },
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Tools & Guidance", description: "Search NXT and open a constituent profile." },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Tools & Guidance", description: "Find standards, examples, and process guidance." },
@@ -83,6 +85,7 @@ const ROUTE_LABELS = {
   "/organization-configurations": "Organization Settings",
   "/prospect-pool": "Prospect Pool",
   "/project-outreach": "Project Outreach",
+  "/tasks": "Tasks",
   "/prospect-exports": "Top Prospect Exports",
   "/pledge-payments": "Pledge Payments",
   "/report-configurations": "Report Access & Configurations",

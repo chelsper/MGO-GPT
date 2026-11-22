@@ -3,6 +3,8 @@ import { INTERACTION_TYPES } from "@/utils/actionEntryOptions";
 import {
   outreachPeople,
   outreachCounts,
+  outreachPledgeColumns,
+  outreachPledgeContext,
   OUTREACH_OUTCOMES,
   validateOutreachOutcome,
   validateOutreachSettings,
@@ -106,6 +108,13 @@ function Setup({ saved, headers, busy, onSave }) {
           </select>
         </label>
       </div>
+      {!!outreachPledgeColumns(headers).length && (
+        <label className={styles.check}>
+          <input type="checkbox" checked={settings.showPledgeContext === true}
+            disabled={busy} onChange={(e) => setSettings({ ...settings, showPledgeContext: e.target.checked })} />
+          Show unpaid pledge installments that are past due or due by the project deadline
+        </label>
+      )}
       <label>
         Instructions for callers
         <textarea
@@ -355,6 +364,22 @@ function EventActions({ event, own, busy, run }) {
   );
 }
 
+function PledgeContext({ context }) {
+  if (!context) return null;
+  return (
+    <aside className={styles.pledgeContext} aria-label="Saved pledge reminders">
+      {context.installments.map((item) => (
+        <p key={item.slot}>
+          <strong>{item.status} pledge installment</strong>{" "}
+          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(item.cents / 100)} unpaid / Due {item.date}
+        </p>
+      ))}
+      {context.needsReview && <p>Pledge details need a check in NXT; an amount or date is missing or conflicting.</p>}
+      <small>From saved query output, not a live balance or a total of all pledges. Check NXT before discussing payment.</small>
+    </aside>
+  );
+}
+
 function CallContext({ task, person, saved, focusRef }) {
   const latest = task.events[0];
   const overlap = saved.overlaps?.find(
@@ -385,6 +410,7 @@ function CallContext({ task, person, saved, focusRef }) {
         Contact details are from the saved query. Check current NXT contact
         preferences before calling; blank restrictions are not permission.
       </p>
+      <PledgeContext context={person?.pledgeContext} />
       {overlap && (
         <p className={styles.warning}>
           Open outreach in {overlap.count} other project(s) you can access.
@@ -689,11 +715,12 @@ export default function ProjectOutreachPanel({
   const busy = loading || saving || refreshing;
   const blocked = busy || !!error;
   const tasks = saved?.tasks || [];
+  const pledgeContexts = outreachPledgeContext(snapshot, report.dataConfiguration, saved?.settings, saved?.today);
   const people = outreachPeople(
     snapshot,
     report.dataConfiguration,
     saved?.settings,
-  );
+  ).map((person) => ({ ...person, pledgeContext: pledgeContexts.get(person.constituentId) }));
   const peopleById = new Map(people.map((p) => [p.constituentId, p]));
   const tasksById = new Map(tasks.map((t) => [t.constituentId, t]));
   const rows = [
@@ -1305,6 +1332,7 @@ export default function ProjectOutreachPanel({
                             {person.restrictions.join(" / ")}
                           </p>
                         )}
+                        <PledgeContext context={person.pledgeContext} />
                         {overlap && (
                           <p className={styles.help}>
                             Also has open outreach in {overlap.count} other

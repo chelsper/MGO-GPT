@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Search } from "lucide-react";
 import QueryResultsTable from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
-import { orderedListColumns } from "@/utils/listQueryConfiguration";
+import { LIST_QUERY_MAX_COLUMNS, orderedListColumns } from "@/utils/listQueryConfiguration";
 import styles from "./listReport.module.css";
 
 export default function ListQueryResults({
@@ -70,6 +70,7 @@ export default function ListQueryResults({
       </div>
       <div className={styles.tableBody}>
         <QueryResultsTable
+          maxColumns={LIST_QUERY_MAX_COLUMNS}
           headers={columns.map((column) => column.header)}
           rows={rows}
           columnSettings={columns}

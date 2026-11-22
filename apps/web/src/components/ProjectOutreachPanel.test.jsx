@@ -70,6 +70,20 @@ function completeForm() {
   fireEvent.click(screen.getByLabelText(/I reviewed contact/));
 }
 describe("project outreach pilot UI", () => {
+  it("shows a compact useful pledge reminder in the list and guided call, without a live lookup", async () => {
+    state.settings.showPledgeContext = true;
+    const extended = { ...snapshot,
+      headers: [...snapshot.headers, "Gifts 1 1 Installments 1 1 Installment Balance", "Gifts 1 1 Installments 1 1 Installment Date Due"],
+      tableRows: snapshot.tableRows.map((row) => [...row, row[0] === "123" ? "50.00" : "0", "11/1/2026"]),
+    };
+    render(<Panel report={report} snapshot={extended} />);
+    const reminder = await screen.findByRole("complementary", { name: "Saved pledge reminders" });
+    expect(reminder).toHaveTextContent("Past due pledge installment $50.00 unpaid / Due 2026-11-01");
+    expect(reminder).toHaveTextContent("not a live balance");
+    fireEvent.click(screen.getByRole("button", { name: /Start.*call/i }));
+    expect(within(screen.getByRole("region", { name: "Current call details" })).getByText("Past due pledge installment")).toBeInTheDocument();
+    expect(requests).toHaveLength(0);
+  });
   it("opens and focuses the requested setup field without saving or contacting NXT", async () => {
     state.canManage = true;
     await mount();

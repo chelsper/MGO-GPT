@@ -96,6 +96,20 @@ it("scopes output headers to the query while allowing formatting, mapping and di
     listOutputSourceKey({ source: "saved_query", queryId: "2" }),
   );
 });
+it.each(["31110", "-672096"])("preserves the signed saved query ID %s without treating it as a constituent ID", queryId => {
+  const saved = {version:1,source:"saved_query",fieldCategory:"",fieldDescription:"",queryId};
+  expect(validateListSource(saved)).toBe("");
+  expect(normalizeListSource(saved).queryId).toBe(queryId);
+  expect(listOutputSourceKey(saved)).not.toBe(listOutputSourceKey({...saved,queryId:queryId.startsWith("-")?queryId.slice(1):`-${queryId}`}));
+});
+it.each(["0", "-0", "-01", "+12", "--12", " 12", "-1.5", "1e3", "-9007199254740992", "12/path", "-12?x=1"])("rejects noncanonical or unsafe saved query ID %s", queryId => {
+  expect(validateListSource({version:1,source:"saved_query",fieldCategory:"",fieldDescription:"",queryId})).toMatch(/query system/);
+});
+it("allows bounded display configuration for wide lists and rejects excess columns", () => {
+  const columns=Array.from({length:100},(_,i)=>({header:`Field ${i}`,label:`Field ${i}`,visible:true,format:"text"}));
+  expect(validateListSource({...source,columns})).toBe("");
+  expect(validateListSource({...source,columns:[...columns,{header:"Extra",label:"Extra",visible:true,format:"text"}]})).toMatch(/100 maximum/);
+});
 it("orders display columns without altering data, hides technical metadata and ignores obsolete settings", () => {
   const settings = [
     {

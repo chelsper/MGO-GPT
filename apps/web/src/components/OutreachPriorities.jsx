@@ -7,7 +7,7 @@ import {
 } from "@/utils/outreachPriorities";
 import styles from "./outreachPriorities.module.css";
 
-export default function OutreachPriorities({ projects }) {
+export default function OutreachPriorities({ projects, fromTasks = false }) {
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ export default function OutreachPriorities({ projects }) {
     <section className={styles.section} aria-label="My outreach priorities">
       <div className={styles.heading}>
         <div>
-          <h2>My priorities</h2>
+          <h2>{fromTasks ? "Project call assignments" : "My priorities"}</h2>
           <p>
             Your saved workload across shared projects. No NXT refresh or action
             submission.
@@ -82,7 +82,7 @@ export default function OutreachPriorities({ projects }) {
                 <strong>{total("today")}</strong>
               </div>
               <div>
-                <span>NXT follow-through</span>
+                <span>Finish recording in NXT</span>
                 <strong>{total("drafts") + total("verification")}</strong>
               </div>
             </div>
@@ -159,7 +159,7 @@ export default function OutreachPriorities({ projects }) {
               ) : (
                 <p className={styles.help}>Workload summary unavailable.</p>
               ))}
-            <a href={`/project-outreach/${encodeURIComponent(project.key)}`}>
+            <a href={`/project-outreach/${encodeURIComponent(project.key)}${fromTasks ? "?from=tasks" : ""}`}>
               Open outreach
               <span className={styles.srOnly}> for {project.title}</span>
             </a>

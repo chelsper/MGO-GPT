@@ -80,6 +80,15 @@ it("filters locally without another request and keeps other projects reachable",
   expect(screen.getAllByRole("article")).toHaveLength(2);
   expect(requests).toHaveLength(1);
 });
+it("opens the existing workflow with a fixed return to Tasks, not another assignment or provider write", async () => {
+  render(<OutreachPriorities projects={projects} fromTasks />);
+  await screen.findByText("Finish recording in NXT");
+  expect(screen.getByRole("heading", { name: "Project call assignments" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open outreach for Fictional Due" }))
+    .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
+  expect(requests).toHaveLength(1);
+  expect(requests[0].options.method).toBeUndefined();
+});
 it("does not report zero work after an error and leaves project links available for retry", async () => {
   reply = () => Response.json({ error: "Unavailable" }, { status: 503 });
   render(<OutreachPriorities projects={projects} />);

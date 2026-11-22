@@ -16,6 +16,19 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 
 ### Personal priorities overview
 
+Tasks is a primary Home and navigation shortcut for both MGO and Advancement
+Services views. `/tasks` shows My Tasks using the same saved, signed-in-user
+priorities endpoint. It never switches identity to a selected MGO workspace or
+adds counts to Home. Existing portfolio follow-ups remain in Follow-ups &
+Discussion and are clearly excluded from these project counts in this first
+version. No new task records or duplicate assignments are created.
+
+Opening outreach from Tasks uses `?from=tasks`. The project header returns to
+My Tasks and retains that context between List & tags and Outreach assignments.
+Only this fixed marker is accepted; no arbitrary return URL is used. Direct and
+older project links still return to Project Outreach. Team management and all
+existing project workflows remain available in their original locations.
+
 Project Outreach's landing page shows the signed-in caller's saved workload
 across explicitly shared projects: overdue, due today and upcoming assignments,
 plus their own NXT drafts and actions awaiting verification. Projects with due
@@ -138,3 +151,15 @@ The first real query ID, deadline and authorized callers must be supplied before
 ## Verification
 
 Required workflow tests cover mapping, deduplication, form flow, role/API boundaries, timeout handling and action receipts. `projectOutreach.integration.test.js` additionally runs real prepared SQL against a disposable PostgreSQL fixture, enabled only by `PROJECT_OUTREACH_TEST_PG_SOCKET=/private/tmp/project-outreach-pg.<suffix>` on port 55451. It never reads `DATABASE_URL`. Test roles, snapshots and constituents are fictional.
+# Conditional Pledge Context
+
+Project managers can optionally enable saved pledge reminders when a single-row
+query includes matching `Gifts N N Installments N N Installment Balance` and
+`Installment Date Due` fields. Call cards show positive unpaid balances that are
+past due or due by the project deadline; paid, empty and later installments stay
+hidden. This is saved context, not a live balance, complete pledge history, or a
+financial rollup. Missing/conflicting pairs require checking NXT. Fields are
+paired within the same query row and exact gift/installment slot, never across
+aggregated values. Default list-display columns can hide the underlying repeated
+fields without deleting them or changing NXT. Existing projects are unchanged
+unless a manager enables this option.

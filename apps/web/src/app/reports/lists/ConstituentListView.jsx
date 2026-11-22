@@ -43,6 +43,10 @@ export default function ConstituentListView({ params, projectRoute = false, outr
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [localColumns, setLocalColumns] = useState(null);
+  const [fromTasks, setFromTasks] = useState(false);
+  useEffect(() => {
+    setFromTasks(new URLSearchParams(window.location.search).get("from") === "tasks");
+  }, [params.listKey]);
   const refreshControl = useRef(null);
   const report = data?.report;
   const project = isProjectProspecting(report) || projectRoute;
@@ -99,8 +103,8 @@ export default function ConstituentListView({ params, projectRoute = false, outr
           activeReportKey={params.listKey}
           title={report?.title || "Constituent list"}
           description={report?.description}
-          backHref={outreachRoute ? "/project-outreach" : project ? PROJECT_HREF : "/reports/lists"}
-          backLabel={outreachRoute ? "Back to Project Outreach" : project ? "Back to Project Prospecting" : "Back to Lists"}
+          backHref={project && fromTasks ? "/tasks" : outreachRoute ? "/project-outreach" : project ? PROJECT_HREF : "/reports/lists"}
+          backLabel={project && fromTasks ? "Back to My Tasks" : outreachRoute ? "Back to Project Outreach" : project ? "Back to Project Prospecting" : "Back to Lists"}
           reportSection={project ? PROJECT_SECTION : undefined}
           action={
             report &&
@@ -144,8 +148,8 @@ export default function ConstituentListView({ params, projectRoute = false, outr
         {report && (
           <div className={styles.stack}>
             {project && <nav className={styles.toolbar} aria-label="Project views">
-              <a className={styles.button} aria-current={!outreachRoute ? "page" : undefined} href={`${PROJECT_HREF}/${encodeURIComponent(report.key)}`}>List &amp; tags</a>
-              <a className={styles.button} aria-current={outreachRoute ? "page" : undefined} href={`/project-outreach/${encodeURIComponent(report.key)}`}>Outreach assignments</a>
+              <a className={styles.button} aria-current={!outreachRoute ? "page" : undefined} href={`${PROJECT_HREF}/${encodeURIComponent(report.key)}${fromTasks ? "?from=tasks" : ""}`}>List &amp; tags</a>
+              <a className={styles.button} aria-current={outreachRoute ? "page" : undefined} href={`/project-outreach/${encodeURIComponent(report.key)}${fromTasks ? "?from=tasks" : ""}`}>Outreach assignments</a>
             </nav>}
             <ListRefreshStatus
               snapshot={snapshot}

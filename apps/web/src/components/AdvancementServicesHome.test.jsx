@@ -25,7 +25,7 @@ describe("Advancement Services workspace shortcuts", () => {
     expect(within(reports).getByRole("link", { name: /Pledge Payments/ })).toHaveAttribute("href", "/pledge-payments");
     const primary = screen.getByRole("navigation", { name: "Main workspace paths" });
     expect(within(primary).getAllByRole("link").map(link => link.getAttribute("href")))
-      .toEqual(["/submissions", "/constituency-import", "/prospect-exports"]);
+      .toEqual(["/submissions", "/tasks", "/constituency-import", "/prospect-exports"]);
     expect(within(primary).getByRole("link", { name: /Top Prospect Exports/ })).toHaveAttribute("href", "/prospect-exports");
     expect(container.querySelector("section")).toHaveAccessibleName("Start here");
   });

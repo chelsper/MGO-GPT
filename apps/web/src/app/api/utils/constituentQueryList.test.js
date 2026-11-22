@@ -90,6 +90,36 @@ it("supports saved IDs and separately verifies current leads by explicit system 
   expect(snapshot.tableRows[0].at(-1)).toBe("Current Fundraiser");
   expect(snapshot.tableRows[1].at(-1)).toBe("Current Fundraiser");
 });
+it("passes a negative NXT query ID unchanged without changing constituent identity rules", async () => {
+  const ctx=args();
+  ctx.source={version:1,source:"saved_query",queryId:"-672096",fieldCategory:"",fieldDescription:""};
+  await advanceQueryList(ctx);
+  const {snapshot}=await advanceQueryList(ctx);
+  expect(createBlackbaudQueryJob).toHaveBeenCalledOnce();
+  expect(createBlackbaudQueryJob).toHaveBeenCalledWith(expect.objectContaining({queryId:"-672096"}));
+  expect(snapshot.tableRows[0][0]).toBe("100");
+  expect(readCurrentLead).not.toHaveBeenCalled();
+});
+it("retains all 48 columns of a wide saved query, including its technical identity, without per-person reads", async () => {
+  const ctx=args();
+  ctx.source={version:1,source:"saved_query",queryId:"-672096",fieldCategory:"",fieldDescription:""};
+  const headers=["System Record ID",...Array.from({length:46},(_,i)=>`Field ${i}`),"QRECID"];
+  const values=["101",...Array(46).fill("Fictional"),"999"];
+  downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(csv(`${headers.join(",")}\n${values.join(",")}`));
+  await advanceQueryList(ctx);
+  const {snapshot}=await advanceQueryList(ctx);
+  expect(snapshot.headers).toEqual(headers);
+  expect(snapshot.tableRows).toEqual([values]);
+  expect(snapshot.total).toBe(1);
+  expect(readCurrentLead).not.toHaveBeenCalled();
+});
+it("rejects output wider than 100 columns rather than publishing a truncated list", async () => {
+  const ctx=args();
+  downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(csv(`${Array.from({length:101},(_,i)=>`Field ${i}`).join(",")}\n${Array(101).fill("Fictional").join(",")}`));
+  await advanceQueryList(ctx);
+  await expect(advanceQueryList(ctx)).rejects.toMatchObject({status:413});
+  expect(ctx.job.table).toBeUndefined();
+});
 it.each([
   "Lookup ID,QRECID,Name\n100,101,Example",
   "Constituent system record ID,Name\n,Example",

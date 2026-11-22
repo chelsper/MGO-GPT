@@ -1,0 +1,21 @@
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+  color: #173e35;
+  overflow-wrap: anywhere;
+}
+.header { margin-bottom: 24px; }
+.header h1 { margin: 6px 0 10px; font-size: clamp(28px, 4vw, 40px); font-weight: 750; letter-spacing: -.025em; }
+.header p { max-width: 820px; line-height: 1.6; }
+.eyebrow { margin-top: 24px; font-size: 12px; font-weight: 750; letter-spacing: .12em; color: #007f66; }
+.home { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; }
+.links { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 12px; }
+.links a, .notice button { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 16px; border: 1px solid #b8d6cd; border-radius: 10px; background: #fff; color: #175c4e; font-weight: 650; text-decoration: none; cursor: pointer; }
+.links a:hover, .notice button:hover { background: #ecf7f3; }
+.note { color: #567168; font-size: 13px; margin-top: 10px; }
+.notice { padding: 24px; border: 1px solid #d0e3dc; border-radius: 16px; background: linear-gradient(135deg, #eff8f4, #fff); }
+.notice h2 { font-size: 20px; margin-bottom: 8px; }
+.notice p { margin-bottom: 12px; line-height: 1.6; }
+.page a:focus-visible, .page button:focus-visible { outline: 3px solid #007f66; outline-offset: 4px; }
+@media (max-width: 600px) { .page { padding: 20px 14px 40px; } .links a { width: 100%; } }

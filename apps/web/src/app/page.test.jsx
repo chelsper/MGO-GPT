@@ -140,7 +140,7 @@ describe("Advancement Services home alerts", () => {
     expect(section.querySelector('a[href="/pledge-payments"]')).toHaveTextContent("Pledge Payments");
     const primary = container.querySelector('[aria-label="Main workspace paths"]');
     expect([...primary.querySelectorAll("a")].map(link => link.getAttribute("href")))
-      .toEqual(["/submissions", "/constituency-import", "/prospect-exports"]);
+      .toEqual(["/submissions", "/tasks", "/constituency-import", "/prospect-exports"]);
     expect(primary.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Choose one or more MGO workspaces");
     expect(section.querySelector('a[href="/report-configurations"]')).not.toBeNull();
     expect(container.querySelectorAll('a[href="/knowledge-base/manage"]')).toHaveLength(1);
@@ -195,7 +195,7 @@ describe("Advancement Services home alerts", () => {
     state.overdueNextSteps = [{ id: 9, next_action_text: "Call about event", prospect_name: "Test Constituent", next_action_due_date: "2026-01-02" }];
     await render();
     const primary = container.querySelector('[aria-label="Main workspace paths"]');
-    const hrefs = ["/my-top-prospects", "/follow-ups", "/reports"];
+    const hrefs = ["/my-top-prospects", "/tasks", "/follow-ups", "/reports"];
     expect([...primary.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(hrefs);
     expect(primary.querySelector('a[href="/reports"] h3')).toHaveTextContent(/^Reports$/);
     for (const href of hrefs) {

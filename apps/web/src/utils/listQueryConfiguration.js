@@ -1,4 +1,5 @@
 export const LEAD_COLUMN = "Current lead fundraiser";
+export const LIST_QUERY_MAX_COLUMNS = 100;
 export const isQueryList = (source) =>
   ["query_json", "saved_query"].includes(source?.source);
 const object = (value) =>
@@ -101,7 +102,7 @@ export function validateListPresentation(source) {
   if (
     columns !== undefined &&
     (!Array.isArray(columns) ||
-      columns.length > 25 ||
+      columns.length > LIST_QUERY_MAX_COLUMNS ||
       new Set(columns.map((column) => column?.header)).size !==
         columns.length ||
       columns.some(
@@ -119,7 +120,7 @@ export function validateListPresentation(source) {
           !["text", "number", "currency"].includes(column.format),
       ))
   )
-    return "Choose valid, unique display columns (25 maximum).";
+    return `Choose valid, unique display columns (${LIST_QUERY_MAX_COLUMNS} maximum).`;
   const lead = source.leadFundraiser;
   if (
     lead !== undefined &&

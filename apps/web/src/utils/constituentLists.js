@@ -66,7 +66,7 @@ export function validateListSource(value) {
   if (
     value.source === "saved_query" &&
     (typeof value.queryId !== "string" ||
-      !/^[1-9]\d*$/.test(value.queryId) ||
+      !/^-?[1-9]\d*$/.test(value.queryId) ||
       !Number.isSafeInteger(Number(value.queryId)))
   )
     return "Enter a saved NXT query system record ID.";

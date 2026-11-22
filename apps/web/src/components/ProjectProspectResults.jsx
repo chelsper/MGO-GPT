@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import QueryResultsTable, { displayCell } from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
-import { orderedListColumns } from "@/utils/listQueryConfiguration";
+import { LIST_QUERY_MAX_COLUMNS, orderedListColumns } from "@/utils/listQueryConfiguration";
 import { normalizeProjectTag, projectIdentity, projectProspectRows, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
 import { requestProjectTags } from "@/utils/projectTagRequest";
 import styles from "./projectProspecting.module.css";
@@ -155,7 +155,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
       </form></details>
       {notice && <p role="status">{notice}</p>}
     </div>
-    <QueryResultsTable headers={columns.map(column => column.header)} rows={rows} columnSettings={columns} title={report.title} compact
+    <QueryResultsTable headers={columns.map(column => column.header)} rows={rows} columnSettings={columns} title={report.title} compact maxColumns={LIST_QUERY_MAX_COLUMNS}
       renderCell={(value, column, index) => {
         const values = filtered[index].values[snapshot.headers.indexOf(column.header)];
         if (values.length <= 1) return displayCell(value, column.format);

@@ -37,6 +37,18 @@ const load = () =>
     screen.getByRole("button", { name: "Load returned output fields" }),
   );
 
+it("accepts the exact signed query ID as text without refreshing NXT or changing its sign", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  render(<Editor />);
+  const input = screen.getByLabelText("Saved query system record ID");
+  fireEvent.change(input, { target: { value: "-672096" } });
+  expect(input).toHaveValue("-672096");
+  expect(input).toHaveAttribute("type", "text");
+  expect(input).not.toHaveAttribute("inputmode", "numeric");
+  expect(input).toHaveAccessibleDescription(/including a leading minus sign/);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("project setup offers fixed NXT membership settings separately from system-ID mapping and app-only tags", async () => {
   const value = projectSource();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ report: { dataConfiguration: value } })));
