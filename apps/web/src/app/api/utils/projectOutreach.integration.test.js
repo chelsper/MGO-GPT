@@ -185,6 +185,16 @@ describe.skipIf(!enabled)("project outreach real PostgreSQL", () => {
   afterAll(async () => {
     await execute("DROP SCHEMA outreach_fixture CASCADE");
   });
+  it("persists optional contact mappings with existing settings concurrency and manager access checks",async()=>{
+    const extended={...state,snapshot:{...snapshot,headers:[...snapshot.headers,"Home phone","Preferred email"],tableRows:snapshot.tableRows.map(row=>[...row,"904-555-0100","avery@example.test"])}};
+    await execute(`UPDATE report_snapshots_cache SET payload=${literal(JSON.stringify(extended.snapshot))}::jsonb WHERE report_key='fixture-snapshot'`);
+    const body={settings:{...settings,alternatePhoneColumn:"Home phone",emailColumn:"Preferred email"},settingsVersion:0};
+    await expect(store.settings(caller,extended,body)).rejects.toThrow();
+    await store.settings(manager,extended,body);
+    expect((await store.read(caller,extended)).settings).toEqual(body.settings);
+    await expect(store.settings(manager,extended,body)).rejects.toThrow();
+    expect((await store.read(caller,extended)).settingsVersion).toBe(1);
+  });
   it("reads personal priorities in an explicit read-only transaction without multiplying assignments by events", async () => {
     await setup();
     await assign([{constituentId:"123",version:0},{constituentId:"456",version:0}],{dueDate:"2026-11-22"});

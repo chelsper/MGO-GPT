@@ -219,7 +219,8 @@ it("starts with the overdue follow-up, consolidates contact details and makes no
   expect(
     within(context).getByRole("heading", { name: "Fictional Blake" }),
   ).toBeInTheDocument();
-  expect(within(context).getByText("555-0102 / 555-0103")).toBeInTheDocument();
+  expect(within(context).getByText("555-0102")).toBeInTheDocument();
+  expect(within(context).getByText("555-0103")).toBeInTheDocument();
   expect(
     within(context).getByText(/Review contact restrictions: Do not call/),
   ).toBeInTheDocument();

@@ -105,6 +105,41 @@
   min-height: 96px;
   resize: vertical;
 }
+.contactDetails {
+  margin: 16px 0;
+}
+.contactList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.contactRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+.contactRow + .contactRow {
+  border-top: 1px solid var(--line);
+}
+.contactValue {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.contactActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.contactNote {
+  flex-basis: 100%;
+}
 .form {
   display: grid;
   gap: 16px;

@@ -45,4 +45,9 @@ describe("saved outreach setup checklist", () => {
     expect(outreachConnectionLabel("not_connected")).toContain("No saved");
     expect(outreachConnectionLabel("unknown")).toContain("unavailable");
   });
+  it("counts mapped alternate phone values without claiming missing contacts",()=>{
+    const data={...snapshot,headers:[...snapshot.headers,"Home phone"],tableRows:snapshot.tableRows.map(row=>[...row,"904-555-0100"])};
+    expect(checks({...saved,settings:{...saved.settings,alternatePhoneColumn:"Home phone"}},data).phoneColumn.state).toBe("ready");
+    expect(checks({...saved,settings:{...saved.settings,alternatePhoneColumn:"Missing"}},data).phoneColumn.state).toBe("review");
+  });
 });
