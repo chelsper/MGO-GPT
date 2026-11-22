@@ -4,6 +4,7 @@ import {
   outreachPeople,
   outreachPledgeContext,
   outreachPledgeColumns,
+  outreachFollowUpDates,
   validateOutreachOutcome,
   validateOutreachSettings,
 } from "./projectOutreach";
@@ -15,6 +16,21 @@ import {
   saved,
 } from "../../test/fixtures/projectOutreach";
 describe("project outreach rules", () => {
+  it.each([
+    ["2026-11-22", "2026-11-23", "2026-11-29"],
+    ["2026-12-31", "2027-01-01", "2027-01-07"],
+    ["2028-02-28", "2028-02-29", "2028-03-06"],
+    ["2027-02-28", "2027-03-01", "2027-03-07"],
+    ["2026-03-07", "2026-03-08", "2026-03-14"],
+    ["2026-10-31", "2026-11-01", "2026-11-07"],
+  ])("uses calendar days for follow-up shortcuts from %s", (today, tomorrow, nextWeek) => {
+    expect(outreachFollowUpDates(today)).toEqual([
+      {label:"Tomorrow",value:tomorrow}, {label:"Next week",value:nextWeek},
+    ]);
+  });
+  it.each([undefined, null, "", "2026-02-30", "11/22/2026", "2026-11-22T00:00:00Z", "9999-12-31"])("does not invent follow-up dates from %s", today => {
+    expect(outreachFollowUpDates(today)).toEqual([]);
+  });
   it("deduplicates only explicit system IDs and retains all contact warnings", () => {
     expect(
       outreachPeople(snapshot, report.dataConfiguration, settings),

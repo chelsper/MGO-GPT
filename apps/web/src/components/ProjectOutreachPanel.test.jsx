@@ -58,9 +58,7 @@ const mount = async () => {
 };
 function completeForm() {
   fireEvent.click(screen.getByRole("button", { name: "Record outcome" }));
-  fireEvent.change(screen.getByLabelText("What happened?"), {
-    target: { value: "reached" },
-  });
+  fireEvent.click(screen.getByRole("radio", { name: "Reached", exact: true }));
   fireEvent.change(screen.getByLabelText("Next step"), {
     target: { value: "complete" },
   });
@@ -132,7 +130,7 @@ describe("project outreach pilot UI", () => {
     await mount();
     const opener = screen.getByRole("button", { name: "Record outcome" });
     fireEvent.click(opener);
-    expect(screen.getByLabelText("What happened?")).toHaveFocus();
+    expect(screen.getByRole("radio", { name: "Reached", exact: true })).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(opener).toHaveFocus();
     expect(requests).toHaveLength(0);

@@ -85,7 +85,7 @@
   font-weight: 650;
   min-width: 0;
 }
-.panel :is(input:not([type="checkbox"]), select, textarea) {
+.panel :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   border: 1px solid #b5c9c0;
   border-radius: 8px;
   padding: 10px;
@@ -151,6 +151,70 @@
 }
 .form h3 {
   margin: 0;
+}
+.outcomePicker {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.outcomePicker legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.outcomeOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.panel .outcomeChoice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #9cbfb2;
+  border-radius: 9px;
+  background: white;
+  cursor: pointer;
+}
+.panel .outcomeSelected {
+  background: #e4f2eb;
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+.outcomeChoice input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--green);
+}
+.outcomePicker:disabled .outcomeChoice {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.followUp {
+  display: grid;
+  gap: 8px;
+}
+.followUpControls,
+.dateShortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.followUpControls > label {
+  flex: 0 1 220px;
+}
+.dateShortcuts button[aria-pressed="true"] {
+  background: #e4f2eb;
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
 }
 .fields {
   display: grid;
@@ -396,6 +460,9 @@
   }
 }
 @media (max-width: 600px) {
+  .outcomeOptions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .progressGrid {
     grid-template-columns: minmax(0, 1fr);
   }

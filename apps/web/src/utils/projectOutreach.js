@@ -190,6 +190,17 @@ export function validateOutreachOutcome(body, today) {
   return null;
 }
 
+export function outreachFollowUpDates(today) {
+  if (!validActionDate(today)) return [];
+  return [["Tomorrow", 1], ["Next week", 7]].flatMap(([label, days]) => {
+    // Use the server's calendar date, not the browser timezone or interaction date.
+    const date = new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    const value = date.toISOString().slice(0, 10);
+    return validActionDate(value) ? [{ label, value }] : [];
+  });
+}
+
 export function outreachPeople(snapshot, source, settings) {
   const identity = projectIdentity(snapshot, source);
   if (identity.error) return [];
