@@ -404,3 +404,13 @@
     flex: 1 1 145px;
   }
 }
+.pledgeContext {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #b68935;
+  background: #fffaf0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: #51452d;
+}
+.pledgeContext p { margin: 0 0 0.4rem; }
+.pledgeContext small { display: block; line-height: 1.5; }

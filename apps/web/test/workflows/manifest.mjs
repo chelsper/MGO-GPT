@@ -20,6 +20,7 @@ export const workflowGroups = {
     "src/app/api/reports/lists/[listKey]/outreach/route.test.js",
     "src/components/ProjectOutreachPanel.test.jsx",
     "src/app/project-outreach/page.test.jsx",
+    "src/app/tasks/page.test.jsx",
   ],
   "Pledge reminder CSV": [
     "src/utils/pledgeReminders.test.js",
@@ -36,6 +37,12 @@ export const workflowGroups = {
     "src/app/api/pledge-payments/route.test.js",
   ],
   "Project Prospecting": [
+    "src/utils/listQueryConfiguration.test.js",
+    "src/app/api/utils/constituentQueryList.test.js",
+    "src/app/api/utils/constituentListRefresh.test.js",
+    "src/app/api/utils/dashboardQueryResults.test.js",
+    "src/components/ListQueryResults.test.jsx",
+    "src/components/QueryResultsTable.test.jsx",
     "test/workflows/reportLayouts.test.js",
     "src/utils/projectProspecting.test.js",
     "src/utils/projectTagRequest.test.js",

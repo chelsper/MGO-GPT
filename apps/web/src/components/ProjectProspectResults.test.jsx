@@ -29,6 +29,15 @@ const open = async (props = {}) => {
 const selectAll = () => fireEvent.click(screen.getByRole("button", { name: "Select up to 100 people" }));
 const chooseTag = () => fireEvent.change(screen.getByRole("combobox", { name: "Tag to apply or remove" }), { target: { value: tag.id } });
 describe("project prospect tags UI", () => {
+  it("keeps wide saved project output visible and taggable with system IDs unchanged", async () => {
+    const extra=Array.from({length:46},(_,i)=>`Installment field ${i}`);
+    await open({snapshot:{...snapshot,headers:[...snapshot.headers,...extra],tableRows:snapshot.tableRows.map(row=>[...row,...extra.map(()=>"Fictional")])}});
+    expect(screen.getByRole("table",{name:report.title})).toBeInTheDocument();
+    expect(screen.queryByText("Not refreshed")).not.toBeInTheDocument();
+    selectAll();
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("opens with only a local read, bulk applies a tag, clears selection and filters", async () => {
     await open(); expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][0]).toBe("/api/reports/lists/list-project-center/tags");
     selectAll(); chooseTag(); fireEvent.click(screen.getByRole("button", { name: "Apply tag" }));

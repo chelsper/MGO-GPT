@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { orderedListColumns } from "@/utils/listQueryConfiguration";
+import { LIST_QUERY_MAX_COLUMNS, orderedListColumns } from "@/utils/listQueryConfiguration";
 import styles from "./reportConfigurationEditor.module.css";
 import listStyles from "./listReport.module.css";
 
@@ -150,7 +150,7 @@ export default function ListColumnEditor({
                   className={styles.button}
                   disabled={
                     !header.trim() ||
-                    columns.length >= 25 ||
+                    columns.length >= LIST_QUERY_MAX_COLUMNS ||
                     columns.some((column) => column.header === header.trim())
                   }
                   onClick={() => {

@@ -187,22 +187,28 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         </>
       )}
       {value.source === "saved_query" && (
+        <>
         <label className={styles.field}>
           Saved query system record ID
           <input
-            inputMode="numeric"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby="saved-query-id-help"
             value={value.queryId || ""}
             onChange={(event) =>
               onChange({ ...value, queryId: event.target.value })
             }
           />
         </label>
+        <p id="saved-query-id-help" className={styles.muted}>Use the exact system record ID from NXT, including a leading minus sign if shown.</p>
+        </>
       )}
       {query && (
         <p className={styles.notice}>
           The query's output is displayed as returned, not replaced by fixed
           columns. Pasted JSON runs a read-only query; it does not create or
-          edit a saved query in NXT. Maximum 1,000 rows, 25 result columns, and
+          edit a saved query in NXT. Maximum 1,000 rows, 100 result columns, and
           512 KB; oversized output is rejected, never silently truncated. All
           authorized viewers can access all returned data.
         </p>

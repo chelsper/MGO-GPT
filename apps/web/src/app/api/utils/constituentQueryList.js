@@ -14,7 +14,7 @@ import {
   QUERY_RESULTS_LIMITS,
   isValidDashboardTableData,
 } from "./dashboardConfiguration";
-import { LEAD_COLUMN, parseListQuery } from "@/utils/listQueryConfiguration";
+import { LEAD_COLUMN, LIST_QUERY_MAX_COLUMNS, parseListQuery } from "@/utils/listQueryConfiguration";
 import { readCurrentLead } from "./listCurrentFundraiser";
 import {
   listQueryExpired,
@@ -27,7 +27,7 @@ async function readQueryTable(url, context) {
     maxBytes: QUERY_RESULTS_LIMITS.bytes,
     redirect: "error",
   });
-  return parseResultCsv(decodeResult(file), { preserveTechnical: true });
+  return parseResultCsv(decodeResult(file), { preserveTechnical: true, maxColumns: LIST_QUERY_MAX_COLUMNS });
 }
 
 export async function advanceQueryList({
@@ -158,7 +158,7 @@ export async function advanceQueryList({
       rows: snapshot.tableRows.map((row) =>
         displayedIndexes.map((index) => row[index]),
       ),
-    })
+    }, { maxColumns: LIST_QUERY_MAX_COLUMNS })
   )
     throw Object.assign(
       new Error(

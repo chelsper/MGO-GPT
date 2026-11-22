@@ -52,11 +52,12 @@ export default function QueryResultsTable({
   leadingColumn,
   trailingColumn,
   renderCell,
+  maxColumns,
 }) {
   const hintId = useId();
   const [sort, setSort] = useState(null);
   const [page, setPage] = useState(0);
-  if (!isValidDashboardTableData({ headers, rows }))
+  if (!isValidDashboardTableData({ headers, rows }, { maxColumns }))
     return <p className={styles.unknown}>Not refreshed</p>;
 
   const settings = new Map(

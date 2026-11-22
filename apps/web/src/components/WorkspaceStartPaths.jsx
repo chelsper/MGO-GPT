@@ -1,9 +1,10 @@
-import { ArrowRight, BarChart3, ClipboardList, Download, MessageSquare, Upload, Users } from "lucide-react";
+import { ArrowRight, BarChart3, ClipboardList, Download, ListTodo, MessageSquare, Upload, Users } from "lucide-react";
 import { getPrimaryNavigationItems } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "./WorkQueueAlertBadge";
 
 const icons = {
   "/my-top-prospects": Users,
+  "/tasks": ListTodo,
   "/follow-ups": MessageSquare,
   "/reports": BarChart3,
   "/submissions": ClipboardList,
@@ -18,7 +19,7 @@ export default function WorkspaceStartPaths({ items, queueCounts, openDiscussion
   return <section aria-labelledby="workspace-start-title">
     <h2 id="workspace-start-title" className="text-xl font-bold text-gray-900">Start here</h2>
     <p className="mb-4 mt-1 text-sm text-gray-600">Your main workspace tools, one click away.</p>
-    <nav aria-label="Main workspace paths" className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+    <nav aria-label="Main workspace paths" className={`grid grid-cols-1 gap-4 ${primaryItems.length === 4 ? "sm:grid-cols-2 xl:grid-cols-4" : "lg:grid-cols-3"}`}>
       {primaryItems.map((item) => {
         const Icon = icons[item.href] || ClipboardList;
         const discussionCount = item.href === "/follow-ups" && Number.isSafeInteger(openDiscussionItems) && openDiscussionItems > 0 ? openDiscussionItems : 0;

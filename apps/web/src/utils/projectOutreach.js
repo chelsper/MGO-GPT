@@ -34,6 +34,7 @@ export function validateOutreachSettings(value, headers = []) {
           "deadline",
           "instructions",
           "interactionType",
+          "showPledgeContext",
         ].includes(k),
     )
   )
@@ -58,7 +59,78 @@ export function validateOutreachSettings(value, headers = []) {
     return "Instructions must be 2,000 characters or fewer.";
   if (!INTERACTION_TYPES.includes(value.interactionType))
     return "Choose an NXT action type.";
+  if (value.showPledgeContext !== undefined && typeof value.showPledgeContext !== "boolean")
+    return "Choose whether to show pledge reminders.";
+  if (value.showPledgeContext && !outreachPledgeColumns(headers).length)
+    return "Pledge reminders need matching installment balance and due-date output columns.";
   return null;
+}
+
+// Repeated single-row query fields must be paired within their exact gift and
+// installment slot. Never pair aggregated dates with aggregated balances.
+export function outreachPledgeColumns(headers = []) {
+  return headers.flatMap((header, balance) => {
+    const match = /^(Gifts \d+ \d+ Installments \d+ \d+) Installment Balance$/.exec(header);
+    if (!match || headers.filter((h) => h === header).length !== 1) return [];
+    const dueHeader = `${match[1]} Installment Date Due`;
+    if (headers.filter((h) => h === dueHeader).length !== 1) return [];
+    return [{ slot: match[1], balance, due: headers.indexOf(dueHeader) }];
+  });
+}
+
+function installmentDate(value) {
+  const text = String(value ?? "").trim();
+  if (validActionDate(text)) return text;
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (!match) return null;
+  const iso = `${match[3]}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}`;
+  return validActionDate(iso) ? iso : null;
+}
+
+function installmentCents(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\$?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return null;
+  const cents = Math.round(Number(text.replace(/[$,]/g, "")) * 100);
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+export function outreachPledgeContext(snapshot, source, settings, today) {
+  const result = new Map();
+  if (!settings?.showPledgeContext || !validActionDate(today) || !validActionDate(settings.deadline)) return result;
+  const identity = projectIdentity(snapshot, source);
+  if (identity.error) return result;
+  const columns = outreachPledgeColumns(snapshot.headers);
+  const people = new Map();
+  snapshot.tableRows.forEach((row, rowIndex) => {
+    const id = identity.rowIds[rowIndex];
+    if (!id) return;
+    if (!people.has(id)) people.set(id, new Map());
+    const slots = people.get(id);
+    for (const column of columns) {
+      const rawBalance = String(row[column.balance] ?? "").trim();
+      const rawDue = String(row[column.due] ?? "").trim();
+      if (!rawBalance && !rawDue) continue;
+      if (!slots.has(column.slot)) slots.set(column.slot, new Map());
+      const date = installmentDate(rawDue);
+      const cents = installmentCents(rawBalance);
+      slots.get(column.slot).set(JSON.stringify([date ?? rawDue, cents ?? rawBalance]), { date, cents });
+    }
+  });
+  for (const [id, slots] of people) {
+    const context = { installments: [], needsReview: false };
+    for (const [slot, values] of slots) {
+      if (values.size !== 1) { context.needsReview = true; continue; }
+      const { date, cents } = values.values().next().value;
+      if (cents === 0) continue;
+      if (!date || cents === null) { context.needsReview = true; continue; }
+      if (date < today || date <= settings.deadline) {
+        context.installments.push({ slot, date, cents, status: date < today ? "Past due" : date === today ? "Due today" : "Upcoming" });
+      }
+    }
+    context.installments.sort((a, b) => a.date.localeCompare(b.date) || a.slot.localeCompare(b.slot));
+    if (context.installments.length || context.needsReview) result.set(id, context);
+  }
+  return result;
 }
 
 export function validateOutreachOutcome(body, today) {

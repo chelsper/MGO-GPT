@@ -12,6 +12,14 @@ const snapshot = {
     ["101", "Another Donor", "250", ""],
   ],
 };
+it("renders all columns from a wide list instead of showing Not refreshed", () => {
+  vi.stubGlobal("fetch",vi.fn());
+  const headers=Array.from({length:48},(_,i)=>`Column ${i}`);
+  render(<ListQueryResults snapshot={{total:1,headers,tableRows:[headers.map(()=>"Fictional")]}} title="Wide list" />);
+  expect(within(screen.getByRole("table",{name:"Wide list"})).getAllByRole("columnheader")).toHaveLength(48);
+  expect(screen.queryByText("Not refreshed")).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
+});
 it("changes visible columns, order, labels, currency formatting, and search without fetching", () => {
   vi.stubGlobal("fetch", vi.fn());
   render(

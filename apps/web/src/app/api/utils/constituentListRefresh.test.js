@@ -147,3 +147,10 @@ it("exposes only validated query output while preserving the last complete snaps
     }).queryOutput.total,
   ).toBe(0);
 });
+it("preserves bounded wide query output during mapping without relaxing cell validation", () => {
+  const headers = Array.from({ length: 48 }, (_, i) => `Column ${i}`);
+  const job = { ...newListRefresh(), status: "needs_configuration", table: { headers, rows: [headers.map(() => "saved")] } };
+  expect(listRefreshStatus({ job }).queryOutput.headers).toHaveLength(48);
+  job.table.rows[0][0] = 42;
+  expect(listRefreshStatus({ job }).queryOutput).toBeNull();
+});

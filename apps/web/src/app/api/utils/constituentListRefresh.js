@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readListIdentity, readListPage } from "./constituentListProvider";
-import { isQueryList } from "@/utils/listQueryConfiguration";
+import { isQueryList, LIST_QUERY_MAX_COLUMNS } from "@/utils/listQueryConfiguration";
 import { advanceQueryList, enrichListLeads } from "./constituentQueryList";
 import { isValidDashboardTableData } from "./dashboardConfiguration";
 import { listQueryRecovery } from "./listQueryRecovery";
@@ -141,7 +141,7 @@ export function listRefreshStatus(saved) {
   return {
     snapshot: saved.snapshot,
     queryOutput:
-      saved.job?.status !== "complete" && isValidDashboardTableData(table)
+      saved.job?.status !== "complete" && isValidDashboardTableData(table, { maxColumns: LIST_QUERY_MAX_COLUMNS })
         ? {
             headers: table.headers,
             tableRows: table.rows,

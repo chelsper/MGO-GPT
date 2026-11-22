@@ -1,4 +1,5 @@
 import { executeSavedQueryResults } from "@/app/api/utils/savedQueryExecution";
+import { LIST_QUERY_MAX_COLUMNS } from "@/utils/listQueryConfiguration";
 import {
   QUERY_RESULTS_LIMITS,
   isTechnicalDashboardQueryHeader,
@@ -91,7 +92,7 @@ function removeTechnicalColumns(table) {
 
 // Visit complete, strictly validated rows without retaining a raw result table.
 // Specialized readers may bound raw rows separately from their deduplicated output.
-export function visitResultCsv(content, { onHeaders, onRow, maxRows = QUERY_RESULTS_LIMITS.rows }) {
+export function visitResultCsv(content, { onHeaders, onRow, maxRows = QUERY_RESULTS_LIMITS.rows, maxColumns = QUERY_RESULTS_LIMITS.columns }) {
   if (!Number.isSafeInteger(maxRows) || maxRows < 1) throw malformedCsv();
   const text = content.replace(/^\uFEFF/, "");
   const leading = text.trimStart();
@@ -107,15 +108,16 @@ export function visitResultCsv(content, { onHeaders, onRow, maxRows = QUERY_RESU
     if (isJson) throw malformedCsv();
   }
 
-  const visitor = createResultCsvVisitor({ onHeaders, onRow, maxRows });
+  const visitor = createResultCsvVisitor({ onHeaders, onRow, maxRows, maxColumns });
   visitor.write(text);
   return visitor.finish();
 }
 
 // Keep only one bounded row between chunks. A closing quote and CRLF can each
 // span chunks, so neither requires lookahead or retaining the previous chunk.
-export function createResultCsvVisitor({ onHeaders, onRow, maxRows = QUERY_RESULTS_LIMITS.rows }) {
+export function createResultCsvVisitor({ onHeaders, onRow, maxRows = QUERY_RESULTS_LIMITS.rows, maxColumns = QUERY_RESULTS_LIMITS.columns }) {
   if (!Number.isSafeInteger(maxRows) || maxRows < 1) throw malformedCsv();
+  if (!Number.isSafeInteger(maxColumns) || maxColumns < 1 || maxColumns > LIST_QUERY_MAX_COLUMNS) throw malformedCsv();
   let headers = null;
   let rowCount = 0;
   let row = [];
@@ -133,8 +135,8 @@ export function createResultCsvVisitor({ onHeaders, onRow, maxRows = QUERY_RESUL
   };
   const finishCell = () => {
     row.push(cell);
-    if (row.length > QUERY_RESULTS_LIMITS.columns) {
-      throw limitError(`Query results must not exceed ${QUERY_RESULTS_LIMITS.columns} columns.`);
+    if (row.length > maxColumns) {
+      throw limitError(`Query results must not exceed ${maxColumns} columns.`);
     }
     cell = "";
     state = "start";
@@ -204,11 +206,11 @@ export function createResultCsvVisitor({ onHeaders, onRow, maxRows = QUERY_RESUL
   };
 }
 
-export function parseResultCsv(content, { preserveTechnical = false } = {}) {
+export function parseResultCsv(content, { preserveTechnical = false, maxColumns = QUERY_RESULTS_LIMITS.columns } = {}) {
   const rows = [];
-  const { headers } = visitResultCsv(content, { onRow: (row) => rows.push(row) });
+  const { headers } = visitResultCsv(content, { onRow: (row) => rows.push(row), maxColumns });
   const table = preserveTechnical ? { headers, rows } : removeTechnicalColumns({ headers, rows });
-  if (!isValidDashboardTableData(table)) {
+  if (!isValidDashboardTableData(table, { maxColumns })) {
     throw limitError("Query results exceed the supported table size or shape.");
   }
   return table;

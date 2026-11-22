@@ -14,10 +14,12 @@ Project Prospecting is a separate reporting collection backed by the existing sa
 
 1. Select viewers (including yourself if you will use the project) and enable the project.
 2. Open it and use **Refresh list**. Only this explicit action runs the read-only NXT query. A complete empty result is valid.
+   Saved query IDs may be positive or negative; retain the exact NXT ID, including
+   its sign. This does not change the positive constituent system-ID rules.
 3. In Project settings / Configure, load returned output fields and select the **constituent system record ID** for project tags. Do not select Lookup ID, gift ID, fundraiser ID, or qrecid. Save the mapping; a second NXT refresh is not required.
 4. Optionally enable **Add a constituent to this project** by setting both its existing NXT custom field category and exact description/value. These must match the saved query's membership filter. Leave both blank to disable additions. Configuration alone never writes to NXT, and enabling this setting preserves the existing query snapshot and tags.
 
-All explicitly selected viewers see all returned query columns, regardless of their individual NXT access. Select the audience accordingly. Existing query limits are retained: 1,000 rows, 25 output columns, 512 KB. Oversized output is rejected rather than truncated; the prior complete snapshot remains available.
+All explicitly selected viewers see all returned query columns, regardless of their individual NXT access. Select the audience accordingly. List query limits are 1,000 rows, 100 output columns (including technical output), and 512 KB. This supports saved single-row queries that expand repeating installments into separate columns. Ordinary dashboard tables retain their 25-column limit; pasted ad-hoc query definitions retain their existing field limits. Oversized output is rejected rather than truncated; the prior complete snapshot remains available.
 
 ## Using tags
 

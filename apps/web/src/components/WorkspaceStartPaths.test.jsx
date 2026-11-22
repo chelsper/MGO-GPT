@@ -11,7 +11,9 @@ describe("Workspace start paths", () => {
       const { rerender } = render(<WorkspaceStartPaths items={items} />);
       const links = within(screen.getByRole("navigation", { name: "Main workspace paths" })).getAllByRole("link");
       expect(links.map(link => link.getAttribute("href"))).toEqual(isReviewer
-        ? ["/submissions", "/constituency-import", "/prospect-exports"] : ["/my-top-prospects", "/follow-ups", "/reports"]);
+        ? ["/submissions", "/tasks", "/constituency-import", "/prospect-exports"] : ["/my-top-prospects", "/tasks", "/follow-ups", "/reports"]);
+      expect(links[1]).toHaveTextContent("Tasks");
+      expect(links[1].parentElement).toHaveClass("sm:grid-cols-2", "xl:grid-cols-4");
       expect(screen.queryByRole("link", { name: /Integration Health/ })).not.toBeInTheDocument();
       rerender(<WorkspaceStartPaths items={items} queueCounts={{ workQueue: 6, constituencyImports: 8 }} openDiscussionItems={2} />);
       if (isReviewer) {

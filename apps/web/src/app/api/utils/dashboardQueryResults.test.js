@@ -22,7 +22,7 @@ vi.mock("@/app/api/utils/blackbaud", async (importOriginal) => ({
   getBlackbaudConfigIssues: mocks.config,
 }));
 
-import { runDashboardQueryResults } from "./dashboardQueryResults";
+import { parseResultCsv, runDashboardQueryResults } from "./dashboardQueryResults";
 import { runDashboardQueryCount } from "./dashboardQueryCount";
 import { QUERY_RESULTS_LIMITS, isValidDashboardTableData } from "./dashboardConfiguration";
 import { BlackbaudQueryResultTooLargeError } from "./blackbaud";
@@ -35,6 +35,29 @@ const csv = (content, contentType = "text/csv; charset=utf-8") => ({
   contentType,
 });
 const run = () => runDashboardQueryResults(options);
+
+it("supports an explicitly bounded wide list without widening dashboard defaults", () => {
+  const headers=Array.from({length:100},(_,i)=>`H${i}`);
+  const content=`${headers.join(",")}\n${headers.map(()=>"value").join(",")}`;
+  expect(()=>parseResultCsv(content)).toThrow(/25 columns/);
+  const table=parseResultCsv(content,{maxColumns:100});
+  expect(table.headers).toHaveLength(100);
+  expect(isValidDashboardTableData(table)).toBe(false);
+  expect(isValidDashboardTableData(table,{maxColumns:100})).toBe(true);
+  expect(()=>parseResultCsv(`${headers.join(",")},extra\n${headers.map(()=>"value").join(",")},extra`,{maxColumns:100})).toThrow(/100 columns/);
+  for (const maxColumns of [0,-1,101,Infinity,1.5,"100"]) {
+    expect(()=>parseResultCsv("Name\nFictional",{maxColumns})).toThrow();
+    expect(isValidDashboardTableData(table,{maxColumns})).toBe(false);
+  }
+});
+
+it("retains strict row, cell and header validation for wider list results", () => {
+  const options={maxColumns:100};
+  expect(()=>parseResultCsv(`Name\n${Array(1001).fill("Fictional").join("\n")}`,options)).toThrow(/1000 rows/);
+  expect(()=>parseResultCsv(`Name\n${"x".repeat(2001)}`,options)).toThrow(/2000 characters/);
+  expect(()=>parseResultCsv("Name,Name\nFictional,Record",options)).toThrow(/unique/);
+  expect(()=>parseResultCsv("Name,Phone\nFictional",options)).toThrow(/malformed/);
+});
 
 describe("dashboard saved-query result tables", () => {
   beforeEach(() => {
