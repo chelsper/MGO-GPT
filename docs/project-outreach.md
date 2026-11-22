@@ -14,6 +14,37 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 
 ## Security and durability
 
+### Guided calling queue
+
+Start my next call opens the signed-in caller's own available assignments across
+the current project, independent of the overview's filters or page. Overdue
+follow-ups come first, then overdue/today assignments, then not-started work.
+Future follow-ups, completed outreach (even with unsubmitted NXT paperwork),
+inactive/unshared callers, missing query members and uncertain NXT actions are
+not suggested. This is a saved-data work queue, not permission to contact someone.
+
+The guided view shows one person's combined saved phone values, restrictions,
+project overlap warning, caller instructions and latest outcome. Focus moves to
+the person's name, so contact checks appear before outcome entry. No call, query
+refresh, portfolio change or NXT request occurs when starting the queue.
+
+Save & next (local only) records the outcome without NXT. Save, submit & next also
+explicitly submits its NXT action using the existing receipt safeguards. Both
+reload saved status and compare the exact immutable outcome before advancing;
+the latter also requires persisted NXT confirmation. An uncertain response stops
+the flow. Reload can recover a saved outcome, after which the caller explicitly
+continues or verifies/submits that same saved event. No automatic resend occurs.
+
+The next person is selected from the refreshed assignments. People already
+handled during this page session are not automatically offered again, including
+same-day follow-ups. Nothing is silently marked complete. Cancel asks before
+discarding edits and returns to the prior list filters; existing list/history
+controls remain available. No database/schema or provider-write contract changes.
+Explicitly rejected saves can be retried or cancelled without hiding the person.
+Unconfirmed attempts left for the list are paused separately, not counted as
+handled. Reloading an exhausted queue offers newly available assignments without
+automatically opening a call or losing the previous result.
+
 ### Setup and readiness checklist
 
 Outreach now includes a collapsible checklist of saved query results, system-ID
