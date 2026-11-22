@@ -105,9 +105,7 @@ async function start() {
   });
 }
 function fill(nextDate = "") {
-  fireEvent.change(screen.getByLabelText("What happened?"), {
-    target: { value: "contact_issue" },
-  });
+  fireEvent.click(screen.getByRole("radio", { name: "Contact issue" }));
   if (nextDate)
     fireEvent.change(screen.getByLabelText("Follow-up date"), {
       target: { value: nextDate },

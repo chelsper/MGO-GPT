@@ -5,6 +5,7 @@ import {
   outreachCounts,
   outreachPledgeColumns,
   outreachPledgeContext,
+  outreachFollowUpDates,
   OUTREACH_OUTCOMES,
   validateOutreachOutcome,
   validateOutreachSettings,
@@ -177,8 +178,18 @@ function OutcomeForm({
     contactReviewed: false,
   }));
   const error = validateOutreachOutcome(result, saved.today);
+  const followUpRef = useRef(null);
+  const followUpDates = outreachFollowUpDates(saved.today);
   const field = (name, value) =>
     setResult((current) => ({ ...current, [name]: value }));
+  function chooseFollowUpDate() {
+    followUpRef.current?.focus();
+    try {
+      followUpRef.current?.showPicker?.();
+    } catch {
+      // Keep the focused input usable when a browser does not allow the picker.
+    }
+  }
   function cancel() {
     const dirty =
       result.outcome ||
@@ -211,24 +222,27 @@ function OutcomeForm({
       aria-label={`Record outcome for ${task.name}`}
     >
       <h3>Record outcome: {task.name}</h3>
+      <fieldset className={styles.outcomePicker} disabled={busy}>
+        <legend>What happened?</legend>
+        <div className={styles.outcomeOptions}>
+          {Object.entries(OUTREACH_OUTCOMES).map(([key, label], index) => (
+            <label key={key} className={`${styles.outcomeChoice} ${result.outcome === key ? styles.outcomeSelected : ""}`}>
+              <input
+                type="radio"
+                name={`outcome-${result.eventId}`}
+                value={key}
+                checked={result.outcome === key}
+                onChange={() => field("outcome", key)}
+                autoFocus={!guided && index === 0}
+                required
+              />
+              <span>{key === "contact_issue" ? "Contact issue" : label}</span>
+            </label>
+          ))}
+        </div>
+        <small>Selecting an outcome only fills this form. Nothing is saved or submitted yet.</small>
+      </fieldset>
       <div className={styles.fields}>
-        <label>
-          What happened?
-          <select
-            autoFocus={!guided}
-            value={result.outcome}
-            onChange={(e) => field("outcome", e.target.value)}
-            disabled={busy}
-            required
-          >
-            <option value="">Choose outcome</option>
-            {Object.entries(OUTREACH_OUTCOMES).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           Interaction date
           <input
@@ -257,20 +271,34 @@ function OutcomeForm({
             <option value="complete">Outreach complete</option>
           </select>
         </label>
-        {result.stage === "follow_up" && (
-          <label>
-            Follow-up date
-            <input
-              type="date"
-              value={result.nextDate}
-              min={result.actionDate}
-              onChange={(e) => field("nextDate", e.target.value)}
-              disabled={busy}
-              required
-            />
-          </label>
-        )}
       </div>
+      {result.stage === "follow_up" && (
+        <div className={styles.followUp}>
+          <div className={styles.followUpControls}>
+            <label>
+              Follow-up date
+              <input
+                ref={followUpRef}
+                type="date"
+                value={result.nextDate}
+                min={result.actionDate}
+                onChange={(e) => field("nextDate", e.target.value)}
+                disabled={busy}
+                required
+              />
+            </label>
+            <div className={styles.dateShortcuts} role="group" aria-label="Follow-up date shortcuts">
+              {followUpDates.map(({ label, value }) => (
+                <button key={label} type="button" disabled={busy || value < result.actionDate}
+                  aria-pressed={result.nextDate === value} title={value}
+                  onClick={() => field("nextDate", value)}>{label}</button>
+              ))}
+              <button type="button" disabled={busy} onClick={chooseFollowUpDate}>Choose date</button>
+            </div>
+          </div>
+          {!!followUpDates.length && <small>Shortcuts are 1 and 7 days after {saved.today}, the JU date when this view loaded.</small>}
+        </div>
+      )}
       <label>
         Notes
         <textarea

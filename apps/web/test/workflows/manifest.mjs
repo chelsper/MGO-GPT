@@ -12,6 +12,7 @@ export const workflowGroups = {
     "src/app/api/project-outreach/priorities/route.test.js",
     "src/utils/outreachCallQueue.test.js",
     "src/components/ProjectOutreachCalls.test.jsx",
+    "src/components/ProjectOutreachOutcomes.test.jsx",
     "src/utils/outreachReadiness.test.js",
     "src/app/api/utils/projectOutreachReadiness.test.js",
     "src/components/ProjectOutreachReadiness.test.jsx",
