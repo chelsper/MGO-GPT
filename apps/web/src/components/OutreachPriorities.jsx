@@ -159,10 +159,24 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
               ) : (
                 <p className={styles.help}>Workload summary unavailable.</p>
               ))}
-            <a href={`/project-outreach/${encodeURIComponent(project.key)}${fromTasks ? "?from=tasks" : ""}`}>
-              Open outreach
-              <span className={styles.srOnly}> for {project.title}</span>
-            </a>
+            <div className={styles.actions}>
+              {fromTasks && summary?.canRecord && project.priorities?.open > 0 && (
+                <a href={`/project-outreach/${encodeURIComponent(project.key)}?from=tasks&start=calls`}>
+                  Start / continue my calls
+                  <span className={styles.srOnly}> for {project.title}</span>
+                </a>
+              )}
+              <a className={fromTasks ? styles.secondary : undefined} href={`/project-outreach/${encodeURIComponent(project.key)}${fromTasks ? "?from=tasks" : ""}`}>
+                {fromTasks ? "View project" : "Open outreach"}
+                <span className={styles.srOnly}> for {project.title}</span>
+              </a>
+            </div>
+            {fromTasks && summary?.canRecord && project.priorities?.open > 0 && (
+              <p className={styles.help}>
+                Opens your next eligible person from saved assignments. Nothing
+                is recorded or submitted until you save an outcome.
+              </p>
+            )}
           </article>
         ))}
       </div>

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import {
   cleanup,
   fireEvent,
@@ -120,6 +121,98 @@ function fill(nextDate = "") {
   });
   fireEvent.click(screen.getByLabelText(/I reviewed contact/));
 }
+it("opens the Tasks shortcut once using saved priority, keeps contact warnings and cancels without relaunching", async () => {
+  state.canManage = true;
+  const handled = vi.fn();
+  render(<StrictMode><Panel report={report} snapshot={snapshot} startCalls onStartCallsHandled={handled} /></StrictMode>);
+  await screen.findByRole("form", { name: "Record outcome for Fictional Blake" });
+  expect(screen.getByRole("heading", { name: "Fictional Blake" })).toHaveFocus();
+  expect(screen.getByText(/Review contact restrictions: Do not call/)).toBeInTheDocument();
+  expect(screen.getByText("Outreach setup", {exact:true})).not.toBeVisible();
+  expect(screen.queryByLabelText("Queue")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+  expect(screen.getByRole("button", { name: "Start my next call" })).toHaveFocus();
+  expect(screen.getByText("Outreach setup", {exact:true})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved outreach" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Reload saved outreach" })).toBeEnabled());
+  expect(screen.queryByRole("region", { name: "Guided call workspace" })).not.toBeInTheDocument();
+  expect(handled).toHaveBeenCalledTimes(1);
+  expect(requests).toHaveLength(0);
+});
+it("preserves unsaved manager setup when entering calls and cancelling back to the list", async () => {
+  state.canManage = true;
+  render(<Panel report={report} snapshot={snapshot} />);
+  const startButton = await screen.findByRole("button", { name: "Start my next call" });
+  fireEvent.click(screen.getByText("Outreach setup", {exact:true}));
+  fireEvent.change(screen.getByLabelText("Instructions for callers"), {target:{value:"Unsaved fictional instructions"}});
+  fireEvent.click(startButton);
+  expect(screen.getByLabelText("Instructions for callers")).not.toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name:"Cancel",exact:true}));
+  expect(screen.getByLabelText("Instructions for callers")).toHaveValue("Unsaved fictional instructions");
+  expect(state.settings.instructions).toBe("Fictional test only.");
+  expect(requests).toHaveLength(0);
+});
+it("ignores other callers and resumes from saved outcomes rather than the first original assignment", async () => {
+  state.canManage = true;
+  state.tasks[1].assigneeId = 9;
+  state.tasks.unshift({ ...structuredClone(state.tasks[0]), id:"44444444-4444-4444-8444-444444444444", stage:"complete" });
+  render(<Panel report={report} snapshot={snapshot} startCalls />);
+  await screen.findByRole("form", { name: "Record outcome for Fictional Avery" });
+  expect(screen.queryByRole("heading", { name: "Fictional Blake" })).not.toBeInTheDocument();
+  expect(requests).toHaveLength(0);
+});
+it.each(["future follow-ups", "complete", "uncertain actions", "other caller", "unavailable caller", "removed from query"])("shows a non-error empty queue for %s without changing saved records", async (scenario) => {
+  for (const task of state.tasks) {
+    if (scenario === "future follow-ups") { task.stage = "follow_up"; task.dueDate = "2026-12-31"; }
+    if (scenario === "complete") task.stage = "complete";
+    if (scenario === "uncertain actions") task.events = [{ id:"22222222-2222-4222-8222-222222222222", actorId:8, state:"review", result:{outcome:"reached",actionDate:state.today,notes:"Fictional pending verification"} }];
+    if (scenario === "other caller") task.assigneeId = 9;
+    if (scenario === "unavailable caller") task.assigneeAvailable = false;
+    if (scenario === "removed from query") task.inCurrentQuery = false;
+  }
+  const before = structuredClone(state);
+  render(<Panel report={report} snapshot={snapshot} startCalls />);
+  await screen.findByText(/No calls are ready for you right now/);
+  expect(screen.queryByRole("region", { name: "Guided call workspace" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(state).toEqual(before);
+  expect(requests).toHaveLength(0);
+});
+it.each(["view only", "missing setup", "invalid setup", "invalid identity"])("keeps shortcut safeguards for %s", async (scenario) => {
+  if (scenario === "view only") state.canRecord = false;
+  if (scenario === "missing setup") state.settings = null;
+  if (scenario === "invalid setup") state.settings.nameColumn = "Missing column";
+  const source = scenario === "invalid identity" ? {...report,dataConfiguration:{...report.dataConfiguration,systemIdColumn:"Missing ID"}} : report;
+  render(<Panel report={source} snapshot={snapshot} startCalls />);
+  await screen.findByText(scenario === "view only" ? /cannot record calls/ : /saved setup needs attention before calls/);
+  expect(screen.queryByRole("region", { name: "Guided call workspace" })).not.toBeInTheDocument();
+  expect(requests).toHaveLength(0);
+});
+it("waits for query refresh and matching saved revisions before opening the shortcut", async () => {
+  const handled = vi.fn();
+  const view = render(<Panel report={report} snapshot={snapshot} startCalls refreshing onStartCallsHandled={handled} />);
+  await screen.findByText("Work through my calls");
+  expect(handled).not.toHaveBeenCalled();
+  expect(screen.queryByRole("region", { name: "Guided call workspace" })).not.toBeInTheDocument();
+  view.rerender(<Panel report={report} snapshot={snapshot} startCalls onStartCallsHandled={handled} />);
+  await screen.findByRole("form", { name: "Record outcome for Fictional Blake" });
+  expect(handled).toHaveBeenCalledTimes(1);
+  expect(requests).toHaveLength(0);
+});
+it.each(["failed read", "stale revision", "stale snapshot"])("does not open or consume a shortcut after %s, but supports an explicit retry", async (scenario) => {
+  const handled = vi.fn();
+  get = () => scenario === "failed read" ? Response.json({error:"Unavailable"},{status:503})
+    : Response.json({...state, ...(scenario === "stale revision" ? {revision:"old"} : {snapshotAt:"2026-11-01T12:00:00Z"})});
+  render(<Panel report={report} snapshot={snapshot} startCalls onStartCallsHandled={handled} />);
+  await screen.findByRole("alert");
+  expect(handled).not.toHaveBeenCalled();
+  expect(screen.queryByRole("region", { name: "Guided call workspace" })).not.toBeInTheDocument();
+  get = null;
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved status", exact:true }));
+  await screen.findByRole("form", { name: "Record outcome for Fictional Blake" });
+  expect(handled).toHaveBeenCalledTimes(1);
+  expect(requests).toHaveLength(0);
+});
 it("starts with the overdue follow-up, consolidates contact details and makes no write", async () => {
   await start();
   const context = screen.getByRole("region", { name: "Current call details" });

@@ -453,6 +453,8 @@ export default function ProjectOutreachPanel({
   snapshot,
   refreshing = false,
   onReviewSource,
+  startCalls = false,
+  onStartCallsHandled,
 }) {
   const [saved, setSaved] = useState(null),
     [error, setError] = useState(""),
@@ -483,6 +485,7 @@ export default function ProjectOutreachPanel({
     callLaunchRef = useRef(null),
     callFocusRef = useRef(null),
     returnCallFocus = useRef(false),
+    callEntryHandled = useRef(false),
     setupRef = useRef(null);
   function openSetup(field) {
     if (!setupRef.current) return;
@@ -708,6 +711,14 @@ export default function ProjectOutreachPanel({
     setCallAttempt(null);
     setEditing(null);
   }
+  function beginCalls(task) {
+    setCallAttempt(null);
+    setCallMode(true);
+    setEditing(task.id);
+    setConfirm(false);
+    setSelected([]);
+    setNotice("");
+  }
   const identity = projectIdentity(snapshot, report.dataConfiguration);
   const settingsError =
     saved?.settings &&
@@ -794,6 +805,37 @@ export default function ProjectOutreachPanel({
       activeCallTask.events.some((e) =>
         ["processing", "review"].includes(e.state),
       ));
+  useEffect(() => {
+    if (
+      !startCalls ||
+      callEntryHandled.current ||
+      blocked ||
+      !saved ||
+      saved.revision !== report.revision ||
+      saved.snapshotAt !== (snapshot?.generatedAt || null)
+    )
+      return;
+    // Consume navigation once, never on each reload or after cancelling a call.
+    callEntryHandled.current = true;
+    onStartCallsHandled?.();
+    if (editing || callMode) return;
+    if (!saved.canRecord) {
+      setNotice(
+        "Your account can view this project, but cannot record calls. No assignment or action was changed.",
+      );
+    } else if (!saved.settings || settingsError || identity.error) {
+      setNotice(
+        "This project's saved setup needs attention before calls can open. Review the details below; your assignments and outcomes are kept.",
+      );
+    } else {
+      const next = outreachCallQueue(saved, [...handledCalls, ...pausedCalls])[0];
+      if (next) beginCalls(next);
+      else
+        setNotice(
+          "No calls are ready for you right now. Future follow-ups, completed outreach and actions awaiting verification stay in the project. Nothing was marked complete.",
+        );
+    }
+  }, [startCalls, blocked, saved, report.revision, snapshot?.generatedAt, settingsError, identity.error, editing, callMode, handledCalls, pausedCalls, onStartCallsHandled]);
   return (
     <section
       className={styles.panel}
@@ -824,14 +866,16 @@ export default function ProjectOutreachPanel({
       )}
       {notice && <p role="status">{notice}</p>}
       {saved && (
-        <ProjectOutreachReadiness
-          report={report}
-          snapshot={snapshot}
-          saved={saved}
-          busy={blocked}
-          onSetup={openSetup}
-          onReviewSource={onReviewSource}
-        />
+        <div hidden={callMode}>
+          <ProjectOutreachReadiness
+            report={report}
+            snapshot={snapshot}
+            saved={saved}
+            busy={blocked}
+            onSetup={openSetup}
+            onReviewSource={onReviewSource}
+          />
+        </div>
       )}
       {identity.error && (
         <p className={styles.warning}>
@@ -840,7 +884,7 @@ export default function ProjectOutreachPanel({
         </p>
       )}
       {saved?.canManage && (
-        <details ref={setupRef} open={!saved.settings || !!settingsError}>
+        <details hidden={callMode} ref={setupRef} open={!saved.settings || !!settingsError}>
           <summary>Outreach setup</summary>
           <Setup
             key={saved.settingsVersion}
@@ -917,14 +961,7 @@ export default function ProjectOutreachPanel({
                   !callQueue.length
                 }
                 ref={callStartRef}
-                onClick={() => {
-                  setCallAttempt(null);
-                  setCallMode(true);
-                  setEditing(callQueue[0].id);
-                  setConfirm(false);
-                  setSelected([]);
-                  setNotice("");
-                }}
+                onClick={() => beginCalls(callQueue[0])}
               >
                 Start my next call
               </button>

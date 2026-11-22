@@ -84,10 +84,25 @@ it("opens the existing workflow with a fixed return to Tasks, not another assign
   render(<OutreachPriorities projects={projects} fromTasks />);
   await screen.findByText("Finish recording in NXT");
   expect(screen.getByRole("heading", { name: "Project call assignments" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open outreach for Fictional Due" }))
+  expect(screen.getByRole("link", { name: "View project for Fictional Due" }))
     .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
+  expect(screen.getByRole("link", { name: "Start / continue my calls for Fictional Due" }))
+    .toHaveAttribute("href", "/project-outreach/list-due?from=tasks&start=calls");
   expect(requests).toHaveLength(1);
   expect(requests[0].options.method).toBeUndefined();
+});
+it.each(["view only", "no assignments", "paperwork only", "missing summary", "read error"])("does not offer a call shortcut for %s", async (scenario) => {
+  if (scenario === "view only") state = { ...state, canRecord: false, projects: [] };
+  if (scenario === "no assignments") state.projects = state.projects.map(p => counts(p.key));
+  if (scenario === "paperwork only") state.projects = state.projects.map(p => counts(p.key, { drafts: 1, verification: 1 }));
+  if (scenario === "missing summary") state.projects = [];
+  if (scenario === "read error") reply = () => Response.json({ error: "Unavailable" }, { status: 503 });
+  render(<OutreachPriorities projects={projects} fromTasks />);
+  await waitFor(() => expect(screen.queryByText("Loading saved priorities...")).not.toBeInTheDocument());
+  expect(screen.queryByRole("link", { name: /Start \/ continue/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "View project for Fictional Due" }))
+    .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
+  expect(requests.every(r => !r.options.method)).toBe(true);
 });
 it("does not report zero work after an error and leaves project links available for retry", async () => {
   reply = () => Response.json({ error: "Unavailable" }, { status: 503 });
