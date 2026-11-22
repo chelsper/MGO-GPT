@@ -44,5 +44,8 @@ describe("bounded outreach requests", () => {
     await expect(requestProjectOutreach("/fixture")).rejects.toThrow(
       /Reload saved status/,
     );
+    await expect(requestProjectOutreach("/fixture")).rejects.toMatchObject({
+      status: 409,
+    });
   });
 });

@@ -2,6 +2,8 @@
 // Live-provider and disposable-PostgreSQL suites have separate prerequisites.
 export const workflowGroups = {
   "Project Outreach": [
+    "src/utils/outreachCallQueue.test.js",
+    "src/components/ProjectOutreachCalls.test.jsx",
     "src/utils/outreachReadiness.test.js",
     "src/app/api/utils/projectOutreachReadiness.test.js",
     "src/components/ProjectOutreachReadiness.test.jsx",

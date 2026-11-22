@@ -32,11 +32,14 @@ export async function requestProjectOutreach(
           signal: controller.signal,
         });
         const body = await response.json();
-        if (!response.ok)
-          throw new Error(
+        if (!response.ok) {
+          const error = new Error(
             body?.error ||
               "Outreach could not finish. Reload saved status before continuing.",
           );
+          error.status = response.status;
+          throw error;
+        }
         if (!body || typeof body !== "object" || Array.isArray(body))
           throw new Error(
             "Outreach returned incomplete status. Reload saved outreach.",
