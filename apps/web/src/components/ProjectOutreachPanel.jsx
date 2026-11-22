@@ -12,6 +12,8 @@ import { requestProjectOutreach } from "@/utils/projectOutreachRequest";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "./projectOutreach.module.css";
 import ProjectOutreachReadiness from "./ProjectOutreachReadiness";
+import ProjectOutreachProgress from "./ProjectOutreachProgress";
+import { matchesOutreachProgress } from "@/utils/outreachProgress";
 import {
   outreachCallQueue,
   outreachCallLabel,
@@ -444,6 +446,10 @@ export default function ProjectOutreachPanel({
     [handledCalls, setHandledCalls] = useState([]),
     [pausedCalls, setPausedCalls] = useState([]),
     [callAttempt, setCallAttempt] = useState(null);
+  const [progressFocus, setProgressFocus] = useState(null);
+  const previousFilters = useRef(null),
+    progressHeading = useRef(null),
+    progressOpener = useRef(null);
   const controller = useRef(null),
     writing = useRef(false),
     outcomeOpener = useRef(null),
@@ -457,6 +463,36 @@ export default function ProjectOutreachPanel({
     setupRef.current.open = true;
     setupRef.current.querySelector(`[data-outreach-field="${field}"]`)?.focus();
   }
+  function selectProgress(selection, opener) {
+    if (busy || editing) return;
+    if (!progressFocus)
+      previousFilters.current = { scope, status, search, page };
+    progressOpener.current = opener;
+    setProgressFocus(selection);
+    setScope("all");
+    setStatus("all");
+    setSearch("");
+    setPage(0);
+    setSelected([]);
+    setConfirm(false);
+  }
+  function clearProgress(restore = false) {
+    if (restore && previousFilters.current) {
+      const previous = previousFilters.current;
+      setScope(previous.scope);
+      setStatus(previous.status);
+      setSearch(previous.search);
+      setPage(previous.page);
+      progressOpener.current?.focus();
+    }
+    setProgressFocus(null);
+    previousFilters.current = null;
+    setSelected([]);
+    setConfirm(false);
+  }
+  useEffect(() => {
+    if (progressFocus && !callMode) progressHeading.current?.focus();
+  }, [progressFocus, callMode]);
   useEffect(() => {
     if (callMode) callFocusRef.current?.focus();
     else if (returnCallFocus.current) {
@@ -676,6 +712,8 @@ export default function ProjectOutreachPanel({
   const visible = rows.filter((p) => {
     const t = p.task;
     return (
+      (!saved?.canManage ||
+        matchesOutreachProgress(p, progressFocus, saved.today)) &&
       (!search ||
         `${p.name} ${p.constituentId} ${t?.assigneeName || ""}`
           .toLowerCase()
@@ -977,6 +1015,12 @@ export default function ProjectOutreachPanel({
             </section>
           ) : (
             <>
+              <ProjectOutreachProgress
+                saved={saved}
+                people={people}
+                busy={blocked || !!editing}
+                onSelect={selectProgress}
+              />
               <div className={styles.metrics}>
                 {[
                   ["Assigned", counts.assigned],
@@ -998,6 +1042,7 @@ export default function ProjectOutreachPanel({
                   <select
                     value={effectiveScope}
                     onChange={(e) => {
+                      clearProgress();
                       setScope(e.target.value);
                       setPage(0);
                       setSelected([]);
@@ -1013,6 +1058,7 @@ export default function ProjectOutreachPanel({
                   <select
                     value={status}
                     onChange={(e) => {
+                      clearProgress();
                       setStatus(e.target.value);
                       setPage(0);
                       setSelected([]);
@@ -1039,6 +1085,7 @@ export default function ProjectOutreachPanel({
                     type="search"
                     value={search}
                     onChange={(e) => {
+                      clearProgress();
                       setSearch(e.target.value);
                       setPage(0);
                       setSelected([]);
@@ -1047,6 +1094,26 @@ export default function ProjectOutreachPanel({
                   />
                 </label>
               </div>
+              {saved.canManage && progressFocus && (
+                <section
+                  className={styles.progressFocus}
+                  aria-label="Focused outreach list"
+                >
+                  <h3 ref={progressHeading} tabIndex={-1}>
+                    {progressFocus.label}
+                  </h3>
+                  <p>
+                    {visible.length} matching {visible.length === 1 ? "person" : "people"}. This uses saved outreach,
+                    not a live NXT check.
+                  </p>
+                  <button
+                    disabled={busy || !!editing}
+                    onClick={() => clearProgress(true)}
+                  >
+                    Back to previous view
+                  </button>
+                </section>
+              )}
               {saved.canManage && (
                 <div className={styles.assignment}>
                   <div className={styles.tools}>
