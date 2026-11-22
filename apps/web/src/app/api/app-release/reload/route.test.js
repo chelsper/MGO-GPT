@@ -25,6 +25,19 @@ describe("explicit app release reset", () => {
     expect(route.GET).toBeUndefined();
   });
   it.each([
+    "/tasks?view=upcoming#assignments", "/project-outreach?view=mine",
+    "/project-outreach/list-year-end_2026?from=tasks&start=calls#outreach",
+  ])("returns to %s while expiring only version pins", async destination => {
+    const result = await route.POST(request({ expectedDeployment: "dpl_new", returnTo: destination }));
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ deploymentId: "dpl_new", returnTo: destination });
+    const cookies = result.headers.getSetCookie();
+    expect(cookies).toContain(`__vdpl=; Max-Age=0; Path=${destination.split("?")[0]}; HttpOnly; Secure; SameSite=Lax`);
+    expect(cookies.every(cookie => cookie.startsWith("__vdpl=; Max-Age=0; Path=/"))).toBe(true);
+    expect(cookies.some(cookie => /Domain=|auth|session|[?#]/i.test(cookie))).toBe(false);
+    expect(result.headers.get("location")).toBeNull();
+  });
+  it.each([
     { origin: "https://evil.test" }, { "sec-fetch-site": "cross-site" },
     { "content-type": "text/plain" }, { "x-ju-release-reset": "" },
   ])("rejects cross-origin or implicit resets: %j", async overrides => {
@@ -36,6 +49,8 @@ describe("explicit app release reset", () => {
     [{ expectedDeployment: "dpl_old", returnTo: path }, 409],
     [{ expectedDeployment: "dpl_new", returnTo: "//evil.test" }, 400],
     [{ expectedDeployment: "dpl_new", returnTo: "/api/users" }, 400],
+    [{ expectedDeployment: "dpl_new", returnTo: "/project-outreach/../api/users" }, 400],
+    [{ expectedDeployment: "dpl_new", returnTo: "/project-outreach/list-test/actions" }, 400],
     [{ expectedDeployment: "dpl_new", returnTo: path, extra: true }, 400],
     ["{", 400], ["x".repeat(8193), 413], [null, 400],
   ])("refuses invalid, oversized or stale requests without changing cookies", async (body, status) => {

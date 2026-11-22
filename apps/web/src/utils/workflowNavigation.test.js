@@ -4,6 +4,9 @@ import { buildImportBatchHref, getImportReturnPath, getReturnDestination, getSaf
 describe("workflow return destinations", () => {
   it.each([
     ["/", "Back to Home"],
+    ["/tasks?view=upcoming#assignments", "Back to My Tasks"],
+    ["/project-outreach?view=mine", "Back to Project Outreach"],
+    ["/project-outreach/list-year-end_2026?from=tasks&start=calls#outreach", "Back to Project Outreach"],
     ["/reports", "Back to Reports"],
     ["/stewardship", "Back to Stewardship"],
     ["/stewardship/gift-follow-ups", "Back to Gift Follow-ups"],
@@ -31,7 +34,8 @@ describe("workflow return destinations", () => {
     "/\noutside.test", "/reports%0a", "/api/users/profile?bootstrapPortfolio=1", "/account/logout",
     "/action-opportunity-update", "javascript:alert(1)", "/reports/../../api/delete", "/not-a-page",
     "/reports/personal-dashboards/new", "/reports/personal-dashboards/0",
-    "/reports/lists/../../api/delete"])("rejects unsafe or unknown destination %s", value => {
+    "/reports/lists/../../api/delete", "/tasks/unknown", "/project-outreach/list-test/actions",
+    "/project-outreach/../api/users", "/project-outreach/list%2Ftest"])("rejects unsafe or unknown destination %s", value => {
     expect(getSafeInternalReturnPath(value)).toBe("");
     expect(getReturnDestination(value, "/reports")).toEqual({ href: "/reports", label: "Back to Reports" });
   });
