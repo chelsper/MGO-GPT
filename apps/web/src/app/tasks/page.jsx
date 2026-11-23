@@ -35,7 +35,7 @@ export default function TasksPage() {
       <h1>{preview ? `${summary.workspace.name}'s Tasks` : "My Tasks"}</h1>
       <p>{preview ? "Read-only workspace preview. These are the selected MGO's assignments, not your personal calls."
         : "Your current call list opens here. Review a person, record what happened, and continue to the next."}</p>
-      {preview && <p className={styles.note}>Only the assigned caller can record outcomes or submit NXT actions from their own login. No assignments have been changed.</p>}
+      {preview && <p className={styles.note}>You can preview each person's call details and outcome fields below. Only the assigned caller can record outcomes or submit NXT actions from their own login. No assignments have been changed.</p>}
     </header>
     {(isPending || loading) && <p role="status">Loading the current workspace's saved assignments...</p>}
     {(configurationError || error) && <section className={styles.notice} role="alert">

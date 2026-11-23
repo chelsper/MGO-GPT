@@ -32,6 +32,22 @@ reading, returns only that caller's assignments/authored history, strips all wri
 capabilities and rejects POST. Recording, NXT submission and verification still
 require the actual caller's login. No impersonation, grants or reassignment.
 
+Call instructions open by default in personal Tasks and workspace previews.
+Preview call details opens the same saved contact, restriction, pledge, instruction
+and latest-outcome context, plus a disabled rendering of the caller's outcome form.
+Preview dialing, clipboard, save and NXT controls cannot be used. No draft or unload
+warning is created. Back to assignments restores the originating card's focus and
+the list's filters/page. A failed access reload hides preview content; an assignment
+removed from saved status cannot continue to show stale call details. Own-login call
+recording and the server's existing read-only preview boundary remain unchanged.
+
+Valid phone numbers are `tel:` links on the signed-in caller's current assignment
+cards and in their call details, including alternate numbers and supported
+extensions. They open the device's configured calling application, not an
+in-app dialer. Clicking never records an outcome or creates an NXT action.
+Read-only previews and other callers' cards stay non-dialing. Malformed numbers
+remain visible as text, and contact-preference warnings remain in place.
+
 Personal Tasks and the caller view contain no team-management links, even for an
 Admin viewing the MGO layout. The existing explicit manager routes retain their
 permissions and tools. Portfolio follow-ups remain in Follow-ups & Discussion.
