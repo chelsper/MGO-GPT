@@ -513,6 +513,7 @@ export default function ProjectOutreachPanel({
   callerMode = false,
   initialStatus = "open",
   managementHref,
+  previewUserId = null,
 }) {
   const [saved, setSaved] = useState(null),
     [error, setError] = useState(""),
@@ -597,14 +598,18 @@ export default function ProjectOutreachPanel({
       returnCallFocus.current = false;
     } else if (!editing) outcomeOpener.current?.focus();
   }, [editing, callMode, callAttempt]);
-  const endpoint = `/api/reports/lists/${encodeURIComponent(report.key)}/outreach`;
+  const endpoint = previewUserId
+    ? `/api/project-outreach/${encodeURIComponent(report.key)}/preview?workspaceId=${encodeURIComponent(previewUserId)}`
+    : `/api/reports/lists/${encodeURIComponent(report.key)}/outreach`;
   async function load(signal) {
     const data = await requestProjectOutreach(endpoint, { signal });
     if (
       data.revision !== report.revision ||
       data.snapshotAt !== (snapshot?.generatedAt || null) ||
       !Array.isArray(data.tasks) ||
-      !Array.isArray(data.callers)
+      !Array.isArray(data.callers) ||
+      (previewUserId && (data.workspace?.id !== previewUserId || data.workspace?.readOnly !== true ||
+        data.canRecord !== false || data.canManage !== false || data.canManageAccounts !== false))
     )
       throw new Error(
         "The saved query changed. Reload the project to continue; your recorded outcomes are kept.",
@@ -643,7 +648,7 @@ export default function ProjectOutreachPanel({
     }
   }
   async function run(body, afterSave) {
-    if (writing.current || loading || refreshing || error) return;
+    if (previewUserId || writing.current || loading || refreshing || error) return;
     writing.current = true;
     setSaving(true);
     setNotice("Saving...");
@@ -938,7 +943,7 @@ export default function ProjectOutreachPanel({
       <div className={styles.heading}>
         <div>
           {!callerMode && <span className={styles.eyebrow}>PROJECT OUTREACH</span>}
-          <h2>{callerMode ? "My assigned people" : "Call assignments & outcomes"}</h2>
+          <h2>{previewUserId ? "Assigned people (read-only)" : callerMode ? "My assigned people" : "Call assignments & outcomes"}</h2>
           {!callerMode && <p>
             Temporary project work, not portfolio ownership. Opening this view
             does not contact NXT.
@@ -958,7 +963,7 @@ export default function ProjectOutreachPanel({
         </div>
       )}
       {notice && <p role="status">{notice}</p>}
-      {callerMode && saved && !saved.canRecord && <p role="status">Your account has viewing access, not personal call recording access. Ask a project manager if you need outreach assignments.</p>}
+      {callerMode && saved && !saved.canRecord && !previewUserId && <p role="status">Your account has viewing access, not personal call recording access. Ask a project manager if you need outreach assignments.</p>}
       {callerMode && saved?.canManage && managementHref && !callMode && !editing && !busy && (
         <p className={styles.help}><a href={managementHref}>Manage this project's setup &amp; assignments</a> (separate from your calls)</p>
       )}
@@ -1627,7 +1632,7 @@ export default function ProjectOutreachPanel({
           )}
         </>
       )}
-      {callerMode && saved && !callMode && !editing && <details className={styles.brief}>
+      {callerMode && saved && !previewUserId && !callMode && !editing && <details className={styles.brief}>
         <summary>Help &amp; saved connection status</summary>
         <ProjectOutreachReadiness report={report} snapshot={snapshot} busy={blocked}
           saved={{ ...saved, canManage: false, canManageAccounts: false,

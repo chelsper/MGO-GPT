@@ -5,16 +5,22 @@ import { validActionDate } from "@/utils/actionEntryOptions";
 // Aggregate assignments and authored actions separately to avoid multiplying counts.
 // Persisted access is checked in the same statement, including for managers.
 export async function readOutreachPriorities(
-  { userId, origin, today },
+  { userId, viewerId = userId, origin, today },
   db = sql,
 ) {
-  if (!Number.isSafeInteger(userId) || userId < 1 || !validActionDate(today))
+  if (!Number.isSafeInteger(userId) || userId < 1 || !Number.isSafeInteger(viewerId) || viewerId < 1 || !validActionDate(today))
     throw listError("Reload your saved outreach priorities.", 400);
   const rows = await db(
     `WITH allowed AS (
     SELECT r.report_key FROM report_configurations r JOIN users u ON u.id=$1::bigint
+      JOIN users v ON v.id=$4::bigint
     WHERE u.active=TRUE AND r.active=TRUE AND r.configuration_kind='constituent_list'
       AND r.visibility='specific_users' AND r.specific_user_ids @> jsonb_build_array(u.id)
+      AND v.active=TRUE AND r.specific_user_ids @> jsonb_build_array(v.id)
+      AND (v.id=u.id OR (regexp_split_to_array(lower(trim(v.role)), '\\s*,\\s*') && ARRAY['admin','executive','executive_admin']
+        AND (regexp_split_to_array(lower(trim(u.role)), '\\s*,\\s*') && ARRAY['mgo']
+          OR (regexp_split_to_array(lower(trim(v.role)), '\\s*,\\s*') && ARRAY['admin']
+            AND regexp_split_to_array(lower(trim(u.role)), '\\s*,\\s*') && ARRAY['executive','executive_admin']))))
       AND r.data_configuration->>'section'='project-prospecting'
       AND regexp_split_to_array(lower(trim(u.role)), '\\s*,\\s*')
         && ARRAY['mgo','admin','advancement_services','reviewer','advancement_admin']
@@ -39,7 +45,7 @@ export async function readOutreachPriorities(
     COALESCE(e.drafts,0) AS drafts, COALESCE(e.verification,0) AS verification
     FROM allowed a LEFT JOIN assignments t ON t.project_key=a.report_key
     LEFT JOIN actions e ON e.project_key=a.report_key ORDER BY a.report_key LIMIT 1001`,
-    [userId, origin, today],
+    [userId, origin, today, viewerId],
   );
   if (rows.length > 1000)
     throw listError(
