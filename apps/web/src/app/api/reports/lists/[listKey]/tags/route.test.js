@@ -5,7 +5,7 @@ vi.mock("@/app/api/utils/projectProspectingTags", () => ({ projectTagSnapshot: m
 import { GET, POST } from "./route";
 const params = { params: { listKey: "list-project-center" } };
 const req = (body, origin = "https://app.test") => new Request("https://app.test/api/reports/lists/list-project-center/tags", { method: "POST", headers: { origin }, body: JSON.stringify(body) });
-beforeEach(() => { vi.clearAllMocks(); vi.spyOn(console, "error").mockImplementation(() => {}); mocks.context.mockResolvedValue({ report: { revision: "r1" } }); mocks.state.mockResolvedValue({}); mocks.read.mockResolvedValue({ tags: [] }); mocks.mutate.mockResolvedValue({ changed: 1 }); });
+beforeEach(() => { vi.clearAllMocks(); vi.spyOn(console, "error").mockImplementation(() => {}); mocks.context.mockResolvedValue({ user: { id: 42 }, report: { revision: "r1" } }); mocks.state.mockResolvedValue({}); mocks.read.mockResolvedValue({ tags: [] }); mocks.mutate.mockResolvedValue({ changed: 1 }); });
 afterEach(() => vi.restoreAllMocks());
 describe("project tag endpoint", () => {
   it("requires same origin before processing a write", async () => { expect((await POST(req({}, "https://other.test"), params)).status).toBe(403); expect(mocks.context).not.toHaveBeenCalled(); });
@@ -17,6 +17,7 @@ describe("project tag endpoint", () => {
   it("rechecks access after reading data and returns no-cache responses", async () => {
     const response = await GET(new Request("https://app.test"), params);
     expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(mocks.context).toHaveBeenCalledTimes(2);
+    expect(await response.json()).toEqual({ tags: [], viewerId: "42" });
     mocks.context.mockResolvedValueOnce({ report: { revision: "r1" } }).mockResolvedValueOnce({ report: { revision: "r2" } });
     expect((await GET(new Request("https://app.test"), params)).status).toBe(409);
   });

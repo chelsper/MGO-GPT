@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import QueryResultsTable, { displayCell } from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
+import ProjectProspectViews from "./ProjectProspectViews";
+import { matchesProjectTags } from "@/utils/projectProspectViews";
 import { LIST_QUERY_MAX_COLUMNS, orderedListColumns } from "@/utils/listQueryConfiguration";
 import { normalizeProjectTag, projectIdentity, projectProspectRows, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
 import { requestProjectTags } from "@/utils/projectTagRequest";
@@ -14,6 +16,8 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const [settings, setSettings] = useState(report.dataConfiguration.columns || []);
   const [search, setSearch] = useState("");
   const [filterTag, setFilterTag] = useState("");
+  const [filterTags, setFilterTags] = useState([]);
+  const [tagMatch, setTagMatch] = useState("any");
   const [status, setStatus] = useState("active");
   const [groupSpouses, setGroupSpouses] = useState(true);
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -76,9 +80,11 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const archivedIds = new Set(saved?.archivedIds || []);
   const statusPeople = prospects.filter(p => status === "all" || (status === "archived") === archivedIds.has(p.id));
   const searchTerm = search.trim().toLowerCase();
+  const tagMode = !filterTag ? "all" : filterTag === "__untagged" ? "untagged" : filterTag === "__selected" ? tagMatch : "any";
+  const matchingTags = filterTag === "__selected" ? filterTags : filterTag && filterTag !== "__untagged" ? [filterTag] : [];
   const filtered = statusPeople
     .filter(({ values, id }) => (!searchTerm || values.some(cells => cells.some(cell => cell.toLowerCase().includes(searchTerm)))) &&
-      (!filterTag || (filterTag === "__untagged" ? !assignments.get(id)?.size : assignments.get(id)?.has(filterTag))));
+      matchesProjectTags(assignments.get(id), tagMode, matchingTags));
   const matchedPeople = new Set(filtered);
   const households = projectHouseholds(statusPeople, display, groupSpouses);
   const rankings = projectProspectRankings(households.rows, { display, assignments, tagsAvailable: !!saved && !error });
@@ -93,7 +99,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const orderedPeople = orderedProjectPeople(groups, filtered);
   const filteredIds = [...new Set(orderedPeople.map(item => item.id).filter(Boolean))];
   const tableSort = sortOption.header ? { header: sortOption.header, direction: effectiveSort.direction } : null;
-  const pageKey = JSON.stringify([report.key, snapshot.generatedAt, search, filterTag, status, groupSpouses, effectiveSort, sortOption.type]);
+  const pageKey = JSON.stringify([report.key, snapshot.generatedAt, search, tagMode, matchingTags, status, groupSpouses, effectiveSort, sortOption.type]);
   const peopleHeader = snapshot.headers[display.name] || "__project_people";
   const tableColumns = [...(display.name < 0 ? [] : [{ header: peopleHeader, label: "People & tags", visible: true, format: "text" }]),
     ...columns.filter(column => snapshot.headers.indexOf(column.header) !== display.name)];
@@ -215,20 +221,37 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
     {households.warnings > 0 && <p className={styles.help}>Some relationships are ambiguous or not confirmed married; those records stay separate.</p>}
     {loading && <p role="status">Loading project tags...</p>}
     {error && <div role="alert" className={shared.notice}>{error} <button className={shared.button} disabled={saving || loading} onClick={reloadProject}>Reload project</button></div>}
+    {saved?.viewerId && <ProjectProspectViews key={`${report.key}:${saved.viewerId}`} viewerId={saved.viewerId} projectKey={report.key}
+      value={{ mode: tagMode, tagIds: matchingTags, status, groupSpouses, sort: effectiveSort }} tags={tags} sortOptions={sortOptions} disabled={busy || !ready}
+      onApply={view => {
+        setFilterTag(view.mode === "all" ? "" : view.mode === "untagged" ? "__untagged" : "__selected");
+        setFilterTags(view.tagIds); setTagMatch(view.mode === "allSelected" ? "allSelected" : "any");
+        setStatus(view.status); setGroupSpouses(view.groupSpouses); setSort(view.sort);
+        setSearch(""); setSelected([]); setConfirmation(null);
+      }} />}
     <div className={styles.tools}>
       <label className={shared.field}>Search this project<input type="search" value={search} onChange={event => { setSearch(event.target.value); setSelected([]); setConfirmation(null); }} /></label>
       <label className={shared.field}>Filter by tag<select value={filterTag} disabled={!saved || busy} onChange={event => { setFilterTag(event.target.value); setSelected([]); setConfirmation(null); }}>
-        <option value="">All people</option><option value="__untagged">No tags yet</option>
+        <option value="">All people</option><option value="__untagged">No tags yet</option><option value="__selected">Choose multiple tags</option>
         {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
       </select></label>
       <label className={shared.field}>Project status<select value={status} disabled={busy} onChange={event => { setStatus(event.target.value); setSelected([]); setConfirmation(null); }}>
         <option value="active">Active</option><option value="archived">Archived ({archivedIds.size})</option><option value="all">Active and archived</option>
       </select></label>
-      <label className={shared.field}>Display<select value={groupSpouses ? "households" : "people"} onChange={event => { setGroupSpouses(event.target.value === "households"); setSelected([]); }}>
+      <label className={shared.field}>Display<select value={groupSpouses ? "households" : "people"} onChange={event => { setGroupSpouses(event.target.value === "households"); setSelected([]); setConfirmation(null); }}>
         <option value="households">Married households</option><option value="people">Individual people / organizations</option>
       </select></label>
       <span className={styles.help}>{filtered.length} of {prospects.length} {identity.error ? "query rows" : identity.invalidRows ? "entries" : "constituents"} shown</span>
     </div>
+    {filterTag === "__selected" && <fieldset className={styles.multiTags} disabled={busy || !ready}><legend>Filter with multiple tags</legend>
+      <label className={shared.field}>Tag matching<select value={tagMatch} onChange={e => { setTagMatch(e.target.value); setSelected([]); setConfirmation(null); }}>
+        <option value="any">Match any selected tag</option><option value="allSelected">Match all selected tags</option>
+      </select></label>
+      <div className={styles.tagChoices}>{tags.map(tag => <label key={tag.id}><input type="checkbox" checked={filterTags.includes(tag.id)} onChange={e => {
+        setFilterTags(current => e.target.checked ? [...current, tag.id] : current.filter(id => id !== tag.id)); setSelected([]); setConfirmation(null);
+      }} />{tag.name}</label>)}</div>
+      <p className={styles.help}>{filterTags.length} selected. Tags must match the same person; a spouse's tags do not transfer.</p>
+    </fieldset>}
     <div className={styles.sortBar} role="group" aria-label="Sort project prospects">
       <div className={styles.tools}>
         <label className={shared.field}>Sort by<select value={sortOption.key} disabled={busy} onChange={event => {
@@ -287,8 +310,8 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
         <button className={shared.button} disabled={saving} onClick={() => setConfirmation(null)}>Cancel</button></div>
     </section>}
     </div>
-    {!groups.length && prospects.length > 0 ? <div role="status"><p>No people match these filters. Your saved project list is unchanged.</p>
-      <button className={shared.button} onClick={() => { setSearch(""); setFilterTag(""); setStatus("active"); setSelected([]); setConfirmation(null); }}>Show active people</button>
+    {!groups.length && prospects.length > 0 ? <div className={styles.emptyFilters} role="status"><p>{filterTag === "__selected" && !filterTags.length ? "Choose one or more tags to see matching people." : "No people match these filters. Your saved project list is unchanged."}</p>
+      <button className={shared.button} onClick={() => { setSearch(""); setFilterTag(""); setFilterTags([]); setStatus("active"); setSelected([]); setConfirmation(null); }}>Show active people</button>
     </div> : <QueryResultsTable headers={tableColumns.map(column => column.header)} rows={rows} columnSettings={tableColumns} title={report.title} compact maxColumns={LIST_QUERY_MAX_COLUMNS}
       scrollable manualSorting sortState={tableSort} resetPageKey={pageKey} onSortChange={next => {
         const option = sortOptions.find(item => item.header === next.header);

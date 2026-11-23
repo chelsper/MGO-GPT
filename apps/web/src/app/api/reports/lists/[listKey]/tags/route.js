@@ -17,7 +17,7 @@ export async function GET(request, { params }) {
     const result = await readProjectTags(context, state);
     const latest = await listContext(request, params.listKey);
     if (latest.report.revision !== context.report.revision) throw listError("Project settings changed. Reload before continuing.", 409);
-    return listResponse(result);
+    return listResponse({ ...result, viewerId: String(context.user.id) });
   } catch (error) { return tagFailure(error, "read"); }
 }
 

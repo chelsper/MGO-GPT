@@ -39,6 +39,15 @@ Tags appear beside each person's name, with direct removal requiring confirmatio
 - **Export filtered CSV** respects search, tag and archive filters. **Export everyone CSV** ignores search/tag filters and excludes archived people unless explicitly included. Each export has one row per constituent, visible source columns, household context, archive status, a combined tag list and a separate `Tag: <name>` Yes/blank column for every project tag. Spouses never inherit each other's tags. There is no 100-selection limit on these exports; the saved-query limits still apply.
 - Multiple distinct source values are separated by line breaks inside quoted CSV cells. Spreadsheet formulas are neutralized in both headers and values. Downloads never change NXT, query membership, access, tags or archive state.
 
+## Personal views and multi-tag filters
+
+- **Filter by tag > Choose multiple tags** supports matching any selected tag or all selected tags on the same constituent. A spouse matching another tag does not satisfy the all-tags condition. Household context remains visible but is not selected or exported unless it matches independently.
+- **My saved views (this browser)** stores up to 12 named display presets per signed-in app user and project. The authorized tags GET supplies the actual viewer ID; workspace selection does not change this scope. Existing access checks and private/no-store responses remain in place.
+- Presets contain only tag IDs/match mode, active/archive status, household display and sort. No donor rows, selected constituent IDs, search text or credentials are persisted. Names are limited to 60 characters. The browser's storage is not an encrypted vault; use generic view names, not donor details.
+- Views apply only after the user chooses **Apply view**. Applying clears search, selection and pending bulk confirmations. Missing tags or unavailable sort columns block application rather than silently broadening results. Column visibility/format preferences are not included in this first version.
+- Duplicate names require a new name; deleting a preset has an explicit confirmation and never deletes tags or constituents. Storage reads/writes are bounded and validated. Disabled browser storage never blocks ordinary filtering or sorting; other-tab changes are re-read before saving.
+- Filtered CSV uses the matching constituents in the selected order; **Export everyone** intentionally ignores these filters. Ranking percentiles continue to use the unfiltered status cohort so narrowing by tags does not change scores.
+
 ## Adding People
 
 Open **Add a constituent to this project** above the saved list, search for an existing NXT constituent, and select **Add to project**. Confirm the person, configured category, and description/value. This adds the custom field on that constituent, not a new constituent, not a new NXT category or code-table value, and not an app-only tag. Existing fields are never replaced. Text and existing Code Table values are supported.

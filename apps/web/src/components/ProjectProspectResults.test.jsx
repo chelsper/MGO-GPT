@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectProspectResults from "./ProjectProspectResults";
 import { projectSource } from "@/utils/projectProspecting";
 import { PROJECT_TAG_REQUEST_TIMEOUT_MS } from "@/utils/projectTagRequest";
+import { projectViewStorageKey } from "@/utils/projectProspectViews";
 const tag = { id: "55f50c08-3151-4d2d-81ef-881f7629b4a6", name: "Leadership interest" };
 const report = { key: "list-project-center", title: "The Center Prospects", revision: "r1", canConfigure: true,
   dataConfiguration: { ...projectSource(), systemIdColumn: "System ID" } };
@@ -32,6 +33,65 @@ const open = async (props = {}) => {
 const selectAll = () => fireEvent.click(screen.getByRole("button", { name: "Select up to 100 people" }));
 const chooseTag = () => fireEvent.change(screen.getByRole("combobox", { name: "Tag to apply or remove" }), { target: { value: tag.id } });
 describe("project prospect tags UI", () => {
+  it("applies a personal view explicitly, clearing search and selected people without requests", async () => {
+    const storageKey = projectViewStorageKey("fictional-viewer", report.key);
+    localStorage.setItem(storageKey, JSON.stringify({ version: 1, views: [{ id: "view1", name: "My interests", settings: {
+      mode: "any", tagIds: [tag.id], status: "active", groupSpouses: false, sort: { key: "name", direction: "descending" },
+    } }] }));
+    fetch.mockResolvedValue(response({ revision: "r1", snapshotAt: "s1", viewerId: "fictional-viewer", tags, assignments: [{ constituentId: "456", tagId: tag.id }], archivedIds: [] }));
+    await open();
+    expect(screen.getByRole("checkbox", { name: "Select constituent 123" })).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/My saved views/));
+    fireEvent.change(screen.getByLabelText("Search this project"), { target: { value: "Avery" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select constituent 123" }));
+    fireEvent.change(screen.getByLabelText("Saved view"), { target: { value: "view1" } });
+    fireEvent.click(screen.getByText("Apply view"));
+    expect(screen.getByLabelText("Search this project")).toHaveValue("");
+    expect(screen.getByLabelText("Display")).toHaveValue("people");
+    expect(screen.getByLabelText("Sort direction")).toHaveValue("descending");
+    expect(screen.queryByRole("checkbox", { name: "Select constituent 123" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select constituent 456" })).not.toBeChecked();
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledOnce(); localStorage.removeItem(storageKey);
+  });
+  it("supports any/all tag filters, clears selections and leaves spouse tags person-specific", async () => {
+    tags = [tag, { id: "second", name: "Second interest" }];
+    assignments = [{ constituentId: "123", tagId: tag.id }, { constituentId: "456", tagId: "second" }];
+    await open({ snapshot: { ...snapshot, headers: ["Name", "System ID", "Constituent ID", "Spouse ID", "Marital Status"], tableRows: [
+      ["Fictional Avery", "123", "L1", "L2", "Married"], ["Fictional Blake", "456", "L2", "L1", "Married"],
+    ] } });
+    selectAll();
+    fireEvent.change(screen.getByLabelText("Filter by tag"), { target: { value: "__selected" } });
+    expect(screen.getByText("Choose one or more tags to see matching people.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: tag.name }));
+    expect(screen.getByRole("checkbox", { name: "Select constituent 123" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select constituent 456" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Second interest" }));
+    expect(screen.getByRole("checkbox", { name: "Select constituent 456" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Tag matching"), { target: { value: "allSelected" } });
+    expect(screen.queryByRole("checkbox", { name: "Select constituent 123" })).not.toBeInTheDocument();
+    expect(screen.getByText(/No people match these filters/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Show active people"));
+    expect(screen.getByRole("checkbox", { name: "Select constituent 123" })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("exports only people meeting every selected tag, with separate tag columns", async () => {
+    tags = [tag, { id: "second", name: "Second interest" }];
+    assignments = [{ constituentId: "123", tagId: tag.id }, { constituentId: "456", tagId: tag.id }, { constituentId: "456", tagId: "second" }];
+    const objectUrl = vi.fn(() => "blob:multi-tag-csv");
+    vi.stubGlobal("URL", { createObjectURL: objectUrl, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await open();
+    fireEvent.change(screen.getByLabelText("Filter by tag"), { target: { value: "__selected" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: tag.name }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Second interest" }));
+    fireEvent.change(screen.getByLabelText("Tag matching"), { target: { value: "allSelected" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+    const csv = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsText(objectUrl.mock.calls[0][0]); });
+    expect(csv).toContain('"Tag: Leadership interest","Tag: Second interest"');
+    expect(csv).toContain("Fictional Blake"); expect(csv).not.toContain("Fictional Avery");
+    expect(csv).toContain('"Yes","Yes"'); expect(fetch).toHaveBeenCalledOnce();
+  });
   it("defaults to equal-weight Prospect Ranking with primary-only household giving", async () => {
     assignments = [{ constituentId: "456", tagId: tag.id }];
     const headers = ["Name", "System ID", "Constituent ID", "Spouse ID", "Marital Status", "Head of Household", "Constituency", "Spouse Constituency", "Lifetime Giving", "Last Gift Amount", "Key Indicator"];
