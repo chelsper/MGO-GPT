@@ -174,12 +174,14 @@ function Setup({ saved, headers, report, snapshot, busy, onSave }) {
 function OutcomeForm({
   task,
   saved,
-  busy,
+  busy: working,
   onSave,
   onCancel,
   guided = false,
   unavailable = false,
+  readOnly = false,
 }) {
+  const busy = working || readOnly;
   const [result, setResult] = useState(() => ({
     eventId: crypto.randomUUID(),
     taskId: task.id,
@@ -222,20 +224,22 @@ function OutcomeForm({
     onCancel();
   }
   useEffect(() => {
+    if (readOnly) return;
     const warn = (event) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, []);
+  }, [readOnly]);
   return (
     <form
       className={styles.form}
       onSubmit={(e) => e.preventDefault()}
-      aria-label={`Record outcome for ${task.name}`}
+      aria-label={`${readOnly ? "Preview outcome" : "Record outcome"} for ${task.name}`}
     >
-      <h3>Record outcome: {task.name}</h3>
+      <h3>{readOnly ? "What the assigned caller can record" : `Record outcome: ${task.name}`}</h3>
+      {readOnly && <p>Preview only. These fields show the caller's workflow; nothing can be entered, saved, or submitted here.</p>}
       <fieldset className={styles.outcomePicker} disabled={busy}>
         <legend>What happened?</legend>
         <div className={styles.outcomeOptions}>
@@ -247,14 +251,15 @@ function OutcomeForm({
                 value={key}
                 checked={result.outcome === key}
                 onChange={() => field("outcome", key)}
-                autoFocus={!guided && index === 0}
+                autoFocus={!readOnly && !guided && index === 0}
                 required
               />
               <span>{key === "contact_issue" ? "Contact issue" : label}</span>
             </label>
           ))}
         </div>
-        <small>Selecting an outcome only fills this form. Nothing is saved or submitted yet.</small>
+        <small>{readOnly ? "Outcome choices available to the assigned caller. Selection is disabled in this preview."
+          : "Selecting an outcome only fills this form. Nothing is saved or submitted yet."}</small>
       </fieldset>
       <div className={styles.fields}>
         <label>
@@ -336,7 +341,7 @@ function OutcomeForm({
         Saving keeps the result in this project. Submitting also creates one
         completed{" "}
         {result.outcome === "contact_issue" ? "Task/Other" : "Phone Call"} /{" "}
-        {saved.settings.interactionType} action in NXT, credited to you. It does
+        {saved.settings.interactionType} action in NXT, credited to {readOnly ? "the signed-in caller" : "you"}. It does
         not send a message or change a portfolio.
       </p>
       <div className={styles.tools}>
@@ -344,20 +349,20 @@ function OutcomeForm({
           type="button"
           className={styles.primary}
           disabled={busy || unavailable || !!error}
-          onClick={() => onSave(result, true)}
+          onClick={() => { if (!readOnly) onSave(result, true); }}
         >
           {guided ? "Save, submit & next" : "Save & submit NXT action"}
         </button>
         <button
           type="button"
           disabled={busy || unavailable || !!error}
-          onClick={() => onSave(result, false)}
+          onClick={() => { if (!readOnly) onSave(result, false); }}
         >
           {guided ? "Save & next (local only)" : "Save outcome only"}
         </button>
-        <button type="button" disabled={busy} onClick={cancel}>
+        {!readOnly && <button type="button" disabled={busy} onClick={cancel}>
           Cancel
-        </button>
+        </button>}
       </div>
     </form>
   );
@@ -438,13 +443,13 @@ function PledgeContext({ context }) {
   );
 }
 
-function CallContext({ task, person, saved, focusRef }) {
+function CallContext({ task, person, saved, focusRef, readOnly = false }) {
   const latest = task.events[0];
   const overlap = saved.overlaps?.find(
     (item) => item.constituent_id === task.constituentId,
   );
   return (
-    <section className={styles.callContext} aria-label="Current call details">
+    <section className={styles.callContext} aria-label={readOnly ? "Call details (read-only)" : "Current call details"}>
       <span className={styles.eyebrow}>
         {outreachCallLabel(task, saved.today)}
       </span>
@@ -464,7 +469,7 @@ function CallContext({ task, person, saved, focusRef }) {
           ? "Check current NXT contact preferences before calling; blank restrictions are not permission."
           : "Contact preferences are not mapped for this project. Check current NXT preferences before calling; missing values are not permission."}
       </p>
-      <OutreachContactDetails key={task.id} person={person} />
+      <OutreachContactDetails key={task.id} person={person} readOnly={readOnly} />
       <PledgeContext context={person?.pledgeContext} />
       {overlap && (
         <p className={styles.warning}>
@@ -535,6 +540,11 @@ export default function ProjectOutreachPanel({
     [callAttempt, setCallAttempt] = useState(null);
   const [progressFocus, setProgressFocus] = useState(null);
   const [reviewTaskId, setReviewTaskId] = useState(null);
+  const [previewTaskId, setPreviewTaskId] = useState(null);
+  const previewHeading = useRef(null), previewOpener = useRef(null);
+  function closePreview() {
+    setPreviewTaskId(null);
+  }
   const summaryOpener = useRef(null), reviewHeading = useRef(null);
   const previousFilters = useRef(null),
     progressHeading = useRef(null),
@@ -589,6 +599,10 @@ export default function ProjectOutreachPanel({
     if (reviewTaskId && !loading && !saving && !refreshing && !error) reviewHeading.current?.focus();
   }, [reviewTaskId, loading, saving, refreshing, error]);
   useEffect(() => {
+    if (previewTaskId && !loading && !refreshing && !error) previewHeading.current?.focus();
+    else if (!previewTaskId) previewOpener.current?.focus();
+  }, [previewTaskId, loading, refreshing, error]);
+  useEffect(() => {
     if (callMode) callFocusRef.current?.focus();
     else if (returnCallFocus.current) {
       (callReturnRef.current?.isConnected ? callReturnRef.current : callStartRef.current?.disabled
@@ -625,6 +639,7 @@ export default function ProjectOutreachPanel({
   useEffect(() => {
     const current = new AbortController();
     controller.current = current;
+    setPreviewTaskId(null);
     setLoading(true);
     setSaving(false);
     load(current.signal)
@@ -887,6 +902,7 @@ export default function ProjectOutreachPanel({
   const editingTask = tasks.find((t) => t.id === editing);
   const callSummary = outreachCallSummary(saved);
   const reviewTask = tasks.find(task => task.id === reviewTaskId);
+  const previewTask = previewUserId && tasks.find(task => task.id === previewTaskId);
   const callQueue = outreachResumeQueue(saved, [...handledCalls, ...pausedCalls]);
   const callEvent = recordedCallOutcome(saved, callAttempt);
   const canContinueCall = canAdvanceCall(saved, callAttempt);
@@ -1071,10 +1087,14 @@ export default function ProjectOutreachPanel({
               </button>
             </section>
           )}
-          {callerMode && !callMode && <details className={styles.brief}>
+          {callerMode && !callMode && !previewTaskId && <details className={styles.brief} open>
             <summary>Call instructions / Due {saved.settings.deadline}</summary>
             <p>{saved.settings.instructions || "No additional instructions saved."}</p>
           </details>}
+          {previewUserId && !previewTaskId && <p className={styles.help}>
+            Choose Preview call details to see the instructions, contact information, and outcome fields.
+            Recording and NXT submission are available only to the assigned caller in their own login.
+          </p>}
           {!callerMode && !editing && !callAttempt && saved.canRecord && (
             <div hidden={blocked}><OutreachCallSummary summary={callSummary} today={saved.today} busy={blocked}
               onReview={(taskId, opener) => {
@@ -1104,6 +1124,24 @@ export default function ProjectOutreachPanel({
               <button onClick={() => { setReviewTaskId(null); summaryOpener.current?.focus(); }}>Back to call summary</button>
             </section>
           )}
+          {previewUserId && previewTaskId && <section hidden={blocked} className={styles.callWorkspace} aria-label="Read-only call preview">
+            <div className={styles.heading}>
+              <div>
+                <h3>Call workflow preview</h3>
+                <p>Viewing {saved.workspace.name}'s assignment. This does not start a call, record an outcome, or submit anything to NXT.</p>
+              </div>
+              <button type="button" onClick={closePreview}>Back to assignments</button>
+            </div>
+            {previewTask ? <>
+              <CallContext task={previewTask} person={peopleById.get(previewTask.constituentId)}
+                saved={saved} focusRef={previewHeading} readOnly />
+              {(!previewTask.inCurrentQuery || !previewTask.assigneeAvailable) && <p className={styles.warning}>
+                This assignment needs review before the caller can record a new outcome. Saved history is unchanged.
+              </p>}
+              <OutcomeForm key={previewTask.id} task={previewTask} saved={saved} guided readOnly />
+            </> : <h3 ref={previewHeading} tabIndex={-1}>This assignment is no longer available in the saved preview.</h3>}
+            <button type="button" onClick={closePreview}>Back to assignments</button>
+          </section>}
           {callMode ? (
             <section
               className={styles.callWorkspace}
@@ -1215,7 +1253,7 @@ export default function ProjectOutreachPanel({
               )}
             </section>
           ) : (
-            <>
+            <div hidden={!!previewUserId && !!previewTaskId}>
               {!callerMode && <ProjectOutreachProgress
                 saved={saved}
                 people={people}
@@ -1451,6 +1489,7 @@ export default function ProjectOutreachPanel({
                 saved query. Check current NXT contact preferences before
                 calling; blank or missing restriction columns are not proof of
                 permission.
+                {!previewUserId && saved.canRecord && " Select a linked phone number to open your device's calling app; this does not save an outcome or submit an NXT action."}
               </p>
               <div className={styles.list}>
                 {visible
@@ -1501,7 +1540,7 @@ export default function ProjectOutreachPanel({
                             {task ? stageLabel[task.stage] : "Unassigned"}
                           </span>
                         </div>
-                        <OutreachPhoneSummary person={person} />
+                        <OutreachPhoneSummary person={person} canCall={!previewUserId && !blocked && saved.canRecord && task?.assigneeId === saved.viewerId && task.inCurrentQuery && task.assigneeAvailable} />
                         {person.restrictions.length > 0 && (
                           <p className={styles.warning}>
                             Review contact restrictions:{" "}
@@ -1549,6 +1588,13 @@ export default function ProjectOutreachPanel({
                           >
                             Open NXT record
                           </a>
+                          {previewUserId && task && <button type="button" disabled={blocked}
+                            onClick={event => {
+                              previewOpener.current = event.currentTarget;
+                              setPreviewTaskId(task.id);
+                            }}>
+                            Preview call details
+                          </button>}
                           {task?.assigneeId === saved.viewerId &&
                             saved.canRecord && (
                               <button
@@ -1628,7 +1674,7 @@ export default function ProjectOutreachPanel({
                   </button>
                 </nav>
               )}
-            </>
+            </div>
           )}
         </>
       )}

@@ -2,14 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { outreachContactRows } from "@/utils/outreachContacts";
 import styles from "./projectOutreach.module.css";
 
-export function OutreachPhoneSummary({ person }) {
+export function OutreachPhoneSummary({ person, canCall = false }) {
   const phones = outreachContactRows(person).filter(contact => contact.type === "phone");
-  return <p>{phones.length ? phones.map(contact =>
-    `${contact.label === "Alternate phone" ? "Alternate phone: " : ""}${contact.value}`,
-  ).join(" / ") : "No phone number in the mapped contact columns."}</p>;
+  return <p>{phones.length ? phones.map((contact, index) => <span key={`${contact.key}:${contact.value}`}>
+    {index > 0 && " / "}
+    {contact.label === "Alternate phone" && "Alternate phone: "}
+    {canCall && contact.href
+      ? <a className={styles.phoneLink} href={contact.href} aria-label={`Call ${contact.value}`}>{contact.value}</a>
+      : contact.value}
+  </span>) : "No phone number in the mapped contact columns."}</p>;
 }
 
-function ContactRow({ contact }) {
+function ContactRow({ contact, readOnly }) {
   const [status, setStatus] = useState("");
   const active = useRef(false);
   useEffect(() => {
@@ -29,15 +33,16 @@ function ContactRow({ contact }) {
   return <li className={styles.contactRow}>
     <div className={styles.contactValue}>
       <span className={styles.eyebrow}>{contact.label}</span>
-      <span>{contact.value}</span>
+      {!readOnly && contact.href
+        ? <a className={styles.phoneLink} href={contact.href} aria-label={`Call ${contact.value}`}>{contact.value}</a>
+        : <span>{contact.value}</span>}
     </div>
-    <div className={styles.contactActions}>
-      {contact.href && <a href={contact.href} aria-label={`Call ${contact.value}`}>Call</a>}
+    {!readOnly && <div className={styles.contactActions}>
       <button type="button" disabled={status === "copying"} onClick={copy}
         aria-label={`Copy ${contact.label.toLowerCase()} ${contact.value}`}>
         {status === "copied" ? "Copied" : "Copy"}
       </button>
-    </div>
+    </div>}
     {contact.type === "phone" && !contact.href && <small className={styles.contactNote}>Check this number in NXT before dialing; it could not be made into a safe call link.</small>}
     {status && <small className={styles.contactNote} role="status">
       {status === "copied" ? `${contact.label} copied.` : status === "copying" ? "Copying..." : "Copy is unavailable in this browser. Select the displayed text to copy it manually."}
@@ -45,14 +50,16 @@ function ContactRow({ contact }) {
   </li>;
 }
 
-export default function OutreachContactDetails({ person }) {
+export default function OutreachContactDetails({ person, readOnly = false }) {
   const contacts = outreachContactRows(person);
   const hasPhone = contacts.some(contact => contact.type === "phone");
   return <section className={styles.contactDetails} aria-label="Saved contact details">
     {!hasPhone && <p>No phone number in the mapped contact columns. Check contact details before calling.</p>}
     {!!contacts.length && <ul className={styles.contactList}>
-      {contacts.map(contact => <ContactRow key={`${contact.key}:${contact.value}`} contact={contact} />)}
+      {contacts.map(contact => <ContactRow key={`${contact.key}:${contact.value}`} contact={contact} readOnly={readOnly} />)}
     </ul>}
-    {!!contacts.length && <small>Call opens your device's calling app. Copy does not contact anyone. Neither records an outcome or submits an NXT action.</small>}
+    {!!contacts.length && <small>{readOnly
+      ? "Saved contact details for preview only. Call and copy controls are available in the assigned caller's own view."
+      : "Select a phone number to open your device's calling app. Copy does not contact anyone. Neither records an outcome or submits an NXT action."}</small>}
   </section>;
 }

@@ -46,12 +46,21 @@ it("keeps alternate-only numbers visible without a false missing-phone warning",
   expect(screen.queryByText(/No phone number/)).not.toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
 });
-it("deduplicates overview numbers and never exposes a one-click call from the summary",()=>{
+it("deduplicates overview numbers and defaults to a non-dialing summary",()=>{
   render(<OutreachPhoneSummary person={{phones:["904-555-0100"],alternatePhones:["(904) 555-0100","9045550100 x2"],emails:["avery@example.test"]}}/>);
-  expect(screen.getByText("904-555-0100 / Alternate phone: 9045550100 x2")).toBeInTheDocument();
+  expect(screen.getByText("904-555-0100").closest("p")).toHaveTextContent("904-555-0100 / Alternate phone: 9045550100 x2");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
   expect(screen.queryByText("avery@example.test")).not.toBeInTheDocument();
+});
+it("links valid primary and alternate numbers only when calling is enabled",()=>{
+  render(<OutreachPhoneSummary canCall person={{phones:["(904) 555-0100","5550100;123"],alternatePhones:["9045550100","+44 20 7946 0958 x42"]}}/>);
+  expect(screen.getAllByRole("link")).toHaveLength(2);
+  expect(screen.getByRole("link",{name:"Call (904) 555-0100"})).toHaveAttribute("href","tel:9045550100");
+  expect(screen.getByRole("link",{name:"Call +44 20 7946 0958 x42"})).toHaveAttribute("href","tel:+442079460958;ext=42");
+  expect(screen.getByText(/5550100;123/).closest("a")).toBeNull();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(copy).not.toHaveBeenCalled();
 });
 it("does not carry a late copy result into the next person's contact card",async()=>{
   let resolve;
@@ -62,4 +71,14 @@ it("does not carry a late copy result into the next person's contact card",async
   resolve();
   await waitFor(()=>expect(screen.getByRole("button",{name:"Copy phone 904-555-0101"})).toBeEnabled());
   expect(screen.queryByText("Phone copied.")).not.toBeInTheDocument();
+});
+it("shows saved contact details without dialing or clipboard controls in a read-only preview",()=>{
+  render(<Details readOnly person={{phones:["904-555-0100"],alternatePhones:["904-555-0101"],emails:["avery@example.test"]}}/>);
+  expect(screen.getByText("904-555-0100")).toBeVisible();
+  expect(screen.getByText("904-555-0101")).toBeVisible();
+  expect(screen.getByText("avery@example.test")).toBeVisible();
+  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  expect(copy).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
 });
