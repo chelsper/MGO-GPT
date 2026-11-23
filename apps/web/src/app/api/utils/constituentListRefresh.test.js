@@ -38,6 +38,11 @@ it("keys snapshots by origin, list and source so changed criteria cannot relabel
     ),
   );
 });
+it("reuses saved results for display-only household mapping changes", () => {
+  const report = { key: "list-demo", dataConfiguration: context.source };
+  expect(listSnapshotKeys({ ...report, dataConfiguration: { ...context.source, projectDisplay: { spouseIdColumn: "Spouse ID" } } }, context.origin))
+    .toEqual(listSnapshotKeys(report, context.origin));
+});
 it("collects pages before fetching names, deduplicates constituents and publishes only complete results", async () => {
   const job = newListRefresh();
   mocks.page

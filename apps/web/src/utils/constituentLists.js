@@ -9,6 +9,7 @@ import {
   isReportDashboard,
 } from "./reportDashboards";
 import { isProjectProspecting, PROJECT_SECTION, PROJECT_HREF } from "./projectProspecting";
+import { PROJECT_DISPLAY_FIELDS } from "./projectProspectingDisplay";
 export const LIST_SCHEMA = "constituent-list-v1";
 export const LEGACY_LIST_KEY = "future-made-phase-ii";
 export const isConstituentList = (report) =>
@@ -33,6 +34,7 @@ export function validateListSource(value) {
           "leadFundraiser",
           "section",
           "systemIdColumn",
+          "projectDisplay",
         ].includes(key),
     )
   ) {
@@ -45,6 +47,14 @@ export function validateListSource(value) {
   if (Object.hasOwn(value, "systemIdColumn") && (value.section !== PROJECT_SECTION ||
     typeof value.systemIdColumn !== "string" || value.systemIdColumn.length > 200 || value.systemIdColumn.toLowerCase() === "qrecid"))
     return "Select a constituent system record ID output column for this project.";
+  if (value.projectDisplay !== undefined) {
+    const display = value.projectDisplay;
+    if (value.section !== PROJECT_SECTION || !display || typeof display !== "object" || Array.isArray(display) ||
+      Object.keys(display).some(k => ![...PROJECT_DISPLAY_FIELDS, "spouseIdType"].includes(k)) ||
+      PROJECT_DISPLAY_FIELDS.some(k => display[k] !== undefined && (typeof display[k] !== "string" || display[k].length > 200 || display[k].toLowerCase() === "qrecid")) ||
+      (display.spouseIdType !== undefined && !["lookup", "system"].includes(display.spouseIdType)))
+      return "Choose valid project household and solicitor output columns.";
+  }
   if (
     (value.source !== "saved_query" && Object.hasOwn(value, "queryId")) ||
     (value.source !== "query_json" && Object.hasOwn(value, "queryJson"))
@@ -93,6 +103,7 @@ export function normalizeListSource(value) {
     ...(value.columns ? { columns: value.columns } : {}),
     ...(value.leadFundraiser ? { leadFundraiser: value.leadFundraiser } : {}),
     ...(value.section === PROJECT_SECTION ? { section: PROJECT_SECTION, systemIdColumn: value.systemIdColumn || "" } : {}),
+    ...(value.section === PROJECT_SECTION && value.projectDisplay ? { projectDisplay: value.projectDisplay } : {}),
   };
 }
 

@@ -52,6 +52,8 @@ export const workflowGroups = {
     "src/components/QueryResultsTable.test.jsx",
     "test/workflows/reportLayouts.test.js",
     "src/utils/projectProspecting.test.js",
+    "src/utils/projectProspectingDisplay.test.js",
+    "src/utils/constituentLists.test.js",
     "src/utils/projectTagRequest.test.js",
     "src/app/api/utils/projectProspectingTags.test.js",
     "src/app/api/reports/lists/[listKey]/tags/route.test.js",

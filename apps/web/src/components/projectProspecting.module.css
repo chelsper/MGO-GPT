@@ -1,4 +1,6 @@
-.panel { background: #fff; border: 1px solid #dce7e3; border-radius: 18px; padding: 24px; min-width: 0; }
+.panel { --editor-accent: #147453; background: #fff; border: 1px solid #dce7e3; border-radius: 18px; padding: 24px; min-width: 0; }
+.panel button:disabled { opacity: .5; cursor: not-allowed; }
+.panel :is(button, input, select, a, summary):focus-visible { outline: 3px solid #147453; outline-offset: 3px; }
 .heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .heading h2 { margin: 0 0 6px; color: #153f36; font-size: 24px; }
 .heading p, .help { color: #536860; font-size: 14px; line-height: 1.5; }
@@ -14,4 +16,15 @@
 .cellValues summary { cursor: pointer; overflow-wrap: anywhere; }
 .cellValues ul { margin: 8px 0 0; padding-left: 18px; max-height: 220px; overflow-y: auto; overflow-wrap: anywhere; }
 .panel input[type="checkbox"] { width: 18px; height: 18px; accent-color: #147453; }
+.people { min-width: 230px; max-width: 360px; white-space: normal; }
+.person + .person { border-top: 1px solid #dce7e3; margin-top: 14px; padding-top: 14px; }
+.personName { display: flex; align-items: start; gap: 10px; color: #153f36; }
+.personName input { flex-shrink: 0; }
+.person p { margin: 6px 0; }
+.tag button { border: 0; background: transparent; color: inherit; font-size: 18px; margin-left: 6px; min-width: 28px; min-height: 28px; cursor: pointer; }
+.tag button:disabled, .textButton:disabled { opacity: .55; cursor: default; }
+.textButton { background: transparent; border: 0; color: #215c48; text-decoration: underline; padding: 10px 0; cursor: pointer; }
+.confirmation { padding: 20px; border: 1px solid #9cbdb0; border-radius: 12px; background: #f2f8f5; margin-bottom: 20px; }
+.confirmation h3 { margin-top: 0; }
+.memberValue + .memberValue { margin-top: 12px; }
 @media (max-width: 600px) { .panel { padding: 14px; } .tools { align-items: stretch; } .tools label { max-width: none; flex-basis: 100%; } .tools button { flex: 1 1 140px; } }

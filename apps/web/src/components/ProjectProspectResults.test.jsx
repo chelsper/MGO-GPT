@@ -7,18 +7,21 @@ const tag = { id: "55f50c08-3151-4d2d-81ef-881f7629b4a6", name: "Leadership inte
 const report = { key: "list-project-center", title: "The Center Prospects", revision: "r1", canConfigure: true,
   dataConfiguration: { ...projectSource(), systemIdColumn: "System ID" } };
 const snapshot = { generatedAt: "s1", headers: ["Name", "System ID"], tableRows: [["Fictional Avery", "123"], ["Fictional Blake", "456"]], total: 2 };
-let tags, assignments;
+let tags, assignments, archivedIds;
 const response = (payload, status = 200) => ({ ok: status === 200, status, json: async () => payload });
 beforeEach(() => {
-  tags = [tag]; assignments = [];
+  tags = [tag]; assignments = []; archivedIds = [];
   vi.stubGlobal("fetch", vi.fn(async (url, options) => {
     if (options?.method === "POST") {
       const body = JSON.parse(options.body);
       if (body.action === "create") { tags = [...tags, { id: "new", name: body.name }]; return response({ tag: tags.at(-1), changed: 0 }); }
-      assignments = body.action === "apply" ? body.constituentIds.map(constituentId => ({ constituentId, tagId: body.tagId })) : [];
+      if (body.action === "archive") archivedIds = [...new Set([...archivedIds, ...body.constituentIds])];
+      if (body.action === "restore") archivedIds = archivedIds.filter(id => !body.constituentIds.includes(id));
+      if (body.action === "apply") assignments = [...assignments, ...body.constituentIds.map(constituentId => ({ constituentId, tagId: body.tagId }))];
+      if (body.action === "remove") assignments = assignments.filter(a => a.tagId !== body.tagId || !body.constituentIds.includes(a.constituentId));
       return response({ tag, changed: body.constituentIds.length });
     }
-    return response({ revision: "r1", snapshotAt: "s1", tags, assignments });
+    return response({ revision: "r1", snapshotAt: "s1", tags, assignments, archivedIds });
   }));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -29,6 +32,13 @@ const open = async (props = {}) => {
 const selectAll = () => fireEvent.click(screen.getByRole("button", { name: "Select up to 100 people" }));
 const chooseTag = () => fireEvent.change(screen.getByRole("combobox", { name: "Tag to apply or remove" }), { target: { value: tag.id } });
 describe("project prospect tags UI", () => {
+  it("supports 100 source columns even when no name field can be identified", async () => {
+    const headers = ["System ID", ...Array.from({ length: 99 }, (_, i) => `Field ${i}`)];
+    await open({ snapshot: { ...snapshot, total: 1, headers, tableRows: [["123", ...headers.slice(1).map(() => "Value")]] } });
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select constituent 123" })).not.toBeDisabled();
+    expect(screen.getByText("Constituent 123", { exact: true })).toBeInTheDocument();
+  });
   it("keeps wide saved project output visible and taggable with system IDs unchanged", async () => {
     const extra=Array.from({length:46},(_,i)=>`Installment field ${i}`);
     await open({snapshot:{...snapshot,headers:[...snapshot.headers,...extra],tableRows:snapshot.tableRows.map(row=>[...row,...extra.map(()=>"Fictional")])}});
@@ -76,9 +86,24 @@ describe("project prospect tags UI", () => {
     expect(screen.getByText("0 selected")).toBeInTheDocument(); selectAll();
     expect(screen.getByText("1 selected")).toBeInTheDocument();
   });
+  it("explains an empty filter without suggesting a query failure", async () => {
+    await open(); fireEvent.change(screen.getByRole("searchbox"), { target: { value: "No matching person" } });
+    expect(screen.getByText("No people match these filters. Your saved project list is unchanged.")).toBeInTheDocument();
+    expect(screen.queryByText(/No rows returned/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show active people" }));
+    expect(screen.getByText("Fictional Avery", { exact: true })).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("blocks edits when archive status cannot be loaded", async () => {
+    fetch.mockResolvedValueOnce(response({ revision: "r1", snapshotAt: "s1", tags, assignments }));
+    render(<ProjectProspectResults report={report} snapshot={snapshot} onReload={vi.fn()} />);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Archive Fictional Avery", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Export filtered CSV" })).toBeDisabled();
+  });
   it("keeps checkbox identity correct after sorting the table", async () => {
     await open();
-    const heading = screen.getByRole("button", { name: "Name" }); fireEvent.click(heading); fireEvent.click(heading);
+    const heading = screen.getByRole("button", { name: "People & tags" }); fireEvent.click(heading); fireEvent.click(heading);
     const checkboxes = within(screen.getByRole("table", { name: report.title })).getAllByRole("checkbox");
     expect(checkboxes[0]).toHaveAttribute("aria-label", "Select constituent 456");
     fireEvent.click(checkboxes[0]); chooseTag();
@@ -112,6 +137,7 @@ describe("project prospect tags UI", () => {
     expect(csv.match(/Fictional Avery/g)).toHaveLength(1);
     expect(fetch).toHaveBeenCalledOnce();
     selectAll(); chooseTag(); fireEvent.click(screen.getByRole("button", { name: "Remove tag" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }));
     await screen.findByText("1 constituent updated. Nothing changed in NXT.");
     expect(JSON.parse(fetch.mock.calls.find(([, options]) => options.method === "POST")[1].body).constituentIds).toEqual(["123"]);
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:project-csv"), { timeout: 2000 });
@@ -123,8 +149,8 @@ describe("project prospect tags UI", () => {
         ["Avery", "123", "Arts"], ["Blake", "456", "Research"],
         ["Avery", "123", "Science"], ["Blake", "456", "Health"],
       ] } });
-    fireEvent.click(screen.getByRole("button", { name: "Name", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Name", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "People & tags", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "People & tags", exact: true }));
     const first = within(screen.getByRole("table", { name: report.title })).getAllByRole("row")[1];
     expect(first).toHaveTextContent("Blake"); expect(first).toHaveTextContent("Research"); expect(first).toHaveTextContent("Health");
     expect(first).not.toHaveTextContent("Science");
@@ -199,11 +225,92 @@ describe("project prospect tags UI", () => {
     await open(); vi.useFakeTimers(); selectAll(); chooseTag();
     fetch.mockResolvedValueOnce(response({ tag, changed: 2 })).mockImplementationOnce(() => new Promise(() => {}));
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Apply tag" })));
-    expect(screen.getByText("Tag changes saved. Updating the list...")).toBeInTheDocument();
+    expect(screen.getByText("Changes saved. Updating the list...")).toBeInTheDocument();
     await act(async () => vi.advanceTimersByTimeAsync(PROJECT_TAG_REQUEST_TIMEOUT_MS));
     expect(screen.getByRole("alert")).toHaveTextContent("Your changes were saved, but tags could not be reloaded.");
-    expect(screen.queryByText("Tag changes saved. Updating the list...")).not.toBeInTheDocument();
+    expect(screen.queryByText("Changes saved. Updating the list...")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload project" })).not.toBeDisabled();
     expect(fetch.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
   });
+  it("archives one member reversibly, preserving tags and the unselected spouse", async () => {
+    assignments = [{ constituentId: "123", tagId: tag.id }];
+    await open({ snapshot: householdSnapshot });
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Archive Fictional Avery", exact: true }));
+    expect(fetch).toHaveBeenCalledOnce();
+    const confirmation = screen.getByRole("region", { name: "Confirm project change" });
+    expect(confirmation).toHaveTextContent("1 constituent: Fictional Avery");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Confirm archive" }));
+    await screen.findByText("1 constituent updated. Nothing changed in NXT.");
+    expect(screen.queryByText("Fictional Avery", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText("Fictional Blake", { exact: true })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Project status"), { target: { value: "archived" } });
+    expect(within(screen.getByRole("table")).getByText(tag.name)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restore Fictional Avery", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm restore" }));
+    await waitFor(() => expect(archivedIds).toEqual([]));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Confirm project change" })).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Project status"), { target: { value: "active" } });
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
+    expect(assignments).toEqual([{ constituentId: "123", tagId: tag.id }]);
+    expect(fetch.mock.calls.filter(([, o]) => o.method === "POST").map(([, o]) => JSON.parse(o.body))).toEqual([
+      { action: "archive", constituentIds: ["123"], revision: "r1", snapshotAt: "s1" },
+      { action: "restore", constituentIds: ["123"], revision: "r1", snapshotAt: "s1" },
+    ]);
+  });
+  it("shows member tags and solicitors and removes only the named person's tag", async () => {
+    assignments = [{ constituentId: "123", tagId: tag.id }, { constituentId: "456", tagId: tag.id }];
+    await open({ snapshot: householdSnapshot });
+    expect(screen.getByText("Saved solicitor assignment: Fictional MGO One")).toBeInTheDocument();
+    expect(screen.getByText("Saved solicitor assignment: Fictional MGO Two")).toBeInTheDocument();
+    selectAll(); chooseTag(); expect(screen.getByRole("button", { name: "Apply tag" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${tag.name} from Fictional Avery` }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    expect(fetch).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${tag.name} from Fictional Avery` }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }));
+    await screen.findByText("1 constituent updated. Nothing changed in NXT.");
+    expect(assignments).toEqual([{ constituentId: "456", tagId: tag.id }]);
+  });
+  it("keeps spouse context out of filtered selections and exports and exports everyone separately", async () => {
+    assignments = [{ constituentId: "123", tagId: tag.id }];
+    const objectUrl = vi.fn(() => "blob:project-csv");
+    vi.stubGlobal("URL", { createObjectURL: objectUrl, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await open({ snapshot: householdSnapshot });
+    fireEvent.change(screen.getByLabelText("Filter by tag"), { target: { value: tag.id } });
+    expect(screen.getByRole("checkbox", { name: "Select constituent 456" })).toBeDisabled();
+    selectAll(); expect(screen.getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+    fireEvent.click(screen.getByText("Export everyone", { exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Export everyone CSV" }));
+    const read = blob => new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsText(blob); });
+    const filteredCsv = await read(objectUrl.mock.calls[0][0]);
+    const allCsv = await read(objectUrl.mock.calls[1][0]);
+    expect(filteredCsv).toContain('"Tag: Leadership interest"');
+    expect(filteredCsv).not.toContain('\r\n"Fictional Blake"');
+    expect(allCsv).toContain('\r\n"Fictional Blake"');
+    expect(allCsv).toContain('"Active","Yes"');
+    expect(allCsv).toContain('"Active",""');
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("includes archived people in everyone exports only when explicitly checked", async () => {
+    archivedIds = ["456"];
+    const objectUrl = vi.fn(() => "blob:archive-export");
+    vi.stubGlobal("URL", { createObjectURL: objectUrl, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await open();
+    fireEvent.click(screen.getByText("Export everyone", { exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Export everyone CSV" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include archived people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export everyone CSV" }));
+    const read = blob => new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsText(blob); });
+    expect(await read(objectUrl.mock.calls[0][0])).not.toContain('"Fictional Blake"');
+    expect(await read(objectUrl.mock.calls[1][0])).toContain('"Fictional Blake","456","","","","Archived"');
+    expect(fetch).toHaveBeenCalledOnce();
+  });
 });
+const householdSnapshot = { ...snapshot,
+  headers: [...snapshot.headers, "Constituent ID", "Spouse Constituent ID", "Marital Status", "Assigned Fundraisers Name"],
+  tableRows: [["Fictional Avery", "123", "A-1", "B-2", "Married", "Fictional MGO One"],
+    ["Fictional Blake", "456", "B-2", "A-1", "Alum married to alum", "Fictional MGO Two"]] };

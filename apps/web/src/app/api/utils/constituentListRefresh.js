@@ -7,7 +7,7 @@ import { listQueryRecovery } from "./listQueryRecovery";
 import { isProjectProspecting } from "@/utils/projectProspecting";
 
 export function listSnapshotKeys(report, origin) {
-  const { columns, section, systemIdColumn, ...dataSource } = report.dataConfiguration;
+  const { columns, section, systemIdColumn, projectDisplay, ...dataSource } = report.dataConfiguration;
   // Membership writes do not change query output. Preserve the original project cache key.
   if (isProjectProspecting(report)) {
     dataSource.fieldCategory = "";
