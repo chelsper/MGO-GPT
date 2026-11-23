@@ -91,6 +91,7 @@ describe("project prospect tags UI", () => {
     expect(csv).toContain('"Tag: Leadership interest","Tag: Second interest"');
     expect(csv).toContain("Fictional Blake"); expect(csv).not.toContain("Fictional Avery");
     expect(csv).toContain('"Yes","Yes"'); expect(fetch).toHaveBeenCalledOnce();
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:multi-tag-csv"), { timeout: 2000 });
   });
   it("defaults to equal-weight Prospect Ranking with primary-only household giving", async () => {
     assignments = [{ constituentId: "456", tagId: tag.id }];
