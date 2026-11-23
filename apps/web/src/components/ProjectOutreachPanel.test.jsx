@@ -84,7 +84,7 @@ describe("project outreach pilot UI", () => {
     expect(JSON.stringify(requests[0])).not.toContain("avery@example.test");
     expect(requests.some(r=>r.operation==="submit")).toBe(false);
   });
-  it("shows explicitly mapped optional contacts in the guided card only, preserving contact warnings", async () => {
+  it("shows explicitly mapped optional contacts in the guided card, preserving contact warnings", async () => {
     state.settings={...state.settings,alternatePhoneColumn:"Home phone",emailColumn:"Preferred email"};
     const extended={...snapshot,headers:[...snapshot.headers,"Home phone","Preferred email"],tableRows:snapshot.tableRows.map(row=>[...row,"904-555-0100","avery@example.test"])};
     render(<Panel report={report} snapshot={extended}/>);
@@ -94,6 +94,52 @@ describe("project outreach pilot UI", () => {
     expect(within(context).getByRole("button",{name:"Copy email avery@example.test"})).toBeInTheDocument();
     expect(within(context).getByText(/Review contact restrictions: Do not call/)).toBeInTheDocument();
     expect(requests).toHaveLength(0);
+  });
+  it("previews alternate-phone coverage beside the main mapping without saving automatically", async () => {
+    state.canManage=true;
+    const extended={...snapshot,headers:[...snapshot.headers,"Home phone"],
+      tableRows:snapshot.tableRows.map(row=>[...row,row[0]==="456"?"904-555-0100":""])};
+    render(<Panel report={report} snapshot={extended}/>);
+    fireEvent.click(await screen.findByText("Outreach setup",{exact:true}));
+    const alternate=screen.getByRole("combobox",{name:"Alternate phone number",exact:true});
+    expect(alternate.closest("details").querySelector("summary")).toHaveTextContent("Outreach setup");
+    const coverage=screen.getByRole("region",{name:"Contact coverage preview"});
+    expect(coverage).toHaveTextContent("1 of 2 identified people");
+    expect(coverage).toHaveTextContent("1 has no mapped phone");
+    fireEvent.change(alternate,{target:{value:"Home phone"}});
+    expect(coverage).toHaveTextContent("2 of 2 identified people");
+    expect(coverage).toHaveTextContent("1 relies on the alternate phone");
+    expect(coverage).toHaveTextContent("0 have no mapped phone");
+    expect(coverage).toHaveTextContent("Changes apply only after Save outreach setup");
+    expect(state.settings.alternatePhoneColumn).toBeUndefined();
+    expect(requests).toHaveLength(0);
+  });
+  it("shows an alternate-only phone in the project overview without offering a direct call", async () => {
+    state.canManage=true;
+    state.settings.alternatePhoneColumn="Home phone";
+    const extended={...snapshot,headers:[...snapshot.headers,"Home phone"],
+      tableRows:snapshot.tableRows.map(row=>[...row,row[0]==="456"?"904-555-0100":""])};
+    render(<Panel report={report} snapshot={extended}/>);
+    const name=await screen.findByRole("heading",{name:"Fictional Blake"});
+    const card=within(name.closest("article"));
+    expect(card.getByText("Alternate phone: 904-555-0100")).toBeInTheDocument();
+    expect(card.queryByText(/No phone number/)).not.toBeInTheDocument();
+    expect(card.queryByRole("link",{name:/Call/})).not.toBeInTheDocument();
+    expect(requests).toHaveLength(0);
+  });
+  it("states that unmapped preferences are unavailable without preventing local outreach", async () => {
+    state.settings.restrictionColumn="";
+    await mount();
+    fireEvent.click(screen.getByRole("button",{name:"Start my next call"}));
+    const context=screen.getByRole("region",{name:"Current call details"});
+    expect(context).toHaveTextContent("Contact preferences are not mapped for this project");
+    expect(context).toHaveTextContent("missing values are not permission");
+    fireEvent.click(screen.getByRole("radio",{name:"Reached",exact:true}));
+    fireEvent.change(screen.getByLabelText("Next step"),{target:{value:"complete"}});
+    fireEvent.change(screen.getByLabelText("Notes"),{target:{value:"Fictional conversation after checking current preferences."}});
+    fireEvent.click(screen.getByLabelText(/I reviewed contact/));
+    fireEvent.click(screen.getByRole("button",{name:"Save & next (local only)"}));
+    await waitFor(()=>expect(requests.map(r=>r.operation)).toEqual(["record"]));
   });
   it("shows a compact useful pledge reminder in the list and guided call, without a live lookup", async () => {
     state.settings.showPledgeContext = true;

@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { outreachContactRows } from "@/utils/outreachContacts";
 import styles from "./projectOutreach.module.css";
 
+export function OutreachPhoneSummary({ person }) {
+  const phones = outreachContactRows(person).filter(contact => contact.type === "phone");
+  return <p>{phones.length ? phones.map(contact =>
+    `${contact.label === "Alternate phone" ? "Alternate phone: " : ""}${contact.value}`,
+  ).join(" / ") : "No phone number in the mapped contact columns."}</p>;
+}
+
 function ContactRow({ contact }) {
   const [status, setStatus] = useState("");
   const active = useRef(false);
@@ -42,7 +49,7 @@ export default function OutreachContactDetails({ person }) {
   const contacts = outreachContactRows(person);
   const hasPhone = contacts.some(contact => contact.type === "phone");
   return <section className={styles.contactDetails} aria-label="Saved contact details">
-    {!hasPhone && <p>No phone number in the saved query. Check contact details before calling.</p>}
+    {!hasPhone && <p>No phone number in the mapped contact columns. Check contact details before calling.</p>}
     {!!contacts.length && <ul className={styles.contactList}>
       {contacts.map(contact => <ContactRow key={`${contact.key}:${contact.value}`} contact={contact} />)}
     </ul>}

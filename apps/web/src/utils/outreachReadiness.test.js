@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outreachSetupChecks, outreachConnectionLabel } from "./outreachReadiness";
+import { outreachSetupChecks, outreachConnectionLabel, outreachPhoneCoverage } from "./outreachReadiness";
 import { report, snapshot, saved } from "../../test/fixtures/projectOutreach";
 const checks = (state = saved, data = snapshot, config = report) => Object.fromEntries(outreachSetupChecks(config, data, state).map(c => [c.key, c]));
 
@@ -49,5 +49,40 @@ describe("saved outreach setup checklist", () => {
     const data={...snapshot,headers:[...snapshot.headers,"Home phone"],tableRows:snapshot.tableRows.map(row=>[...row,"904-555-0100"])};
     expect(checks({...saved,settings:{...saved.settings,alternatePhoneColumn:"Home phone"}},data).phoneColumn.state).toBe("ready");
     expect(checks({...saved,settings:{...saved.settings,alternatePhoneColumn:"Missing"}},data).phoneColumn.state).toBe("review");
+  });
+});
+
+describe("saved phone coverage", () => {
+  const data = {...snapshot, headers:[...snapshot.headers,"Home phone"],
+    tableRows:snapshot.tableRows.map(row=>[...row, row[0] === "456" ? "904-555-0100" : ""])};
+  const mapped = {...saved.settings,alternatePhoneColumn:"Home phone"};
+  it("counts people, not repeated rows, and shows alternate-only coverage", () => {
+    expect(outreachPhoneCoverage(report,data,mapped)).toMatchObject({
+      total:2, withPrimary:1, withAlternateOnly:1, withPhone:2, missingPhone:0,
+      primaryMapped:true, alternateMapped:true,
+    });
+    expect(checks({...saved,settings:mapped},data).phoneColumn.detail).toContain("1 relies on the alternate phone");
+  });
+  it("does not treat an unmapped home phone or duplicate mapping as extra coverage", () => {
+    expect(outreachPhoneCoverage(report,data,saved.settings)).toMatchObject({withPhone:1,missingPhone:1});
+    expect(outreachPhoneCoverage(report,data,{...mapped,alternatePhoneColumn:"Phone"})).toMatchObject({withPhone:1,withAlternateOnly:0,missingPhone:1});
+    expect(outreachPhoneCoverage(report,{...data,headers:[...data.headers,"Home phone"]},mapped)).toMatchObject({withPhone:1,missingPhone:1,alternateMapped:false});
+  });
+  it("keeps an explicitly unmapped primary phone and blank values distinct from an alternate", () => {
+    expect(outreachPhoneCoverage(report,data,{...mapped,phoneColumn:""})).toMatchObject({withPhone:1,withAlternateOnly:1,primaryMapped:false});
+    const blank={...data,tableRows:data.tableRows.map(row=>[...row.slice(0,-1),"  "])};
+    expect(outreachPhoneCoverage(report,blank,mapped)).toMatchObject({withPhone:1,missingPhone:1});
+  });
+  it("distinguishes unavailable data from a complete empty list", () => {
+    expect(outreachPhoneCoverage(report,null,mapped)).toBeNull();
+    expect(outreachPhoneCoverage(report,{...data,generatedAt:null},mapped)).toBeNull();
+    expect(outreachPhoneCoverage({...report,dataConfiguration:{systemIdColumn:"QRECID"}},data,mapped)).toBeNull();
+    expect(outreachPhoneCoverage(report,{...data,tableRows:[]},mapped)).toMatchObject({total:0,withPhone:0,missingPhone:0});
+  });
+  it("excludes unidentified rows and does not infer calling permission from coverage", () => {
+    const invalid={...data,tableRows:[...data.tableRows,["bad","Name","904-555-0199","",""]]};
+    expect(outreachPhoneCoverage(report,invalid,mapped)).toMatchObject({total:2,withPhone:2});
+    expect(checks({...saved,settings:{...mapped,restrictionColumn:""}},data).restrictionColumn.state).toBe("review");
+    expect(outreachPhoneCoverage(report,data,null)).toMatchObject({total:2,withPhone:0,missingPhone:2});
   });
 });

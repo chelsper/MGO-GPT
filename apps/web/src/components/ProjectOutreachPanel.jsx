@@ -16,7 +16,8 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "./projectOutreach.module.css";
 import ProjectOutreachReadiness from "./ProjectOutreachReadiness";
 import ProjectOutreachProgress from "./ProjectOutreachProgress";
-import OutreachContactDetails from "./OutreachContactDetails";
+import OutreachContactDetails, { OutreachPhoneSummary } from "./OutreachContactDetails";
+import { outreachPhoneCoverage } from "@/utils/outreachReadiness";
 import OutreachCallSummary from "./OutreachCallSummary";
 import { outreachCallSummary, outreachResumeQueue } from "@/utils/outreachCallSummary";
 import { matchesOutreachProgress } from "@/utils/outreachProgress";
@@ -40,9 +41,10 @@ const stageLabel = {
   complete: "Outreach complete",
 };
 
-function Setup({ saved, headers, busy, onSave }) {
+function Setup({ saved, headers, report, snapshot, busy, onSave }) {
   const [settings, setSettings] = useState(saved.settings || emptySettings);
   const error = validateOutreachSettings(settings, headers);
+  const coverage = outreachPhoneCoverage(report, snapshot, settings);
   return (
     <form
       className={styles.form}
@@ -59,13 +61,14 @@ function Setup({ saved, headers, busy, onSave }) {
         {[
           ["nameColumn", "Constituent name", true],
           ["phoneColumn", "Phone number", false],
+          ["alternatePhoneColumn", "Alternate phone number", false],
           ["restrictionColumn", "Contact restrictions / do-not-call", false],
         ].map(([key, label, required]) => (
           <label key={key}>
             {label}
             <select
               data-outreach-field={key}
-              value={settings[key]}
+              value={settings[key] || ""}
               required={required}
               disabled={busy}
               onChange={(e) =>
@@ -111,11 +114,21 @@ function Setup({ saved, headers, busy, onSave }) {
           </select>
         </label>
       </div>
+      <section className={styles.brief} aria-label="Contact coverage preview">
+        <strong>Contact coverage preview</strong>
+        {coverage ? <p role="status">
+          {coverage.withPhone} of {coverage.total} identified people have a phone in the selected columns.
+          {coverage.withAlternateOnly > 0 && ` ${coverage.withAlternateOnly} ${coverage.withAlternateOnly === 1 ? "relies" : "rely"} on the alternate phone.`}
+          {` ${coverage.missingPhone} ${coverage.missingPhone === 1 ? "has" : "have"} no mapped phone.`}
+        </p> : <p>Coverage is unavailable until a complete list and constituent system ID mapping are saved.</p>}
+        <small>Based on saved query values, not a live contact check. Changes apply only after Save outreach setup.</small>
+        {!settings.restrictionColumn && <p>Contact preferences are not mapped. Include a contact-restriction output in the query, refresh the list, and map it here. Until then, callers must check current NXT preferences; missing values are not permission to call.</p>}
+      </section>
       <details>
         <summary>Additional contact details (optional)</summary>
-        <p>Show another phone number and email on the call card using only the saved query. Leave these blank if not needed.</p>
+        <p>Show an email address on the call card using only the saved query. Leave it blank if not needed. Primary and alternate phone columns are above.</p>
         <div className={styles.fields}>
-          {[["alternatePhoneColumn", "Alternate phone number"], ["emailColumn", "Email address"]].map(([key, label]) => (
+          {[["emailColumn", "Email address"]].map(([key, label]) => (
             <label key={key}>{label}
               <select data-outreach-field={key} value={settings[key] || ""} disabled={busy}
                 onChange={e => setSettings({...settings, [key]:e.target.value})}>
@@ -447,8 +460,9 @@ function CallContext({ task, person, saved, focusRef }) {
         </p>
       )}
       <p className={styles.help}>
-        Contact details are from the saved query. Check current NXT contact
-        preferences before calling; blank restrictions are not permission.
+        Contact details are from the saved query. {saved.settings?.restrictionColumn
+          ? "Check current NXT contact preferences before calling; blank restrictions are not permission."
+          : "Contact preferences are not mapped for this project. Check current NXT preferences before calling; missing values are not permission."}
       </p>
       <OutreachContactDetails key={task.id} person={person} />
       <PledgeContext context={person?.pledgeContext} />
@@ -957,6 +971,8 @@ export default function ProjectOutreachPanel({
             key={saved.settingsVersion}
             saved={saved}
             headers={snapshot?.headers || []}
+            report={report}
+            snapshot={snapshot}
             busy={blocked}
             onSave={(settings) =>
               run({
@@ -1448,11 +1464,7 @@ export default function ProjectOutreachPanel({
                             {task ? stageLabel[task.stage] : "Unassigned"}
                           </span>
                         </div>
-                        <p>
-                          {person.phones.length
-                            ? person.phones.join(" / ")
-                            : "No phone number in the saved query."}
-                        </p>
+                        <OutreachPhoneSummary person={person} />
                         {person.restrictions.length > 0 && (
                           <p className={styles.warning}>
                             Review contact restrictions:{" "}

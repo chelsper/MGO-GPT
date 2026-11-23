@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import Details from "./OutreachContactDetails";
+import Details, { OutreachPhoneSummary } from "./OutreachContactDetails";
 let copy;
 beforeEach(()=>{
   copy=vi.fn().mockResolvedValue(undefined);
@@ -35,9 +35,23 @@ it("retains questionable phone text for review instead of constructing a dial co
 });
 it("shows no empty alternate-phone or email controls",()=>{
   render(<Details person={{phones:[]}}/>);
-  expect(screen.getByText(/No phone number in the saved query/)).toBeInTheDocument();
+  expect(screen.getByText(/No phone number in the mapped contact columns/)).toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
   expect(screen.queryByText("Email")).not.toBeInTheDocument();
+});
+it("keeps alternate-only numbers visible without a false missing-phone warning",()=>{
+  render(<><OutreachPhoneSummary person={{phones:[],alternatePhones:["904-555-0100"]}}/><Details person={{phones:[],alternatePhones:["904-555-0100"]}}/></>);
+  expect(screen.getByText("Alternate phone: 904-555-0100")).toBeInTheDocument();
+  expect(screen.getByRole("link",{name:"Call 904-555-0100"})).toBeInTheDocument();
+  expect(screen.queryByText(/No phone number/)).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
+});
+it("deduplicates overview numbers and never exposes a one-click call from the summary",()=>{
+  render(<OutreachPhoneSummary person={{phones:["904-555-0100"],alternatePhones:["(904) 555-0100","9045550100 x2"],emails:["avery@example.test"]}}/>);
+  expect(screen.getByText("904-555-0100 / Alternate phone: 9045550100 x2")).toBeInTheDocument();
+  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  expect(screen.queryByText("avery@example.test")).not.toBeInTheDocument();
 });
 it("does not carry a late copy result into the next person's contact card",async()=>{
   let resolve;
