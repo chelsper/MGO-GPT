@@ -159,7 +159,7 @@ export function isNavigationItemActive(pathname, href) {
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
   if (pathname.startsWith("/project-outreach/")) return [
-    { label: "Home", href: "/" }, { label: "Project Outreach", href: "/project-outreach" }, { label: "Call assignments" },
+    { label: "Home", href: "/" }, { label: "Tasks", href: "/tasks" }, { label: "Project outreach" },
   ];
   if (pathname === "/stewardship/inventory/import") return [
     { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" },

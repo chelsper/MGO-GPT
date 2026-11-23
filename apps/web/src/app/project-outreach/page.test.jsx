@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 const mocks = vi.hoisted(() => ({ configuration: vi.fn() }));
 vi.mock("@/app/reports/useReportConfigurations", () => ({
   useReportConfigurations: mocks.configuration,
@@ -21,10 +21,10 @@ beforeEach(() => {
       if (url !== "/api/project-outreach/priorities" || options.method)
         throw new Error("Unexpected query refresh or write");
       return Response.json({
-        canRecord: false,
+        canRecord: true,
         today: "2026-11-22",
         checkedAt: "2026-11-22T16:00:00Z",
-        projects: [],
+        projects: [{key: report.key, open: 1, overdue: 0, today: 0, upcoming: 1, drafts: 0, verification: 0}],
       });
     }),
   );
@@ -45,13 +45,13 @@ describe("project outreach entry", () => {
   it("links only explicitly accessible projects without issuing query refreshes", async () => {
     render(<Page />);
     expect(
-      screen.getByRole("link", { name: `Open outreach for ${report.title}` }),
-    ).toHaveAttribute("href", `/project-outreach/${report.key}`);
+      await screen.findByRole("link", { name: `View my assignments for ${report.title}` }),
+    ).toHaveAttribute("href", `/project-outreach/${report.key}?from=tasks`);
     expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: /Manage projects/ }),
     ).not.toBeInTheDocument();
-    await screen.findByText(/Your account has viewing access/);
+    expect(screen.queryByRole("navigation",{name:"Reports"})).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(
       "/api/project-outreach/priorities",
@@ -65,8 +65,9 @@ describe("project outreach entry", () => {
       isPending: false,
     });
     render(<Page />);
+    fireEvent.click(screen.getByText("Project management",{exact:true}));
     expect(
-      screen.getByRole("link", { name: "Manage projects & access" }),
+      screen.getByRole("link", { name: "Manage projects & access in Reports" }),
     ).toHaveAttribute("href", "/reports/project-prospecting");
     expect(screen.getByText(/No shared projects/)).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();

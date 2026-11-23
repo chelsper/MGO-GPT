@@ -15,10 +15,14 @@ export default function TasksPage() {
       <p>Start with your assigned project calls. See what is due and finish recording work you have already done.</p>
       <p className={styles.note}>These tasks belong to your signed-in account, even when viewing another MGO workspace.</p>
       <nav className={styles.links} aria-label="Task workspaces">
-        <a href="/project-outreach">{canManage ? "Manage Project Outreach" : "Browse Project Outreach"}</a>
         <a href="/follow-ups">Follow-ups &amp; Discussion</a>
       </nav>
       <p className={styles.note}>Your existing portfolio follow-ups remain in Follow-ups &amp; Discussion. They are not included in the project counts below.</p>
+      {canManage && <details className={styles.management}>
+        <summary>Team management</summary>
+        <p>Setting up projects and assigning callers is separate from your personal calls.</p>
+        <a href="/project-outreach">Manage Project Outreach</a>
+      </details>}
     </header>
     {isPending && <p role="status">Loading your shared projects...</p>}
     {error && <section className={styles.notice} role="alert">

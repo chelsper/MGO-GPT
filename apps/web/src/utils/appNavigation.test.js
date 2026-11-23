@@ -10,6 +10,11 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it("keeps outreach project breadcrumbs under Tasks instead of reporting", () => {
+    expect(getBreadcrumbs("/project-outreach/list-fictional-outreach")).toEqual([
+      {label:"Home",href:"/"},{label:"Tasks",href:"/tasks"},{label:"Project outreach"},
+    ]);
+  });
   it("adds stewardship only to Advancement Services and returns letters to their parent", () => {
     expect(getNavigationItems({ isReviewer: true }).find(item => item.href === "/stewardship").section).toBe("Stewardship");
     expect(getNavigationItems({ isReviewer: false }).some(item => item.href === "/stewardship")).toBe(false);

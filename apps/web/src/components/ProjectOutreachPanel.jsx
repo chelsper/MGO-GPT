@@ -510,6 +510,9 @@ export default function ProjectOutreachPanel({
   onReviewSource,
   startCalls = false,
   onStartCallsHandled,
+  callerMode = false,
+  initialStatus = "open",
+  managementHref,
 }) {
   const [saved, setSaved] = useState(null),
     [error, setError] = useState(""),
@@ -518,7 +521,7 @@ export default function ProjectOutreachPanel({
     [saving, setSaving] = useState(false);
   const [search, setSearch] = useState(""),
     [scope, setScope] = useState(""),
-    [status, setStatus] = useState("open");
+    [status, setStatus] = useState(initialStatus === "nxt" ? "nxt" : "open");
   const [selected, setSelected] = useState([]),
     [assignee, setAssignee] = useState(""),
     [dueDate, setDueDate] = useState("");
@@ -542,6 +545,8 @@ export default function ProjectOutreachPanel({
     callLaunchRef = useRef(null),
     callFocusRef = useRef(null),
     returnCallFocus = useRef(false),
+    callReturnRef = useRef(null),
+    callReturnTaskId = useRef(null),
     callEntryHandled = useRef(false),
     setupRef = useRef(null);
   function openSetup(field) {
@@ -585,7 +590,7 @@ export default function ProjectOutreachPanel({
   useEffect(() => {
     if (callMode) callFocusRef.current?.focus();
     else if (returnCallFocus.current) {
-      (callStartRef.current?.disabled
+      (callReturnRef.current?.isConnected ? callReturnRef.current : callStartRef.current?.disabled
         ? callLaunchRef.current
         : callStartRef.current
       )?.focus();
@@ -771,7 +776,9 @@ export default function ProjectOutreachPanel({
     setCallAttempt(null);
     setEditing(null);
   }
-  function beginCalls(task) {
+  function beginCalls(task, opener = null) {
+    callReturnRef.current = opener;
+    callReturnTaskId.current = opener ? task.id : null;
     setReviewTaskId(null);
     setCallAttempt(null);
     setCallMode(true);
@@ -825,11 +832,14 @@ export default function ProjectOutreachPanel({
         task: t,
       })),
   ];
-  const effectiveScope = scope || (saved?.canManage ? "all" : "mine");
+  const canManage = !!saved?.canManage && !callerMode;
+  const effectiveScope = callerMode ? "mine" : scope || (saved?.canManage ? "all" : "mine");
   const visible = rows.filter((p) => {
     const t = p.task;
+    const ownTask = !!t && !!saved && t.assigneeId === saved.viewerId;
+    const ownPending = t?.events.some(e => e.actorId === saved?.viewerId && e.state !== "confirmed");
     return (
-      (!saved?.canManage ||
+      (!canManage ||
         matchesOutreachProgress(p, progressFocus, saved.today)) &&
       (!search ||
         `${p.name} ${p.constituentId} ${t?.assigneeName || ""}`
@@ -840,7 +850,9 @@ export default function ProjectOutreachPanel({
         t?.events.some(
           (e) => e.actorId === saved?.viewerId && e.state !== "confirmed",
         )) &&
-      (status === "all" ||
+      (callerMode ? (status === "all" || (status === "nxt" && ownPending) ||
+        (status === "open" && ((ownTask && t.stage !== "complete") || ownPending)) ||
+        (ownTask && status === t.stage)) : (status === "all" ||
         (status === "unassigned" && !t) ||
         (status === "open" &&
           (t?.stage !== "complete" ||
@@ -850,7 +862,7 @@ export default function ProjectOutreachPanel({
           t &&
           (!t.inCurrentQuery ||
             !t.assigneeAvailable ||
-            t.events.some((e) => e.state !== "confirmed"))))
+            t.events.some((e) => e.state !== "confirmed")))))
     );
   });
   const counts = outreachCounts(
@@ -859,7 +871,7 @@ export default function ProjectOutreachPanel({
       : tasks.filter((t) => t.assigneeId === saved?.viewerId),
   );
   const selectable = (p) =>
-    !!saved?.canManage &&
+    canManage &&
     !!saved.settings &&
     !settingsError &&
     !identity.error &&
@@ -925,12 +937,12 @@ export default function ProjectOutreachPanel({
     >
       <div className={styles.heading}>
         <div>
-          <span className={styles.eyebrow}>PROJECT OUTREACH</span>
-          <h2>Call assignments &amp; outcomes</h2>
-          <p>
+          {!callerMode && <span className={styles.eyebrow}>PROJECT OUTREACH</span>}
+          <h2>{callerMode ? "My assigned people" : "Call assignments & outcomes"}</h2>
+          {!callerMode && <p>
             Temporary project work, not portfolio ownership. Opening this view
             does not contact NXT.
-          </p>
+          </p>}
         </div>
         <button disabled={busy} onClick={reload}>
           Reload saved outreach
@@ -946,7 +958,11 @@ export default function ProjectOutreachPanel({
         </div>
       )}
       {notice && <p role="status">{notice}</p>}
-      {saved && (
+      {callerMode && saved && !saved.canRecord && <p role="status">Your account has viewing access, not personal call recording access. Ask a project manager if you need outreach assignments.</p>}
+      {callerMode && saved?.canManage && managementHref && !callMode && !editing && !busy && (
+        <p className={styles.help}><a href={managementHref}>Manage this project's setup &amp; assignments</a> (separate from your calls)</p>
+      )}
+      {saved && !callerMode && (
         <div hidden={callMode}>
           <ProjectOutreachReadiness
             report={report}
@@ -960,11 +976,10 @@ export default function ProjectOutreachPanel({
       )}
       {identity.error && (
         <p className={styles.warning}>
-          Map the constituent system record ID in Project settings before
-          assigning people.
+          {callerMode ? "A project manager needs to review the saved constituent identity mapping. Your existing outcomes are kept below." : "Map the constituent system record ID in Project settings before assigning people."}
         </p>
       )}
-      {saved?.canManage && (
+      {canManage && (
         <details hidden={callMode} ref={setupRef} open={!saved.settings || !!settingsError}>
           <summary>Outreach setup</summary>
           <Setup
@@ -992,7 +1007,7 @@ export default function ProjectOutreachPanel({
       )}
       {saved?.settings && (
         <>
-          {!callMode && (
+          {!callMode && !callerMode && (
             <div className={styles.brief}>
               <strong>Project deadline: {saved.settings.deadline}</strong>
               <p>
@@ -1051,12 +1066,23 @@ export default function ProjectOutreachPanel({
               </button>
             </section>
           )}
-          {!editing && !callAttempt && saved.canRecord && (
+          {callerMode && !callMode && <details className={styles.brief}>
+            <summary>Call instructions / Due {saved.settings.deadline}</summary>
+            <p>{saved.settings.instructions || "No additional instructions saved."}</p>
+          </details>}
+          {!callerMode && !editing && !callAttempt && saved.canRecord && (
             <div hidden={blocked}><OutreachCallSummary summary={callSummary} today={saved.today} busy={blocked}
               onReview={(taskId, opener) => {
                 summaryOpener.current = opener;
                 setReviewTaskId(taskId);
               }} /></div>
+          )}
+          {callerMode && !callMode && !editing && saved.canRecord && (
+            <details className={styles.brief}>
+              <summary>Today's saved activity</summary>
+              <OutreachCallSummary summary={callSummary} today={saved.today} busy={blocked}
+                onReview={(taskId, opener) => { summaryOpener.current = opener; setReviewTaskId(taskId); }} />
+            </details>
           )}
           {reviewTaskId && !editing && !callAttempt && saved.canRecord && (
             <section hidden={blocked} className={styles.callRecovery} aria-label="Review saved call outcomes">
@@ -1131,7 +1157,7 @@ export default function ProjectOutreachPanel({
                     Continue to next person
                   </button>{" "}
                   <button disabled={busy} onClick={stopCalls}>
-                    Return to list
+                    {callerMode ? "Back to my assignments" : "Return to list"}
                   </button>
                 </div>
               ) : editingTask ? (
@@ -1167,7 +1193,7 @@ export default function ProjectOutreachPanel({
                     Start next available call
                   </button>{" "}
                   <button disabled={busy} onClick={stopCalls}>
-                    Return to list
+                    {callerMode ? "Back to my assignments" : "Return to list"}
                   </button>
                 </div>
               ) : (
@@ -1179,19 +1205,19 @@ export default function ProjectOutreachPanel({
                     Future follow-ups and any saved NXT paperwork remain in the
                     list. Nothing was marked complete automatically.
                   </p>
-                  <button onClick={stopCalls}>Return to list</button>
+                  <button onClick={stopCalls}>{callerMode ? "Back to my assignments" : "Return to list"}</button>
                 </div>
               )}
             </section>
           ) : (
             <>
-              <ProjectOutreachProgress
+              {!callerMode && <ProjectOutreachProgress
                 saved={saved}
                 people={people}
                 busy={blocked || !!editing}
                 onSelect={selectProgress}
-              />
-              <div className={styles.metrics}>
+              />}
+              {!callerMode && <div className={styles.metrics}>
                 {[
                   ["Assigned", counts.assigned],
                   ["Attempted", counts.attempted],
@@ -1205,9 +1231,9 @@ export default function ProjectOutreachPanel({
                     <strong>{value}</strong>
                   </div>
                 ))}
-              </div>
+              </div>}
               <div className={styles.tools}>
-                <label>
+                {!callerMode && <label>
                   Queue
                   <select
                     value={effectiveScope}
@@ -1222,7 +1248,7 @@ export default function ProjectOutreachPanel({
                     <option value="mine">My outreach</option>
                     <option value="all">Project overview</option>
                   </select>
-                </label>
+                </label>}
                 <label>
                   Status
                   <select
@@ -1235,14 +1261,20 @@ export default function ProjectOutreachPanel({
                       setConfirm(false);
                     }}
                   >
-                    {[
+                    {(callerMode ? [
+                      ["open", "My open work"],
+                      ["follow_up", "My follow-ups"],
+                      ["nxt", "Finish my NXT updates"],
+                      ["complete", "My completed outreach"],
+                      ["all", "All my assignments & updates"],
+                    ] : [
                       ["open", "Open outreach"],
                       ["all", "All people"],
                       ["unassigned", "Unassigned"],
                       ["follow_up", "Follow-up needed"],
                       ["complete", "Outreach complete"],
                       ["attention", "Needs attention"],
-                    ].map(([key, label]) => (
+                    ]).map(([key, label]) => (
                       <option key={key} value={key}>
                         {label}
                       </option>
@@ -1250,7 +1282,7 @@ export default function ProjectOutreachPanel({
                   </select>
                 </label>
                 <label>
-                  Find a person or caller
+                  {callerMode ? "Find one of my people" : "Find a person or caller"}
                   <input
                     type="search"
                     value={search}
@@ -1264,7 +1296,7 @@ export default function ProjectOutreachPanel({
                   />
                 </label>
               </div>
-              {saved.canManage && progressFocus && (
+              {canManage && progressFocus && (
                 <section
                   className={styles.progressFocus}
                   aria-label="Focused outreach list"
@@ -1284,7 +1316,7 @@ export default function ProjectOutreachPanel({
                   </button>
                 </section>
               )}
-              {saved.canManage && (
+              {canManage && (
                 <div className={styles.assignment}>
                   <div className={styles.tools}>
                     <button
@@ -1430,7 +1462,7 @@ export default function ProjectOutreachPanel({
                       >
                         <div className={styles.heading}>
                           <div className={styles.identity}>
-                            {saved.canManage && (
+                            {canManage && (
                               <input
                                 type="checkbox"
                                 aria-label={`Select ${person.name}`}
@@ -1515,6 +1547,7 @@ export default function ProjectOutreachPanel({
                           {task?.assigneeId === saved.viewerId &&
                             saved.canRecord && (
                               <button
+                                ref={node => { if (node && callReturnTaskId.current === task.id) callReturnRef.current = node; }}
                                 disabled={
                                   blocked ||
                                   !task.inCurrentQuery ||
@@ -1523,15 +1556,16 @@ export default function ProjectOutreachPanel({
                                 }
                                 onClick={(event) => {
                                   outcomeOpener.current = event.currentTarget;
-                                  setEditing(task.id);
+                                  if (callerMode) beginCalls(task, event.currentTarget);
+                                  else setEditing(task.id);
                                 }}
                               >
-                                Record outcome
+                                {callerMode ? "Open call details" : "Record outcome"}
                               </button>
                             )}
                         </div>
                         {task?.events.length > 0 && (
-                          <details>
+                          <details open={callerMode && status === "nxt" ? true : undefined}>
                             <summary>
                               {task.events.length} recorded outcome(s)
                             </summary>
@@ -1567,8 +1601,7 @@ export default function ProjectOutreachPanel({
               </div>
               {!visible.length && (
                 <p>
-                  No people match this queue. Try All people, or ask a project
-                  manager to assign outreach to you.
+                  {callerMode ? "No assignments match this view. Choose All my assignments & updates to check your other work, or ask a project manager about assignments." : "No people match this queue. Try All people, or ask a project manager to assign outreach to you."}
                 </p>
               )}
               {pages > 1 && (
@@ -1594,6 +1627,13 @@ export default function ProjectOutreachPanel({
           )}
         </>
       )}
+      {callerMode && saved && !callMode && !editing && <details className={styles.brief}>
+        <summary>Help &amp; saved connection status</summary>
+        <ProjectOutreachReadiness report={report} snapshot={snapshot} busy={blocked}
+          saved={{ ...saved, canManage: false, canManageAccounts: false,
+            nxtReadiness: saved.nxtReadiness && { ...saved.nxtReadiness,
+              callers: (saved.nxtReadiness.callers || []).filter(caller => caller.id === saved.viewerId) } }} />
+      </details>}
     </section>
   );
 }

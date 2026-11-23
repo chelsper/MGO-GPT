@@ -21,7 +21,7 @@ import { isProjectProspecting, PROJECT_HREF, PROJECT_SECTION } from "@/utils/pro
 import { buildSignInHref } from "@/utils/signInNavigation";
 import ProjectOutreachPanel from "@/components/ProjectOutreachPanel";
 
-function ListSignInNotice() {
+export function ListSignInNotice() {
   const [href, setHref] = useState("/account/signin");
   useEffect(() => {
     const destination = buildSignInHref(`${location.pathname}${location.search}${location.hash}`);
@@ -111,6 +111,7 @@ export default function ConstituentListView({ params, projectRoute = false, outr
     <main className={`${styles.page} ${listStyles.page}`}>
       <div className={styles.container}>
         <SharedReportHeader
+          accessibleReports={outreachRoute ? [] : undefined}
           activeReportKey={params.listKey}
           title={report?.title || "Constituent list"}
           description={report?.description}
@@ -159,8 +160,9 @@ export default function ConstituentListView({ params, projectRoute = false, outr
         {report && (
           <div className={styles.stack}>
             {project && <nav className={styles.toolbar} aria-label="Project views">
+              {outreachRoute && <a className={styles.button} href={`/project-outreach/${encodeURIComponent(report.key)}?from=tasks`}>My assigned outreach</a>}
               <a className={styles.button} aria-current={!outreachRoute ? "page" : undefined} href={`${PROJECT_HREF}/${encodeURIComponent(report.key)}${fromTasks ? "?from=tasks" : ""}`}>List &amp; tags</a>
-              <a className={styles.button} aria-current={outreachRoute ? "page" : undefined} href={`/project-outreach/${encodeURIComponent(report.key)}${fromTasks ? "?from=tasks" : ""}`}>Outreach assignments</a>
+              <a className={styles.button} aria-current={outreachRoute ? "page" : undefined} href={`/project-outreach/${encodeURIComponent(report.key)}?view=manage${fromTasks ? "&from=tasks" : ""}`}>Outreach assignments</a>
             </nav>}
             <ListRefreshStatus
               snapshot={snapshot}

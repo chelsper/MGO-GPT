@@ -84,10 +84,13 @@ it("opens the existing workflow with a fixed return to Tasks, not another assign
   render(<OutreachPriorities projects={projects} fromTasks />);
   await screen.findByText("Finish recording in NXT");
   expect(screen.getByRole("heading", { name: "Project call assignments" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "View project for Fictional Due" }))
+  expect(screen.getByRole("link", { name: "View my assignments for Fictional Due" }))
     .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
   expect(screen.getByRole("link", { name: "Start / continue my calls for Fictional Due" }))
     .toHaveAttribute("href", "/project-outreach/list-due?from=tasks&start=calls");
+  expect(screen.getByRole("link", { name: "Finish NXT updates for Fictional Due" }))
+    .toHaveAttribute("href", "/project-outreach/list-due?from=tasks&focus=nxt");
+  expect(screen.queryByRole("link", { name: "Finish NXT updates for Fictional Later" })).not.toBeInTheDocument();
   expect(requests).toHaveLength(1);
   expect(requests[0].options.method).toBeUndefined();
 });
@@ -101,9 +104,9 @@ it.each(["view only", "no assignments", "paperwork only", "missing summary", "re
   await waitFor(() => expect(screen.queryByText("Loading saved priorities...")).not.toBeInTheDocument());
   expect(screen.queryByRole("link", { name: /Start \/ continue/ })).not.toBeInTheDocument();
   if (scenario === "paperwork only") {
-    expect(screen.getByRole("link", { name: "View project for Fictional Due" }))
+    expect(screen.getByRole("link", { name: "View my assignments for Fictional Due" }))
       .toHaveAttribute("href", "/project-outreach/list-due?from=tasks");
-  } else expect(screen.queryByRole("link", { name: "View project for Fictional Due" })).not.toBeInTheDocument();
+  } else expect(screen.queryByRole("link", { name: "View my assignments for Fictional Due" })).not.toBeInTheDocument();
   if (["missing summary", "read error"].includes(scenario)) expect(screen.queryByText(/No open call assignments/)).not.toBeInTheDocument();
   expect(requests.every(r => !r.options.method)).toBe(true);
 });

@@ -8,7 +8,7 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 2. Refresh the list through the existing query workflow. Map Constituent System Record ID, not the lookup ID or query row ID. Include constituent name, phone and contact restrictions in query outputs where available.
 3. Open Outreach assignments. Save the name/contact columns, project deadline, caller instructions and NXT action type. Changing the project deadline does not silently change existing assignments.
 4. Select people individually or in batches of up to 100, choose an active project member and due date, review, then confirm. Reassignments preserve history. One caller per constituent per project; different projects may have separate assignments.
-5. MGOs open Project Outreach and choose a project. My outreach defaults to their queue. Review current NXT contact preferences before calling; saved query contact data may be stale. Blank restriction fields never imply permission.
+5. MGOs open Tasks and choose Start / continue my calls or View my assignments. The dedicated caller workspace shows only their own assignments and their unfinished NXT updates, even if the caller is also a manager. Review current NXT contact preferences before calling; saved query contact data may be stale. Blank restriction fields never imply permission.
 6. Record an outcome, actual date and notes. Choose completion or a follow-up date. Save outcome only keeps the result locally; Save & submit NXT action saves first and then attempts the NXT action using the recording user's own NXT connection and verified fundraiser ID.
 7. NXT confirmation is separate from outreach completion. An unsubmitted/unconfirmed action stays visible in Open outreach even if outreach is complete. Reopen recorded outcomes to submit a saved draft or verify an existing action. Verification never creates, resends or edits an action.
 
@@ -23,11 +23,27 @@ adds counts to Home. Existing portfolio follow-ups remain in Follow-ups &
 Discussion and are clearly excluded from these project counts in this first
 version. No new task records or duplicate assignments are created.
 
-Opening outreach from Tasks uses `?from=tasks`. The project header returns to
-My Tasks and retains that context between List & tags and Outreach assignments.
-Only this fixed marker is accepted; no arbitrary return URL is used. Direct and
-older project links still return to Project Outreach. Team management and all
-existing project workflows remain available in their original locations.
+Opening outreach from Tasks uses `?from=tasks`. `/project-outreach/:listKey`
+defaults to a dedicated assigned-outreach workspace with a fixed return to My
+Tasks. It has no Reports navigation, prospecting tabs, query refresh controls,
+bulk assignment controls or team statistics. Direct links use this same caller
+view. Only the explicit `?view=manage` route opens the existing manager workspace;
+existing server permissions still control every read and write. Its management
+link is only shown to managers and is hidden while an outcome is open or saving.
+Project management is a separate disclosure on Tasks and the outreach landing
+page. Project Prospecting stays in Reports; it is not shown as personal work
+without actual assignments or unfinished actions.
+
+The Start shortcut consumes `start=calls` once, preserves other safe URL context,
+and opens only the signed-in caller's next eligible assignment. View my
+assignments opens the personal list without opening an outcome. The separate
+Finish NXT updates shortcut uses `focus=nxt` to show the caller's own unfinished
+events, including after reassignment, without placing the person back in the
+calling queue. Status filters, saved activity, instructions and personal NXT
+help remain available. Opening an individual call shows contact context before
+the outcome form; cancellation returns to the originating assignment when it
+is still visible, otherwise to the call launcher. The existing unsaved-edit
+confirmation, serial saves, verification and no-replay protections are unchanged.
 
 Project Outreach's landing page shows the signed-in caller's saved workload
 across explicitly shared projects: overdue, due today and upcoming assignments,
