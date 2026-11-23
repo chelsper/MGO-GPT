@@ -1,8 +1,7 @@
 "use client";
-import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import { isProjectProspecting } from "@/utils/projectProspecting";
-import styles from "@/components/reportConfigurationEditor.module.css";
+import styles from "@/app/tasks/tasks.module.css";
 import OutreachPriorities from "@/components/OutreachPriorities";
 
 export default function ProjectOutreachHome() {
@@ -13,43 +12,17 @@ export default function ProjectOutreachHome() {
   );
   return (
     <main className={styles.page}>
-      <div className={styles.container}>
-        <SharedReportHeader
-          title="Project Outreach"
-          description="Query-backed call lists, temporary assignments, and recorded outcomes. Your NXT portfolio stays unchanged."
-          backHref="/"
-          backLabel="Home"
-          action={
-            canManage && (
-              <a className={styles.button} href="/reports/project-prospecting">
-                Manage projects &amp; access
-              </a>
-            )
-          }
-        />
-        <p><a className={styles.button} href="/tasks">My Tasks</a> Your personal starting point for assigned outreach. Use this area for project setup and team progress.</p>
-        <section className={styles.card}>
-          <h2>My outreach</h2>
-          <p>
-            Choose a project to see your assigned people and record what
-            happened. Managers can assign callers individually or in bulk.
-            Recording an outcome and confirming its NXT action are tracked
-            separately.
-          </p>
-          {canManage && (
-            <p>
-              For a new list, create a project with its own saved constituent
-              query, grant access to the callers, then choose the contact
-              columns and deadline in Outreach setup. No list is imported
-              automatically.
-            </p>
-          )}
-        </section>
+        <header className={styles.header}>
+          <a className={styles.home} href="/tasks">Back to My Tasks</a>
+          <p className={styles.eyebrow}>OUTREACH</p>
+          <h1>Project Outreach</h1>
+          <p>Open your assigned calls below. Project setup and team assignments are separate from your personal work.</p>
+        </header>
         {isPending && <p role="status">Loading your projects...</p>}
         {error && (
           <div role="alert" className={styles.notice}>
             Projects could not be loaded.{" "}
-            <button className={styles.button} onClick={() => refetch()}>
+            <button onClick={() => refetch()}>
               Try again
             </button>
           </div>
@@ -61,9 +34,18 @@ export default function ProjectOutreachHome() {
           </p>
         )}
         {!isPending && !error && projects.length > 0 && (
-          <OutreachPriorities projects={projects} />
+          <OutreachPriorities projects={projects} fromTasks />
         )}
-      </div>
+        {!isPending && !error && canManage && <details className={styles.management}>
+          <summary>Project management</summary>
+          <p>Choose a project to manage its caller assignments, setup and team progress. These are not your personal call tasks.</p>
+          <ul className={styles.projectLinks}>
+            {projects.map(project => <li key={project.key}>
+              <a href={`/project-outreach/${encodeURIComponent(project.key)}?view=manage`}>Manage {project.title}</a>
+            </li>)}
+          </ul>
+          <a href="/reports/project-prospecting">Manage projects &amp; access in Reports</a>
+        </details>}
     </main>
   );
 }

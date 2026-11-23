@@ -169,9 +169,14 @@ export default function OutreachPriorities({ projects, fromTasks = false }) {
                 </a>
               )}
               <a className={fromTasks ? styles.secondary : undefined} href={`/project-outreach/${encodeURIComponent(project.key)}${fromTasks ? "?from=tasks" : ""}`}>
-                {fromTasks ? "View project" : "Open outreach"}
+                {fromTasks ? "View my assignments" : "Open outreach"}
                 <span className={styles.srOnly}> for {project.title}</span>
               </a>
+              {fromTasks && summary?.canRecord && (project.priorities?.drafts > 0 || project.priorities?.verification > 0) && (
+                <a className={styles.secondary} href={`/project-outreach/${encodeURIComponent(project.key)}?from=tasks&focus=nxt`}>
+                  Finish NXT updates<span className={styles.srOnly}> for {project.title}</span>
+                </a>
+              )}
             </div>
             {fromTasks && summary?.canRecord && project.priorities?.open > 0 && (
               <p className={styles.help}>

@@ -34,7 +34,7 @@ it("returns to Tasks and preserves that origin between project tabs",()=>{
   render(<View params={{listKey:report.key}} projectRoute outreachRoute/>);
   expect(screen.getByRole("link", {name:"Back to My Tasks"})).toHaveAttribute("href", "/tasks");
   expect(screen.getByRole("link", {name:"List & tags"})).toHaveAttribute("href", `/reports/project-prospecting/${report.key}?from=tasks`);
-  expect(screen.getByRole("link", {name:"Outreach assignments"})).toHaveAttribute("href", `/project-outreach/${report.key}?from=tasks`);
+  expect(screen.getByRole("link", {name:"Outreach assignments"})).toHaveAttribute("href", `/project-outreach/${report.key}?view=manage&from=tasks`);
   expect(mocks.refresh).not.toHaveBeenCalled();
 });
 it.each(["", "?from=https://external.test", "?from=//external.test"])("preserves direct project navigation for %s",query=>{

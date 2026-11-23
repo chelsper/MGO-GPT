@@ -25,8 +25,8 @@ it("provides a personal entry point using only accessible projects and the exist
   expect(screen.getByText(/belong to your signed-in account/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/");
   expect(screen.getByRole("link", { name: "Follow-ups & Discussion" })).toHaveAttribute("href", "/follow-ups");
-  expect(screen.getByRole("link", { name: "Browse Project Outreach" })).toHaveAttribute("href", "/project-outreach");
-  expect(screen.queryByRole("link", { name: `View project for ${report.title}` })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Browse Project Outreach" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: `View my assignments for ${report.title}` })).not.toBeInTheDocument();
   expect(screen.queryByText("Not shared")).not.toBeInTheDocument();
   expect(screen.queryByText("Not a project")).not.toBeInTheDocument();
   await screen.findByText(/Your account has viewing access/);
@@ -52,12 +52,13 @@ it("opens the personal guided-call shortcut while preserving the full project li
   fetch.mockResolvedValue(Response.json({canRecord:true,today:"2026-11-22",checkedAt:"2026-11-22T17:00:00Z",projects:[{key:report.key,open:1,overdue:0,today:0,upcoming:1,drafts:0,verification:0}]}));
   render(<Page />);
   expect(await screen.findByRole("link", { name: `Start / continue my calls for ${report.title}` })).toHaveAttribute("href", `/project-outreach/${report.key}?from=tasks&start=calls`);
-  expect(screen.getByRole("link", { name: `View project for ${report.title}` })).toHaveAttribute("href", `/project-outreach/${report.key}?from=tasks`);
+  expect(screen.getByRole("link", { name: `View my assignments for ${report.title}` })).toHaveAttribute("href", `/project-outreach/${report.key}?from=tasks`);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 it("keeps management separate and describes a valid empty project list", () => {
   mocks.configuration.mockReturnValue({ configurations: [], canManage: true, isPending: false });
   render(<Page />);
+  fireEvent.click(screen.getByText("Team management", {exact:true}));
   expect(screen.getByRole("link", { name: "Manage Project Outreach" })).toHaveAttribute("href", "/project-outreach");
   expect(screen.getByRole("heading", { name: "No shared outreach projects yet" })).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
