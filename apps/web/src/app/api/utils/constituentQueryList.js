@@ -3,6 +3,7 @@ import {
   createBlackbaudQueryJob,
   getBlackbaudQueryJob,
   downloadBlackbaudQueryResultWithMetadata,
+  BlackbaudQueryResultTooLargeError,
 } from "./blackbaud";
 import {
   getQueryJobId,
@@ -11,10 +12,9 @@ import {
 } from "./savedQueryExecution";
 import { decodeResult, parseResultCsv } from "./dashboardQueryResults";
 import {
-  QUERY_RESULTS_LIMITS,
   isValidDashboardTableData,
 } from "./dashboardConfiguration";
-import { LEAD_COLUMN, LIST_QUERY_MAX_COLUMNS, parseListQuery } from "@/utils/listQueryConfiguration";
+import { LEAD_COLUMN, LIST_QUERY_LIMITS, LIST_TABLE_LIMITS, parseListQuery } from "@/utils/listQueryConfiguration";
 import { readCurrentLead } from "./listCurrentFundraiser";
 import {
   listQueryExpired,
@@ -22,12 +22,19 @@ import {
 } from "./listQueryRecovery";
 
 async function readQueryTable(url, context) {
-  const file = await downloadBlackbaudQueryResultWithMetadata(url, {
-    ...context,
-    maxBytes: QUERY_RESULTS_LIMITS.bytes,
-    redirect: "error",
-  });
-  return parseResultCsv(decodeResult(file), { preserveTechnical: true, maxColumns: LIST_QUERY_MAX_COLUMNS });
+  try {
+    const file = await downloadBlackbaudQueryResultWithMetadata(url, {
+      ...context,
+      maxBytes: LIST_QUERY_LIMITS.bytes,
+      redirect: "error",
+    });
+    return parseResultCsv(decodeResult(file, { maxBytes: LIST_QUERY_LIMITS.bytes }), { preserveTechnical: true, ...LIST_TABLE_LIMITS });
+  } catch (error) {
+    if (error instanceof BlackbaudQueryResultTooLargeError || error.status === 413) {
+      throw Object.assign(new Error("The query output exceeds constituent-list limits (5,000 rows, 100 columns, 2 MB CSV, or 4 MB saved table). Reduce repeated outputs or narrow the query, then restart the refresh. No results were truncated; the previous list is unchanged."), { status: 413, code: "LIST_QUERY_TOO_LARGE", restartRequired: true });
+    }
+    throw error;
+  }
 }
 
 export async function advanceQueryList({
@@ -158,13 +165,13 @@ export async function advanceQueryList({
       rows: snapshot.tableRows.map((row) =>
         displayedIndexes.map((index) => row[index]),
       ),
-    }, { maxColumns: LIST_QUERY_MAX_COLUMNS })
+    }, LIST_TABLE_LIMITS)
   )
     throw Object.assign(
       new Error(
         "The enriched query output exceeds table limits. Reduce its selected fields or rows.",
       ),
-      { status: 413 },
+      { status: 413, code: "LIST_QUERY_TOO_LARGE", restartRequired: true },
     );
   return { job, snapshot };
 }

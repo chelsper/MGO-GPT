@@ -206,11 +206,12 @@ export function createResultCsvVisitor({ onHeaders, onRow, maxRows = QUERY_RESUL
   };
 }
 
-export function parseResultCsv(content, { preserveTechnical = false, maxColumns = QUERY_RESULTS_LIMITS.columns } = {}) {
+export function parseResultCsv(content, { preserveTechnical = false, maxColumns = QUERY_RESULTS_LIMITS.columns, maxRows = QUERY_RESULTS_LIMITS.rows, maxTableBytes = QUERY_RESULTS_LIMITS.bytes * 2 } = {}) {
+  if (!isValidDashboardTableData({ headers: ["validation"], rows: [] }, { maxColumns, maxRows, maxTableBytes })) throw malformedCsv();
   const rows = [];
-  const { headers } = visitResultCsv(content, { onRow: (row) => rows.push(row), maxColumns });
+  const { headers } = visitResultCsv(content, { onRow: (row) => rows.push(row), maxColumns, maxRows });
   const table = preserveTechnical ? { headers, rows } : removeTechnicalColumns({ headers, rows });
-  if (!isValidDashboardTableData(table, { maxColumns })) {
+  if (!isValidDashboardTableData(table, { maxColumns, maxRows, maxTableBytes })) {
     throw limitError("Query results exceed the supported table size or shape.");
   }
   return table;

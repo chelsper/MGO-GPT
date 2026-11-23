@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import QueryResultsTable, { displayCell } from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
-import { LIST_QUERY_MAX_COLUMNS, orderedListColumns } from "@/utils/listQueryConfiguration";
+import { LIST_TABLE_LIMITS, orderedListColumns } from "@/utils/listQueryConfiguration";
 import { normalizeProjectTag, projectIdentity, projectProspectRows, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
 import { requestProjectTags } from "@/utils/projectTagRequest";
 import { projectDisplayColumns, projectHouseholds, projectPersonName, projectExportData, projectSolicitors } from "@/utils/projectProspectingDisplay";
@@ -289,7 +289,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
     </div>
     {!groups.length && prospects.length > 0 ? <div role="status"><p>No people match these filters. Your saved project list is unchanged.</p>
       <button className={shared.button} onClick={() => { setSearch(""); setFilterTag(""); setStatus("active"); setSelected([]); setConfirmation(null); }}>Show active people</button>
-    </div> : <QueryResultsTable headers={tableColumns.map(column => column.header)} rows={rows} columnSettings={tableColumns} title={report.title} compact maxColumns={LIST_QUERY_MAX_COLUMNS}
+    </div> : <QueryResultsTable headers={tableColumns.map(column => column.header)} rows={rows} columnSettings={tableColumns} title={report.title} compact {...LIST_TABLE_LIMITS}
       scrollable manualSorting sortState={tableSort} resetPageKey={pageKey} onSortChange={next => {
         const option = sortOptions.find(item => item.header === next.header);
         if (option) setSort({ key: option.key, direction: next.direction });

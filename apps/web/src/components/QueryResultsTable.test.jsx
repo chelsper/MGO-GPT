@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QUERY_RESULTS_LIMITS } from "@/app/api/utils/dashboardConfiguration";
 import QueryResultsTable from "./QueryResultsTable";
+import { LIST_TABLE_LIMITS } from "@/utils/listQueryConfiguration";
 
 beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -9,6 +10,17 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const cells = () => within(screen.getByRole("table")).getAllByRole("cell").map((cell) => cell.textContent);
 
 describe("QueryResultsTable", () => {
+  it("paginates larger constituent lists only with explicit list limits", () => {
+    const props = { headers: ["Name"], rows: Array.from({ length: 1810 }, (_, i) => [`Fictional ${i}`]) };
+    const { rerender } = render(<QueryResultsTable {...props} />);
+    expect(screen.getByText("Not refreshed")).toBeInTheDocument();
+    rerender(<QueryResultsTable {...props} {...LIST_TABLE_LIMITS} />);
+    expect(screen.getByText("Rows 1-25 of 1810; page 1 of 73")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(26);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("Fictional 25")).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("supports externally sorted rows without reordering or changing render indexes", () => {
     const onSortChange = vi.fn();
     const props = { headers: ["Name"], rows: [["Z"], ["A"]], sortState: { header: "Name", direction: "ascending" }, onSortChange, manualSorting: true };

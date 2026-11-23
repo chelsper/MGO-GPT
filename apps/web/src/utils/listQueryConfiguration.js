@@ -1,5 +1,7 @@
 export const LEAD_COLUMN = "Current lead fundraiser";
 export const LIST_QUERY_MAX_COLUMNS = 100;
+export const LIST_QUERY_LIMITS = Object.freeze({ rows: 5000, bytes: 2 * 1024 * 1024, tableBytes: 4 * 1024 * 1024 });
+export const LIST_TABLE_LIMITS = Object.freeze({ maxColumns: LIST_QUERY_MAX_COLUMNS, maxRows: LIST_QUERY_LIMITS.rows, maxTableBytes: LIST_QUERY_LIMITS.tableBytes });
 export const isQueryList = (source) =>
   ["query_json", "saved_query"].includes(source?.source);
 const object = (value) =>
