@@ -1,7 +1,7 @@
 import { LEAD_COLUMN } from "./listQueryConfiguration";
 import { parseImportDate } from "./importDate";
 
-export const PROJECT_DISPLAY_FIELDS = ["nameColumn", "lookupIdColumn", "spouseIdColumn", "maritalStatusColumn", "solicitorColumn", "solicitorTypeColumn", "solicitorFromColumn", "solicitorToColumn"];
+export const PROJECT_DISPLAY_FIELDS = ["nameColumn", "lookupIdColumn", "spouseIdColumn", "maritalStatusColumn", "solicitorColumn", "solicitorTypeColumn", "solicitorFromColumn", "solicitorToColumn", "headOfHouseholdColumn", "constituencyColumn", "spouseConstituencyColumn", "lifetimeGivingColumn", "keyIndicatorColumn"];
 const key = value => String(value || "").toLowerCase().replace(/\b\d+\b/g, "").replace(/[^a-z]/g, "");
 const married = value => ["married", "alummarriedtoalum", "alumnimarriedtoalumni"].includes(key(value));
 const one = values => values?.length === 1 ? values[0].trim() : "";
@@ -24,6 +24,10 @@ export function projectDisplayColumns(headers, source) {
     solicitorFrom: column("solicitorFromColumn", ["assignedfundraiserdatefrom", "assignedfundraisersdatefrom"]),
     solicitorTo: column("solicitorToColumn", ["assignedfundraiserdateto", "assignedfundraisersdateto"]),
     indicator: column("keyIndicatorColumn", ["keyindicator", "constituentkeyindicator"]),
+    head: column("headOfHouseholdColumn", ["headofhousehold", "constituentheadofhousehold", "isheadofhousehold"]),
+    constituency: column("constituencyColumn", ["constituency", "constituencycode", "constituencydescription", "constituentconstituency", "constituentconstituencycode", "constituentcode", "constituentcodes"]),
+    spouseConstituency: column("spouseConstituencyColumn", ["spouseconstituency", "spouseconstituencycode", "spouseconstituencydescription", "spouseconstituentcode", "spouseconstituentcodes"]),
+    lifetime: column("lifetimeGivingColumn", ["lifetimegiving", "lifetimegivingamount", "totallifetimegiving", "lifetimegivingtotal", "constituentlifetimegiving"]),
     spouseType,
   };
 }

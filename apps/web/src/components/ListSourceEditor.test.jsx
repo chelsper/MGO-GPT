@@ -75,7 +75,7 @@ it("offers display mappings without writing settings or calling NXT", async () =
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ report: { dataConfiguration: value }, queryOutput: { headers: returned } })));
   const onChange = vi.fn();
   render(<ListSourceEditor value={value} onChange={onChange} reportKey="list-project-center" />);
-  fireEvent.click(screen.getByText("Household and solicitor display fields"));
+  fireEvent.click(screen.getByText("Household, ranking and solicitor fields"));
   expect(fetch).not.toHaveBeenCalled();
   load(); await screen.findByText(/Returned output fields loaded/);
   const spouse = screen.getByRole("combobox", { name: "Spouse ID", exact: true });

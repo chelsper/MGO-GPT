@@ -32,6 +32,62 @@ const open = async (props = {}) => {
 const selectAll = () => fireEvent.click(screen.getByRole("button", { name: "Select up to 100 people" }));
 const chooseTag = () => fireEvent.change(screen.getByRole("combobox", { name: "Tag to apply or remove" }), { target: { value: tag.id } });
 describe("project prospect tags UI", () => {
+  it("defaults to equal-weight Prospect Ranking with primary-only household giving", async () => {
+    assignments = [{ constituentId: "456", tagId: tag.id }];
+    const headers = ["Name", "System ID", "Constituent ID", "Spouse ID", "Marital Status", "Head of Household", "Constituency", "Spouse Constituency", "Lifetime Giving", "Last Gift Amount", "Key Indicator"];
+    await open({ snapshot: { ...snapshot, headers, total: 3, tableRows: [
+      ["Fictional Spouse", "456", "L2", "L1", "Married", "No", "Friend", "Alumni Bachelor's Degree", "900000", "99999", "Individual"],
+      ["Fictional Primary", "123", "L1", "L2", "Married", "Yes", "Trustee", "Friend", "100", "50", "Individual"],
+      ["Fictional Organization", "789", "L3", "", "", "", "Corporation", "", "200", "75", "Organization"],
+    ] } });
+    expect(screen.getByRole("combobox", { name: "Sort by", exact: true })).toHaveValue("ranking");
+    const table = screen.getByRole("table");
+    const household = within(table).getAllByRole("row").find(row => row.textContent.includes("Fictional Primary"));
+    const headings = within(table).getAllByRole("columnheader").map(h => h.textContent);
+    const cells = within(household).getAllByRole("cell");
+    expect(cells[headings.indexOf("Lifetime Giving")].textContent).toContain("100");
+    expect(cells[headings.indexOf("Lifetime Giving")].textContent).not.toContain("900000");
+    expect(cells[headings.indexOf("Last Gift Amount")].textContent).not.toContain("99999");
+    expect(cells[headings.indexOf("Last Gift Amount")].textContent).toContain("Head of household: Fictional Primary");
+    const score = within(household).getByText(/Prospect score:/).textContent;
+    fireEvent.change(screen.getByRole("combobox", { name: "Filter by tag" }), { target: { value: tag.id } });
+    expect(screen.getByText(score)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select constituent 123" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select constituent 456" })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("exports all matching people in the selected order and preserves selection identity", async () => {
+    const objectUrl = vi.fn(() => "blob:project-csv");
+    vi.stubGlobal("URL", { createObjectURL: objectUrl, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await open();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select constituent 123" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort by", exact: true }), { target: { value: "name" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort direction" }), { target: { value: "descending" } });
+    expect(screen.getByRole("checkbox", { name: "Select constituent 123" })).toBeChecked();
+    expect(within(screen.getByRole("table")).getAllByRole("checkbox")[0]).toHaveAttribute("aria-label", "Select constituent 456");
+    fireEvent.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+    const csv = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsText(objectUrl.mock.calls[0][0]); });
+    expect(csv.indexOf("Fictional Blake")).toBeLessThan(csv.indexOf("Fictional Avery"));
+    fireEvent.click(screen.getByRole("button", { name: "Reset sort" }));
+    expect(screen.getByRole("combobox", { name: "Sort by", exact: true })).toHaveValue("ranking");
+    expect(fetch).toHaveBeenCalledOnce();
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalled(), { timeout: 2000 });
+  });
+  it("keeps tag controls and the keyboard-scrollable results in the same workspace", async () => {
+    await open();
+    const workspace = screen.getByRole("region", { name: "Project list workspace" });
+    expect(within(workspace).getByRole("group", { name: "Project tag controls" })).toBeInTheDocument();
+    expect(within(workspace).getByRole("region", { name: "The Center Prospects table scroll area" })).toHaveAttribute("tabindex", "0");
+    fireEvent.click(within(workspace).getByText("Archive / restore selected"));
+    selectAll();
+    screen.getByRole("button", { name: "Archive selected" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Archive selected" }));
+    expect(screen.getByRole("region", { name: "Confirm project change" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Archive selected" })).toHaveFocus();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it("supports 100 source columns even when no name field can be identified", async () => {
     const headers = ["System ID", ...Array.from({ length: 99 }, (_, i) => `Field ${i}`)];
     await open({ snapshot: { ...snapshot, total: 1, headers, tableRows: [["123", ...headers.slice(1).map(() => "Value")]] } });

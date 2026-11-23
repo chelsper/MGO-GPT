@@ -9,7 +9,7 @@ import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { projectSource } from "./projectProspecting";
 
 it("validates project-only display mappings and retains them", () => {
-  const config = { ...projectSource(), projectDisplay: { spouseIdColumn: "Spouse ID", spouseIdType: "lookup", maritalStatusColumn: "Marital Status" } };
+  const config = { ...projectSource(), projectDisplay: { spouseIdColumn: "Spouse ID", spouseIdType: "lookup", maritalStatusColumn: "Marital Status", headOfHouseholdColumn: "Head of Household", constituencyColumn: "Constituency", spouseConstituencyColumn: "Spouse Constituency", lifetimeGivingColumn: "Lifetime Giving", keyIndicatorColumn: "Key Indicator" } };
   expect(validateListSource(config)).toBe("");
   expect(normalizeListSource(config).projectDisplay).toEqual(config.projectDisplay);
   for (const projectDisplay of [{ spouseIdType: "name" }, { nameColumn: "qrecid" }, { unknown: true }, [], { spouseIdColumn: 4 }])

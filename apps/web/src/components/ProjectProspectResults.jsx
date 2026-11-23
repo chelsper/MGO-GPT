@@ -5,6 +5,8 @@ import { LIST_QUERY_MAX_COLUMNS, orderedListColumns } from "@/utils/listQueryCon
 import { normalizeProjectTag, projectIdentity, projectProspectRows, projectCsv, PROJECT_SELECTION_LIMIT } from "@/utils/projectProspecting";
 import { requestProjectTags } from "@/utils/projectTagRequest";
 import { projectDisplayColumns, projectHouseholds, projectPersonName, projectExportData, projectSolicitors } from "@/utils/projectProspectingDisplay";
+import { PROJECT_QUERY_ORDER, projectSortOptions, sortProjectGroups, orderedProjectPeople } from "@/utils/projectProspectingSort";
+import { DEFAULT_PROSPECT_SORT, CONSTITUENCY_TIERS, projectProspectRankings, projectGroupKey, projectPrimaryPerson, isProjectGivingColumn } from "@/utils/projectProspectRanking";
 import styles from "./projectProspecting.module.css";
 import shared from "./reportConfigurationEditor.module.css";
 
@@ -15,6 +17,8 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const [status, setStatus] = useState("active");
   const [groupSpouses, setGroupSpouses] = useState(true);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [sort, setSort] = useState(DEFAULT_PROSPECT_SORT);
+  useEffect(() => { setSort(DEFAULT_PROSPECT_SORT); }, [report.key]);
   const [confirmation, setPendingConfirmation] = useState(null);
   const confirmationRef = useRef(null);
   const returnFocus = useRef(null);
@@ -75,10 +79,21 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   const filtered = statusPeople
     .filter(({ values, id }) => (!searchTerm || values.some(cells => cells.some(cell => cell.toLowerCase().includes(searchTerm)))) &&
       (!filterTag || (filterTag === "__untagged" ? !assignments.get(id)?.size : assignments.get(id)?.has(filterTag))));
-  const filteredIds = [...new Set(filtered.map(item => item.id).filter(Boolean))];
   const matchedPeople = new Set(filtered);
   const households = projectHouseholds(statusPeople, display, groupSpouses);
-  const groups = households.rows.filter(group => group.members.some(p => matchedPeople.has(p)));
+  const rankings = projectProspectRankings(households.rows, { display, assignments, tagsAvailable: !!saved && !error });
+  const rankedCount = [...rankings.values()].filter(entry => entry.score !== null).length;
+  const missingRankingFields = [["Constituency", display.constituency], ["Lifetime Giving", display.lifetime], ["Key Indicator", display.indicator],
+    ...(households.grouped ? [["Head of Household", display.head]] : [])].filter(([, index]) => !(index >= 0)).map(([name]) => name);
+  const sortOptions = projectSortOptions(snapshot.headers, columns, display);
+  const sortOption = sortOptions.find(option => option.key === sort.key) || sortOptions[0];
+  const effectiveSort = sortOption.key === "query" ? PROJECT_QUERY_ORDER : sort;
+  const sorting = { sort: effectiveSort, option: sortOption, headers: snapshot.headers, display, assignments, solicitors, tagsAvailable: !!saved && !error, rankings };
+  const groups = sortProjectGroups(households.rows.filter(group => group.members.some(p => matchedPeople.has(p))), { ...sorting, matchingPeople: matchedPeople });
+  const orderedPeople = orderedProjectPeople(groups, filtered);
+  const filteredIds = [...new Set(orderedPeople.map(item => item.id).filter(Boolean))];
+  const tableSort = sortOption.header ? { header: sortOption.header, direction: effectiveSort.direction } : null;
+  const pageKey = JSON.stringify([report.key, snapshot.generatedAt, search, filterTag, status, groupSpouses, effectiveSort, sortOption.type]);
   const peopleHeader = snapshot.headers[display.name] || "__project_people";
   const tableColumns = [...(display.name < 0 ? [] : [{ header: peopleHeader, label: "People & tags", visible: true, format: "text" }]),
     ...columns.filter(column => snapshot.headers.indexOf(column.header) !== display.name)];
@@ -139,8 +154,11 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
   }
 
   function exportCsv(everyone = false) {
-    const people = everyone ? prospects.filter(p => includeArchived || !archivedIds.has(p.id)) : filtered;
-    const exportGroups = everyone ? projectHouseholds(people, display, groupSpouses).rows : households.rows;
+    const allPeople = prospects.filter(p => includeArchived || !archivedIds.has(p.id));
+    const allGroups = projectHouseholds(allPeople, display, groupSpouses).rows;
+    const exportGroups = everyone ? sortProjectGroups(allGroups, { ...sorting,
+      rankings: projectProspectRankings(allGroups, { display, assignments, tagsAvailable: !!saved && !error }) }) : groups;
+    const people = everyone ? orderedProjectPeople(exportGroups, allPeople) : orderedPeople;
     const data = projectExportData({ people, households: exportGroups, columns: columns.filter(c => c.visible),
       headers: snapshot.headers, tags, assignments, archivedIds, display });
     const blob = new Blob([projectCsv(data.headers, data.rows)], { type: "text/csv;charset=utf-8" });
@@ -153,7 +171,16 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
 
   function renderPeople(index) {
     const group = groups[index];
+    const ranking = rankings.get(projectGroupKey(group));
     return <div className={styles.people}>{group.members.length > 1 && <span className={styles.help}>Married household / {group.members.length} separate records</span>}
+      {sortOption.key === "ranking" && <details className={styles.ranking}><summary>{ranking?.score === null ? "Not ranked yet" : `Prospect score: ${ranking?.score.toFixed(1)} / 100`}</summary>
+        {ranking?.reason ? <p className={styles.help}>{ranking.reason}</p> : <ul>
+          {!ranking?.organization && <li>Constituency: {ranking?.constituency?.label} (tier {ranking?.constituency?.tier}) / {ranking?.constituency?.score.toFixed(1)} points</li>}
+          <li>Lifetime giving: {displayCell(String(ranking?.lifetime), "currency")} / {ranking?.givingScore?.toFixed(1)} points</li>
+          <li>{ranking?.tagCount} distinct tags / {ranking?.tagScore?.toFixed(1)} points</li>
+          <li>{ranking?.organization ? "Organization: giving and tags weighted 50% each." : "Three equally weighted components."} {group.members.length > 1 && ranking?.primary ? `Giving from head of household: ${projectPersonName(ranking.primary, display)}.` : ""}</li>
+        </ul>}
+      </details>}
       {group.members.map((p, memberIndex) => <div key={p.id || memberIndex} className={styles.person}>
         <label className={styles.personName}><input type="checkbox" aria-label={`Select constituent ${p.id || "unavailable"}`} checked={Boolean(p.id && selected.includes(p.id))}
           disabled={busy || !ready || !p.id || !matchedPeople.has(p) || (!selected.includes(p.id) && selected.length >= PROJECT_SELECTION_LIMIT)} onChange={() => toggle(p.id)} />
@@ -180,7 +207,7 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
           <label><input type="checkbox" checked={includeArchived} onChange={event => setIncludeArchived(event.target.checked)} /> Include archived people</label>
           <button className={shared.button} disabled={busy || !saved || Boolean(error)} onClick={() => exportCsv(true)}>Export everyone CSV</button>
         </details></div></div>
-    <p className={styles.help}>CSV: one row per person, household context, and a separate Yes/blank column for every tag. Tags never transfer between spouses.</p>
+    <p className={styles.help}>CSV: one row per person in the selected sort order, household context, and a separate Yes/blank column for every tag. Tags never transfer between spouses.</p>
     {identity.error && <p className={shared.notice}>{identity.error} {report.canConfigure && <a href={`/report-configurations?report=${encodeURIComponent(report.key)}`}>Project settings</a>}</p>}
     {identity.invalidRows > 0 && <p className={shared.notice}>{identity.invalidRows} rows have no valid constituent system ID. They remain visible but cannot be tagged.</p>}
     {duplicateRows > 0 && <p className={styles.help}>Showing each constituent once. {duplicateRows} repeated query {duplicateRows === 1 ? "row was" : "rows were"} combined; additional field values remain available and are included in CSV exports. Amounts are not added together.</p>}
@@ -202,26 +229,56 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
       </select></label>
       <span className={styles.help}>{filtered.length} of {prospects.length} {identity.error ? "query rows" : identity.invalidRows ? "entries" : "constituents"} shown</span>
     </div>
-    <div className={styles.tagBar}>
+    <div className={styles.sortBar} role="group" aria-label="Sort project prospects">
       <div className={styles.tools}>
-        <button className={shared.button} disabled={busy || !ready || !filteredIds.length} onClick={() => setSelected(filteredIds.slice(0, PROJECT_SELECTION_LIMIT))}>Select up to 100 people</button>
-        <button className={shared.button} disabled={busy || !selected.length} onClick={() => setSelected([])}>Clear selection</button>
-        <span role="status">{selected.length} selected</span>
+        <label className={shared.field}>Sort by<select value={sortOption.key} disabled={busy} onChange={event => {
+          const option = sortOptions.find(item => item.key === event.target.value);
+          setSort({ key: option.key, direction: option.type === "date" || option.type === "number" ? "descending" : "ascending" });
+        }}>{sortOptions.map(option => <option key={option.key} value={option.key} disabled={option.key === "tagCount" && (!saved || !!error)}>{option.label}</option>)}</select></label>
+        <label className={shared.field}>Sort direction<select value={effectiveSort.direction} disabled={busy || sortOption.key === "query"} onChange={event => setSort({ key: sortOption.key, direction: event.target.value })}>
+          <option value="ascending">{sortOption.type === "date" ? "Oldest first" : sortOption.type === "number" ? "Lowest first" : "A to Z"}</option>
+          <option value="descending">{sortOption.type === "date" ? "Newest first" : sortOption.type === "number" ? "Highest first" : "Z to A"}</option>
+        </select></label>
+        <button className={shared.button} disabled={busy || (sortOption.key === "ranking" && effectiveSort.direction === "descending")} onClick={() => setSort(DEFAULT_PROSPECT_SORT)}>Reset sort</button>
+      </div>
+      <p className={styles.help} role="status">{groups.length} displayed {groups.length === 1 ? "row" : "rows"}. {sortOption.key === "query" ? "Original query order." : `Sorted by ${sortOption.label}. Missing or unreadable values stay last.`} Households stay together; sorting does not change records.</p>
+      {sortOption.key === "ranking" && <p className={styles.help}>{rankedCount} of {households.rows.length} rows have enough saved information to rank. Unranked rows remain visible below them. Giving on household rows uses only the head of household, never both spouses.</p>}
+      {sortOption.key === "ranking" && missingRankingFields.length > 0 && <p className={styles.help}>Waiting for saved query fields: {missingRankingFields.join(", ")}. Add these outputs, refresh the list, and map any differently named fields in project settings. No giving is estimated. {report.canConfigure && <a href={`/report-configurations?report=${encodeURIComponent(report.key)}`}>Ranking field settings</a>}</p>}
+      {sortOption.key !== "query" && <details className={styles.sortHelp}><summary>How sorting works</summary><p className={styles.help}>
+        {sortOption.key === "ranking" ? "Prospect Ranking for individuals is an equal-weight average: constituency (100, 80, 60, 40, 20, 0 points across the six tiers), lifetime-giving percentile, and distinct-tag-count percentile. Organizations use giving and tags at 50% each, identified by Key Indicator. Giving and tags are compared with rankable rows in the selected project status; ties receive the same points. Search and tag filters do not recalculate scores. Married households use the best constituency of either spouse, the head of household's giving, and distinct tags across both spouses. Missing or conflicting information is not treated as zero."
+          : sortOption.key === "tagCount" ? "Counts distinct tags on members matching your filters. Tags still belong to individual records."
+          : "For repeated values or married households, ascending uses the lowest matching value and descending uses the highest. Spouses shown only for context do not affect the order. Amounts are never added together."}
+        {sortOption.key !== "ranking" && " Household giving fields always use the head of household, including when that spouse is shown for context."}
+        {sortOption.type === "date" && " Dates use full-year month/day/year or year-month-day values."}
+        {sortOption.key === "solicitor" && " Uses the displayed saved assignments, including those whose dates are not verified, but not ended or future assignments."}
+        {" CSV exports include all matching people, not just the current page, in this order."}
+      </p>{sortOption.key === "ranking" && <ol className={styles.help}>{CONSTITUENCY_TIERS.map((tier, i) => <li key={i}>{tier.join("; ")}</li>)}</ol>}</details>}
+    </div>
+    <p className={styles.help}>Scroll inside the list below. Column headers and tag controls stay available; scroll sideways for additional fields.</p>
+    <div className={styles.workbench} aria-label="Project list workspace" role="region">
+    <div className={styles.tagBar} role="group" aria-label="Project tag controls">
+      <div className={styles.tagActions}>
         <label className={shared.field}>Tag to apply or remove<select value={chosenTag} disabled={busy || !saved || Boolean(error)} onChange={event => setChosenTag(event.target.value)}>
           <option value="">Choose a tag</option>{tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
         </select></label>
         <button className={`${shared.button} ${shared.primary}`} disabled={busy || !ready || !canApply.length || !chosenTag} onClick={() => changeTags("apply")}>Apply tag</button>
         <button className={shared.button} disabled={busy || !ready || !canRemove.length || !chosenTag} onClick={() => setConfirmation({ action: "remove", ids: canRemove, tagId: chosenTag })}>Remove tag</button>
-        <button className={shared.button} disabled={busy || !ready || !selected.some(id => !archivedIds.has(id))} onClick={() => setConfirmation({ action: "archive", ids: selected.filter(id => !archivedIds.has(id)) })}>Archive selected</button>
-        <button className={shared.button} disabled={busy || !ready || !selected.some(id => archivedIds.has(id))} onClick={() => setConfirmation({ action: "restore", ids: selected.filter(id => archivedIds.has(id)) })}>Restore selected</button>
+      </div>
+      <div className={styles.selectionTools}>
+        <span role="status">{selected.length} selected</span>
+        <button className={shared.button} aria-label="Select up to 100 people" disabled={busy || !ready || !filteredIds.length} onClick={() => setSelected(filteredIds.slice(0, PROJECT_SELECTION_LIMIT))}>Select up to 100</button>
+        <button className={shared.button} aria-label="Clear selection" disabled={busy || !selected.length} onClick={() => setSelected([])}>Clear</button>
       </div>
       {selected.length > 0 && chosenTag && <p className={styles.help}>{canRemove.length} selected already have this tag. Apply only adds it where missing.</p>}
       <details><summary>Create a tag</summary><form className={styles.tools} onSubmit={event => changeTags("create", event)}>
         <label className={shared.field}>New tag name<input value={name} maxLength={50} disabled={busy} placeholder="e.g. Leadership interest" onChange={event => setName(event.target.value)} /></label>
         <button className={shared.button} disabled={busy || !saved || Boolean(error) || !normalizeProjectTag(name)}>{saving === "create" ? "Creating tag..." : "Create tag"}</button>
       </form></details>
+      <details><summary>Archive / restore selected</summary><div className={styles.tools}>
+        <button className={shared.button} disabled={busy || !ready || !selected.some(id => !archivedIds.has(id))} onClick={() => setConfirmation({ action: "archive", ids: selected.filter(id => !archivedIds.has(id)) })}>Archive selected</button>
+        <button className={shared.button} disabled={busy || !ready || !selected.some(id => archivedIds.has(id))} onClick={() => setConfirmation({ action: "restore", ids: selected.filter(id => archivedIds.has(id)) })}>Restore selected</button>
+      </div></details>
       {notice && <p role="status">{notice}</p>}
-    </div>
     {confirmation && <section ref={confirmationRef} tabIndex={-1} role="region" aria-label="Confirm project change" className={styles.confirmation}>
       <h3>{confirmation.action === "remove" ? `Remove ${tags.find(t => t.id === confirmation.tagId)?.name}?` : confirmation.action === "archive" ? "Archive from this project?" : "Restore to this project?"}</h3>
       <p>{confirmation.ids.length} constituent{confirmation.ids.length === 1 ? "" : "s"}: {prospects.filter(p => confirmation.ids.includes(p.id)).map(p => projectPersonName(p, display)).join(", ")}</p>
@@ -229,17 +286,25 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
       <div className={styles.tools}><button className={shared.button} disabled={busy || !ready} onClick={() => changeTags(confirmation.action, null, confirmation)}>Confirm {confirmation.action}</button>
         <button className={shared.button} disabled={saving} onClick={() => setConfirmation(null)}>Cancel</button></div>
     </section>}
+    </div>
     {!groups.length && prospects.length > 0 ? <div role="status"><p>No people match these filters. Your saved project list is unchanged.</p>
       <button className={shared.button} onClick={() => { setSearch(""); setFilterTag(""); setStatus("active"); setSelected([]); setConfirmation(null); }}>Show active people</button>
     </div> : <QueryResultsTable headers={tableColumns.map(column => column.header)} rows={rows} columnSettings={tableColumns} title={report.title} compact maxColumns={LIST_QUERY_MAX_COLUMNS}
+      scrollable manualSorting sortState={tableSort} resetPageKey={pageKey} onSortChange={next => {
+        const option = sortOptions.find(item => item.header === next.header);
+        if (option) setSort({ key: option.key, direction: next.direction });
+      }}
       leadingColumn={display.name < 0 ? { title: "People & tags", render: (_, index) => renderPeople(index) } : undefined}
       renderCell={(value, column, index) => {
         const group = groups[index];
         if (display.name >= 0 && column.header === peopleHeader) return renderPeople(index);
-        return group.members.map((p, memberIndex) => {
+        const primaryGiving = group.members.length > 1 && isProjectGivingColumn(column.header, display, snapshot.headers);
+        const primary = primaryGiving ? projectPrimaryPerson(group, display) : null;
+        if (primaryGiving && !primary) return <span className={styles.help}>Head of household not available; giving is not combined.</span>;
+        return (primaryGiving ? [primary] : group.members).map((p, memberIndex) => {
           const values = p.values[snapshot.headers.indexOf(column.header)];
           return <div key={p.id || memberIndex} className={styles.memberValue}>
-            {group.members.length > 1 && <span className={styles.help}>{projectPersonName(p, display)}: </span>}
+            {group.members.length > 1 && <span className={styles.help}>{primaryGiving ? "Head of household: " : ""}{projectPersonName(p, display)}: </span>}
             {values.length <= 1 ? displayCell(values[0] || "", column.format) : <details className={styles.cellValues}>
               <summary>{displayCell(values[0], column.format)} <span className={styles.help}>+{values.length - 1} more</span></summary>
               <ul aria-label={`Additional ${column.label || column.header} values`}>{values.slice(1).map((value, i) => <li key={i}>{displayCell(value, column.format)}</li>)}</ul>
@@ -247,5 +312,6 @@ export default function ProjectProspectResults({ report, snapshot, refreshing = 
           </div>;
         });
       }} />}
+    </div>
   </section>;
 }

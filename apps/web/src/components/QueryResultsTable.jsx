@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { isValidDashboardTableData } from "@/app/api/utils/dashboardConfiguration";
 import { isQueryResultColumnVisible } from "./queryResultColumns";
@@ -53,10 +53,21 @@ export default function QueryResultsTable({
   trailingColumn,
   renderCell,
   maxColumns,
+  sortState,
+  onSortChange,
+  manualSorting = false,
+  resetPageKey,
+  scrollable = false,
 }) {
   const hintId = useId();
-  const [sort, setSort] = useState(null);
+  const [internalSort, setSort] = useState(null);
+  const sort = sortState === undefined ? internalSort : sortState;
   const [page, setPage] = useState(0);
+  const scrollRef = useRef(null);
+  useEffect(() => { setPage(0); }, [resetPageKey]);
+  useEffect(() => {
+    if (scrollable && scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [page, resetPageKey, scrollable]);
   if (!isValidDashboardTableData({ headers, rows }, { maxColumns }))
     return <p className={styles.unknown}>Not refreshed</p>;
 
@@ -77,7 +88,7 @@ export default function QueryResultsTable({
   const sortColumn = sort
     ? columns.find((column) => column.header === sort.header)
     : null;
-  if (sortColumn) {
+  if (sortColumn && !manualSorting) {
     const format = sortColumn.format || "text";
     ordered.sort((a, b) => {
       const left = a.row[sortColumn.sourceIndex];
@@ -106,13 +117,15 @@ export default function QueryResultsTable({
   );
 
   function sortBy(column) {
-    setSort({
+    const next = {
       header: column.header,
       direction:
         sort?.header === column.header && sort.direction === "ascending"
           ? "descending"
           : "ascending",
-    });
+    };
+    if (onSortChange) onSortChange(next);
+    else setSort(next);
     setPage(0);
   }
 
@@ -125,11 +138,12 @@ export default function QueryResultsTable({
   }
 
   return (
-    <div className={styles.queryResults}>
+    <div className={`${styles.queryResults} ${scrollable ? styles.scrollableResults : ""}`}>
       <p id={hintId} className={compact ? listStyles.srOnly : styles.help}>
-        Scroll across to see all columns. Select a column heading to sort.
+        {scrollable ? "Scroll within the list; column headers stay visible. " : ""}Scroll across to see all columns. Select a column heading to sort.
       </p>
       <div
+        ref={scrollRef}
         className={styles.tableScroll}
         role="region"
         aria-label={`${title} table scroll area`}

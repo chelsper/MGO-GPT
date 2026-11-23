@@ -348,8 +348,9 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         <small>Save the project, select its viewers, refresh its query, then load returned output fields above. Choose the constituent system record ID, not Lookup ID, gift ID or qrecid. Saving this mapping reuses the saved results. Tags stay in this project and never change NXT.</small>
       </label>}
       {project && <details>
-        <summary>Household and solicitor display fields</summary>
+        <summary>Household, ranking and solicitor fields</summary>
         <p>Married spouses already on this list can share a display row. Records, tags and assignments remain separate. Match spouse IDs to the same kind of constituent ID, never to names.</p>
+        <p>Prospect Ranking uses Constituency, Spouse Constituency, Lifetime Giving, Head of Household and Key Indicator. Map a lifetime total, not a last/largest gift or an individual gift amount. These settings change only the report, not NXT.</p>
         <label className={styles.field}>Spouse ID kind
           <select value={value.projectDisplay?.spouseIdType || "lookup"} onChange={event => setDisplay("spouseIdType", event.target.value)}>
             <option value="lookup">Constituent / lookup ID</option><option value="system">Constituent system record ID</option>
@@ -364,6 +365,11 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
           ["solicitorTypeColumn", "Solicitor assignment type", "solicitorType"],
           ["solicitorFromColumn", "Solicitor assignment start date", "solicitorFrom"],
           ["solicitorToColumn", "Solicitor assignment end date", "solicitorTo"],
+          ["headOfHouseholdColumn", "Head of household", "head"],
+          ["constituencyColumn", "Constituency", "constituency"],
+          ["spouseConstituencyColumn", "Spouse constituency", "spouseConstituency"],
+          ["lifetimeGivingColumn", "Lifetime giving (not largest gift)", "lifetime"],
+          ["keyIndicatorColumn", "Individual / organization indicator", "indicator"],
         ].map(([field, label, detected]) => <label key={field} className={styles.field}>{label}
           <select value={value.projectDisplay?.[field] ?? "__auto"} onChange={event => setDisplay(field, event.target.value)}>
             <option value="__auto">Automatic{display[detected] >= 0 ? `: ${headers[display[detected]]}` : " (requires a unique matching output field)"}</option>

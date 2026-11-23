@@ -8,9 +8,29 @@
 .tools { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
 .tools label { flex: 1 1 190px; max-width: 350px; }
 .tools input, .tools select { min-width: 0; width: 100%; }
+.sortBar { margin-top: 18px; padding-top: 16px; border-top: 1px solid #dce7e3; }
+.sortBar p { margin: 9px 0 0; }
+.sortHelp { margin-top: 8px; }
+.sortHelp summary { cursor: pointer; color: #215c48; font-size: 14px; }
+.ranking { margin-bottom: 10px; color: #215c48; font-size: 13px; }
+.ranking summary { cursor: pointer; font-weight: 650; padding: 6px 0; }
+.ranking ul { margin: 8px 0; padding-left: 16px; line-height: 1.5; }
 .tagBar { background: #f2f8f5; border: 1px solid #cce0d7; border-radius: 12px; padding: 16px; margin: 20px 0; }
 .tagBar summary { cursor: pointer; padding: 14px 0 4px; font-weight: 650; color: #215c48; }
 .tagBar form { margin-top: 12px; }
+.workbench { display: flex; flex-direction: column; height: min(820px, calc(100dvh - 108px)); min-height: 420px; border: 1px solid #cce0d7; border-radius: 12px; overflow: hidden; margin-top: 12px; }
+.workbench .tagBar { flex-shrink: 0; max-height: 48%; overflow: auto; margin: 0; border: 0; border-bottom: 1px solid #cce0d7; border-radius: 0; padding: 12px; }
+.tagActions { display: flex; align-items: end; gap: 8px; }
+.tagActions label { flex: 1; max-width: 340px; min-width: 0; }
+.tagActions select { width: 100%; min-width: 0; }
+.tagActions button { flex-shrink: 0; }
+.selectionTools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.selectionTools span { margin-right: auto; color: #215c48; font-weight: 650; }
+.tagBar > details { display: inline-block; vertical-align: top; margin-right: 18px; }
+.tagBar > details[open] { display: block; }
+.tagBar > details > summary { padding: 10px 0 0; font-size: 13px; }
+.workbench .tagBar button, .workbench .tagBar select { min-height: 44px; }
+.workbench .confirmation { margin-top: 12px; margin-bottom: 0; padding: 12px; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 130px; max-width: 300px; }
 .tag { background: #e7f2ec; color: #215c48; border: 1px solid #cce0d7; border-radius: 20px; padding: 4px 9px; font-size: 13px; overflow-wrap: anywhere; }
 .cellValues summary { cursor: pointer; overflow-wrap: anywhere; }
@@ -28,3 +48,11 @@
 .confirmation h3 { margin-top: 0; }
 .memberValue + .memberValue { margin-top: 12px; }
 @media (max-width: 600px) { .panel { padding: 14px; } .tools { align-items: stretch; } .tools label { max-width: none; flex-basis: 100%; } .tools button { flex: 1 1 140px; } }
+@media (max-width: 600px) {
+  .tagActions { flex-wrap: wrap; }
+  .tagActions label { flex-basis: 100%; max-width: none; }
+  .tagActions button { flex: 1; }
+  .tagBar > details { margin-right: 10px; }
+  .selectionTools { font-size: 13px; }
+  .selectionTools button { padding: 7px 9px; }
+}
