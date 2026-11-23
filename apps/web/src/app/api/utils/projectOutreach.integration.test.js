@@ -243,6 +243,20 @@ describe.skipIf(!enabled)("project outreach real PostgreSQL", () => {
       key:report.key,open:0,overdue:0,today:0,upcoming:0,drafts:0,verification:0,
     }]);
   });
+  it("allows a shared administrator to preview another caller but denies unshared, inactive and ordinary viewers", async () => {
+    await setup(); await assign();
+    const context = { userId: 8, viewerId: 7, origin: caller.origin, today: "2026-11-22" };
+    const readOnlyDb = (text, values) => execute(`BEGIN READ ONLY; ${prepare({text,values})}${invoke({text,values})} COMMIT;`);
+    expect((await readOutreachPriorities(context, readOnlyDb))[0].open).toBe(1);
+    expect(await readOutreachPriorities({ ...context, viewerId: 9 }, readOnlyDb)).toEqual([]);
+    expect((await readOutreachPriorities({ ...context, viewerId: 10 }, readOnlyDb))[0].open).toBe(1);
+    await execute("UPDATE report_configurations SET specific_user_ids='[8,9,10]'");
+    expect(await readOutreachPriorities(context, readOnlyDb)).toEqual([]);
+    await execute("UPDATE report_configurations SET specific_user_ids='[7,8,9,10]'; UPDATE users SET active=FALSE WHERE id=7");
+    expect(await readOutreachPriorities(context, readOnlyDb)).toEqual([]);
+    await execute("UPDATE users SET active=TRUE WHERE id=7; UPDATE users SET active=FALSE WHERE id=8");
+    expect(await readOutreachPriorities(context, readOnlyDb)).toEqual([]);
+  });
   it("reads connection flags only for authorized project callers, not the entire staff directory", async () => {
     await execute(`UPDATE users SET blackbaud_constituent_id='123' WHERE id=8;
       INSERT INTO blackbaud_connections VALUES(8,'fictional-access','fictional-refresh',NOW()+INTERVAL '1 hour'),(9,'fictional-access','fictional-refresh',NOW()-INTERVAL '1 hour');

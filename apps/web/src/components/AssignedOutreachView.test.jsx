@@ -47,7 +47,7 @@ it("opens Tasks into personal calls, not Reports or the prospecting list", async
   expect(screen.queryByRole("heading", { name: "Fictional Blake" })).not.toBeInTheDocument();
   expect(writes).toEqual([]); expect(mocks.refresh).not.toHaveBeenCalled();
 });
-it("keeps managers in their own assignments until they explicitly choose management", async () => {
+it("keeps managers in their own assignments without management controls in the caller workspace", async () => {
   state.canManage = true;
   state.tasks.push({ ...state.tasks[0], id: "other-task", constituentId: "456", name: "Fictional Blake", assigneeId: 9 });
   mount();
@@ -56,7 +56,7 @@ it("keeps managers in their own assignments until they explicitly choose managem
   expect(screen.queryByText("Outreach setup", { exact: true })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Assign caller")).not.toBeInTheDocument();
   expect(screen.queryByText(/Team progress/)).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Manage this project's setup & assignments" })).toHaveAttribute("href", `/project-outreach/${report.key}?view=manage`);
+  expect(screen.queryByRole("link", { name: "Manage this project's setup & assignments" })).not.toBeInTheDocument();
   expect(writes).toEqual([]);
 });
 it("keeps the explicit manager route and its tools without the reports navigation", async () => {

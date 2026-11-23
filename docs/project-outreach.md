@@ -16,22 +16,35 @@ Project Outreach extends explicitly shared Project Prospecting constituent lists
 
 ### Personal priorities overview
 
-Tasks is a primary Home and navigation shortcut for both MGO and Advancement
-Services views. `/tasks` shows My Tasks using the same saved, signed-in-user
-priorities endpoint. It never switches identity to a selected MGO workspace or
-adds counts to Home. Existing portfolio follow-ups remain in Follow-ups &
-Discussion and are clearly excluded from these project counts in this first
-version. No new task records or duplicate assignments are created.
+Tasks is a primary Home and navigation shortcut. `/tasks` opens the current
+assigned call list directly, without a management step or report tabs. Multiple
+active projects use a picker; changing projects requires confirmation to avoid
+silently losing an open outcome. Project Prospecting remains separate in Reports.
+The existing signed-in-only priorities endpoint is unchanged for other callers.
+
+The new saved workspace overview honors the validated selected MGO workspace.
+An Admin/Executive viewing an MGO sees a clearly labeled read-only preview, not
+their own empty queue. Both accounts must have explicit project access. Persisted
+roles, active status, origin and sharing are checked in the aggregate SELECT.
+Invalid workspace selections fail closed, rather than falling back to another
+person or showing a false zero. The dedicated preview route rechecks access after
+reading, returns only that caller's assignments/authored history, strips all write
+capabilities and rejects POST. Recording, NXT submission and verification still
+require the actual caller's login. No impersonation, grants or reassignment.
+
+Personal Tasks and the caller view contain no team-management links, even for an
+Admin viewing the MGO layout. The existing explicit manager routes retain their
+permissions and tools. Portfolio follow-ups remain in Follow-ups & Discussion.
+No new tasks, provider requests, schedule changes or schema changes are introduced.
 
 Opening outreach from Tasks uses `?from=tasks`. `/project-outreach/:listKey`
 defaults to a dedicated assigned-outreach workspace with a fixed return to My
 Tasks. It has no Reports navigation, prospecting tabs, query refresh controls,
 bulk assignment controls or team statistics. Direct links use this same caller
 view. Only the explicit `?view=manage` route opens the existing manager workspace;
-existing server permissions still control every read and write. Its management
-link is only shown to managers and is hidden while an outcome is open or saving.
-Project management is a separate disclosure on Tasks and the outreach landing
-page. Project Prospecting stays in Reports; it is not shown as personal work
+existing server permissions still control every read and write. Project
+management remains on the separate outreach landing page, not My Tasks.
+Project Prospecting stays in Reports; it is not shown as personal work
 without actual assignments or unfinished actions.
 
 The Start shortcut consumes `start=calls` once, preserves other safe URL context,

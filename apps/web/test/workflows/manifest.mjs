@@ -28,6 +28,9 @@ export const workflowGroups = {
     "src/components/ProjectOutreachPanel.test.jsx",
     "src/app/project-outreach/page.test.jsx",
     "src/app/tasks/page.test.jsx",
+    "src/app/api/utils/outreachWorkspace.test.js",
+    "src/app/api/project-outreach/workspace/route.test.js",
+    "src/app/api/project-outreach/[listKey]/preview/route.test.js",
   ],
   "Pledge reminder CSV": [
     "src/utils/pledgeReminders.test.js",

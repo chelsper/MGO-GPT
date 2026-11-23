@@ -5,7 +5,7 @@ import { ListSignInNotice } from "@/app/reports/lists/ConstituentListView";
 import ProjectOutreachPanel from "./ProjectOutreachPanel";
 import styles from "@/app/tasks/tasks.module.css";
 
-export default function AssignedOutreachView({ listKey }) {
+export default function AssignedOutreachView({ listKey, embedded = false, previewUserId = null }) {
   const { data, error, errorStatus, loading, reload } = useConstituentList(listKey);
   const [entry, setEntry] = useState(null);
   useEffect(() => {
@@ -22,13 +22,15 @@ export default function AssignedOutreachView({ listKey }) {
     }
   }
   const report = data?.report, snapshot = data?.snapshot;
-  return <main className={styles.page}>
+  const Container = embedded ? "section" : "main";
+  const Heading = embedded ? "h2" : "h1";
+  return <Container className={embedded ? undefined : styles.page}>
     <header className={styles.header}>
-      <a className={styles.home} href="/tasks">Back to My Tasks</a>
-      <p className={styles.eyebrow}>MY ASSIGNED OUTREACH</p>
-      <h1>{report?.title || "Assigned outreach"}</h1>
-      <p>Work through your people, record what happened, and continue to the next person.</p>
-      <p className={styles.note}>Your signed-in account's assignments only. No calls are placed or NXT actions submitted just by opening this page.</p>
+      {!embedded && <a className={styles.home} href="/tasks">Back to My Tasks</a>}
+      {!embedded && <p className={styles.eyebrow}>MY ASSIGNED OUTREACH</p>}
+      <Heading>{report?.title || "Assigned outreach"}</Heading>
+      {!embedded && <p>Work through your people, record what happened, and continue to the next person.</p>}
+      {!embedded && <p className={styles.note}>Your signed-in account's assignments only. No calls are placed or NXT actions submitted just by opening this page.</p>}
     </header>
     {loading && <p role="status">Loading your saved outreach...</p>}
     {error && (errorStatus === 401 ? <ListSignInNotice /> : <section className={styles.notice} role="alert">
@@ -41,8 +43,8 @@ export default function AssignedOutreachView({ listKey }) {
         : "The contact list is not ready yet. Ask a project manager to finish setup; existing outcomes remain available below."}</p>
       <ProjectOutreachPanel key={report.key} report={report} snapshot={snapshot}
         callerMode initialStatus={entry.status} startCalls={entry.calls} onStartCallsHandled={consumeCalls}
-        managementHref={`/project-outreach/${encodeURIComponent(report.key)}?view=manage`}
+        previewUserId={previewUserId}
         refreshing={!!data.refresh?.busy} />
     </>}
-  </main>;
+  </Container>;
 }

@@ -17,7 +17,10 @@ export function validateOutreachPriorities(value) {
     !Number.isFinite(Date.parse(value.checkedAt)) ||
     !Array.isArray(value.projects) ||
     value.projects.length > 1000 ||
-    (!value.canRecord && value.projects.length) ||
+    (value.workspace !== undefined && (!Number.isSafeInteger(value.workspace?.id) || value.workspace.id < 1 ||
+      typeof value.workspace.name !== "string" || typeof value.workspace.readOnly !== "boolean" ||
+      (value.workspace.readOnly && value.canRecord))) ||
+    (!value.canRecord && !value.workspace?.readOnly && value.projects.length) ||
     value.projects.some((project) => {
       if (
         !project ||
