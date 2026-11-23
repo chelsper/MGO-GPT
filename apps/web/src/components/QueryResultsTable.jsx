@@ -53,6 +53,8 @@ export default function QueryResultsTable({
   trailingColumn,
   renderCell,
   maxColumns,
+  maxRows,
+  maxTableBytes,
   sortState,
   onSortChange,
   manualSorting = false,
@@ -68,7 +70,7 @@ export default function QueryResultsTable({
   useEffect(() => {
     if (scrollable && scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [page, resetPageKey, scrollable]);
-  if (!isValidDashboardTableData({ headers, rows }, { maxColumns }))
+  if (!isValidDashboardTableData({ headers, rows }, { maxColumns, maxRows, maxTableBytes }))
     return <p className={styles.unknown}>Not refreshed</p>;
 
   const settings = new Map(

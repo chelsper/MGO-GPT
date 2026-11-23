@@ -26,6 +26,7 @@ import { parseResultCsv, runDashboardQueryResults } from "./dashboardQueryResult
 import { runDashboardQueryCount } from "./dashboardQueryCount";
 import { QUERY_RESULTS_LIMITS, isValidDashboardTableData } from "./dashboardConfiguration";
 import { BlackbaudQueryResultTooLargeError } from "./blackbaud";
+import { LIST_TABLE_LIMITS } from "@/utils/listQueryConfiguration";
 import { executeSavedQueryCount, executeSavedQueryResults } from "@/app/api/reports/alumni-family-engagement/route";
 
 const options = { user: { id: 7 }, origin: "https://example.test", queryId: "30971" };
@@ -48,6 +49,24 @@ it("supports an explicitly bounded wide list without widening dashboard defaults
   for (const maxColumns of [0,-1,101,Infinity,1.5,"100"]) {
     expect(()=>parseResultCsv("Name\nFictional",{maxColumns})).toThrow();
     expect(isValidDashboardTableData(table,{maxColumns})).toBe(false);
+  }
+});
+
+it("opts lists into bounded capacity without relaxing dashboard defaults", () => {
+  const content = `Name\n${Array(5000).fill("Fictional").join("\n")}`;
+  expect(() => parseResultCsv(content)).toThrow(/1000 rows/);
+  const table = parseResultCsv(content, LIST_TABLE_LIMITS);
+  expect(table.rows).toHaveLength(5000);
+  expect(isValidDashboardTableData(table)).toBe(false);
+  expect(isValidDashboardTableData(table, LIST_TABLE_LIMITS)).toBe(true);
+  expect(() => parseResultCsv(`${content}\nExtra`, LIST_TABLE_LIMITS)).toThrow(/5000 rows/);
+  const largeTable = { headers: ["A", "B", "C"], rows: Array.from({ length: 1000 }, () => Array(3).fill("x".repeat(500))) };
+  expect(isValidDashboardTableData(largeTable)).toBe(false);
+  expect(isValidDashboardTableData(largeTable, LIST_TABLE_LIMITS)).toBe(true);
+  expect(isValidDashboardTableData({ ...largeTable, rows: Array(3000).fill(largeTable.rows[0]) }, LIST_TABLE_LIMITS)).toBe(false);
+  for (const options of [{ maxRows: 5001 }, { maxRows: Infinity }, { maxRows: "5000" }, { maxTableBytes: 4194305 }, { maxTableBytes: Infinity }]) {
+    expect(isValidDashboardTableData(table, options)).toBe(false);
+    expect(() => parseResultCsv("Name\nFictional", options)).toThrow();
   }
 });
 
