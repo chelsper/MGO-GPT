@@ -7,6 +7,12 @@ const state = { snapshot: { generatedAt: "s1" }, identity: { ids: ["123", "456"]
 const body = { action: "apply", revision: "r1", snapshotAt: "s1", tagId: "55f50c08-3151-4d2d-81ef-881f7629b4a6", constituentIds: ["123"] };
 describe("project tag write validation", () => {
   it("allows distinct mapped members only", () => expect(validateProjectTagMutation(body, context, state)).toEqual({ ids: ["123"] }));
+  it.each(["archive", "restore"])("allows bounded mapped %s only without tag fields", action => {
+    const { tagId, ...archiveBody } = body;
+    expect(validateProjectTagMutation({ ...archiveBody, action }, context, state)).toEqual({ ids: ["123"] });
+    for (const patch of [{ tagId }, { name: "no" }, { constituentIds: ["999"] }, { revision: "old" }, { snapshotAt: "old" }, { constituentIds: Array(101).fill("123") }])
+      expect(() => validateProjectTagMutation({ ...archiveBody, action, ...patch }, context, state)).toThrow();
+  });
   it.each([{ revision: "old" }, { snapshotAt: "old" }, { constituentIds: ["999"] }, { constituentIds: [123] }, { constituentIds: ["123", "123"] },
     { constituentIds: [] }, { constituentIds: Array(101).fill("123") }, { tagId: "invalid" }, { action: "deleteProject" }, { name: "extra" }, { other: true }])("rejects unsafe mutation %j", patch => {
     expect(() => validateProjectTagMutation({ ...body, ...patch }, context, state)).toThrow();

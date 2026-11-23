@@ -5,6 +5,7 @@ import { listSnapshotKeys } from "./constituentListRefresh";
 import { readPortfolioReport } from "./portfolioGivingReportStore";
 import { isProjectProspecting, normalizeProjectTag, projectIdentity, projectConstituentId,
   PROJECT_SELECTION_LIMIT, PROJECT_TAG_LIMIT } from "@/utils/projectProspecting";
+import { mutateProjectArchives } from "./projectProspectingArchives";
 
 export async function projectTagSnapshot(context) {
   if (!isProjectProspecting(context.report)) throw listError("Project not found.", 404);
@@ -21,20 +22,26 @@ export async function readProjectTags(context, state) {
     SELECT tag_id AS "tagId", constituent_id AS "constituentId" FROM project_prospect_tag_assignments
     WHERE project_key = ${context.report.key} AND constituent_id = ANY(${state.identity.ids})
     ORDER BY constituent_id, tag_id` : [];
-  return { tags, assignments, revision: context.report.revision, snapshotAt: state.snapshot?.generatedAt || null };
+  const archives = state.identity.ids.length ? await sql`
+    SELECT constituent_id AS "constituentId" FROM project_prospect_archives
+    WHERE project_key = ${context.report.key} AND constituent_id = ANY(${state.identity.ids})
+    ORDER BY constituent_id` : [];
+  return { tags, assignments, archivedIds: archives.map(row => row.constituentId),
+    revision: context.report.revision, snapshotAt: state.snapshot?.generatedAt || null };
 }
 
 export function validateProjectTagMutation(body, context, state) {
   if (!body || typeof body !== "object" || Array.isArray(body) ||
     Object.keys(body).some(key => !["action", "name", "tagId", "constituentIds", "revision", "snapshotAt"].includes(key)) ||
-    !["create", "apply", "remove"].includes(body.action)) throw listError("Choose a valid project tag action.");
+    !["create", "apply", "remove", "archive", "restore"].includes(body.action)) throw listError("Choose a valid project tag action.");
   if (body.revision !== context.report.revision) throw listError("Project settings changed. Reload the project before changing tags.", 409);
   if (body.action === "create") {
     if (body.tagId !== undefined || body.constituentIds !== undefined || !normalizeProjectTag(body.name))
       throw listError("Enter a tag name between 1 and 50 characters.");
     return { tag: normalizeProjectTag(body.name), ids: [] };
   }
-  if (body.name !== undefined || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.tagId || ""))
+  const archive = ["archive", "restore"].includes(body.action);
+  if (body.name !== undefined || (archive ? body.tagId !== undefined : !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.tagId || "")))
     throw listError("Choose a saved project tag.");
   if (!state.snapshot?.generatedAt || body.snapshotAt !== state.snapshot.generatedAt)
     throw listError("The saved list changed. Reload the project before changing tags.", 409);
@@ -50,6 +57,7 @@ export function validateProjectTagMutation(body, context, state) {
 
 export async function mutateProjectTags(context, state, body) {
   const { ids, tag } = validateProjectTagMutation(body, context, state);
+  if (["archive", "restore"].includes(body.action)) return mutateProjectArchives(context, state, body, ids);
   const project = context.report.key;
   const userId = context.user.id;
   const create = body.action === "create";

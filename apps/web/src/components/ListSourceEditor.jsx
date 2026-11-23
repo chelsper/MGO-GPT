@@ -9,6 +9,7 @@ import {
 } from "@/utils/listQueryConfiguration";
 import futureMadeQuery from "@/utils/futureMadeQueryTemplate.json";
 import { isProjectProspecting } from "@/utils/projectProspecting";
+import { projectDisplayColumns } from "@/utils/projectProspectingDisplay";
 
 export default function ListSourceEditor({ value, onChange, reportKey }) {
   const project = isProjectProspecting({ dataConfiguration: value });
@@ -29,6 +30,13 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
     assignmentTypes: ["Lead Solicitor", "Lead Fundraiser"],
   };
   const query = isQueryList(value);
+  const display = projectDisplayColumns(headers, value);
+  function setDisplay(field, selected) {
+    const projectDisplay = { ...value.projectDisplay };
+    if (selected === "__auto") delete projectDisplay[field];
+    else projectDisplay[field] = selected;
+    onChange({ ...value, projectDisplay });
+  }
   async function loadColumns() {
     controller.current?.abort();
     const current = new AbortController();
@@ -339,6 +347,33 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
         </select>
         <small>Save the project, select its viewers, refresh its query, then load returned output fields above. Choose the constituent system record ID, not Lookup ID, gift ID or qrecid. Saving this mapping reuses the saved results. Tags stay in this project and never change NXT.</small>
       </label>}
+      {project && <details>
+        <summary>Household and solicitor display fields</summary>
+        <p>Married spouses already on this list can share a display row. Records, tags and assignments remain separate. Match spouse IDs to the same kind of constituent ID, never to names.</p>
+        <label className={styles.field}>Spouse ID kind
+          <select value={value.projectDisplay?.spouseIdType || "lookup"} onChange={event => setDisplay("spouseIdType", event.target.value)}>
+            <option value="lookup">Constituent / lookup ID</option><option value="system">Constituent system record ID</option>
+          </select>
+        </label>
+        <div className={styles.grid}>{[
+          ["nameColumn", "Name for household display", "name"],
+          ["lookupIdColumn", "Constituent / lookup ID for spouse matching", "lookup"],
+          ["spouseIdColumn", "Spouse ID", "spouse"],
+          ["maritalStatusColumn", "Marital status", "marital"],
+          ["solicitorColumn", "Saved solicitor assignment", "solicitor"],
+          ["solicitorTypeColumn", "Solicitor assignment type", "solicitorType"],
+          ["solicitorFromColumn", "Solicitor assignment start date", "solicitorFrom"],
+          ["solicitorToColumn", "Solicitor assignment end date", "solicitorTo"],
+        ].map(([field, label, detected]) => <label key={field} className={styles.field}>{label}
+          <select value={value.projectDisplay?.[field] ?? "__auto"} onChange={event => setDisplay(field, event.target.value)}>
+            <option value="__auto">Automatic{display[detected] >= 0 ? `: ${headers[display[detected]]}` : " (requires a unique matching output field)"}</option>
+            <option value="">Do not use</option>
+            {value.projectDisplay?.[field] && !headers.includes(value.projectDisplay[field]) && <option value={value.projectDisplay[field]}>{value.projectDisplay[field]} (load fields to verify)</option>}
+            {headers.filter(header => header.toLowerCase() !== "qrecid").map(header => <option key={header} value={header}>{header}</option>)}
+          </select>
+        </label>)}</div>
+        <p>Uses saved query values only. To show only current solicitors, return current assignments in the query or use the existing current lead fundraiser option. No individual NXT lookups run when opening this list.</p>
+      </details>}
       <ListColumnEditor
         headers={[...headers, ...(lead.enabled ? [LEAD_COLUMN] : [])]}
         value={value.columns || []}

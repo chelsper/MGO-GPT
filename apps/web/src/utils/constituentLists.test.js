@@ -6,6 +6,16 @@ import {
   validateListSource,
 } from "./constituentLists";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
+import { projectSource } from "./projectProspecting";
+
+it("validates project-only display mappings and retains them", () => {
+  const config = { ...projectSource(), projectDisplay: { spouseIdColumn: "Spouse ID", spouseIdType: "lookup", maritalStatusColumn: "Marital Status" } };
+  expect(validateListSource(config)).toBe("");
+  expect(normalizeListSource(config).projectDisplay).toEqual(config.projectDisplay);
+  for (const projectDisplay of [{ spouseIdType: "name" }, { nameColumn: "qrecid" }, { unknown: true }, [], { spouseIdColumn: 4 }])
+    expect(validateListSource({ ...config, projectDisplay })).not.toBe("");
+  expect(validateListSource({ ...config, section: undefined })).not.toBe("");
+});
 
 it("groups existing and configured lists under one Lists destination", () => {
   expect(

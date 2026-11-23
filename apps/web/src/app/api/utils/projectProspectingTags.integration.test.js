@@ -34,6 +34,8 @@ const state = { keys: { snapshot: "fixture-snapshot" }, snapshot, identity: proj
 const create = (name = "Leadership", ctx = context) => mutateProjectTags(ctx, state, { action: "create", revision: report.revision, name });
 const change = (tagId, action = "apply", ids = ["123"], ctx = context, current = state) => mutateProjectTags(ctx, current,
   { action, tagId, constituentIds: ids, revision: report.revision, snapshotAt: current.snapshot.generatedAt });
+const archive = (action = "archive", ids = ["123"], ctx = context, current = state) => mutateProjectTags(ctx, current,
+  { action, constituentIds: ids, revision: report.revision, snapshotAt: current.snapshot.generatedAt });
 
 describe.skipIf(!enabled)("project tags local PostgreSQL", () => {
   beforeAll(async () => {
@@ -68,6 +70,43 @@ describe.skipIf(!enabled)("project tags local PostgreSQL", () => {
     expect(Number((await change(tag.id, "remove")).changed)).toBe(1);
     expect(Number((await change(tag.id, "remove")).changed)).toBe(0);
     expect((await execute("SELECT count(*) AS count FROM project_prospect_tag_events"))[0].count).toBe("4");
+  });
+  it("archives/restores idempotently with numeric audit actors, retaining each person's tags", async () => {
+    const { tag } = await create(); await change(tag.id, "apply", ["123", "456"]);
+    const ctx = { ...context, user: { id: "7" } };
+    expect(Number((await archive("archive", ["123"], ctx)).changed)).toBe(1);
+    expect(Number((await archive()).changed)).toBe(0);
+    expect((await readProjectTags(context, state)).archivedIds).toEqual(["123"]);
+    expect((await readProjectTags(context, state)).assignments).toHaveLength(2);
+    expect((await readProjectTags(context, { ...state, identity: { ids: ["456"] } })).archivedIds).toEqual([]);
+    expect((await readProjectTags(context, state)).archivedIds).toEqual(["123"]);
+    expect(Number((await archive("restore", ["123"], ctx)).changed)).toBe(1);
+    expect(Number((await archive("restore")).changed)).toBe(0);
+    expect((await readProjectTags(context, state)).assignments).toHaveLength(2);
+    expect(await execute("SELECT action,actor_id FROM project_prospect_archive_events ORDER BY id")).toEqual([
+      { action: "archive", actor_id: "7" }, { action: "restore", actor_id: "7" },
+    ]);
+  });
+  it("serializes concurrent archives without duplicate audit events", async () => {
+    const results = await Promise.all([archive(), archive()]);
+    expect(results.map(r => Number(r.changed)).sort()).toEqual([0, 1]);
+    expect((await execute("SELECT count(*) AS count FROM project_prospect_archive_events"))[0].count).toBe("1");
+  });
+  it.each(["UPDATE users SET active=false WHERE id=7", "UPDATE report_configurations SET specific_user_ids='[8]'", "UPDATE report_configurations SET active=false",
+    "UPDATE report_configurations SET updated_at=NOW()", "UPDATE report_snapshots_cache SET payload='{}'"])("rechecks archive access and snapshot: %s", async sql => {
+    await execute(sql);
+    await expect(archive()).rejects.toThrow(/changed/);
+    expect((await execute("SELECT count(*) AS count FROM project_prospect_archives"))[0].count).toBe("0");
+  });
+  it("isolates archives by project and rolls back on audit failure", async () => {
+    await execute(`INSERT INTO report_configurations SELECT 'list-other',configuration_kind,title,description,active,visibility,specific_user_ids,data_configuration,updated_at FROM report_configurations`);
+    await archive();
+    expect((await readProjectTags({ ...context, report: { ...report, key: "list-other" } }, state)).archivedIds).toEqual([]);
+    await execute("ALTER TABLE project_prospect_archive_events ADD CONSTRAINT reject_restore CHECK(action<>'restore')");
+    try { await expect(archive("restore")).rejects.toThrow(); }
+    finally { await execute("ALTER TABLE project_prospect_archive_events DROP CONSTRAINT reject_restore"); }
+    expect((await readProjectTags(context, state)).archivedIds).toEqual(["123"]);
+    expect(Number((await archive("restore")).changed)).toBe(1);
   });
   it("serializes concurrent creates and assignments", async () => {
     const results = await Promise.all([create(), create("LEADERSHIP")]);

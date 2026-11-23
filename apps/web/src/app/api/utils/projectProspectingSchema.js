@@ -29,6 +29,21 @@ export default async function projectProspectingSchema(db) {
         actor_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS project_prospect_archives (
+        project_key TEXT NOT NULL REFERENCES report_configurations(report_key),
+        constituent_id TEXT NOT NULL CHECK (constituent_id ~ '^[1-9][0-9]{0,18}$'),
+        archived_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY(project_key, constituent_id)
+      );
+      CREATE TABLE IF NOT EXISTS project_prospect_archive_events (
+        id BIGSERIAL PRIMARY KEY,
+        project_key TEXT NOT NULL REFERENCES report_configurations(report_key),
+        constituent_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('archive','restore')),
+        actor_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
       INSERT INTO report_configurations (report_key, configuration_kind, title, description, active, visibility, specific_user_ids, data_configuration)
       VALUES ('list-project-center', 'constituent_list', 'The Center Prospects - JUMGOGPT',
         'Work together on prospects for The Center. Project tags stay in the app, not NXT.', FALSE, 'specific_users', '[]'::jsonb,

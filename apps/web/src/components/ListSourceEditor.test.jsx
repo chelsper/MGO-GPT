@@ -69,6 +69,23 @@ it("project setup offers fixed NXT membership settings separately from system-ID
   fireEvent.change(screen.getByLabelText("NXT description / value for project additions"), { target: { value: "The Center" } });
   expect(onChange).toHaveBeenCalledWith({ ...value, fieldDescription: "The Center" });
 });
+it("offers display mappings without writing settings or calling NXT", async () => {
+  const value = projectSource();
+  const returned = ["Constituent ID", "Spouse ID", "Marital Status", "Assigned Fundraiser Name"];
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ report: { dataConfiguration: value }, queryOutput: { headers: returned } })));
+  const onChange = vi.fn();
+  render(<ListSourceEditor value={value} onChange={onChange} reportKey="list-project-center" />);
+  fireEvent.click(screen.getByText("Household and solicitor display fields"));
+  expect(fetch).not.toHaveBeenCalled();
+  load(); await screen.findByText(/Returned output fields loaded/);
+  const spouse = screen.getByRole("combobox", { name: "Spouse ID", exact: true });
+  expect(within(spouse).getByRole("option", { name: "Automatic: Spouse ID" })).toBeInTheDocument();
+  fireEvent.change(spouse, { target: { value: "Spouse ID" } });
+  expect(onChange).toHaveBeenLastCalledWith({ ...value, projectDisplay: { spouseIdColumn: "Spouse ID" } });
+  fireEvent.change(screen.getByLabelText("Spouse ID kind"), { target: { value: "system" } });
+  expect(onChange).toHaveBeenLastCalledWith({ ...value, projectDisplay: { spouseIdType: "system" } });
+  expect(fetch).toHaveBeenCalledOnce();
+});
 
 it("loads exact preview headers only on request and requires explicit selection without saving or querying NXT", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response()));
