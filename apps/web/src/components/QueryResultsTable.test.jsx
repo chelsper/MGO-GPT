@@ -9,6 +9,25 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const cells = () => within(screen.getByRole("table")).getAllByRole("cell").map((cell) => cell.textContent);
 
 describe("QueryResultsTable", () => {
+  it("supports externally sorted rows without reordering or changing render indexes", () => {
+    const onSortChange = vi.fn();
+    const props = { headers: ["Name"], rows: [["Z"], ["A"]], sortState: { header: "Name", direction: "ascending" }, onSortChange, manualSorting: true };
+    render(<QueryResultsTable {...props} leadingColumn={{ title: "Identity", render: (_, index) => `id-${index}` }} />);
+    expect(cells()).toEqual(["id-0", "Z", "id-1", "A"]);
+    fireEvent.click(screen.getByRole("button", { name: "Name" }));
+    expect(onSortChange).toHaveBeenCalledWith({ header: "Name", direction: "descending" });
+    expect(cells()).toEqual(["id-0", "Z", "id-1", "A"]);
+  });
+  it("resets pagination and list scroll after filters/sort change", () => {
+    const props = { headers: ["Name"], rows: Array.from({ length: 30 }, (_, i) => [`Person ${i}`]), scrollable: true };
+    const { rerender } = render(<QueryResultsTable {...props} resetPageKey="before" />);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    const region = screen.getByRole("region", { name: "Query results table scroll area" }); region.scrollTop = 400;
+    rerender(<QueryResultsTable {...props} resetPageKey="after" />);
+    expect(screen.getByText("Rows 1-25 of 30; page 1 of 2")).toBeInTheDocument();
+    expect(region.scrollTop).toBe(0);
+    expect(screen.getByText(/Scroll within the list; column headers stay visible/)).toBeInTheDocument();
+  });
   it("renders actual escaped strings and preserves amounts, blanks, leading zeros, and formula-like text by default", () => {
     const headers = ["<img src=x onerror=alert(1)>", "Amount", "Code", "Formula", "Blank"];
     const rows = [["<script>alert(1)</script>", "$1,234.5000", "00001", '=HYPERLINK("https://example.invalid")', ""]];

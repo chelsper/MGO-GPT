@@ -70,6 +70,10 @@
 .metrics .dataRow { display: flex; flex-direction: column; gap: 10px; padding: 16px; background: #f8fafc; border-radius: 12px; }
 .metrics .number { font-size: 36px; }
 .tableScroll { overflow-x: auto; max-width: 100%; }
+.queryResults.scrollableResults { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.scrollableResults .tableScroll { overflow: auto; flex: 1; min-height: 0; scroll-padding-top: 56px; overscroll-behavior-x: contain; }
+.scrollableResults .table thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line, #dce7e3); }
+.scrollableResults .pagination { flex-shrink: 0; padding: 4px 10px; }
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th, .table td { text-align: left; border-bottom: 1px solid var(--line); padding: 13px 12px; vertical-align: top; min-width: 120px; overflow-wrap: anywhere; }
 .table thead th { background: #f8fafc; color: #475569; font-size: 12px; }
