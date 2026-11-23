@@ -1,5 +1,5 @@
 import { normalizeFundraisingTracker, validateFundraisingTracker } from "@/utils/fundraisingTracker";
-import { LIST_QUERY_MAX_COLUMNS } from "@/utils/listQueryConfiguration";
+import { LIST_QUERY_MAX_COLUMNS, LIST_QUERY_LIMITS } from "@/utils/listQueryConfiguration";
 // Pure, browser-safe schema helpers. Validation precedes normalization at API boundaries.
 export const DASHBOARD_SCHEMA = "query-count-dashboard-v1";
 export const DASHBOARD_LIMITS = Object.freeze({
@@ -273,9 +273,11 @@ export function getDashboardTableFingerprint(panel) {
 }
 
 // Shared by cache publication and rendering; never treat a missing table as an empty one.
-export function isValidDashboardTableData(value, { maxColumns = QUERY_RESULTS_LIMITS.columns } = {}) {
+export function isValidDashboardTableData(value, { maxColumns = QUERY_RESULTS_LIMITS.columns, maxRows = QUERY_RESULTS_LIMITS.rows, maxTableBytes = QUERY_RESULTS_LIMITS.bytes * 2 } = {}) {
   if (
     !Number.isSafeInteger(maxColumns) || maxColumns < 1 || maxColumns > LIST_QUERY_MAX_COLUMNS ||
+    !Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > LIST_QUERY_LIMITS.rows ||
+    !Number.isSafeInteger(maxTableBytes) || maxTableBytes < 1 || maxTableBytes > LIST_QUERY_LIMITS.tableBytes ||
     !value ||
     !Array.isArray(value.headers) ||
     !value.headers.length ||
@@ -289,7 +291,7 @@ export function isValidDashboardTableData(value, { maxColumns = QUERY_RESULTS_LI
     return false;
   return (
     Array.isArray(value.rows) &&
-    value.rows.length <= QUERY_RESULTS_LIMITS.rows &&
+    value.rows.length <= maxRows &&
     value.rows.every(
       (row) =>
         Array.isArray(row) &&
@@ -302,7 +304,7 @@ export function isValidDashboardTableData(value, { maxColumns = QUERY_RESULTS_LI
     ) &&
     new TextEncoder().encode(JSON.stringify([value.headers, value.rows]))
       .byteLength <=
-      QUERY_RESULTS_LIMITS.bytes * 2
+      maxTableBytes
   );
 }
 

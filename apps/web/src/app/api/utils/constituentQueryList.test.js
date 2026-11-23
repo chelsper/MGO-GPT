@@ -13,10 +13,12 @@ import {
   createBlackbaudQueryJob,
   getBlackbaudQueryJob,
   downloadBlackbaudQueryResultWithMetadata,
+  BlackbaudQueryResultTooLargeError,
 } from "./blackbaud";
 import { readCurrentLead } from "./listCurrentFundraiser";
 import { advanceQueryList } from "./constituentQueryList";
-import { listSnapshotKeys, newListRefresh } from "./constituentListRefresh";
+import { listSnapshotKeys, newListRefresh, listRefreshStatus } from "./constituentListRefresh";
+import { LIST_QUERY_LIMITS } from "@/utils/listQueryConfiguration";
 import query from "@/utils/futureMadeQueryTemplate.json";
 const source = {
   version: 1,
@@ -68,6 +70,30 @@ it("executes the definition once, preserves all output and rows, and makes no pe
     createBlackbaudAdHocQueryJob.mock.calls[0][0].query,
   ).not.toHaveProperty("others_can_modify");
   expect(readCurrentLead).not.toHaveBeenCalled();
+});
+it("publishes a larger constituent query without truncation or per-person calls", async () => {
+  const ctx = args();
+  const rows = Array.from({ length: 1810 }, (_, i) => `${i + 1},Fictional ${i},${"x".repeat(350)}`);
+  const output = csv(`System Record ID,Name,Details\n${rows.join("\n")}`);
+  expect(output.body.byteLength).toBeGreaterThan(524288);
+  downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(output);
+  await advanceQueryList(ctx);
+  const { snapshot } = await advanceQueryList(ctx);
+  expect(snapshot.total).toBe(1810);
+  expect(snapshot.tableRows.at(-1)[0]).toBe("1810");
+  expect(downloadBlackbaudQueryResultWithMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ maxBytes: LIST_QUERY_LIMITS.bytes, redirect: "error" }));
+  expect(readCurrentLead).not.toHaveBeenCalled();
+  const pending = listRefreshStatus({ snapshot: null, job: { ...ctx.job, status: "needs_configuration" } });
+  expect(pending.queryOutput.tableRows).toHaveLength(1810);
+});
+it.each(["download", "decode", "rows"])("identifies %s size limits without truncation or fake connection errors", async (kind) => {
+  const ctx = args();
+  if (kind === "download") downloadBlackbaudQueryResultWithMetadata.mockRejectedValue(new BlackbaudQueryResultTooLargeError());
+  if (kind === "decode") downloadBlackbaudQueryResultWithMetadata.mockResolvedValue({ body: new Uint8Array(LIST_QUERY_LIMITS.bytes + 1), contentType: "text/csv" });
+  if (kind === "rows") downloadBlackbaudQueryResultWithMetadata.mockResolvedValue(csv(`Name\n${Array(5001).fill("Fictional").join("\n")}`));
+  await advanceQueryList(ctx);
+  await expect(advanceQueryList(ctx)).rejects.toMatchObject({ status: 413, code: "LIST_QUERY_TOO_LARGE", restartRequired: true, message: expect.stringContaining("previous list is unchanged") });
+  expect(ctx.job.table).toBeUndefined();
 });
 it("supports saved IDs and separately verifies current leads by explicit system ID, deduplicating repeated query rows", async () => {
   const ctx = args();
